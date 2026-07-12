@@ -1,0 +1,35 @@
+docs/SPEC.md
+  d735c99471326cb3 38-43,98,113-129
+docs/PLAN.md
+  d735c99471326cb3 16-27,94-95,162-166,209,232,234-238,246-247,251-252,265-267,308,313-315,319-320,349-351
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "7e57aaf59c552f9978e679add10809ab59a4cf5c",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 7,
+        "mcp__openviking__find": 1,
+        "Write": 11,
+        "Edit": 24,
+        "ToolSearch": 1,
+        "WebSearch": 6
+      },
+      "total_additions": 309,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
