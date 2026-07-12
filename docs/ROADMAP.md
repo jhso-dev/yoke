@@ -6,7 +6,7 @@
 
 ## v0.1 — 코어 모델 + SQLite + 게이트
 
-- [ ] 프로젝트 셋업 (TypeScript, better-sqlite3, vitest, biome)
+- [x] 프로젝트 셋업 (TypeScript, better-sqlite3, vitest, biome)
 - [ ] Entity/Relation 타입 + 온톨로지 레코드 모델 (SPEC 준수)
 - [ ] storage port 인터페이스 + conformance 테스트 스위트 골격
 - [ ] storage-sqlite 어댑터 (append-only 버전 행, FTS5)
