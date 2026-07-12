@@ -35,7 +35,12 @@ entity와 동일 골격(id/type/status/provenance/version). 추가로:
 - entity 타입: `person`, `fact`, `decision`(attributes: conclusion, rationale,
   rejected_alternatives[]), `term`, `resource`
 - relation 타입: `authored_by`, `relates_to`, `supersedes`, `conflicts_with`(예약)
-- 온톨로지 자체도 레코드로 저장. 변경은 `yoke ontology` 명령의 명시적 마이그레이션으로만
+- **온톨로지 저장**: 별도 `ontology_types` 테이블에 append-only 버전으로 저장.
+  **commit 게이트를 거치지 않는다** — 게이트가 참조하는 대상이므로 순환 금지.
+  변경은 `yoke ontology` 명령의 명시적 마이그레이션으로만.
+- **부트스트랩**: `yoke init`이 well-known id `yoke:system`인 person entity를
+  시드한다(provenance.actor는 자기 자신). 이후 모든 actor 해석:
+  `--actor` 플래그 > `YOKE_ACTOR` env > `yoke:system`.
 
 ## Storage Port
 
@@ -90,6 +95,7 @@ yoke init                  # DB 생성 + 기본 온톨로지 시드
 yoke add / get / search    # 기본 CRUD·검색
 yoke review                # draft 목록
 yoke verify <id...>        # 승격 (일괄), last_confirmed 갱신
+yoke deprecate <id...>     # 폐기 (모순 해소 등)
 yoke conflicts             # conflicts_with 목록
 yoke ontology <subcmd>     # 타입 조회/마이그레이션
 yoke persona <person>      # persona skill(SKILL.md) 생성/export
@@ -103,6 +109,23 @@ yoke mcp                   # MCP 서버 기동 (stdio)
 frontmatter(name/description) + 해당 인물 verified 지식의 인용 목록 +
 "인용 없는 답변 금지" 지시. 스냅샷 파일이지만 **재생성이 원칙**
 (파일에 생성 시각·소스 지식 버전 기록).
+
+## Embedder 계약
+
+```ts
+type Embedder = (text: string) => Promise<Float32Array | null>
+```
+
+- core는 이 함수형을 주입받는다 (fetch 구현체는 core/embedding.ts가 제공하되,
+  테스트는 결정적 스텁 주입). null = 사용 불가 → FTS 폴백.
+- 임베딩 대상 텍스트 = FTS 직렬화(type + attributes)와 동일 함수 사용.
+- 임베딩 실패는 commit을 막지 않는다 (경고 후 진행 — 하드 규칙 아님).
+
+## 시간 주입
+
+시간이 필요한 core 함수(commit, verify, isFresh, persona export)는
+`now: string`(ISO 8601)을 파라미터로 받는다. core 내부에서 `new Date()` 호출 금지 —
+테스트 결정성과 재현 가능성의 기반. Date 획득은 front(CLI/MCP) 계층에서만.
 
 ## 기술 스택
 
