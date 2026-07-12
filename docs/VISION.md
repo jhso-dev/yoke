@@ -17,7 +17,9 @@ AI에게 전달되는 건 매번 수동으로 복붙한 조각뿐이다.
 ## v1 스코프
 
 **포함**: 코어 지식 모델(entity/relation/온톨로지), SQLite 백엔드 1개,
-MCP 서버, thin CLI, 기본 검색(키워드 + 관계 탐색).
+MCP 서버, thin CLI, 기본 검색(키워드 + 관계 탐색),
+지식 정책 전체(docs/KNOWLEDGE-POLICY.md — 게이트, lifecycle, 주입 필터,
+중복·모순 탐지, 신선도, 승격 CLI).
 
 **제외 (엔터프라이즈 요구지만 v1에서 만들지 않는다)**:
 
