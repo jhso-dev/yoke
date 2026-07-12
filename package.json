@@ -1,0 +1,26 @@
+{
+  "name": "yoke",
+  "version": "0.1.0",
+  "description": "온톨로지 기반 지식 DB — AI 에이전트용 context injection",
+  "type": "module",
+  "bin": {
+    "yoke": "dist/front/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "ulid": "^3.0.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.1.2",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.10",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}
