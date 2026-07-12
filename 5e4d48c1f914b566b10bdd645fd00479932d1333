@@ -1,0 +1,37 @@
+src/core/ontology.ts
+  d735c99471326cb3 1-82
+src/core/ontology.test.ts
+  d735c99471326cb3 1-57
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "5e4d48c1f914b566b10bdd645fd00479932d1333",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 11,
+        "mcp__openviking__find": 1,
+        "Write": 11,
+        "Edit": 25,
+        "ToolSearch": 1,
+        "WebSearch": 6,
+        "Agent": 3,
+        "Read": 1
+      },
+      "total_additions": 370,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
