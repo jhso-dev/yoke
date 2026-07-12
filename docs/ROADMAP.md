@@ -7,11 +7,11 @@
 ## v0.1 — 코어 모델 + SQLite + 게이트
 
 - [x] 프로젝트 셋업 (TypeScript, better-sqlite3, vitest, biome)
-- [ ] Entity/Relation 타입 + 온톨로지 레코드 모델 (SPEC 준수)
-- [ ] storage port 인터페이스 + conformance 테스트 스위트 골격
+- [x] Entity/Relation 타입 + 온톨로지 레코드 모델 (SPEC 준수)
+- [x] storage port 인터페이스 + conformance 테스트 스위트 골격
 - [ ] storage-sqlite 어댑터 (append-only 버전 행, FTS5)
 - [ ] commit 게이트 1·2단계 (온톨로지 검증, provenance 검증)
-- [ ] 기본 온톨로지 시드 (person/fact/decision/term/resource)
+- [x] 기본 온톨로지 시드 (person/fact/decision/term/resource)
 - [ ] CLI: `init` / `add` / `get` / `search`
 
 ## v0.2 — lifecycle + 주입
