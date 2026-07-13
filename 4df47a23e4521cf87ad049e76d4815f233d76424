@@ -1,0 +1,50 @@
+.github/workflows/ci.yml
+  d735c99471326cb3 22-25,27-37
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "4df47a23e4521cf87ad049e76d4815f233d76424",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:23:54.194Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:29:05.116Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 123,
+        "mcp__openviking__find": 1,
+        "Write": 17,
+        "Edit": 56,
+        "ToolSearch": 2,
+        "WebSearch": 11,
+        "Agent": 27,
+        "Read": 24,
+        "WebFetch": 1,
+        "SendMessage": 2,
+        "ScheduleWakeup": 3
+      },
+      "total_additions": 15,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
