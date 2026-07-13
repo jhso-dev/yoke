@@ -37,6 +37,9 @@ export interface YokeMcpDeps {
   now?: () => string;
   /** Embedder for the duplicate/conflict gate. Tests inject a deterministic stub; unset = no-op (FTS fallback). */
   embedder?: Embedder;
+  /** Per-request RBAC hook (PLAN-V2 10.4). Default allow-all — stdio `yoke mcp` is single-user
+   * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */
+  authorize?: (action: "read" | "write" | "verify", type?: string) => boolean;
 }
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
@@ -47,12 +50,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   const { store, ontology, defaultActor, embedder } = deps;
   const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
+  const authorize = deps.authorize ?? (() => true);
+  const forbidden = () =>
+    err("forbidden: token scope does not allow this action");
   const server = new McpServer({ name: "yoke", version: "0.1.0" });
 
   // Input actor > server startup env (defaultActor) > 'yoke:system' (already folded into defaultActor).
   const resolveActor = (actor?: string) => actor ?? defaultActor;
 
   async function doCommit(input: EntityInput, actor?: string) {
+    if (!authorize("write", input.type)) return forbidden();
     const ts = now();
     try {
       const { entity, duplicates } = await commit(
@@ -107,6 +114,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       },
     },
     async ({ query, includeDraft, limit }) => {
+      if (!authorize("read")) return forbidden();
       const ts = now();
       const { items } = await inject(store, ontology, query, ts, {
         includeDraft,
@@ -201,6 +209,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       },
     },
     async ({ person, query }) => {
+      if (!authorize("read")) return forbidden();
       if (!(await store.getEntity(person)))
         return err(`person not found: ${person}`);
       const ts = now();

@@ -25,6 +25,9 @@ export interface UiDeps {
   /** Tenant namespace scope (PLAN-V2 10.1). Omitted/null = the default shared namespace. */
   ns?: string | null;
   now?: () => string;
+  /** RBAC hook (PLAN-V2 10.4) — checked per API endpoint. Default allow-all (local single-user
+   * `yoke ui` stays ungated); serve mode injects a per-request scope check. */
+  authorize?: (action: "read" | "write" | "verify", type?: string) => boolean;
 }
 
 /** First string value in attributes, truncated — same compact summary the CLI uses. */
@@ -70,12 +73,22 @@ async function readIds(req: IncomingMessage): Promise<string[]> {
   return ids as string[];
 }
 
-export function createUiServer(deps: UiDeps): Server {
+/** The bare request handler (no Server wrapper) so serve mode can reuse the exact same routes
+ * behind its auth/MCP combined server (PLAN-V2 10.2). createUiServer wraps this in node:http. */
+export function createUiHandler(
+  deps: UiDeps,
+): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const { store, actor } = deps;
   const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
+  const authorize = deps.authorize ?? (() => true);
+  /** 403 + false when denied, so callers early-return. */
+  const deny = (res: ServerResponse): boolean => {
+    sendJson(res, 403, { error: "forbidden" });
+    return true;
+  };
 
-  async function handle(
+  return async function handle(
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<void> {
@@ -90,6 +103,7 @@ export function createUiServer(deps: UiDeps): Server {
     }
 
     if (method === "GET" && path === "/api/review") {
+      if (!authorize("read") && deny(res)) return;
       // Only this reviewer's raw draft list — no peers' pending approvals (Delphi independence
       // guard, see the note in index.html). Hook for v3 multi-reviewer aggregation.
       sendJson(res, 200, store.listByStatus("draft", ns).map(row));
@@ -97,6 +111,7 @@ export function createUiServer(deps: UiDeps): Server {
     }
 
     if (method === "GET" && path === "/api/conflicts") {
+      if (!authorize("read") && deny(res)) return;
       const rels = store.listRelationsByType("conflicts_with");
       const side = async (id: string) => {
         const e = await store.getEntity(id);
@@ -114,11 +129,13 @@ export function createUiServer(deps: UiDeps): Server {
     }
 
     if (method === "GET" && path === "/api/ontology") {
+      if (!authorize("read") && deny(res)) return;
       sendJson(res, 200, store.loadOntology(ns));
       return;
     }
 
     if (method === "GET" && path.startsWith("/api/persona/")) {
+      if (!authorize("read") && deny(res)) return;
       const id = decodeURIComponent(path.slice("/api/persona/".length));
       const result = await personaQuery(
         store,
@@ -139,6 +156,8 @@ export function createUiServer(deps: UiDeps): Server {
       (path === "/api/verify" || path === "/api/deprecate")
     ) {
       const action = path === "/api/verify" ? "verify" : "deprecate";
+      // Both verify and deprecate are governance actions → gated on the verify permission.
+      if (!authorize("verify") && deny(res)) return;
       const ids = await readIds(req);
       const ts = now();
       const fn = action === "verify" ? verify : deprecate;
@@ -155,8 +174,11 @@ export function createUiServer(deps: UiDeps): Server {
     }
 
     sendJson(res, 404, { error: "not found" });
-  }
+  };
+}
 
+export function createUiServer(deps: UiDeps): Server {
+  const handle = createUiHandler(deps);
   return createServer((req, res) => {
     handle(req, res).catch((e) => {
       if (!res.headersSent) sendJson(res, 400, { error: (e as Error).message });

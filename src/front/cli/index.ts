@@ -33,6 +33,7 @@ import {
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { runMcp } from "../mcp/index.js";
+import { runServe } from "../serve/index.js";
 import { runUi } from "../ui/server.js";
 
 type Values = {
@@ -52,6 +53,9 @@ type Values = {
   dsn?: string;
   sqlite?: string;
   channel?: string;
+  name?: string;
+  scopes?: string;
+  auth?: boolean;
   "all-drafts"?: boolean;
   "include-draft"?: boolean;
 };
@@ -73,6 +77,9 @@ const OPTIONS = {
   dsn: { type: "string" },
   sqlite: { type: "string" },
   channel: { type: "string" },
+  name: { type: "string" },
+  scopes: { type: "string" },
+  auth: { type: "boolean" },
   "all-drafts": { type: "boolean" },
   "include-draft": { type: "boolean" },
 } as const;
@@ -643,6 +650,79 @@ async function cmdUi(v: Values, env: Env): Promise<number> {
   return 0;
 }
 
+// serve (PLAN-V2 10.2): UI + JSON API + remote MCP on one port. Auth (10.3/10.4) is opt-in.
+async function cmdServe(v: Values, env: Env): Promise<number> {
+  const port = v.port === undefined ? 4800 : Number(v.port);
+  const server = await runServe(resolveDb(v, env), port, env, {
+    auth: v.auth,
+    ns: resolveNs(v.ns, env),
+  });
+  await new Promise<void>((resolve) => {
+    process.on("SIGINT", () => server.close(() => resolve()));
+  });
+  return 0;
+}
+
+// token (PLAN-V2 10.3): API tokens for serve-mode Bearer auth. Secret is shown once on create.
+async function cmdToken(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const [sub] = positionals;
+  const db = resolveDb(v, env);
+  if (sub === "create") {
+    if (!v.name || !v.scopes) {
+      console.error(
+        'usage: yoke token create --name <n> --scopes "read,write[,ns:type:verify...]"',
+      );
+      return 1;
+    }
+    const scopes = v.scopes
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return withStore(db, async (store) => {
+      const { token } = store.createToken({
+        name: v.name as string,
+        scopes,
+        created_at: now(),
+      });
+      // The plaintext secret is only ever returned here — store it now (only the hash is persisted).
+      emit(v, token, { name: v.name, scopes, token });
+      return 0;
+    });
+  }
+  if (sub === "list") {
+    return withStore(db, async (store) => {
+      const toks = store.listTokens();
+      const lines = toks.map(
+        (t) => `${t.name}  ${t.scopes.join(",")}  ${t.created_at}`,
+      );
+      emit(v, toks.length ? lines.join("\n") : "no tokens", toks);
+      return 0;
+    });
+  }
+  if (sub === "revoke") {
+    const name = positionals[1];
+    if (!name) {
+      console.error("usage: yoke token revoke <name>");
+      return 1;
+    }
+    return withStore(db, async (store) => {
+      const removed = store.revokeToken(name);
+      if (!removed) {
+        console.error(`no such token: ${name}`);
+        return 1;
+      }
+      emit(v, `revoked: ${name}`, { name, revoked: true });
+      return 0;
+    });
+  }
+  console.error("usage: yoke token <create|list|revoke> ...");
+  return 1;
+}
+
 export async function runCli(
   argv: string[],
   env: Env = process.env,
@@ -693,13 +773,17 @@ export async function runCli(
         return await cmdPersona(rest, values, env);
       case "ui":
         return await cmdUi(values, env);
+      case "serve":
+        return await cmdServe(values, env);
+      case "token":
+        return await cmdToken(rest, values, env);
       case "mcp":
         // Start the stdio server — does not resolve until the connection closes (keeps the process alive).
         await runMcp(resolveDb(values, env), env);
         return 0;
       default:
         console.error(
-          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|history|audit|conflicts|ontology|connect|persona|ui|mcp> ...`,
+          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|history|audit|conflicts|ontology|connect|persona|ui|serve|token|mcp> ...`,
         );
         return 1;
     }
