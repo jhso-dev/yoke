@@ -75,8 +75,8 @@ port capabilities, etc. See SPEC).
 - [ ] auth: OIDC/SSO integration, API tokens
 - [ ] RBAC: per-ontology-type/namespace permissions (read/write/promote separated —
       the verify permission *is* the knowledge-governance permission)
-- [ ] Multi-tenancy: namespace isolation (accommodated by the v0.1 ID scheme)
-- [ ] Per-tenant ontology + shared-ontology inheritance
+- [x] Multi-tenancy: namespace isolation (accommodated by the v0.1 ID scheme)
+- [x] Per-tenant ontology + shared-ontology inheritance
 
 ## v3.5 — distribution + HA
 
