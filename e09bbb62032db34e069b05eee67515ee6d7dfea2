@@ -1,0 +1,60 @@
+src/ports/conformance-cases.ts
+  d735c99471326cb3 1-210
+scripts/test-kuzu.mjs
+  d735c99471326cb3 2-15,17-56
+package.json
+  d735c99471326cb3 32
+vitest.config.ts
+  d735c99471326cb3 3-9,12-19
+src/adapters/storage-kuzu/index.ts
+  d735c99471326cb3 102-106,111-113
+.github/workflows/ci.yml
+  d735c99471326cb3 22-24,29
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "e09bbb62032db34e069b05eee67515ee6d7dfea2",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:23:54.194Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:29:05.116Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 135,
+        "mcp__openviking__find": 1,
+        "Write": 23,
+        "Edit": 59,
+        "ToolSearch": 2,
+        "WebSearch": 11,
+        "Agent": 27,
+        "Read": 27,
+        "WebFetch": 1,
+        "SendMessage": 2,
+        "ScheduleWakeup": 3
+      },
+      "total_additions": 397,
+      "total_deletions": 0,
+      "overriden_lines": 6
+    }
+  }
+}
