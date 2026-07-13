@@ -27,9 +27,13 @@ export async function inject(
   ontology: TypeDef[],
   query: string,
   now: string,
-  opts?: { includeDraft?: boolean; limit?: number },
+  opts?: { includeDraft?: boolean; limit?: number; ns?: string | null },
 ): Promise<{ items: InjectItem[] }> {
-  const results = await port.search({ text: query, limit: opts?.limit });
+  const results = await port.search({
+    text: query,
+    limit: opts?.limit,
+    ns: opts?.ns,
+  });
   const items: InjectItem[] = [];
   for (const entity of results) {
     const status = effectiveStatus(entity, ontology, now);

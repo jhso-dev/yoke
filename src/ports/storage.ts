@@ -10,6 +10,10 @@ export interface TextQuery {
   type?: string;
   status?: string;
   limit?: number;
+  /** Tenant namespace filter (PLAN-V2 10.1). Omitted/undefined = the default shared
+   * namespace; a value scopes results to that namespace only. Point reads (getEntity)
+   * stay id-based — ids are globally unique ULIDs, so no ns check is needed there. */
+  ns?: string | null;
 }
 
 export interface StoragePort {

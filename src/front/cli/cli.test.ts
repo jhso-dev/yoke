@@ -409,4 +409,71 @@ describe("runCli", () => {
     ).toBe(1);
     expect(errs.at(-1)).toContain("SLACK_TOKEN");
   });
+
+  it("namespace isolation: add in ns A is invisible from ns B, visible from ns A", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+
+    // add a fact into namespace "tenant-a"
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--ns",
+        "tenant-a",
+        "--attr",
+        "title=nstoken",
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+
+    // search in ns B → empty
+    expect(
+      await runCli([
+        "search",
+        "nstoken",
+        "--db",
+        db,
+        "--ns",
+        "tenant-b",
+        "--json",
+      ]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toEqual([]);
+
+    // search in default ns → empty (isolation from the shared namespace too)
+    expect(await runCli(["search", "nstoken", "--db", db, "--json"])).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toEqual([]);
+
+    // search in ns A → hit
+    expect(
+      await runCli([
+        "search",
+        "nstoken",
+        "--db",
+        db,
+        "--ns",
+        "tenant-a",
+        "--json",
+      ]),
+    ).toBe(0);
+    const found = JSON.parse(logs.at(-1) as string);
+    expect(found.some((e: { id: string }) => e.id === id)).toBe(true);
+
+    // YOKE_NS env is honored when --ns is absent
+    expect(
+      await runCli(["search", "nstoken", "--db", db, "--json"], {
+        ...process.env,
+        YOKE_NS: "tenant-a",
+      }),
+    ).toBe(0);
+    expect(
+      (JSON.parse(logs.at(-1) as string) as { id: string }[]).some(
+        (e) => e.id === id,
+      ),
+    ).toBe(true);
+  });
 });

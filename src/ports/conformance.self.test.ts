@@ -51,11 +51,14 @@ function makeFake(): StoragePort {
 
     async search(q: TextQuery) {
       const needle = q.text.toLowerCase();
+      const wantNs = q.ns == null || q.ns === "" ? null : q.ns;
       let out = [...latestById().values()].filter((e) =>
         `${e.type} ${JSON.stringify(e.attributes)}`
           .toLowerCase()
           .includes(needle),
       );
+      // Namespace isolation (PLAN-V2 10.1): default ns sees only default-ns rows.
+      out = out.filter((e) => (e.ns ?? null) === wantNs);
       if (q.type) out = out.filter((e) => e.type === q.type);
       if (q.status) out = out.filter((e) => e.status === q.status);
       if (q.limit !== undefined) out = out.slice(0, q.limit);

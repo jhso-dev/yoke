@@ -15,6 +15,7 @@ import {
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { citation, inject } from "../../core/inject.js";
+import { resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { type PersonaPort, personaQuery } from "../../core/persona.js";
 import type { Entity, EntityInput } from "../../core/types.js";
@@ -30,6 +31,8 @@ export interface YokeMcpDeps {
   ontology: TypeDef[];
   /** Default actor when a tool call omits one (resolved from env at server startup). */
   defaultActor: string;
+  /** Tenant namespace scope (PLAN-V2 10.1), read from YOKE_NS at startup. null = default shared ns. */
+  ns?: string | null;
   /** Current time as ISO 8601. Defaults to new Date().toISOString() — tests inject a fixed value. */
   now?: () => string;
   /** Embedder for the duplicate/conflict gate. Tests inject a deterministic stub; unset = no-op (FTS fallback). */
@@ -42,6 +45,7 @@ const err = (text: string) => ({ ...ok(text), isError: true });
 /** Assembles an MCP server instance. Tests connect to it over InMemoryTransport. */
 export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   const { store, ontology, defaultActor, embedder } = deps;
+  const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
   const server = new McpServer({ name: "yoke", version: "0.1.0" });
 
@@ -61,7 +65,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           occurred_at: ts,
         },
         ts,
-        { embedder },
+        { embedder, ns },
       );
       return ok(
         JSON.stringify({
@@ -107,6 +111,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const { items } = await inject(store, ontology, query, ts, {
         includeDraft,
         limit,
+        ns,
       });
       // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
       store.logAudit?.({
@@ -204,6 +209,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         ontology,
         person,
         ts,
+        ns,
       );
       const q = query?.toLowerCase();
       const hit = (e: Entity) =>
@@ -250,10 +256,12 @@ export async function runMcp(
     );
     process.exit(1);
   }
+  const ns = resolveNs(undefined, env);
   const server = createYokeMcpServer({
     store,
-    ontology: store.loadOntology(),
+    ontology: store.loadOntology(ns),
     defaultActor: env.YOKE_ACTOR ?? "yoke:system",
+    ns,
     embedder: makeFetchEmbedder(env),
   });
   await server.connect(new StdioServerTransport());

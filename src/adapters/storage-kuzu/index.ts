@@ -6,6 +6,7 @@
 
 import kuzu from "kuzu";
 import { serializeText } from "../../core/embedding.js";
+import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 import type { StoragePort, TextQuery } from "../../ports/storage.js";
@@ -13,13 +14,15 @@ import type { StoragePort, TextQuery } from "../../ports/storage.js";
 // Kuzu needs a single-column PRIMARY KEY, so the composite (id, version) becomes a synthetic pk.
 // `#` cannot collide because ids are opaque ULIDs and version is an integer.
 const SCHEMA = [
+  // ns = tenant namespace (PLAN-V2 10.1). Stored as a string; "" means the default shared ns
+  // (Kuzu is schema-strict, so an empty-string sentinel is simpler than a nullable column).
   `CREATE NODE TABLE IF NOT EXISTS Entity (
      pk STRING PRIMARY KEY, id STRING, version INT64, type STRING, status STRING,
-     attributes STRING, provenance STRING, last_confirmed STRING, txt STRING
+     attributes STRING, provenance STRING, last_confirmed STRING, txt STRING, ns STRING
    )`,
   `CREATE NODE TABLE IF NOT EXISTS Relation (
      pk STRING PRIMARY KEY, id STRING, version INT64, type STRING, status STRING,
-     attributes STRING, provenance STRING, last_confirmed STRING, from_id STRING, to_id STRING
+     attributes STRING, provenance STRING, last_confirmed STRING, from_id STRING, to_id STRING, ns STRING
    )`,
   // seq preserves first-registration order for loadOntology (mirrors sqlite's MIN(rowid) ordering).
   `CREATE NODE TABLE IF NOT EXISTS Ontology (
@@ -35,6 +38,7 @@ interface EntityRow {
   attributes: string;
   provenance: string;
   last_confirmed: string;
+  ns?: string;
 }
 
 interface RelationRow extends EntityRow {
@@ -43,7 +47,7 @@ interface RelationRow extends EntityRow {
 }
 
 function rowToEntity(r: EntityRow): Entity {
-  return {
+  const e: Entity = {
     id: r.id,
     version: Number(r.version),
     type: r.type,
@@ -52,6 +56,9 @@ function rowToEntity(r: EntityRow): Entity {
     provenance: JSON.parse(r.provenance),
     last_confirmed: r.last_confirmed,
   };
+  // "" sentinel = default namespace → leave the field absent (opaque parity).
+  if (r.ns) e.ns = r.ns;
+  return e;
 }
 
 function rowToRelation(r: RelationRow): Relation {
@@ -81,6 +88,15 @@ export class KuzuStorage implements StoragePort {
 
   async init(): Promise<void> {
     for (const stmt of SCHEMA) await this.conn.query(stmt);
+    // Migration for pre-10.1 DBs: add the ns column. Fresh tables already declare it (SCHEMA), so
+    // ADD throws — caught and ignored. DEFAULT '' assigns existing rows to the default shared ns.
+    for (const table of ["Entity", "Relation"]) {
+      try {
+        await this.conn.query(`ALTER TABLE ${table} ADD ns STRING DEFAULT ''`);
+      } catch {
+        // column already exists — nothing to do.
+      }
+    }
   }
 
   close(): void {
@@ -101,7 +117,7 @@ export class KuzuStorage implements StoragePort {
     // embedding is ignored — this backend omits `similar`.
     await this.run(
       `CREATE (e:Entity {pk:$pk, id:$id, version:$version, type:$type, status:$status,
-         attributes:$attributes, provenance:$provenance, last_confirmed:$last_confirmed, txt:$txt})`,
+         attributes:$attributes, provenance:$provenance, last_confirmed:$last_confirmed, txt:$txt, ns:$ns})`,
       {
         pk: `${e.id}#${e.version}`,
         id: e.id,
@@ -112,6 +128,7 @@ export class KuzuStorage implements StoragePort {
         provenance: JSON.stringify(e.provenance),
         last_confirmed: e.last_confirmed,
         txt: serializeText(e.type, JSON.stringify(e.attributes)),
+        ns: normalizeNs(e.ns) ?? "",
       },
     );
   }
@@ -121,11 +138,11 @@ export class KuzuStorage implements StoragePort {
       version === undefined
         ? `MATCH (e:Entity) WHERE e.id = $id
            RETURN e.id AS id, e.version AS version, e.type AS type, e.status AS status,
-             e.attributes AS attributes, e.provenance AS provenance, e.last_confirmed AS last_confirmed
+             e.attributes AS attributes, e.provenance AS provenance, e.last_confirmed AS last_confirmed, e.ns AS ns
            ORDER BY e.version DESC LIMIT 1`
         : `MATCH (e:Entity) WHERE e.id = $id AND e.version = $version
            RETURN e.id AS id, e.version AS version, e.type AS type, e.status AS status,
-             e.attributes AS attributes, e.provenance AS provenance, e.last_confirmed AS last_confirmed`,
+             e.attributes AS attributes, e.provenance AS provenance, e.last_confirmed AS last_confirmed, e.ns AS ns`,
       version === undefined ? { id } : { id, version },
     )) as unknown as EntityRow[];
     return rows.length ? rowToEntity(rows[0]) : null;
@@ -135,7 +152,7 @@ export class KuzuStorage implements StoragePort {
     await this.run(
       `CREATE (r:Relation {pk:$pk, id:$id, version:$version, type:$type, status:$status,
          attributes:$attributes, provenance:$provenance, last_confirmed:$last_confirmed,
-         from_id:$from_id, to_id:$to_id})`,
+         from_id:$from_id, to_id:$to_id, ns:$ns})`,
       {
         pk: `${r.id}#${r.version}`,
         id: r.id,
@@ -147,6 +164,7 @@ export class KuzuStorage implements StoragePort {
         last_confirmed: r.last_confirmed,
         from_id: r.from,
         to_id: r.to,
+        ns: normalizeNs(r.ns) ?? "",
       },
     );
   }
@@ -160,7 +178,7 @@ export class KuzuStorage implements StoragePort {
       `MATCH (r:Relation)
        RETURN r.id AS id, r.version AS version, r.type AS type, r.status AS status,
          r.attributes AS attributes, r.provenance AS provenance, r.last_confirmed AS last_confirmed,
-         r.from_id AS from_id, r.to_id AS to_id`,
+         r.from_id AS from_id, r.to_id AS to_id, r.ns AS ns`,
       {},
     )) as unknown as RelationRow[];
     // Filter to latest version per id first (mirrors sqlite: the dir/type filter applies to the
@@ -183,7 +201,7 @@ export class KuzuStorage implements StoragePort {
       `MATCH (e:Entity)
        RETURN e.id AS id, e.version AS version, e.type AS type, e.status AS status,
          e.attributes AS attributes, e.provenance AS provenance, e.last_confirmed AS last_confirmed,
-         e.txt AS txt`,
+         e.txt AS txt, e.ns AS ns`,
       {},
     )) as unknown as (EntityRow & { txt: string })[];
     // Prefix-tolerant token match over serialized text (Kuzu has no FTS5). Tokens split on any
@@ -191,12 +209,15 @@ export class KuzuStorage implements StoragePort {
     // its stem — every query token must prefix some entity token. Searching "parseArgs" thus finds
     // the token "parseArgs로" (Korean suffix tolerance, conformance case 6b).
     const qTokens = tokenize(q.text);
+    const wantNs = normalizeNs(q.ns);
     const matched = latestByVersion(all).filter((r) => {
       const eTokens = tokenize(r.txt);
       return qTokens.every((qt) => eTokens.some((et) => et.startsWith(qt)));
     });
     const filtered = matched.filter(
       (r) =>
+        // "" sentinel normalizes to null so the default ns sees only default rows (10.1 isolation).
+        (r.ns || null) === wantNs &&
         (q.type === undefined || r.type === q.type) &&
         (q.status === undefined || r.status === q.status),
     );

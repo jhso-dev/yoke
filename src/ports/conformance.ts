@@ -26,6 +26,7 @@ function makeEntity(over: Partial<Entity> = {}): Entity {
       occurred_at: "2026-01-01T00:00:00Z",
     },
     ...(over.embedding ? { embedding: over.embedding } : {}),
+    ...(over.ns != null ? { ns: over.ns } : {}),
   };
 }
 
@@ -149,6 +150,29 @@ export function describeStoragePort(
     // (7) getEntity of an absent id → null.
     it("getEntity returns null when absent", async () => {
       expect(await port.getEntity("missing-id")).toBeNull();
+    });
+
+    // (7b) namespace isolation (PLAN-V2 10.1): entities written under one namespace are invisible
+    // to a search scoped to a different namespace.
+    it("search isolates by namespace", async () => {
+      const a = makeEntity({ ns: "tenant-a", attributes: { title: "alpha" } });
+      const b = makeEntity({ ns: "tenant-b", attributes: { title: "alpha" } });
+      await port.putEntity(a);
+      await port.putEntity(b);
+      expect(await port.search({ text: "alpha", ns: "tenant-a" })).toEqual([a]);
+      expect(await port.search({ text: "alpha", ns: "tenant-b" })).toEqual([b]);
+    });
+
+    // (7c) the default (null) namespace sees only default-namespace entities.
+    it("default-namespace search sees only default-namespace entities", async () => {
+      const def = makeEntity({ attributes: { title: "beta" } }); // no ns
+      const tenant = makeEntity({
+        ns: "tenant-a",
+        attributes: { title: "beta" },
+      });
+      await port.putEntity(def);
+      await port.putEntity(tenant);
+      expect(await port.search({ text: "beta" })).toEqual([def]);
     });
 
     // (8) similar: optional capability — undefined when unimplemented.

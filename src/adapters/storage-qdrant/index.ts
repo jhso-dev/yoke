@@ -13,6 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { serializeText } from "../../core/embedding.js";
+import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 import type { StoragePort, TextQuery } from "../../ports/storage.js";
@@ -58,6 +59,7 @@ interface EntityPayload {
   provenance: string;
   last_confirmed: string;
   txt: string;
+  ns: string | null; // tenant namespace (PLAN-V2 10.1); null = default shared ns
 }
 interface RelationPayload extends EntityPayload {
   from_id: string;
@@ -65,7 +67,7 @@ interface RelationPayload extends EntityPayload {
 }
 
 function payloadToEntity(p: EntityPayload): Entity {
-  return {
+  const e: Entity = {
     id: p.id,
     version: p.version,
     type: p.type,
@@ -74,6 +76,9 @@ function payloadToEntity(p: EntityPayload): Entity {
     provenance: JSON.parse(p.provenance),
     last_confirmed: p.last_confirmed,
   };
+  // Default namespace leaves the field absent (opaque parity).
+  if (p.ns != null) e.ns = p.ns;
+  return e;
 }
 
 function payloadToRelation(p: RelationPayload): Relation {
@@ -224,6 +229,7 @@ export class QdrantStorage implements StoragePort {
       provenance: JSON.stringify(e.provenance),
       last_confirmed: e.last_confirmed,
       txt: serializeText(e.type, attributes),
+      ns: normalizeNs(e.ns),
     };
     await this.req("PUT", `/collections/${ENTITIES}/points`, {
       points: [{ id: pointId(`${e.id}#${e.version}`), payload }],
@@ -266,6 +272,7 @@ export class QdrantStorage implements StoragePort {
       provenance: JSON.stringify(r.provenance),
       last_confirmed: r.last_confirmed,
       txt: "",
+      ns: normalizeNs(r.ns),
       from_id: r.from,
       to_id: r.to,
     };
@@ -303,12 +310,15 @@ export class QdrantStorage implements StoragePort {
     const points = await this.scrollAll(ENTITIES);
     const rows = latestByVersion(points.map((p) => p.payload as EntityPayload));
     const qTokens = tokenize(q.text);
+    const wantNs = normalizeNs(q.ns);
     const matched = rows.filter((r) => {
       const eTokens = tokenize(r.txt);
       return qTokens.every((qt) => eTokens.some((et) => et.startsWith(qt)));
     });
     const filtered = matched.filter(
       (r) =>
+        // null-normalized ns so the default ns sees only default rows (10.1 isolation).
+        (r.ns ?? null) === wantNs &&
         (q.type === undefined || r.type === q.type) &&
         (q.status === undefined || r.status === q.status),
     );

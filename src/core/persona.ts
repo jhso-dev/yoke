@@ -21,8 +21,9 @@ export interface PersonaPort {
     relType?: string,
     dir?: "in" | "out",
   ): Promise<{ from: string; to: string }[]>;
-  /** Latest-version entities whose provenance.actor === actor (an adapter extension method). */
-  listByActor(actor: string): Entity[];
+  /** Latest-version entities whose provenance.actor === actor (an adapter extension method).
+   * ns scopes to a tenant namespace (PLAN-V2 10.1); omitted = the default shared namespace. */
+  listByActor(actor: string, ns?: string | null): Entity[];
 }
 
 export interface PersonaResult {
@@ -44,9 +45,10 @@ export async function personaQuery(
   ontology: TypeDef[],
   personId: string,
   now: string,
+  ns?: string | null,
 ): Promise<PersonaResult> {
   const collected = new Map<string, Entity>();
-  for (const e of port.listByActor(personId)) collected.set(e.id, e);
+  for (const e of port.listByActor(personId, ns)) collected.set(e.id, e);
   for (const r of await port.neighbors(personId, "authored_by", "in")) {
     if (collected.has(r.from)) continue;
     const e = await port.getEntity(r.from);

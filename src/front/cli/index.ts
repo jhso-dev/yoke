@@ -24,6 +24,7 @@ import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { inject } from "../../core/inject.js";
 import { deprecate, verify } from "../../core/lifecycle.js";
+import { resolveNs } from "../../core/namespace.js";
 import { seedOntology, type TypeDef } from "../../core/ontology.js";
 import {
   personaQuery,
@@ -37,6 +38,7 @@ import { runUi } from "../ui/server.js";
 type Values = {
   db?: string;
   actor?: string;
+  ns?: string;
   port?: string;
   attr?: string[];
   version?: string;
@@ -57,6 +59,7 @@ type Values = {
 const OPTIONS = {
   db: { type: "string" },
   actor: { type: "string" },
+  ns: { type: "string" },
   port: { type: "string" },
   attr: { type: "string", multiple: true },
   version: { type: "string" },
@@ -173,9 +176,10 @@ async function cmdAdd(
   }
   const db = resolveDb(v, env);
   const actor = resolveActor(v, env);
+  const ns = resolveNs(v.ns, env);
   const attributes = parseAttrs(v.attr ?? []);
   return withStore(db, async (store) => {
-    const ontology = store.loadOntology();
+    const ontology = store.loadOntology(ns);
     const ts = now();
     try {
       const { entity, duplicates } = await commit(
@@ -184,7 +188,7 @@ async function cmdAdd(
         { type, attributes },
         { actor, origin: "cli", occurred_at: ts },
         ts,
-        { embedder: makeFetchEmbedder(env) },
+        { embedder: makeFetchEmbedder(env), ns },
       );
       const human =
         duplicates.length > 0
@@ -238,8 +242,14 @@ async function cmdSearch(
   }
   const db = resolveDb(v, env);
   const limit = v.limit === undefined ? undefined : Number(v.limit);
+  const ns = resolveNs(v.ns, env);
   return withStore(db, async (store) => {
-    const results = await store.search({ text: query, type: v.type, limit });
+    const results = await store.search({
+      text: query,
+      type: v.type,
+      limit,
+      ns,
+    });
     emit(v, results.map(formatEntity).join("\n"), results);
     return 0;
   });
@@ -247,9 +257,10 @@ async function cmdSearch(
 
 async function cmdReview(v: Values, env: Env): Promise<number> {
   const db = resolveDb(v, env);
+  const ns = resolveNs(v.ns, env);
   return withStore(db, async (store) => {
     const drafts = store
-      .listByStatus("draft")
+      .listByStatus("draft", ns)
       .filter((e) => v.type === undefined || e.type === v.type);
     if (drafts.length === 0) {
       emit(v, "no drafts", []);
@@ -271,9 +282,10 @@ async function cmdVerify(
 ): Promise<number> {
   const db = resolveDb(v, env);
   const actor = resolveActor(v, env);
+  const ns = resolveNs(v.ns, env);
   return withStore(db, async (store) => {
     const ids = v["all-drafts"]
-      ? store.listByStatus("draft").map((e) => e.id)
+      ? store.listByStatus("draft", ns).map((e) => e.id)
       : positionals;
     if (ids.length === 0) {
       console.error("usage: yoke verify <id...> [--all-drafts] [--actor a]");
@@ -323,12 +335,14 @@ async function cmdInject(
   }
   const db = resolveDb(v, env);
   const limit = v.limit === undefined ? undefined : Number(v.limit);
+  const ns = resolveNs(v.ns, env);
   return withStore(db, async (store) => {
-    const ontology = store.loadOntology();
+    const ontology = store.loadOntology(ns);
     const ts = now();
     const { items } = await inject(store, ontology, query, ts, {
       includeDraft: v["include-draft"],
       limit,
+      ns,
     });
     // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core stays pure.
     store.logAudit({
@@ -419,9 +433,10 @@ async function cmdOntology(
 ): Promise<number> {
   const [sub, file] = positionals;
   const db = resolveDb(v, env);
+  const ns = resolveNs(v.ns, env);
   if (sub === "list") {
     return withStore(db, async (store) => {
-      const defs = store.loadOntology();
+      const defs = store.loadOntology(ns);
       const lines = defs.map(
         (d) => `${d.name}  ${d.kind}  ttl=${d.ttl_days ?? "∞"}`,
       );
@@ -443,7 +458,8 @@ async function cmdOntology(
     }
     return withStore(db, async (store) => {
       // An existing name means a new version = a migration (same append-only model as entities).
-      store.saveOntology([def]);
+      // ns targets a tenant ontology (overlaid on the shared base); omitted = shared.
+      store.saveOntology([def], ns);
       emit(v, `saved type: ${def.name}`, def);
       return 0;
     });
@@ -587,15 +603,16 @@ async function cmdPersona(
     return 1;
   }
   const db = resolveDb(v, env);
+  const ns = resolveNs(v.ns, env);
   return withStore(db, async (store) => {
     const person = await store.getEntity(id);
     if (!person) {
       console.error(`not found: ${id}`);
       return 1;
     }
-    const ontology = store.loadOntology();
+    const ontology = store.loadOntology(ns);
     const ts = now();
-    const result = await personaQuery(store, ontology, id, ts);
+    const result = await personaQuery(store, ontology, id, ts, ns);
     const md = renderPersonaSkill(person, result, ts);
     // fs lives only in the CLI tier (core produces only a string).
     const outDir = join(v.out ?? ".", `persona-${safeName(id)}`);
@@ -614,7 +631,12 @@ async function cmdPersona(
 // ui (PLAN 9.x): the governance workbench. Server keeps the process alive until SIGINT.
 async function cmdUi(v: Values, env: Env): Promise<number> {
   const port = v.port === undefined ? 4800 : Number(v.port);
-  const server = await runUi(resolveDb(v, env), port, env);
+  const server = await runUi(
+    resolveDb(v, env),
+    port,
+    env,
+    resolveNs(v.ns, env),
+  );
   await new Promise<void>((resolve) => {
     process.on("SIGINT", () => server.close(() => resolve()));
   });

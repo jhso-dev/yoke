@@ -22,6 +22,8 @@ export interface UiDeps {
   store: SqliteStorage;
   /** Resolved once from env (verify/deprecate provenance + audit actor). */
   actor: string;
+  /** Tenant namespace scope (PLAN-V2 10.1). Omitted/null = the default shared namespace. */
+  ns?: string | null;
   now?: () => string;
 }
 
@@ -70,6 +72,7 @@ async function readIds(req: IncomingMessage): Promise<string[]> {
 
 export function createUiServer(deps: UiDeps): Server {
   const { store, actor } = deps;
+  const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
 
   async function handle(
@@ -89,7 +92,7 @@ export function createUiServer(deps: UiDeps): Server {
     if (method === "GET" && path === "/api/review") {
       // Only this reviewer's raw draft list — no peers' pending approvals (Delphi independence
       // guard, see the note in index.html). Hook for v3 multi-reviewer aggregation.
-      sendJson(res, 200, store.listByStatus("draft").map(row));
+      sendJson(res, 200, store.listByStatus("draft", ns).map(row));
       return;
     }
 
@@ -111,13 +114,19 @@ export function createUiServer(deps: UiDeps): Server {
     }
 
     if (method === "GET" && path === "/api/ontology") {
-      sendJson(res, 200, store.loadOntology());
+      sendJson(res, 200, store.loadOntology(ns));
       return;
     }
 
     if (method === "GET" && path.startsWith("/api/persona/")) {
       const id = decodeURIComponent(path.slice("/api/persona/".length));
-      const result = await personaQuery(store, store.loadOntology(), id, now());
+      const result = await personaQuery(
+        store,
+        store.loadOntology(ns),
+        id,
+        now(),
+        ns,
+      );
       sendJson(res, 200, {
         decisions: result.decisions.map(row),
         facts: result.facts.map(row),
@@ -161,11 +170,12 @@ export async function runUi(
   db: string,
   port: number,
   env: Env,
+  ns?: string | null,
 ): Promise<Server> {
   const store = new SqliteStorage(db);
   await store.init();
   const actor = env.YOKE_ACTOR ?? "yoke:system";
-  const server = createUiServer({ store, actor });
+  const server = createUiServer({ store, actor, ns: ns ?? null });
   server.on("close", () => store.close());
   await new Promise<void>((resolve) => server.listen(port, resolve));
   const addr = server.address();

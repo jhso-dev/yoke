@@ -8,6 +8,7 @@ import { ulid } from "ulid";
 import type { StoragePort } from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
 import { serializeText } from "./embedding.js";
+import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import { validateInput } from "./ontology.js";
 import type {
@@ -48,6 +49,8 @@ interface CommitOpts {
   existingId?: string;
   /** Injected embedder. Without it, duplicate/conflict detection is skipped (FTS fallback). */
   embedder?: Embedder;
+  /** Tenant namespace (PLAN-V2 10.1). The gate assigns it to the stored row; default = shared ns. */
+  ns?: string | null;
 }
 
 /** Whether actor/origin/occurred_at are all non-empty strings. */
@@ -126,12 +129,15 @@ export async function commit(
   // (5) Assign id/version/status/last_confirmed, then store. (This is stage 5 in the SPEC order,
   // but stage 4's conflicts_with references the new entity id, so we store first.)
   const prev = existingId ? await port.getEntity(existingId) : null;
+  const ns = normalizeNs(opts?.ns);
   const governed = {
     id: existingId ?? ulid(),
     status: "draft" as const,
     version: prev ? prev.version + 1 : 1,
     last_confirmed: now,
     provenance: prov,
+    // Include ns only when set — the default namespace leaves the field absent (opaque parity).
+    ...(ns !== null ? { ns } : {}),
   };
 
   if (isRelation) {
@@ -161,6 +167,7 @@ export async function commit(
         { type: "conflicts_with", attributes: {}, from: entity.id, to: dup.id },
         prov,
         now,
+        { ns },
       );
       conflicts.push(rel.entity as Relation);
     }

@@ -5,6 +5,7 @@
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { serializeText } from "../../core/embedding.js";
+import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 import type { StoragePort, TextQuery } from "../../ports/storage.js";
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS entities (
   attributes TEXT NOT NULL,          -- JSON
   provenance TEXT NOT NULL,          -- JSON
   last_confirmed TEXT NOT NULL,
+  ns TEXT,                           -- tenant namespace (PLAN-V2 10.1); NULL = default shared ns
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
   PRIMARY KEY (id, version)
 ) WITHOUT ROWID;
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS relations (
   attributes TEXT NOT NULL,          -- JSON
   provenance TEXT NOT NULL,          -- JSON
   last_confirmed TEXT NOT NULL,
+  ns TEXT,                           -- tenant namespace (PLAN-V2 10.1); NULL = default shared ns
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
   from_id TEXT NOT NULL,
   to_id TEXT NOT NULL,
@@ -45,6 +48,7 @@ CREATE TABLE IF NOT EXISTS ontology_types (
   name TEXT NOT NULL,
   version INTEGER NOT NULL,
   def TEXT NOT NULL,                 -- JSON (full TypeDef)
+  ns TEXT,                           -- tenant namespace (PLAN-V2 10.1); NULL = shared base ontology
   PRIMARY KEY (name, version)
 );
 
@@ -74,6 +78,7 @@ interface EntityRow {
   attributes: string;
   provenance: string;
   last_confirmed: string;
+  ns: string | null;
 }
 
 interface RelationRow extends EntityRow {
@@ -82,7 +87,7 @@ interface RelationRow extends EntityRow {
 }
 
 function rowToEntity(r: EntityRow): Entity {
-  return {
+  const e: Entity = {
     id: r.id,
     version: r.version,
     type: r.type,
@@ -91,6 +96,9 @@ function rowToEntity(r: EntityRow): Entity {
     provenance: JSON.parse(r.provenance),
     last_confirmed: r.last_confirmed,
   };
+  // Default namespace leaves the field absent (opaque parity with pre-10.1 rows).
+  if (r.ns != null) e.ns = r.ns;
+  return e;
 }
 
 function rowToRelation(r: RelationRow): Relation {
@@ -108,6 +116,16 @@ export class SqliteStorage implements StoragePort {
     this.db.pragma("journal_mode = WAL");
     sqliteVec.load(this.db);
     this.db.exec(SCHEMA);
+    // Migration for DBs created before PLAN-V2 10.1: add the nullable ns column. Fresh DBs already
+    // have it (in SCHEMA), so ADD COLUMN throws "duplicate column" — caught and ignored. NULL default
+    // means every pre-existing row belongs to the default shared namespace (backward compatible).
+    for (const table of ["entities", "relations", "ontology_types"]) {
+      try {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ns TEXT`);
+      } catch {
+        // column already exists — nothing to do.
+      }
+    }
   }
 
   // The vec0 table is created lazily on the first embedding insert. Its dimension (N) is fixed to
@@ -134,8 +152,8 @@ export class SqliteStorage implements StoragePort {
   async putEntity(e: Entity): Promise<void> {
     this.db
       .prepare(
-        `INSERT INTO entities (id, version, type, status, attributes, provenance, last_confirmed)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO entities (id, version, type, status, attributes, provenance, last_confirmed, ns)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         e.id,
@@ -145,6 +163,7 @@ export class SqliteStorage implements StoragePort {
         JSON.stringify(e.attributes),
         JSON.stringify(e.provenance),
         e.last_confirmed,
+        e.ns ?? null,
       );
     // FTS keeps only the latest version: drop the id's row, then re-insert the latest version's text.
     const latest = this.db
@@ -193,8 +212,8 @@ export class SqliteStorage implements StoragePort {
   async putRelation(r: Relation): Promise<void> {
     this.db
       .prepare(
-        `INSERT INTO relations (id, version, type, status, attributes, provenance, last_confirmed, from_id, to_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO relations (id, version, type, status, attributes, provenance, last_confirmed, ns, from_id, to_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         r.id,
@@ -204,6 +223,7 @@ export class SqliteStorage implements StoragePort {
         JSON.stringify(r.attributes),
         JSON.stringify(r.provenance),
         r.last_confirmed,
+        r.ns ?? null,
         r.from,
         r.to,
       );
@@ -241,15 +261,17 @@ export class SqliteStorage implements StoragePort {
     const statusClause =
       q.status === undefined ? "" : " AND e.status = @status";
     const limitClause = q.limit === undefined ? "" : " LIMIT @limit";
+    // Namespace isolation (PLAN-V2 10.1): `IS @ns` handles NULL (default ns sees only default rows).
     const rows = this.db
       .prepare(
         `SELECT e.* FROM entities_fts f
          JOIN entities e ON e.id = f.id
            AND e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)
-         WHERE f.text MATCH @match${typeClause}${statusClause}${limitClause}`,
+         WHERE f.text MATCH @match AND e.ns IS @ns${typeClause}${statusClause}${limitClause}`,
       )
       .all({
         match,
+        ns: normalizeNs(q.ns),
         type: q.type,
         status: q.status,
         limit: q.limit,
@@ -293,18 +315,22 @@ export class SqliteStorage implements StoragePort {
 
   // --- Adapter extensions outside StoragePort: ontology seed save/load (for CLI init) ---
 
-  /** Append-only save of ontology definitions. Accumulates as the next version per name. */
-  saveOntology(defs: TypeDef[]): void {
+  /** Append-only save of ontology definitions. Accumulates as the next version per name.
+   * ns targets a tenant ontology (PLAN-V2 10.1); omitted = the shared base ontology.
+   * Version numbering stays global per name (across namespaces) so the (name, version) primary
+   * key never collides between a shared def and a tenant def of the same name. */
+  saveOntology(defs: TypeDef[], ns?: string | null): void {
+    const n = normalizeNs(ns);
     const nextVersion = this.db.prepare(
       `SELECT COALESCE(MAX(version), 0) + 1 AS v FROM ontology_types WHERE name = ?`,
     );
     const insert = this.db.prepare(
-      `INSERT INTO ontology_types (name, version, def) VALUES (?, ?, ?)`,
+      `INSERT INTO ontology_types (name, version, def, ns) VALUES (?, ?, ?, ?)`,
     );
     const tx = this.db.transaction((rows: TypeDef[]) => {
       for (const def of rows) {
         const { v } = nextVersion.get(def.name) as { v: number };
-        insert.run(def.name, v, JSON.stringify(def));
+        insert.run(def.name, v, JSON.stringify(def), n);
       }
     });
     tx(defs);
@@ -313,15 +339,15 @@ export class SqliteStorage implements StoragePort {
   /** Filter latest-version entities by status (outside StoragePort — for CLI review / verify --all-drafts).
    * search requires text so it doesn't fit, and adding list(filter) to StoragePort would change the
    * contract, so this is an adapter extension method like saveOntology. */
-  listByStatus(status: string): Entity[] {
+  listByStatus(status: string, ns?: string | null): Entity[] {
     const rows = this.db
       .prepare(
         `SELECT e.* FROM entities e
          WHERE e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)
-           AND e.status = ?
+           AND e.status = ? AND e.ns IS ?
          ORDER BY e.created_at`,
       )
-      .all(status) as EntityRow[];
+      .all(status, normalizeNs(ns)) as EntityRow[];
     return rows.map(rowToEntity);
   }
 
@@ -331,18 +357,19 @@ export class SqliteStorage implements StoragePort {
    * version's provenance to the promoter, the original author's contribution is not lost (the
    * append-only history preserves the original author).
    * Returns the latest-version row of each matching id. */
-  listByActor(actor: string): Entity[] {
+  listByActor(actor: string, ns?: string | null): Entity[] {
     const rows = this.db
       .prepare(
         `SELECT e.* FROM entities e
          WHERE e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)
+           AND e.ns IS ?
            AND e.id IN (
              SELECT id FROM entities
              WHERE json_extract(provenance, '$.actor') = ?
            )
          ORDER BY e.created_at`,
       )
-      .all(actor) as EntityRow[];
+      .all(normalizeNs(ns), actor) as EntityRow[];
     return rows.map(rowToEntity);
   }
 
@@ -395,15 +422,29 @@ export class SqliteStorage implements StoragePort {
     ) as AuditEvent[];
   }
 
-  /** Load only the latest version per name, in first-registration order. */
-  loadOntology(): TypeDef[] {
+  /** Latest version per name, in first-registration order, within one namespace scope. */
+  private loadOntologyScope(ns: string | null): TypeDef[] {
     const rows = this.db
       .prepare(
         `SELECT def FROM ontology_types t
-         WHERE t.version = (SELECT MAX(version) FROM ontology_types WHERE name = t.name)
-         ORDER BY (SELECT MIN(rowid) FROM ontology_types WHERE name = t.name)`,
+         WHERE t.ns IS @ns
+           AND t.version = (SELECT MAX(version) FROM ontology_types WHERE name = t.name AND ns IS @ns)
+         ORDER BY (SELECT MIN(rowid) FROM ontology_types WHERE name = t.name AND ns IS @ns)`,
       )
-      .all() as { def: string }[];
+      .all({ ns }) as { def: string }[];
     return rows.map((r) => JSON.parse(r.def) as TypeDef);
+  }
+
+  /** Load the effective ontology for a namespace (PLAN-V2 10.1): tenant defs overlaid on the
+   * shared (null-ns) base by name. Omitted ns = the shared base alone (backward compatible). */
+  loadOntology(ns?: string | null): TypeDef[] {
+    const shared = this.loadOntologyScope(null);
+    const n = normalizeNs(ns);
+    if (n === null) return shared;
+    // Overlay: shared order preserved, tenant defs replace same-name entries in place, tenant-only
+    // types appended (Map keeps insertion order; re-set keeps the original slot).
+    const byName = new Map(shared.map((d) => [d.name, d]));
+    for (const d of this.loadOntologyScope(n)) byName.set(d.name, d);
+    return [...byName.values()];
   }
 }
