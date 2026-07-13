@@ -80,8 +80,8 @@ port capabilities, etc. See SPEC).
 
 ## v3.5 — distribution + HA
 
-- [ ] Replication (read replicas — injection is read-dominated)
-- [ ] Backup/restore, PITR (built on the append-only history)
+- [x] Replication (read replicas — injection is read-dominated)
+- [x] Backup/restore, PITR (built on the append-only history)
 - [ ] Sharding designed only after measured limits are confirmed (no upfront design)
 
 ## Version-promotion rule

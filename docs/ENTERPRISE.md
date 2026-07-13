@@ -56,6 +56,15 @@ directional decisions.
   per-tenant sharding is the natural boundary (namespace isolation is the
   precondition).
 
+Sharding remains unimplemented by design as of v3.5 (task 11.2). Read replicas
+(`yoke serve --replica-of`) already absorb the read-dominant injection load, and
+writes are low-frequency gate-passing work a single writer sustains, so there is
+no measured need to split the write path yet. When that need is confirmed, the
+tenant boundary is the natural cut: namespaces are already the isolation unit, so
+sharding by namespace maps each tenant (or tenant group) onto its own DB file
+behind the storage port with no interface change — the same physical-isolation
+lever noted under Multi-tenancy, applied for scale rather than for regulation.
+
 ## What we don't do
 
 - Build our own IdP, field-level encryption (until a customer requires it), or a

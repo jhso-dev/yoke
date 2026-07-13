@@ -501,6 +501,70 @@ export class SqliteStorage implements StoragePort {
     }));
   }
 
+  // --- Durability (PLAN-V2 11.1): backup + PITR-lite export. ---
+
+  /** Online backup to a fresh file (11.1). better-sqlite3's `.backup()` is WAL-safe and produces a
+   * single consistent DB file — no need to checkpoint or stop writes first. */
+  async backupTo(dest: string): Promise<void> {
+    await this.db.backup(dest);
+  }
+
+  /** PITR-lite (11.1): reconstruct DB state as of `ts` into a fresh file. History is append-only, so
+   * we copy every entity/relation/ontology/audit row created at or before ts and rebuild FTS from the
+   * surviving latest versions. Embeddings/vec are NOT carried over (search falls back to FTS on the
+   * export). Precision caveat: created_at is the DB-default server clock (strftime '%Y-...Z','now'),
+   * i.e. whole-second ingestion time — not the domain occurred_at. The cut is by ingestion time.
+   * Columns are listed explicitly so a pre-10.1 source (ns appended last by migration) copies cleanly
+   * into a fresh dest (ns mid-row). */
+  async exportUntil(ts: string, destPath: string): Promise<void> {
+    // Fresh dest with the full schema, then attach and row-copy with SQL (simplest — SPEC 11.1).
+    const dst = new SqliteStorage(destPath);
+    await dst.init();
+    dst.close();
+    this.db.prepare("ATTACH DATABASE ? AS bak").run(destPath);
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO bak.entities (id, version, type, status, attributes, provenance, last_confirmed, ns, created_at)
+           SELECT id, version, type, status, attributes, provenance, last_confirmed, ns, created_at
+           FROM entities WHERE COALESCE(created_at, last_confirmed) <= ?`,
+        )
+        .run(ts);
+      this.db
+        .prepare(
+          `INSERT INTO bak.relations (id, version, type, status, attributes, provenance, last_confirmed, ns, created_at, from_id, to_id)
+           SELECT id, version, type, status, attributes, provenance, last_confirmed, ns, created_at, from_id, to_id
+           FROM relations WHERE COALESCE(created_at, last_confirmed) <= ?`,
+        )
+        .run(ts);
+      // Ontology defs have no timestamp — copy them all; a reconstructed DB is unusable without them.
+      this.db.exec(
+        `INSERT INTO bak.ontology_types (name, version, def, ns)
+         SELECT name, version, def, ns FROM ontology_types`,
+      );
+      this.db
+        .prepare(
+          `INSERT INTO bak.audit_log (actor, action, detail, at)
+           SELECT actor, action, detail, at FROM audit_log WHERE at <= ?`,
+        )
+        .run(ts);
+      // Rebuild FTS from the copied latest versions (serializeText is JS, not SQL).
+      const latest = this.db
+        .prepare(
+          `SELECT id, type, attributes FROM bak.entities e
+           WHERE e.version = (SELECT MAX(version) FROM bak.entities WHERE id = e.id)`,
+        )
+        .all() as { id: string; type: string; attributes: string }[];
+      const ins = this.db.prepare(
+        `INSERT INTO bak.entities_fts (id, text) VALUES (?, ?)`,
+      );
+      for (const r of latest)
+        ins.run(r.id, serializeText(r.type, r.attributes));
+    } finally {
+      this.db.exec("DETACH DATABASE bak");
+    }
+  }
+
   /** Latest version per name, in first-registration order, within one namespace scope. */
   private loadOntologyScope(ns: string | null): TypeDef[] {
     const rows = this.db

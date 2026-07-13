@@ -4,7 +4,14 @@
 // Command handlers are split out as runCli(argv, env) — testable without spawning a process; exit code is the return value.
 // Time is obtained only in this front tier (core receives `now` by injection).
 
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -56,6 +63,10 @@ type Values = {
   name?: string;
   scopes?: string;
   auth?: boolean;
+  until?: string;
+  force?: boolean;
+  "replica-of"?: string;
+  "refresh-sec"?: string;
   "all-drafts"?: boolean;
   "include-draft"?: boolean;
 };
@@ -80,6 +91,10 @@ const OPTIONS = {
   name: { type: "string" },
   scopes: { type: "string" },
   auth: { type: "boolean" },
+  until: { type: "string" },
+  force: { type: "boolean" },
+  "replica-of": { type: "string" },
+  "refresh-sec": { type: "string" },
   "all-drafts": { type: "boolean" },
   "include-draft": { type: "boolean" },
 } as const;
@@ -656,6 +671,9 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
   const server = await runServe(resolveDb(v, env), port, env, {
     auth: v.auth,
     ns: resolveNs(v.ns, env),
+    replicaOf: v["replica-of"],
+    refreshSec:
+      v["refresh-sec"] === undefined ? undefined : Number(v["refresh-sec"]),
   });
   await new Promise<void>((resolve) => {
     process.on("SIGINT", () => server.close(() => resolve()));
@@ -723,6 +741,104 @@ async function cmdToken(
   return 1;
 }
 
+// backup (PLAN-V2 11.1): online WAL-safe snapshot to a fresh file.
+async function cmdBackup(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const dest = positionals[0];
+  if (!dest) {
+    console.error("usage: yoke backup <dest.db>");
+    return 1;
+  }
+  const db = resolveDb(v, env);
+  return withStore(db, async (store) => {
+    await store.backupTo(dest);
+    emit(v, `backed up ${db} -> ${dest}`, { db, dest });
+    return 0;
+  });
+}
+
+// restore (PLAN-V2 11.1): safety-checked copy of a backup back over the working DB. Refuses to clobber
+// an existing DB without --force, and validates the source is a real yoke DB first. Uses .backup() to
+// write a clean consistent file (WAL-safe on both ends) rather than a raw file copy.
+async function cmdRestore(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const src = positionals[0];
+  if (!src) {
+    console.error("usage: yoke restore <src.db> [--force]");
+    return 1;
+  }
+  const dest = resolveDb(v, env);
+  if (existsSync(dest) && !v.force) {
+    console.error(
+      `refusing to overwrite existing DB: ${dest} (use --force to replace)`,
+    );
+    return 1;
+  }
+  // Validate: a real yoke DB has a seeded ontology and the yoke:system bootstrap person.
+  try {
+    const s = new Database(src, { readonly: true });
+    try {
+      const { n } = s
+        .prepare("SELECT COUNT(*) AS n FROM ontology_types")
+        .get() as { n: number };
+      const sys = s
+        .prepare("SELECT 1 FROM entities WHERE id = ? LIMIT 1")
+        .get("yoke:system");
+      if (n === 0 || !sys) {
+        console.error(
+          `not a valid yoke DB: ${src} (missing ontology_types or yoke:system)`,
+        );
+        return 1;
+      }
+    } finally {
+      s.close();
+    }
+  } catch (e) {
+    console.error(`not a valid yoke DB: ${src} (${(e as Error).message})`);
+    return 1;
+  }
+  // Drop any stale WAL/SHM sidecar of the dest so the fresh copy can't be corrupted by leftover journal.
+  for (const suffix of ["-wal", "-shm"]) {
+    try {
+      rmSync(dest + suffix);
+    } catch {
+      // nothing to clean
+    }
+  }
+  const s = new Database(src, { readonly: true });
+  try {
+    await s.backup(dest);
+  } finally {
+    s.close();
+  }
+  emit(v, `restored ${src} -> ${dest}`, { src, dest });
+  return 0;
+}
+
+// export (PLAN-V2 11.1 PITR-lite): reconstruct DB state as of --until into a new file. See
+// exportUntil in storage-sqlite for the precision caveat (created_at = server-clock ingestion time).
+async function cmdExport(v: Values, env: Env): Promise<number> {
+  if (!v.until || !v.out) {
+    console.error("usage: yoke export --until <iso-ts> --out <new.db>");
+    return 1;
+  }
+  const db = resolveDb(v, env);
+  return withStore(db, async (store) => {
+    await store.exportUntil(v.until as string, v.out as string);
+    emit(v, `exported state as of ${v.until} -> ${v.out}`, {
+      until: v.until,
+      out: v.out,
+    });
+    return 0;
+  });
+}
+
 export async function runCli(
   argv: string[],
   env: Env = process.env,
@@ -777,13 +893,19 @@ export async function runCli(
         return await cmdServe(values, env);
       case "token":
         return await cmdToken(rest, values, env);
+      case "backup":
+        return await cmdBackup(rest, values, env);
+      case "restore":
+        return await cmdRestore(rest, values, env);
+      case "export":
+        return await cmdExport(values, env);
       case "mcp":
         // Start the stdio server — does not resolve until the connection closes (keeps the process alive).
         await runMcp(resolveDb(values, env), env);
         return 0;
       default:
         console.error(
-          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|history|audit|conflicts|ontology|connect|persona|ui|serve|token|mcp> ...`,
+          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|history|audit|conflicts|ontology|connect|persona|ui|serve|token|backup|restore|export|mcp> ...`,
         );
         return 1;
     }

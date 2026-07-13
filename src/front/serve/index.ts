@@ -9,13 +9,17 @@
 // OIDC RS256 JWT. Deny-by-default authorization is threaded into both the UI handler and the MCP
 // server via their `authorize` hooks.
 
+import { rmSync } from "node:fs";
 import {
   createServer,
   type IncomingMessage,
   type Server,
   type ServerResponse,
 } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import Database from "better-sqlite3";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
@@ -44,6 +48,17 @@ export interface ServeDeps {
   /** OIDC config (from env). Omitted = only API tokens can authenticate. */
   oidc?: OidcConfig;
   embedder?: Embedder;
+  /** Read-only replica mode (PLAN-V2 11.2): deny every write/verify regardless of scopes. Mutating
+   * API endpoints answer 409; MCP write tools get a tool error via the authorize hook. */
+  readOnly?: boolean;
+  /** Interval-pull snapshot config (11.2). When set, the store is periodically re-copied from the
+   * primary via `.backup()` and exposes refreshNow() on the returned server for manual/test pulls. */
+  replica?: { primaryPath: string; snapshotPath: string; refreshSec?: number };
+}
+
+/** Server augmented with refreshNow() when running as a replica (11.2). */
+export interface ServeServer extends Server {
+  refreshNow?(): Promise<void>;
 }
 
 interface Principal {
@@ -71,11 +86,38 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return raw ? JSON.parse(raw) : undefined;
 }
 
-export function createServeServer(deps: ServeDeps): Server {
-  const { store, defaultActor, auth, embedder } = deps;
+export function createServeServer(deps: ServeDeps): ServeServer {
+  // store is a `let`: replica mode swaps it out on each snapshot pull (see refreshNow). All the
+  // closures below read the current `store` at call time, so the swap is transparent to them.
+  let store = deps.store;
+  const { defaultActor, auth, embedder, readOnly } = deps;
   const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
   const oidcVerify = deps.oidc ? makeOidcVerifier(deps.oidc) : null;
+
+  // ponytail: interval-pull snapshot replica — refresh = close store, re-copy primary via .backup(),
+  // reopen. A tiny swap window; move to WAL shipping if a staleness SLO ever demands it. better-sqlite3
+  // has no "backup into an open connection", so close/reopen is the lazy WAL-safe path with no new dep.
+  async function refreshNow(): Promise<void> {
+    const rep = deps.replica;
+    if (!rep) return;
+    store.close();
+    for (const suffix of ["-wal", "-shm"]) {
+      try {
+        rmSync(rep.snapshotPath + suffix);
+      } catch {
+        // no stale WAL sidecar — fine.
+      }
+    }
+    const primary = new Database(rep.primaryPath, { readonly: true });
+    try {
+      await primary.backup(rep.snapshotPath);
+    } finally {
+      primary.close();
+    }
+    store = new SqliteStorage(rep.snapshotPath);
+    await store.init();
+  }
 
   // Auto-provision a person for an OIDC subject on first sight — through the commit gate + verify,
   // exactly like `yoke init` seeds yoke:system. The id is a stable opaque string we own (`oidc:<sub>`).
@@ -146,6 +188,22 @@ export function createServeServer(deps: ServeDeps): Server {
     res: ServerResponse,
   ): Promise<void> {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
+
+    // Read-only replica (11.2): mutating API endpoints are refused up front with a clear 409, no
+    // credentials needed. MCP writes can't be told apart at the HTTP layer (one POST /mcp), so they
+    // are denied via the authorize wrapper below (→ MCP tool error) instead.
+    if (
+      readOnly &&
+      req.method === "POST" &&
+      (path === "/api/verify" || path === "/api/deprecate")
+    ) {
+      res.writeHead(409, { "content-type": "application/json; charset=utf-8" });
+      res.end(
+        JSON.stringify({ error: "read-only replica; write to the primary" }),
+      );
+      return;
+    }
+
     const gated = auth && (path === "/mcp" || path.startsWith("/api/"));
 
     let actor = defaultActor;
@@ -164,6 +222,11 @@ export function createServeServer(deps: ServeDeps): Server {
       actor = principal.actor;
       authorize = (action, type) => allowed(principal.scopes, ns, type, action);
     }
+    // Replica: deny write/verify regardless of scopes (wraps whatever base authorize resolved above).
+    if (readOnly) {
+      const base = authorize;
+      authorize = (action, type) => action === "read" && base(action, type);
+    }
 
     if (path === "/mcp") {
       await handleMcp(req, res, actor, authorize);
@@ -173,7 +236,7 @@ export function createServeServer(deps: ServeDeps): Server {
     await createUiHandler({ store, actor, ns, now, authorize })(req, res);
   }
 
-  return createServer((req, res) => {
+  const server: ServeServer = createServer((req, res) => {
     handle(req, res).catch((e) => {
       if (!res.headersSent) {
         res.writeHead(400, {
@@ -183,32 +246,82 @@ export function createServeServer(deps: ServeDeps): Server {
       } else res.end();
     });
   });
+
+  if (deps.replica) {
+    server.refreshNow = refreshNow;
+    const timer = setInterval(
+      () => {
+        refreshNow().catch(() => {
+          // A failed pull keeps serving the last good snapshot; next tick retries.
+        });
+      },
+      (deps.replica.refreshSec ?? 30) * 1000,
+    );
+    timer.unref(); // never keep the process alive for the refresh timer alone
+    server.on("close", () => {
+      clearInterval(timer);
+      store.close();
+    });
+  }
+
+  return server;
 }
 
-/** Open the DB, resolve auth/OIDC/actor/ns from env, start listening. Returns the running server. */
+/** Open the DB, resolve auth/OIDC/actor/ns from env, start listening. Returns the running server.
+ * With `replicaOf` (11.2): serve a read-only local snapshot pulled from the primary on an interval. */
 export async function runServe(
   db: string,
   port: number,
   env: Env,
-  opts: { auth?: boolean; ns?: string | null } = {},
+  opts: {
+    auth?: boolean;
+    ns?: string | null;
+    replicaOf?: string;
+    refreshSec?: number;
+  } = {},
 ): Promise<Server> {
-  const store = new SqliteStorage(db);
-  await store.init();
   const auth = opts.auth || env.YOKE_AUTH === "on";
-  const server = createServeServer({
-    store,
+  const common = {
     defaultActor: env.YOKE_ACTOR ?? "yoke:system",
     ns: opts.ns ?? resolveNs(undefined, env),
     auth,
     oidc: oidcFromEnv(env) ?? undefined,
     embedder: makeFetchEmbedder(env),
-  });
-  server.on("close", () => store.close());
+  };
+
+  let store: SqliteStorage;
+  let replica: ServeDeps["replica"];
+  let readOnly = false;
+  if (opts.replicaOf) {
+    // Initial pull: copy the primary into a local snapshot, then serve reads from it.
+    const snapshotPath = join(tmpdir(), `yoke-replica-${process.pid}.db`);
+    const primary = new Database(opts.replicaOf, { readonly: true });
+    try {
+      await primary.backup(snapshotPath);
+    } finally {
+      primary.close();
+    }
+    store = new SqliteStorage(snapshotPath);
+    await store.init();
+    replica = {
+      primaryPath: opts.replicaOf,
+      snapshotPath,
+      refreshSec: opts.refreshSec,
+    };
+    readOnly = true;
+  } else {
+    store = new SqliteStorage(db);
+    await store.init();
+  }
+
+  const server = createServeServer({ ...common, store, readOnly, replica });
+  // Replica owns its own store lifecycle (it swaps stores on refresh) — see createServeServer.
+  if (!replica) server.on("close", () => store.close());
   await new Promise<void>((resolve) => server.listen(port, resolve));
   const addr = server.address();
   const bound = typeof addr === "object" && addr ? addr.port : port;
   console.log(
-    `yoke serve listening: http://localhost:${bound}  (auth ${auth ? "on" : "off"}, MCP at POST /mcp)`,
+    `yoke serve listening: http://localhost:${bound}  (auth ${auth ? "on" : "off"}, MCP at POST /mcp${replica ? `, read-only replica of ${opts.replicaOf}` : ""})`,
   );
   return server;
 }

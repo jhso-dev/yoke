@@ -4,6 +4,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
 import { seedOntology } from "../../core/ontology.js";
 import { describeStoragePort } from "../../ports/conformance.js";
@@ -154,5 +155,92 @@ describe("audit extensions (PLAN 8.4)", () => {
     expect(store.listAudit()).toEqual([a, b]);
     expect(store.listAudit("2026-01-15T00:00:00Z")).toEqual([b]);
     store.close();
+  });
+});
+
+describe("durability (PLAN-V2 11.1)", () => {
+  const prov = {
+    actor: "yoke:system",
+    origin: "cli",
+    occurred_at: "2026-01-01T00:00:00Z",
+  };
+
+  it("exportUntil reconstructs state as of the cut, dropping later versions", async () => {
+    const srcPath = join(dir, `pitr-${Math.random().toString(36).slice(2)}.db`);
+    const store = new SqliteStorage(srcPath);
+    await store.init();
+    store.saveOntology(seedOntology());
+    // v1 draft, v2 verified — same id, append-only.
+    await store.putEntity({
+      id: "e",
+      version: 1,
+      type: "fact",
+      status: "draft",
+      attributes: { title: "v1" },
+      provenance: prov,
+      last_confirmed: "2026-01-01T00:00:00Z",
+    });
+    await store.putEntity({
+      id: "e",
+      version: 2,
+      type: "fact",
+      status: "verified",
+      attributes: { title: "v2" },
+      provenance: prov,
+      last_confirmed: "2026-01-02T00:00:00Z",
+    });
+    // created_at is a DB-default server clock (whole-second) — set it deterministically for the test
+    // via a side connection so the cut lands cleanly between the two versions.
+    const raw = new Database(srcPath);
+    const setAt = raw.prepare(
+      "UPDATE entities SET created_at = ? WHERE id = ? AND version = ?",
+    );
+    setAt.run("2026-01-01T00:00:00Z", "e", 1);
+    setAt.run("2026-01-02T00:00:00Z", "e", 2);
+    raw.close();
+
+    const outPath = join(
+      dir,
+      `pitr-out-${Math.random().toString(36).slice(2)}.db`,
+    );
+    await store.exportUntil("2026-01-01T12:00:00Z", outPath);
+    store.close();
+
+    const ex = new SqliteStorage(outPath);
+    await ex.init();
+    // Only v1 (the draft) survived the cut.
+    expect(ex.listHistory("e").map((e) => e.version)).toEqual([1]);
+    const latest = await ex.getEntity("e");
+    expect(latest?.status).toBe("draft");
+    expect(latest?.attributes).toEqual({ title: "v1" });
+    // Ontology carried over (a reconstructed DB must be usable) and FTS was rebuilt from v1.
+    expect(ex.loadOntology().length).toBeGreaterThan(0);
+    expect((await ex.search({ text: "v1" })).map((e) => e.id)).toContain("e");
+    expect(await ex.search({ text: "v2" })).toEqual([]);
+    ex.close();
+  });
+
+  it("backupTo produces a standalone consistent copy", async () => {
+    const srcPath = join(dir, `bak-${Math.random().toString(36).slice(2)}.db`);
+    const store = new SqliteStorage(srcPath);
+    await store.init();
+    store.saveOntology(seedOntology());
+    await store.putEntity({
+      id: "k",
+      version: 1,
+      type: "fact",
+      status: "verified",
+      attributes: { title: "keep" },
+      provenance: prov,
+      last_confirmed: "2026-01-01T00:00:00Z",
+    });
+    const dest = join(dir, `bak-out-${Math.random().toString(36).slice(2)}.db`);
+    await store.backupTo(dest);
+    store.close();
+
+    const copy = new SqliteStorage(dest);
+    await copy.init();
+    expect((await copy.getEntity("k"))?.attributes).toEqual({ title: "keep" });
+    copy.close();
   });
 });

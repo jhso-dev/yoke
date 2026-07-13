@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
@@ -408,6 +409,84 @@ describe("runCli", () => {
       }),
     ).toBe(1);
     expect(errs.at(-1)).toContain("SLACK_TOKEN");
+  });
+
+  it("backup → restore round-trip keeps data; safety refusals (PLAN-V2 11.1)", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "title=backuptoken",
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+    expect(await runCli(["verify", id, "--db", db])).toBe(0);
+
+    // backup, then restore into a fresh dest — data intact.
+    const bak = newDb();
+    expect(await runCli(["backup", bak, "--db", db])).toBe(0);
+    const dest = newDb();
+    expect(await runCli(["restore", bak, "--db", dest])).toBe(0);
+    expect(await runCli(["get", id, "--db", dest, "--json"])).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string).status).toBe("verified");
+
+    // refuses to clobber an existing DB without --force; --force allows it.
+    expect(await runCli(["restore", bak, "--db", dest])).toBe(1);
+    expect(errs.at(-1)).toContain("refusing to overwrite");
+    expect(await runCli(["restore", bak, "--db", dest, "--force"])).toBe(0);
+
+    // refuses a source that is not a valid yoke DB.
+    const junk = newDb();
+    const j = new Database(junk);
+    j.exec("CREATE TABLE x(a)");
+    j.close();
+    const dest2 = newDb();
+    expect(await runCli(["restore", junk, "--db", dest2])).toBe(1);
+    expect(errs.at(-1)).toContain("not a valid yoke DB");
+  });
+
+  it("export --until reconstructs a point-in-time DB (PLAN-V2 11.1)", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "title=pitrtoken",
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+
+    const out = newDb();
+    // A far-future cut captures everything created so far, including the draft.
+    expect(
+      await runCli([
+        "export",
+        "--db",
+        db,
+        "--until",
+        "2099-01-01T00:00:00Z",
+        "--out",
+        out,
+      ]),
+    ).toBe(0);
+    const store = new SqliteStorage(out);
+    await store.init();
+    expect((await store.getEntity(id))?.status).toBe("draft");
+    store.close();
+
+    // missing flags → usage, exit 1
+    expect(await runCli(["export", "--db", db, "--out", out])).toBe(1);
   });
 
   it("namespace isolation: add in ns A is invisible from ns B, visible from ns A", async () => {
