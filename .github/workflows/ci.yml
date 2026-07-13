@@ -19,5 +19,19 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm run test
+      # test:main only — the kuzu native binding is unstable inside vitest
+      # forks on Linux runners (hangs/crashes before the suite completes),
+      # so the kuzu adapter suite is enforced on the macOS job below instead.
+      - run: npm run test:main
       - run: npm run build
+
+  kuzu-adapter:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:kuzu
