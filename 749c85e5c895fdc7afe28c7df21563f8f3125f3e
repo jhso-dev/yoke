@@ -1,0 +1,43 @@
+README.md
+  d735c99471326cb3 3-37
+docs/MARKET.md
+  d735c99471326cb3 5-6
+package.json
+  d735c99471326cb3 4
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "749c85e5c895fdc7afe28c7df21563f8f3125f3e",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 55,
+        "mcp__openviking__find": 1,
+        "Write": 12,
+        "Edit": 44,
+        "ToolSearch": 1,
+        "WebSearch": 6,
+        "Agent": 17,
+        "Read": 16
+      },
+      "total_additions": 38,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
