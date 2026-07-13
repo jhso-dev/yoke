@@ -1,0 +1,45 @@
+src/core/persona.ts
+  d735c99471326cb3 1-140
+src/adapters/storage-sqlite/index.ts
+  d735c99471326cb3 307-326
+src/front/cli/index.ts
+  d735c99471326cb3 7-8,19,33,48,417-448,491-492,499
+src/front/mcp/index.ts
+  d735c99471326cb3 14,16-17,23-24,159-201
+src/front/mcp/mcp.test.ts
+  d735c99471326cb3 111,116-159
+src/core/persona.test.ts
+  d735c99471326cb3 1-177
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "f3cedff4461fb59d1036d771220c2b101a4f89b9",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 35,
+        "mcp__openviking__find": 1,
+        "Write": 11,
+        "Edit": 32,
+        "ToolSearch": 1,
+        "WebSearch": 6,
+        "Agent": 13,
+        "Read": 11
+      },
+      "total_additions": 746,
+      "total_deletions": 0,
+      "overriden_lines": 39
+    }
+  }
+}
