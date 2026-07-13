@@ -8,6 +8,8 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "../../core/commit.js";
+import { inject } from "../../core/inject.js";
+import { deprecate, verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 
@@ -19,6 +21,8 @@ type Values = {
   type?: string;
   limit?: string;
   json?: boolean;
+  "all-drafts"?: boolean;
+  "include-draft"?: boolean;
 };
 
 const OPTIONS = {
@@ -29,6 +33,8 @@ const OPTIONS = {
   type: { type: "string" },
   limit: { type: "string" },
   json: { type: "boolean" },
+  "all-drafts": { type: "boolean" },
+  "include-draft": { type: "boolean" },
 } as const;
 
 type Env = Record<string, string | undefined>;
@@ -69,6 +75,14 @@ function formatEntity(e: Entity | Relation): string {
   return `${e.id}  ${e.type}  ${e.status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
 }
 
+/** attributes의 첫 string 값을 60자로 자른 요약 (review/inject 압축 표시용). */
+function summarize(attributes: Record<string, unknown>): string {
+  for (const val of Object.values(attributes)) {
+    if (typeof val === "string") return val.slice(0, 60);
+  }
+  return "";
+}
+
 async function withStore<T>(
   path: string,
   fn: (s: SqliteStorage) => Promise<T>,
@@ -103,6 +117,8 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
       ts,
       { existingId: "yoke:system" },
     );
+    // 시스템 person을 draft로 두면 review 큐에 영원히 남는다 — 시드 직후 승격.
+    await verify(store, ["yoke:system"], "yoke:system", ts);
     emit(v, `initialized: ${db}`, { db, seeded: true });
     return 0;
   });
@@ -186,6 +202,98 @@ async function cmdSearch(
   });
 }
 
+async function cmdReview(v: Values, env: Env): Promise<number> {
+  const db = resolveDb(v, env);
+  return withStore(db, async (store) => {
+    const drafts = store
+      .listByStatus("draft")
+      .filter((e) => v.type === undefined || e.type === v.type);
+    if (drafts.length === 0) {
+      emit(v, "no drafts", []);
+      return 0;
+    }
+    const lines = drafts.map(
+      (e) =>
+        `${e.id}  ${e.type}  ${summarize(e.attributes)}  ${e.provenance.actor}  ${e.provenance.occurred_at}`,
+    );
+    emit(v, lines.join("\n"), drafts);
+    return 0;
+  });
+}
+
+async function cmdVerify(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const db = resolveDb(v, env);
+  const actor = resolveActor(v, env);
+  return withStore(db, async (store) => {
+    const ids = v["all-drafts"]
+      ? store.listByStatus("draft").map((e) => e.id)
+      : positionals;
+    if (ids.length === 0) {
+      console.error("usage: yoke verify <id...> [--all-drafts] [--actor a]");
+      return 1;
+    }
+    const promoted = await verify(store, ids, actor, now());
+    emit(
+      v,
+      `verified ${promoted.length}: ${promoted.map((e) => e.id).join(" ")}`,
+      promoted,
+    );
+    return 0;
+  });
+}
+
+async function cmdDeprecate(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  if (positionals.length === 0) {
+    console.error("usage: yoke deprecate <id...> [--actor a]");
+    return 1;
+  }
+  const db = resolveDb(v, env);
+  const actor = resolveActor(v, env);
+  return withStore(db, async (store) => {
+    const done = await deprecate(store, positionals, actor, now());
+    emit(
+      v,
+      `deprecated ${done.length}: ${done.map((e) => e.id).join(" ")}`,
+      done,
+    );
+    return 0;
+  });
+}
+
+async function cmdInject(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const query = positionals[0];
+  if (!query) {
+    console.error("usage: yoke inject <query> [--include-draft] [--limit n]");
+    return 1;
+  }
+  const db = resolveDb(v, env);
+  const limit = v.limit === undefined ? undefined : Number(v.limit);
+  return withStore(db, async (store) => {
+    const ontology = store.loadOntology();
+    const { items } = await inject(store, ontology, query, now(), {
+      includeDraft: v["include-draft"],
+      limit,
+    });
+    const lines = items.map(
+      (it) => `${it.citation}  ${summarize(it.entity.attributes)}`,
+    );
+    emit(v, items.length ? lines.join("\n") : "no results", items);
+    return 0;
+  });
+}
+
 export async function runCli(
   argv: string[],
   env: Env = process.env,
@@ -214,9 +322,17 @@ export async function runCli(
         return await cmdGet(rest, values, env);
       case "search":
         return await cmdSearch(rest, values, env);
+      case "review":
+        return await cmdReview(values, env);
+      case "verify":
+        return await cmdVerify(rest, values, env);
+      case "deprecate":
+        return await cmdDeprecate(rest, values, env);
+      case "inject":
+        return await cmdInject(rest, values, env);
       default:
         console.error(
-          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search> ...`,
+          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject> ...`,
         );
         return 1;
     }

@@ -227,6 +227,21 @@ export class SqliteStorage implements StoragePort {
     tx(defs);
   }
 
+  /** status로 최신 버전 entity 필터 (StoragePort 밖 — CLI review/verify --all-drafts용).
+   * search는 text 필수라 부적합하고, StoragePort에 list(filter)를 추가하면 계약 변경이라
+   * saveOntology와 같은 어댑터 확장 메서드로 둔다. */
+  listByStatus(status: string): Entity[] {
+    const rows = this.db
+      .prepare(
+        `SELECT e.* FROM entities e
+         WHERE e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)
+           AND e.status = ?
+         ORDER BY e.created_at`,
+      )
+      .all(status) as EntityRow[];
+    return rows.map(rowToEntity);
+  }
+
   /** name별 최신 버전만, 최초 등록 순서로 로드. */
   loadOntology(): TypeDef[] {
     const rows = this.db
