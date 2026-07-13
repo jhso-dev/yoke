@@ -2,8 +2,8 @@
 
 ## One-line positioning
 
-**"Git for the knowledge that gets injected into AI."**
-Competitors sell memory (automatic); yoke sells knowledge (governed). A memory layer automates what the AI remembers; yoke governs what the AI is allowed to believe.
+**"Knowledge your AI can trust."**
+Competitors sell memory (automatic); yoke sells knowledge (governed). A memory layer automates what the AI remembers; yoke governs what the AI is allowed to believe. The trust claim is backed by mechanism, not marketing: sourced-only entry, human-gated verification, append-only audit trail, preserved contradictions, and freshness decay (see README "Why you can trust it"). The Git analogy (commits/PR review/merge conflicts ↔ append-only versions/verify gate/conflicts_with) remains useful as an explanatory device, but not as the tagline.
 
 ## Competitive landscape (five categories)
 

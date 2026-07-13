@@ -1,19 +1,40 @@
 # yoke
 
-**Git for the knowledge your AI consumes.**
+**Knowledge your AI can trust.**
 
-Everyone else sells memory (automatic recall). yoke sells knowledge (governance).
-A memory layer automates *what your AI remembers*; yoke governs *what your AI is
-allowed to believe*.
+An AI agent with memory will repeat whatever it heard. An AI agent on yoke
+speaks only knowledge that carries a source, survived review, and is still
+current — and it cites its sources. Memory layers automate *what your AI
+remembers*; yoke governs *what your AI is allowed to believe*.
 
-- **Single write path**: every piece of knowledge passes through the commit gate
-  (ontology validation → provenance checks → duplicate/contradiction detection →
-  draft staging). There is no side door.
-- **Only verified knowledge is injected**: `draft`, `stale`, and `deprecated`
-  entries never reach the AI's context. Corrupt signals stay out.
-- **Append-only and auditable**: an edit is a new version row, and every injection
-  carries a citation (`[type:id@vN] actor, occurred_at`).
-- **Local and embedded**: better-sqlite3 + FTS5 + sqlite-vec. No server required.
+## Why you can trust it
+
+Trust isn't a promise here — it's five mechanisms, each enforced in code:
+
+1. **Nothing enters without a source.** Every write passes through a single
+   commit gate that rejects knowledge with no provenance (who said it, where,
+   when). Knowledge without a source is just a rumor, and rumors don't get in.
+2. **Nothing is believed until a human verifies it.** New knowledge lands as a
+   `draft`, quarantined from injection. AI agents can *record* knowledge over
+   MCP, but they cannot promote it — verification is deliberately a human act
+   (`yoke verify`). Only `verified` knowledge ever reaches your AI's context.
+3. **Nothing is silently overwritten.** Storage is append-only: an edit is a new
+   version, a deletion is a tombstone. You can always reconstruct what the
+   system believed at any point in time, and every injected item carries a
+   citation — `[type:id@vN] actor, occurred_at` — so every claim is auditable.
+4. **Contradictions are surfaced, never auto-resolved.** When new knowledge
+   conflicts with what's already verified, yoke keeps both and links them with
+   a `conflicts_with` edge for a human to settle. A disagreement is itself
+   knowledge; deciding the winner is not the database's job.
+5. **Knowledge expires.** Verified isn't forever — entries lose freshness past
+   their type's TTL and are demoted to `stale` at read time, out of the
+   injection path until someone re-confirms them. Stale truths are the
+   politest form of misinformation, and yoke treats them that way.
+
+And it's measured, not asserted: the injection-quality eval reports **0%
+contamination** and **0% missed contradictions** (see below).
+
+Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server required.
 
 ## 60-second quickstart
 

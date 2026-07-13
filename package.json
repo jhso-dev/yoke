@@ -1,7 +1,7 @@
 {
   "name": "yoke",
   "version": "0.1.0",
-  "description": "Ontology-based knowledge DB — governed context injection for AI agents",
+  "description": "Knowledge your AI can trust — ontology-based knowledge DB with governed context injection for AI agents",
   "type": "module",
   "license": "MIT",
   "engines": {
