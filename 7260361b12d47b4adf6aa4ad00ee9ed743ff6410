@@ -1,0 +1,45 @@
+src/connectors/types.ts
+  d735c99471326cb3 1-10
+src/connectors/ingest.ts
+  d735c99471326cb3 1-47
+src/connectors/github-pr.ts
+  d735c99471326cb3 1-77
+src/front/cli/index.ts
+  d735c99471326cb3 11-12,29-30,43-44,380-412,453-454,461
+src/connectors/github-pr.test.ts
+  d735c99471326cb3 1-133
+docs/ROADMAP.md
+  d735c99471326cb3 39-41
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "7260361b12d47b4adf6aa4ad00ee9ed743ff6410",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 30,
+        "mcp__openviking__find": 1,
+        "Write": 11,
+        "Edit": 30,
+        "ToolSearch": 1,
+        "WebSearch": 6,
+        "Agent": 12,
+        "Read": 10
+      },
+      "total_additions": 554,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
