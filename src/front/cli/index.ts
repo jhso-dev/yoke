@@ -16,7 +16,6 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
-import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { makeGithubPrConnector } from "../../connectors/github-pr.js";
 import { ingest } from "../../connectors/ingest.js";
 import { makeNotesConnector } from "../../connectors/meeting-notes.js";
@@ -41,10 +40,12 @@ import {
 import type { Entity, Relation } from "../../core/types.js";
 import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
+import { openStore, type YokeStore } from "../store.js";
 import { runUi } from "../ui/server.js";
 
 type Values = {
   db?: string;
+  shards?: string;
   actor?: string;
   ns?: string;
   port?: string;
@@ -73,6 +74,7 @@ type Values = {
 
 const OPTIONS = {
   db: { type: "string" },
+  shards: { type: "string" },
   actor: { type: "string" },
   ns: { type: "string" },
   port: { type: "string" },
@@ -145,11 +147,20 @@ function summarize(attributes: Record<string, unknown>): string {
   return "";
 }
 
+/** --shards <file> (or YOKE_SHARDS) if set, else undefined — the single-sqlite fast path. */
+const resolveShards = (v: Values, env: Env): string | undefined =>
+  v.shards ?? env.YOKE_SHARDS;
+
+// Open the resolved store (ShardedStorage under --shards, else SqliteStorage), run fn, always close.
 async function withStore<T>(
-  path: string,
-  fn: (s: SqliteStorage) => Promise<T>,
+  v: Values,
+  env: Env,
+  fn: (s: YokeStore) => Promise<T>,
 ): Promise<T> {
-  const store = new SqliteStorage(path);
+  const store = await openStore(
+    { db: resolveDb(v, env), shards: resolveShards(v, env) },
+    env,
+  );
   await store.init();
   try {
     return await fn(store);
@@ -160,7 +171,7 @@ async function withStore<T>(
 
 async function cmdInit(v: Values, env: Env): Promise<number> {
   const db = resolveDb(v, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     // Idempotent re-run: if yoke:system already exists, do not re-seed.
     if (await store.getEntity("yoke:system")) {
       emit(v, `already initialized: ${db}`, { db, seeded: false });
@@ -196,11 +207,10 @@ async function cmdAdd(
     console.error("usage: yoke add <type> [--actor id] [--attr k=v ...]");
     return 1;
   }
-  const db = resolveDb(v, env);
   const actor = resolveActor(v, env);
   const ns = resolveNs(v.ns, env);
   const attributes = parseAttrs(v.attr ?? []);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const ontology = store.loadOntology(ns);
     const ts = now();
     try {
@@ -239,9 +249,8 @@ async function cmdGet(
     console.error("usage: yoke get <id> [--version n]");
     return 1;
   }
-  const db = resolveDb(v, env);
   const version = v.version === undefined ? undefined : Number(v.version);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const e = await store.getEntity(id, version);
     if (!e) {
       console.error(`not found: ${id}`);
@@ -262,10 +271,9 @@ async function cmdSearch(
     console.error("usage: yoke search <query> [--type t] [--limit n]");
     return 1;
   }
-  const db = resolveDb(v, env);
   const limit = v.limit === undefined ? undefined : Number(v.limit);
   const ns = resolveNs(v.ns, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const results = await store.search({
       text: query,
       type: v.type,
@@ -278,9 +286,8 @@ async function cmdSearch(
 }
 
 async function cmdReview(v: Values, env: Env): Promise<number> {
-  const db = resolveDb(v, env);
   const ns = resolveNs(v.ns, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const drafts = store
       .listByStatus("draft", ns)
       .filter((e) => v.type === undefined || e.type === v.type);
@@ -302,10 +309,9 @@ async function cmdVerify(
   v: Values,
   env: Env,
 ): Promise<number> {
-  const db = resolveDb(v, env);
   const actor = resolveActor(v, env);
   const ns = resolveNs(v.ns, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const ids = v["all-drafts"]
       ? store.listByStatus("draft", ns).map((e) => e.id)
       : positionals;
@@ -332,9 +338,8 @@ async function cmdDeprecate(
     console.error("usage: yoke deprecate <id...> [--actor a]");
     return 1;
   }
-  const db = resolveDb(v, env);
   const actor = resolveActor(v, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const done = await deprecate(store, positionals, actor, now());
     emit(
       v,
@@ -355,10 +360,9 @@ async function cmdInject(
     console.error("usage: yoke inject <query> [--include-draft] [--limit n]");
     return 1;
   }
-  const db = resolveDb(v, env);
   const limit = v.limit === undefined ? undefined : Number(v.limit);
   const ns = resolveNs(v.ns, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const ontology = store.loadOntology(ns);
     const ts = now();
     const { items } = await inject(store, ontology, query, ts, {
@@ -392,8 +396,7 @@ async function cmdHistory(
     console.error("usage: yoke history <id>");
     return 1;
   }
-  const db = resolveDb(v, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const versions = store.listHistory(id);
     if (versions.length === 0) {
       console.error(`not found: ${id}`);
@@ -409,8 +412,7 @@ async function cmdHistory(
 }
 
 async function cmdAudit(v: Values, env: Env): Promise<number> {
-  const db = resolveDb(v, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const events = store.listAudit(v.since);
     const lines = events.map(
       (e) => `${e.at}  ${e.actor}  ${e.action}  ${e.detail}`,
@@ -421,8 +423,7 @@ async function cmdAudit(v: Values, env: Env): Promise<number> {
 }
 
 async function cmdConflicts(v: Values, env: Env): Promise<number> {
-  const db = resolveDb(v, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const rels = store.listRelationsByType("conflicts_with");
     if (rels.length === 0) {
       emit(v, "no conflicts", []);
@@ -454,10 +455,9 @@ async function cmdOntology(
   env: Env,
 ): Promise<number> {
   const [sub, file] = positionals;
-  const db = resolveDb(v, env);
   const ns = resolveNs(v.ns, env);
   if (sub === "list") {
-    return withStore(db, async (store) => {
+    return withStore(v, env, async (store) => {
       const defs = store.loadOntology(ns);
       const lines = defs.map(
         (d) => `${d.name}  ${d.kind}  ttl=${d.ttl_days ?? "∞"}`,
@@ -478,7 +478,7 @@ async function cmdOntology(
       console.error(`cannot read type def: ${(e as Error).message}`);
       return 1;
     }
-    return withStore(db, async (store) => {
+    return withStore(v, env, async (store) => {
       // An existing name means a new version = a migration (same append-only model as entities).
       // ns targets a tenant ontology (overlaid on the shared base); omitted = shared.
       store.saveOntology([def], ns);
@@ -496,9 +496,8 @@ async function runIngest(
   v: Values,
   env: Env,
 ): Promise<number> {
-  const db = resolveDb(v, env);
   const actor = resolveActor(v, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const ontology = store.loadOntology();
     const { added, skipped } = await ingest(
       store,
@@ -591,10 +590,9 @@ async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
     return 1;
   }
 
-  const db = resolveDb(v, env);
   const connector = makeRdbMappingConnector({ query, mapping });
   try {
-    return await withStore(db, async (store) => {
+    return await withStore(v, env, async (store) => {
       const ontology = store.loadOntology();
       const { added, updated, skipped } = await ingestMapped(
         store,
@@ -624,9 +622,8 @@ async function cmdPersona(
     console.error("usage: yoke persona <person-id> [--out dir]");
     return 1;
   }
-  const db = resolveDb(v, env);
   const ns = resolveNs(v.ns, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     const person = await store.getEntity(id);
     if (!person) {
       console.error(`not found: ${id}`);
@@ -658,6 +655,7 @@ async function cmdUi(v: Values, env: Env): Promise<number> {
     port,
     env,
     resolveNs(v.ns, env),
+    resolveShards(v, env),
   );
   await new Promise<void>((resolve) => {
     process.on("SIGINT", () => server.close(() => resolve()));
@@ -674,6 +672,7 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
     replicaOf: v["replica-of"],
     refreshSec:
       v["refresh-sec"] === undefined ? undefined : Number(v["refresh-sec"]),
+    shards: resolveShards(v, env),
   });
   await new Promise<void>((resolve) => {
     process.on("SIGINT", () => server.close(() => resolve()));
@@ -688,7 +687,6 @@ async function cmdToken(
   env: Env,
 ): Promise<number> {
   const [sub] = positionals;
-  const db = resolveDb(v, env);
   if (sub === "create") {
     if (!v.name || !v.scopes) {
       console.error(
@@ -700,7 +698,7 @@ async function cmdToken(
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    return withStore(db, async (store) => {
+    return withStore(v, env, async (store) => {
       const { token } = store.createToken({
         name: v.name as string,
         scopes,
@@ -712,7 +710,7 @@ async function cmdToken(
     });
   }
   if (sub === "list") {
-    return withStore(db, async (store) => {
+    return withStore(v, env, async (store) => {
       const toks = store.listTokens();
       const lines = toks.map(
         (t) => `${t.name}  ${t.scopes.join(",")}  ${t.created_at}`,
@@ -727,7 +725,7 @@ async function cmdToken(
       console.error("usage: yoke token revoke <name>");
       return 1;
     }
-    return withStore(db, async (store) => {
+    return withStore(v, env, async (store) => {
       const removed = store.revokeToken(name);
       if (!removed) {
         console.error(`no such token: ${name}`);
@@ -753,7 +751,7 @@ async function cmdBackup(
     return 1;
   }
   const db = resolveDb(v, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     await store.backupTo(dest);
     emit(v, `backed up ${db} -> ${dest}`, { db, dest });
     return 0;
@@ -771,6 +769,12 @@ async function cmdRestore(
   const src = positionals[0];
   if (!src) {
     console.error("usage: yoke restore <src.db> [--force]");
+    return 1;
+  }
+  if (resolveShards(v, env)) {
+    console.error(
+      "restore is a per-shard operation: run it against each shard's own db",
+    );
     return 1;
   }
   const dest = resolveDb(v, env);
@@ -828,8 +832,7 @@ async function cmdExport(v: Values, env: Env): Promise<number> {
     console.error("usage: yoke export --until <iso-ts> --out <new.db>");
     return 1;
   }
-  const db = resolveDb(v, env);
-  return withStore(db, async (store) => {
+  return withStore(v, env, async (store) => {
     await store.exportUntil(v.until as string, v.out as string);
     emit(v, `exported state as of ${v.until} -> ${v.out}`, {
       until: v.until,
@@ -901,7 +904,7 @@ export async function runCli(
         return await cmdExport(values, env);
       case "mcp":
         // Start the stdio server — does not resolve until the connection closes (keeps the process alive).
-        await runMcp(resolveDb(values, env), env);
+        await runMcp(resolveDb(values, env), env, resolveShards(values, env));
         return 0;
       default:
         console.error(

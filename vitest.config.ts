@@ -1,14 +1,18 @@
 import { defineConfig } from "vitest/config";
 
-// Single-fork pool: kuzu's native binding races vitest's multi-worker IPC at
-// teardown on Linux (ERR_IPC_CHANNEL_CLOSED after all tests pass). Serializing
-// test files into one child process avoids the race; the suite is small enough
-// that the wall-clock cost is negligible.
-// ponytail: single fork. If the suite outgrows this, isolate the kuzu tests
-// into their own pool via poolMatchGlobs instead.
+// kuzu's native binding kills its fork's IPC channel after its test file
+// completes (ERR_IPC_CHANNEL_CLOSED; threads pool segfaults outright), which
+// aborts any files still queued behind it. Mitigation is two-fold:
+// 1. npm test runs the kuzu file in its OWN vitest invocation (see package.json
+//    test:main / test:kuzu) so nothing queues behind the dying fork.
+// 2. Single fork + ignored unhandled teardown errors keep each invocation
+//    deterministic. ponytail: dangerouslyIgnoreUnhandledErrors masks all
+//    runner-level rejections — vitest 4's onUnhandledError would let us match
+//    the exact code. Revisit when upgrading vitest or kuzu.
 export default defineConfig({
   test: {
     pool: "forks",
     poolOptions: { forks: { singleFork: true } },
+    dangerouslyIgnoreUnhandledErrors: true,
   },
 });

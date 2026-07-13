@@ -26,6 +26,7 @@ import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { verify } from "../../core/lifecycle.js";
 import { resolveNs } from "../../core/namespace.js";
 import { createYokeMcpServer } from "../mcp/index.js";
+import { openStore, type YokeStore } from "../store.js";
 import { createUiHandler } from "../ui/server.js";
 import {
   makeOidcVerifier,
@@ -38,7 +39,7 @@ import { type Action, allowed } from "./rbac.js";
 type Env = Record<string, string | undefined>;
 
 export interface ServeDeps {
-  store: SqliteStorage;
+  store: YokeStore;
   /** Actor used when auth is off, and audit fallback. */
   defaultActor: string;
   ns?: string | null;
@@ -278,6 +279,8 @@ export async function runServe(
     ns?: string | null;
     replicaOf?: string;
     refreshSec?: number;
+    /** Sharded composite storage (PLAN-V2 12.2). Ignored in replica mode (per-file snapshot). */
+    shards?: string;
   } = {},
 ): Promise<Server> {
   const auth = opts.auth || env.YOKE_AUTH === "on";
@@ -289,7 +292,7 @@ export async function runServe(
     embedder: makeFetchEmbedder(env),
   };
 
-  let store: SqliteStorage;
+  let store: YokeStore;
   let replica: ServeDeps["replica"];
   let readOnly = false;
   if (opts.replicaOf) {
@@ -310,7 +313,7 @@ export async function runServe(
     };
     readOnly = true;
   } else {
-    store = new SqliteStorage(db);
+    store = await openStore({ db, shards: opts.shards }, env);
     await store.init();
   }
 

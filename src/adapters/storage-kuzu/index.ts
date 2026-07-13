@@ -100,8 +100,12 @@ export class KuzuStorage implements StoragePort {
   }
 
   close(): void {
-    this.conn.closeSync();
-    this.db.closeSync();
+    // closeSync() aborts the process when kuzu's background threads are still
+    // winding down (kills the vitest fork's IPC channel — ERR_IPC_CHANNEL_CLOSED
+    // observed on Linux CI and locally). The async close() path shuts down
+    // cooperatively; fire-and-forget is safe because kuzu flushes on close and
+    // every write already awaited its query before returning.
+    void this.conn.close().then(() => this.db.close());
   }
 
   private async run(

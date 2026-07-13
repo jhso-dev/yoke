@@ -52,18 +52,20 @@ directional decisions.
   for a long time.
 - Backup/PITR: append-only makes this fall out naturally from snapshot + history
   replay.
-- Sharding: no design before measured limits are confirmed. We only note that
-  per-tenant sharding is the natural boundary (namespace isolation is the
-  precondition).
+- Sharding: implemented in v3.6 at the tenant boundary, exactly as predicted —
+  namespaces route to shards, entirely behind the storage port with no core
+  change.
 
-Sharding remains unimplemented by design as of v3.5 (task 11.2). Read replicas
-(`yoke serve --replica-of`) already absorb the read-dominant injection load, and
-writes are low-frequency gate-passing work a single writer sustains, so there is
-no measured need to split the write path yet. When that need is confirmed, the
-tenant boundary is the natural cut: namespaces are already the isolation unit, so
-sharding by namespace maps each tenant (or tenant group) onto its own DB file
-behind the storage port with no interface change — the same physical-isolation
-lever noted under Multi-tenancy, applied for scale rather than for regulation.
+Sharding shipped in v3.6 (`--shards config.json`): each shard is its own backend
+(sqlite, kuzu, or qdrant — heterogeneous mixes allowed), namespaces route to the
+shard that claims them, and unclaimed namespaces land on the single default
+shard. Point reads fan out (ids are globally unique ULIDs), scoped searches hit
+only the owner shard, and duplicate/contradiction bookkeeping stays with the
+entity's shard. Known ceilings are documented in `storage-sharded/index.ts`:
+cross-shard `similar` fan-out can surface duplicate warnings across tenants
+(isolation-sensitive deployments should run one serve process per tenant), and
+`backup`/`export` are per-shard operations. Read replicas
+(`yoke serve --replica-of`) remain the first lever for read scale.
 
 ## What we don't do
 

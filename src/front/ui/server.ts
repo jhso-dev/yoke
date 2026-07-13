@@ -9,17 +9,17 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { citation } from "../../core/inject.js";
 import { deprecate, verify } from "../../core/lifecycle.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity } from "../../core/types.js";
+import { openStore, type YokeStore } from "../store.js";
 import { html } from "./static/index.html.js";
 
 type Env = Record<string, string | undefined>;
 
 export interface UiDeps {
-  store: SqliteStorage;
+  store: YokeStore;
   /** Resolved once from env (verify/deprecate provenance + audit actor). */
   actor: string;
   /** Tenant namespace scope (PLAN-V2 10.1). Omitted/null = the default shared namespace. */
@@ -193,8 +193,9 @@ export async function runUi(
   port: number,
   env: Env,
   ns?: string | null,
+  shards?: string,
 ): Promise<Server> {
-  const store = new SqliteStorage(db);
+  const store = await openStore({ db, shards }, env);
   await store.init();
   const actor = env.YOKE_ACTOR ?? "yoke:system";
   const server = createUiServer({ store, actor, ns: ns ?? null });

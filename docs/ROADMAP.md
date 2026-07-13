@@ -82,7 +82,7 @@ port capabilities, etc. See SPEC).
 
 - [x] Replication (read replicas — injection is read-dominated)
 - [x] Backup/restore, PITR (built on the append-only history)
-- [ ] Sharding designed only after measured limits are confirmed (no upfront design)
+- [x] Sharding — tenant-boundary shards + multi-backend federation (--shards, v3.6)
 
 ## Version-promotion rule
 

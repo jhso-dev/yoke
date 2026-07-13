@@ -8,10 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import {
-  type AuditEvent,
-  SqliteStorage,
-} from "../../adapters/storage-sqlite/index.js";
+import type { AuditEvent } from "../../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { citation, inject } from "../../core/inject.js";
@@ -20,6 +17,7 @@ import type { TypeDef } from "../../core/ontology.js";
 import { type PersonaPort, personaQuery } from "../../core/persona.js";
 import type { Entity, EntityInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
+import { openStore } from "../store.js";
 
 const ORIGIN = "mcp";
 
@@ -254,8 +252,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
 export async function runMcp(
   db: string,
   env: Record<string, string | undefined>,
+  shards?: string,
 ): Promise<void> {
-  const store = new SqliteStorage(db);
+  const store = await openStore({ db, shards }, env);
   await store.init();
   // An uninitialized DB has no bootstrap actor (yoke:system) → error and exit 1.
   if (!(await store.getEntity("yoke:system"))) {
