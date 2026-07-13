@@ -12,7 +12,7 @@
 - [x] storage-sqlite 어댑터 (append-only 버전 행, FTS5)
 - [x] commit 게이트 1·2단계 (온톨로지 검증, provenance 검증)
 - [x] 기본 온톨로지 시드 (person/fact/decision/term/resource)
-- [ ] CLI: `init` / `add` / `get` / `search`
+- [x] CLI: `init` / `add` / `get` / `search`
 
 ## v0.2 — lifecycle + 주입
 
