@@ -28,3 +28,77 @@ describe("ontology save/load", () => {
     store.close();
   });
 });
+
+describe("sqlite-vec similar", () => {
+  const emb = (arr: number[]) => Float32Array.from(arr);
+  const base = {
+    type: "fact",
+    status: "draft" as const,
+    version: 1,
+    last_confirmed: "2026-01-01T00:00:00Z",
+    provenance: {
+      actor: "yoke:system",
+      origin: "cli",
+      occurred_at: "2026-01-01T00:00:00Z",
+    },
+  };
+
+  it("returns [] before any embedding is stored (lazy vec table)", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    expect(await store.similar(emb([1, 0, 0]), 3)).toEqual([]);
+    store.close();
+  });
+
+  it("returns k nearest ordered by distance", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    await store.putEntity({
+      ...base,
+      id: "x",
+      attributes: { n: "x" },
+      embedding: emb([1, 0, 0]),
+    });
+    await store.putEntity({
+      ...base,
+      id: "near",
+      attributes: { n: "near" },
+      embedding: emb([0.9, 0.1, 0]),
+    });
+    await store.putEntity({
+      ...base,
+      id: "far",
+      attributes: { n: "far" },
+      embedding: emb([0, 1, 0]),
+    });
+    const hits = await store.similar(emb([1, 0, 0]), 2);
+    expect(hits.map((h) => h.id)).toEqual(["x", "near"]);
+    // embedding 복원 (게이트의 코사인 판정을 위해)
+    expect(hits[0].embedding).toBeInstanceOf(Float32Array);
+    expect(Array.from(hits[0].embedding as Float32Array)).toEqual([1, 0, 0]);
+    store.close();
+  });
+
+  it("keeps only the latest version's vector (delete+insert)", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    await store.putEntity({
+      ...base,
+      id: "e",
+      attributes: { n: "v1" },
+      embedding: emb([1, 0, 0]),
+    });
+    await store.putEntity({
+      ...base,
+      id: "e",
+      version: 2,
+      attributes: { n: "v2" },
+      embedding: emb([0, 1, 0]),
+    });
+    const hits = await store.similar(emb([0, 1, 0]), 5);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].id).toBe("e");
+    expect(hits[0].attributes).toEqual({ n: "v2" });
+    store.close();
+  });
+});

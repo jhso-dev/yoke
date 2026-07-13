@@ -4,13 +4,15 @@
 // 명령 핸들러는 runCli(argv, env)로 분리 — 프로세스 spawn 없이 테스트 가능, exit code는 반환값.
 // Date 획득은 이 front 계층에서만 (core는 now를 주입받는다).
 
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "../../core/commit.js";
+import { makeFetchEmbedder } from "../../core/embedding.js";
 import { inject } from "../../core/inject.js";
 import { deprecate, verify } from "../../core/lifecycle.js";
-import { seedOntology } from "../../core/ontology.js";
+import { seedOntology, type TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { runMcp } from "../mcp/index.js";
 
@@ -142,14 +144,20 @@ async function cmdAdd(
     const ontology = store.loadOntology();
     const ts = now();
     try {
-      const { entity } = await commit(
+      const { entity, duplicates } = await commit(
         store,
         ontology,
         { type, attributes },
         { actor, origin: "cli", occurred_at: ts },
         ts,
+        { embedder: makeFetchEmbedder(env) },
       );
-      emit(v, formatEntity(entity), entity);
+      const human =
+        duplicates.length > 0
+          ? `${formatEntity(entity)}\n유사 지식 ${duplicates.length}건: ${duplicates.map((d) => d.id).join(" ")}`
+          : formatEntity(entity);
+      // --json은 entity 그대로 (기존 계약 유지). 유사 지식 경고는 사람용 텍스트에만.
+      emit(v, human, entity);
       return 0;
     } catch (e) {
       if (e instanceof CommitRejected) {
@@ -295,6 +303,74 @@ async function cmdInject(
   });
 }
 
+async function cmdConflicts(v: Values, env: Env): Promise<number> {
+  const db = resolveDb(v, env);
+  return withStore(db, async (store) => {
+    const rels = store.listRelationsByType("conflicts_with");
+    if (rels.length === 0) {
+      emit(v, "no conflicts", []);
+      return 0;
+    }
+    // 각 쌍의 양쪽 entity 요약을 붙여 한 줄로 (해소는 verify/deprecate로 — 전용 명령 없음).
+    const items = await Promise.all(
+      rels.map(async (r) => {
+        const from = await store.getEntity(r.from);
+        const to = await store.getEntity(r.to);
+        return { relation: r, from, to };
+      }),
+    );
+    const lines = items.map(({ relation, from, to }) => {
+      const side = (e: Entity | null, id: string) =>
+        e
+          ? `${e.id} [${e.status}] ${summarize(e.attributes)}`
+          : `${id} (missing)`;
+      return `${relation.id}\n  ${side(from, relation.from)}\n  <-> ${side(to, relation.to)}`;
+    });
+    emit(v, lines.join("\n"), items);
+    return 0;
+  });
+}
+
+async function cmdOntology(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const [sub, file] = positionals;
+  const db = resolveDb(v, env);
+  if (sub === "list") {
+    return withStore(db, async (store) => {
+      const defs = store.loadOntology();
+      const lines = defs.map(
+        (d) => `${d.name}  ${d.kind}  ttl=${d.ttl_days ?? "∞"}`,
+      );
+      emit(v, lines.join("\n"), defs);
+      return 0;
+    });
+  }
+  if (sub === "add-type") {
+    if (!file) {
+      console.error("usage: yoke ontology add-type <json-file>");
+      return 1;
+    }
+    let def: TypeDef;
+    try {
+      def = JSON.parse(readFileSync(file, "utf8")) as TypeDef;
+    } catch (e) {
+      console.error(`cannot read type def: ${(e as Error).message}`);
+      return 1;
+    }
+    return withStore(db, async (store) => {
+      // 기존 name이면 새 버전 = 마이그레이션 (entity와 동일 append-only).
+      store.saveOntology([def]);
+      emit(v, `saved type: ${def.name}`, def);
+      return 0;
+    });
+  }
+  console.error("usage: yoke ontology <list|add-type <json-file>>");
+  return 1;
+}
+
 export async function runCli(
   argv: string[],
   env: Env = process.env,
@@ -331,13 +407,17 @@ export async function runCli(
         return await cmdDeprecate(rest, values, env);
       case "inject":
         return await cmdInject(rest, values, env);
+      case "conflicts":
+        return await cmdConflicts(values, env);
+      case "ontology":
+        return await cmdOntology(rest, values, env);
       case "mcp":
         // stdio 서버 기동 — 연결이 닫힐 때까지 resolve되지 않는다 (process 유지).
         await runMcp(resolveDb(values, env), env);
         return 0;
       default:
         console.error(
-          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|mcp> ...`,
+          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|conflicts|ontology|mcp> ...`,
         );
         return 1;
     }

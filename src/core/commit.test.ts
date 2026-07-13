@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "./commit.js";
+import type { Embedder } from "./embedding.js";
 import { seedOntology } from "./ontology.js";
 import type { Provenance } from "./types.js";
 
@@ -14,6 +15,21 @@ const prov: Provenance = {
   actor: "yoke:system",
   origin: "cli",
   occurred_at: "2026-07-12T00:00:00Z",
+};
+
+// 결정적 스텁 임베더 — bag-of-words 해시. 같은 단어 조합 → 같은 벡터.
+// 텍스트가 겹칠수록 코사인↑ (실 API 없이 게이트 3·4단계를 결정적으로 검증).
+const stubEmbedder: Embedder = async (text) => {
+  const v = new Float32Array(64);
+  for (const w of text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)) {
+    let h = 0;
+    for (const c of w) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    v[h % 64] += 1;
+  }
+  return v;
 };
 
 let port: SqliteStorage;
@@ -109,5 +125,139 @@ describe("commit gate", () => {
     expect(entity.status).toBe("draft");
     const found = await port.neighbors("a", "relates_to", "out");
     expect(found).toEqual([entity]);
+  });
+});
+
+describe("commit gate stage 3 (duplicates)", () => {
+  const facts = {
+    note: "water boils at one hundred celsius everywhere always",
+  };
+
+  it("returns similar entity as duplicate when >= threshold (embedding)", async () => {
+    const first = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: facts },
+      prov,
+      now,
+      { embedder: stubEmbedder },
+    );
+    const second = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: facts },
+      prov,
+      now,
+      { embedder: stubEmbedder },
+    );
+    expect(second.duplicateDetection).toBe("embedding");
+    expect(second.duplicates.map((d) => d.id)).toContain(first.entity.id);
+  });
+
+  it("returns empty duplicates when below threshold", async () => {
+    await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { note: "cats are small furry mammals" } },
+      prov,
+      now,
+      { embedder: stubEmbedder },
+    );
+    const other = await commit(
+      port,
+      ont,
+      {
+        type: "fact",
+        attributes: { note: "quantum tunneling barrier probability" },
+      },
+      prov,
+      now,
+      { embedder: stubEmbedder },
+    );
+    expect(other.duplicateDetection).toBe("embedding");
+    expect(other.duplicates).toEqual([]);
+  });
+
+  it("skips duplicate detection on FTS fallback (no embedder) — empty even if identical", async () => {
+    await commit(port, ont, { type: "fact", attributes: facts }, prov, now);
+    const second = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: facts },
+      prov,
+      now,
+    );
+    expect(second.duplicateDetection).toBe("skipped");
+    expect(second.duplicates).toEqual([]);
+  });
+});
+
+describe("commit gate stage 4 (decision conflict)", () => {
+  const rationale =
+    "the team already runs this database in production and staging across every region";
+
+  it("creates conflicts_with when a similar decision has a different conclusion, preserving both", async () => {
+    const a = await commit(
+      port,
+      ont,
+      {
+        type: "decision",
+        attributes: { conclusion: "adopt postgres", rationale },
+      },
+      prov,
+      now,
+      { embedder: stubEmbedder },
+    );
+    const b = await commit(
+      port,
+      ont,
+      {
+        type: "decision",
+        attributes: { conclusion: "adopt mysql", rationale },
+      },
+      prov,
+      now,
+      { embedder: stubEmbedder },
+    );
+    // conflicts_with 생성
+    expect(b.conflicts).toBeDefined();
+    expect(b.conflicts?.length).toBe(1);
+    const rel = b.conflicts?.[0];
+    expect(rel?.type).toBe("conflicts_with");
+    expect(rel?.from).toBe(b.entity.id);
+    expect(rel?.to).toBe(a.entity.id);
+    // neighbors로도 조회된다
+    const rels = await port.neighbors(b.entity.id, "conflicts_with", "out");
+    expect(rels.map((r) => r.to)).toContain(a.entity.id);
+    // 양쪽 보존: 둘 다 여전히 존재하고 deprecated 아님 (자동 해소 금지)
+    expect((await port.getEntity(a.entity.id))?.status).not.toBe("deprecated");
+    expect((await port.getEntity(b.entity.id))?.status).not.toBe("deprecated");
+  });
+
+  it("does not create conflicts_with when conclusions match (duplicate, not conflict)", async () => {
+    await commit(
+      port,
+      ont,
+      {
+        type: "decision",
+        attributes: { conclusion: "adopt postgres", rationale },
+      },
+      prov,
+      now,
+      { embedder: stubEmbedder },
+    );
+    const b = await commit(
+      port,
+      ont,
+      {
+        type: "decision",
+        attributes: { conclusion: "adopt postgres", rationale },
+      },
+      prov,
+      now,
+      { embedder: stubEmbedder },
+    );
+    expect(b.duplicates.length).toBeGreaterThan(0); // 유사(중복)로는 잡힘
+    expect(b.conflicts).toBeUndefined(); // 모순은 아님
   });
 });

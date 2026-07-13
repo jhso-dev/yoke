@@ -10,6 +10,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "../../core/commit.js";
+import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { inject } from "../../core/inject.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { EntityInput } from "../../core/types.js";
@@ -24,6 +25,8 @@ export interface YokeMcpDeps {
   defaultActor: string;
   /** ISO 8601 현재 시각. 기본 new Date().toISOString() — 테스트는 고정값 주입. */
   now?: () => string;
+  /** 중복·모순 게이트용 임베더. 테스트는 결정적 스텁 주입, 미지정 시 no-op(FTS 폴백). */
+  embedder?: Embedder;
 }
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
@@ -31,7 +34,7 @@ const err = (text: string) => ({ ...ok(text), isError: true });
 
 /** MCP 서버 인스턴스 조립. 테스트는 InMemoryTransport로 이 인스턴스에 연결한다. */
 export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
-  const { store, ontology, defaultActor } = deps;
+  const { store, ontology, defaultActor, embedder } = deps;
   const now = deps.now ?? (() => new Date().toISOString());
   const server = new McpServer({ name: "yoke", version: "0.1.0" });
 
@@ -41,7 +44,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   async function doCommit(input: EntityInput, actor?: string) {
     const ts = now();
     try {
-      const { entity } = await commit(
+      const { entity, duplicates } = await commit(
         store,
         ontology,
         input,
@@ -51,12 +54,15 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           occurred_at: ts,
         },
         ts,
+        { embedder },
       );
       return ok(
         JSON.stringify({
           id: entity.id,
           version: entity.version,
           status: entity.status,
+          // 유사 지식 후보 — 자동 병합 금지. 에이전트가 판단하도록 결과에 포함.
+          duplicates: duplicates.map((d) => ({ id: d.id, type: d.type })),
         }),
       );
     } catch (e) {
@@ -170,6 +176,7 @@ export async function runMcp(
     store,
     ontology: store.loadOntology(),
     defaultActor: env.YOKE_ACTOR ?? "yoke:system",
+    embedder: makeFetchEmbedder(env),
   });
   await server.connect(new StdioServerTransport());
   // 클라이언트가 stdin을 닫을 때까지 대기 (그전엔 runCli가 resolve되지 않아 process가 종료되지 않음).

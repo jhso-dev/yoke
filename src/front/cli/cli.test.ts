@@ -1,10 +1,14 @@
 // CLI 시나리오 테스트 — runCli를 직접 호출 (프로세스 spawn 불필요, exit code는 반환값).
 // 임시 디렉토리 DB로 init→add→get→search 1개 + add 거절(exit 1) 1개.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
+import { commit } from "../../core/commit.js";
+import { seedOntology } from "../../core/ontology.js";
+import type { Provenance } from "../../core/types.js";
 import { runCli } from "./index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-cli-"));
@@ -165,5 +169,101 @@ describe("runCli", () => {
     expect(JSON.parse(logs.at(-1) as string).length).toBeGreaterThanOrEqual(2);
     expect(await runCli(["review", "--db", db])).toBe(0);
     expect(logs.at(-1)).toBe("no drafts");
+  });
+
+  it("conflicts lists conflicts_with pairs with both entities", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    // 두 모순 decision + conflicts_with relation을 게이트 경유로 직접 시드.
+    const ont = seedOntology();
+    const now = "2026-07-12T00:00:00Z";
+    const prov: Provenance = {
+      actor: "yoke:system",
+      origin: "cli",
+      occurred_at: now,
+    };
+    const store = new SqliteStorage(db);
+    await store.init();
+    const a = await commit(
+      store,
+      ont,
+      {
+        type: "decision",
+        attributes: { conclusion: "use postgres", rationale: "r" },
+      },
+      prov,
+      now,
+    );
+    const b = await commit(
+      store,
+      ont,
+      {
+        type: "decision",
+        attributes: { conclusion: "use mysql", rationale: "r" },
+      },
+      prov,
+      now,
+    );
+    await commit(
+      store,
+      ont,
+      {
+        type: "conflicts_with",
+        attributes: {},
+        from: b.entity.id,
+        to: a.entity.id,
+      },
+      prov,
+      now,
+    );
+    store.close();
+
+    expect(await runCli(["conflicts", "--db", db, "--json"])).toBe(0);
+    const out = JSON.parse(logs.at(-1) as string);
+    expect(out).toHaveLength(1);
+    expect(out[0].from.id).toBe(b.entity.id);
+    expect(out[0].to.id).toBe(a.entity.id);
+
+    // no conflicts인 새 DB
+    const db2 = newDb();
+    expect(await runCli(["init", "--db", db2])).toBe(0);
+    expect(await runCli(["conflicts", "--db", db2])).toBe(0);
+    expect(logs.at(-1)).toBe("no conflicts");
+  });
+
+  it("ontology list + add-type (migration = new version)", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+
+    // list에 시드 타입이 뜬다
+    expect(await runCli(["ontology", "list", "--db", db, "--json"])).toBe(0);
+    const listed = JSON.parse(logs.at(-1) as string);
+    expect(listed.some((d: { name: string }) => d.name === "decision")).toBe(
+      true,
+    );
+
+    // add-type: 새 타입 JSON 파일
+    const file = join(dir, "meeting.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        name: "meeting",
+        kind: "entity",
+        attrs: { topic: { type: "string", required: true } },
+        ttl_days: 90,
+      }),
+    );
+    expect(await runCli(["ontology", "add-type", file, "--db", db])).toBe(0);
+    expect(logs.at(-1)).toContain("meeting");
+
+    // list에 새 타입 반영
+    expect(await runCli(["ontology", "list", "--db", db, "--json"])).toBe(0);
+    const after = JSON.parse(logs.at(-1) as string);
+    expect(after.some((d: { name: string }) => d.name === "meeting")).toBe(
+      true,
+    );
+
+    // add-type 파일 누락 → exit 1
+    expect(await runCli(["ontology", "add-type", "--db", db])).toBe(1);
   });
 });

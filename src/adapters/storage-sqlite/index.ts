@@ -1,8 +1,10 @@
 // storage-sqlite — StoragePort의 better-sqlite3 구현 (SPEC.md / PLAN 1.5).
 // append-only: (id, version) 행만 추가. FTS5는 최신 버전만 유지(delete+insert).
-// embedding/similar는 v0.4에서 sqlite-vec과 함께 — 여기선 미구현으로 둔다.
+// sqlite-vec(vec0)로 임베딩/similar 지원 (PLAN 4.2) — 최신 버전만 유지(FTS와 동일 정책).
 
 import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
+import { serializeText } from "../../core/embedding.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 import type { StoragePort, TextQuery } from "../../ports/storage.js";
@@ -47,11 +49,6 @@ CREATE TABLE IF NOT EXISTS ontology_types (
 );
 `;
 
-// FTS/임베딩 대상 텍스트 — conformance fake와 동일 직렬화 (type + attributes).
-function serializeText(type: string, attributes: string): string {
-  return `${type} ${attributes}`;
-}
-
 interface EntityRow {
   id: string;
   version: number;
@@ -92,7 +89,24 @@ export class SqliteStorage implements StoragePort {
 
   async init(): Promise<void> {
     this.db.pragma("journal_mode = WAL");
+    sqliteVec.load(this.db);
     this.db.exec(SCHEMA);
+  }
+
+  // vec0 테이블은 첫 임베딩 삽입 시 lazy 생성한다. 차원(N)은 첫 벡터 길이로 고정 —
+  // provider별 차원이 다르고 삽입 전엔 알 수 없으므로 env 고정보다 견고하다.
+  // ponytail: 차원은 최초 임베딩에 고정. provider를 바꿔 차원이 달라지면 벡터 테이블 재생성 필요.
+  private ensureVecTable(dim: number): void {
+    const exists = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type='table' AND name='entity_vec'`,
+      )
+      .get();
+    if (!exists) {
+      this.db.exec(
+        `CREATE VIRTUAL TABLE entity_vec USING vec0(id TEXT PRIMARY KEY, embedding float[${dim}])`,
+      );
+    }
   }
 
   close(): void {
@@ -124,6 +138,24 @@ export class SqliteStorage implements StoragePort {
     this.db
       .prepare(`INSERT INTO entities_fts (id, text) VALUES (?, ?)`)
       .run(e.id, serializeText(latest.type, latest.attributes));
+
+    // 벡터도 최신 버전만 유지 (FTS와 동일 delete+insert). embedding 있을 때만 손댄다 —
+    // 임베딩 없는 버전으로 재put하면 기존 벡터는 그대로 둔다 (entities에 벡터 컬럼이 없어
+    // 최신 벡터를 재구성할 수 없다).
+    if (e.embedding) {
+      this.ensureVecTable(e.embedding.length);
+      this.db.prepare(`DELETE FROM entity_vec WHERE id = ?`).run(e.id);
+      this.db
+        .prepare(`INSERT INTO entity_vec (id, embedding) VALUES (?, ?)`)
+        .run(
+          e.id,
+          Buffer.from(
+            e.embedding.buffer,
+            e.embedding.byteOffset,
+            e.embedding.byteLength,
+          ),
+        );
+    }
   }
 
   async getEntity(id: string, version?: number): Promise<Entity | null> {
@@ -206,7 +238,39 @@ export class SqliteStorage implements StoragePort {
     return rows.map(rowToEntity);
   }
 
-  // similar/embedding은 v0.4 (sqlite-vec)에서. 지금은 capability 부재.
+  /** KNN 유사 entity. vec0 테이블 미생성(임베딩 삽입 이력 없음)이면 빈 배열.
+   * 반환 entity에는 .embedding을 복원해 담는다 — 게이트가 코사인 유사도를 계산해 임계 판정한다. */
+  async similar(embedding: Float32Array, k: number): Promise<Entity[]> {
+    const exists = this.db
+      .prepare(
+        `SELECT 1 FROM sqlite_master WHERE type='table' AND name='entity_vec'`,
+      )
+      .get();
+    if (!exists) return [];
+    const query = Buffer.from(
+      embedding.buffer,
+      embedding.byteOffset,
+      embedding.byteLength,
+    );
+    const hits = this.db
+      .prepare(
+        `SELECT id, embedding FROM entity_vec WHERE embedding MATCH ? AND k = ? ORDER BY distance`,
+      )
+      .all(query, k) as { id: string; embedding: Buffer }[];
+    const out: Entity[] = [];
+    for (const h of hits) {
+      const e = await this.getEntity(h.id);
+      if (!e) continue;
+      const buf = h.embedding;
+      out.push({
+        ...e,
+        embedding: new Float32Array(
+          buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+        ),
+      });
+    }
+    return out;
+  }
 
   // --- StoragePort 밖의 어댑터 확장: 온톨로지 시드 저장/로드 (CLI init용) ---
 
@@ -240,6 +304,20 @@ export class SqliteStorage implements StoragePort {
       )
       .all(status) as EntityRow[];
     return rows.map(rowToEntity);
+  }
+
+  /** type별 최신 버전 relation 목록 (StoragePort 밖 — CLI conflicts용).
+   * neighbors는 특정 id 기준이라 전역 목록에 부적합해 어댑터 확장 메서드로 둔다. */
+  listRelationsByType(type: string): Relation[] {
+    const rows = this.db
+      .prepare(
+        `SELECT r.* FROM relations r
+         WHERE r.version = (SELECT MAX(version) FROM relations WHERE id = r.id)
+           AND r.type = ?
+         ORDER BY r.created_at`,
+      )
+      .all(type) as RelationRow[];
+    return rows.map(rowToRelation);
   }
 
   /** name별 최신 버전만, 최초 등록 순서로 로드. */
