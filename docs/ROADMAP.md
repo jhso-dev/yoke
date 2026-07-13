@@ -71,9 +71,9 @@ port capabilities, etc. See SPEC).
 
 ## v3.0 — enterprise (multi-tenancy, auth)
 
-- [ ] Server mode (remote access: HTTP + MCP remote)
-- [ ] auth: OIDC/SSO integration, API tokens
-- [ ] RBAC: per-ontology-type/namespace permissions (read/write/promote separated —
+- [x] Server mode (remote access: HTTP + MCP remote)
+- [x] auth: OIDC/SSO integration, API tokens
+- [x] RBAC: per-ontology-type/namespace permissions (read/write/promote separated —
       the verify permission *is* the knowledge-governance permission)
 - [x] Multi-tenancy: namespace isolation (accommodated by the v0.1 ID scheme)
 - [x] Per-tenant ontology + shared-ontology inheritance
