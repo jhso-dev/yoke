@@ -105,12 +105,16 @@ yoke connect github-pr     # PR 리뷰 코멘트 → draft decision 적재
 yoke mcp                   # MCP 서버 기동 (stdio)
 ```
 
-## persona export
+## persona 소비 경로
 
-`yoke persona <person>` 출력: SKILL.md 한 장 —
-frontmatter(name/description) + 해당 인물 verified 지식의 인용 목록 +
-"인용 없는 답변 금지" 지시. 스냅샷 파일이지만 **재생성이 원칙**
-(파일에 생성 시각·소스 지식 버전 기록).
+**주 경로 — MCP 실시간 주입**: `yoke_persona` 도구. 호출 시점의 verified 지식에서
+person 스코프 질의를 실행해 인용 포함 텍스트로 반환 — 일반 지식 주입과 동일 흐름.
+매 호출이 곧 재생성이므로 파생물 원칙이 자동 충족된다.
+
+**보조 경로 — SKILL.md export** (`yoke persona <person> --out`): MCP 연결이 없는
+환경용 오프라인 스냅샷. frontmatter(name/description) + 인용 목록 +
+"인용 없는 답변 금지" 지시. 파일에 생성 시각·소스 지식 버전을 기록해
+낡은 스냅샷임을 판별 가능하게 한다.
 
 ## Embedder 계약
 

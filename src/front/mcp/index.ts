@@ -161,7 +161,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     {
       description:
         "특정 인물의 기록된 판단·지식(verified)을 인용과 함께 조회한다. " +
+        "부재중인 동료·담당자의 판단 기준이 필요한 결정을 만나면 (사용자가 그 사람을 직접 언급하지 않아도) 이 도구를 호출하라. " +
         '"Nathen이라면 어떻게 결정할까?"류 질의에, 그 인물의 결정·근거·사실을 인용 기반으로 제공한다. ' +
+        "매 호출 시점의 검증된 지식에서 실시간 생성된다. " +
         "흉내가 아니라 인용이다 — 기록에 없으면 '기록 없음'이라고 답하라.",
       inputSchema: {
         person: z.string().describe("person entity id"),
