@@ -135,6 +135,15 @@ export function describeStoragePort(
       expect(await port.search({ text: "no-such-token" })).toEqual([]);
     });
 
+    // (6b) search: 접두 매칭 — 조사가 붙은 한국어 토큰도 어간으로 검색된다
+    it("search matches token prefixes (Korean suffix tolerance)", async () => {
+      const e = makeEntity({
+        attributes: { title: "결정은 parseArgs로 한다" },
+      });
+      await port.putEntity(e);
+      expect(await port.search({ text: "parseArgs" })).toEqual([e]);
+    });
+
     // (7) getEntity 미존재 → null
     it("getEntity returns null when absent", async () => {
       expect(await port.getEntity("missing-id")).toBeNull();

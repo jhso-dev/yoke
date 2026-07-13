@@ -184,7 +184,8 @@ export class SqliteStorage implements StoragePort {
 
   async search(q: TextQuery): Promise<Entity[]> {
     // 사용자 텍스트를 FTS5 phrase로 감싸 특수문자(-, :, * 등) 구문 오류 방지.
-    const match = `"${q.text.replace(/"/g, '""')}"`;
+    // 접두 매칭(*): 한국어 조사가 붙은 토큰("parseArgs로")도 어간("parseArgs")으로 검색되게.
+    const match = `"${q.text.replace(/"/g, '""')}"*`;
     const typeClause = q.type === undefined ? "" : " AND e.type = @type";
     const statusClause =
       q.status === undefined ? "" : " AND e.status = @status";
