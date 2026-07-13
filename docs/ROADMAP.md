@@ -42,9 +42,9 @@
 
 ## v0.6 — persona
 
-- [ ] person 스코프 질의 (provenance + relation 탐색)
-- [ ] SKILL.md export (`yoke persona <person>`)
-- [ ] MCP 도구: `yoke_persona`
+- [x] person 스코프 질의 (provenance + relation 탐색)
+- [x] SKILL.md export (`yoke persona <person>`)
+- [x] MCP 도구: `yoke_persona`
 
 ## v1.0 — 품질·패키징
 
