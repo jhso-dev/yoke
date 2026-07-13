@@ -16,9 +16,9 @@
 
 ## v0.2 — lifecycle + 주입
 
-- [ ] status 전이 로직 (draft→verified→stale/deprecated)
-- [ ] `inject()` — verified 기본 필터 + 읽기 시점 신선도 판정 (TTL)
-- [ ] 인용 형식 출력 (출처 포함)
+- [x] status 전이 로직 (draft→verified→stale/deprecated)
+- [x] `inject()` — verified 기본 필터 + 읽기 시점 신선도 판정 (TTL)
+- [x] 인용 형식 출력 (출처 포함)
 - [ ] CLI: `review` / `verify <id...>` (일괄)
 
 ## v0.3 — MCP 서버
