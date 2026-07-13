@@ -8,7 +8,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
+import {
+  type AuditEvent,
+  SqliteStorage,
+} from "../../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { citation, inject } from "../../core/inject.js";
@@ -20,8 +23,10 @@ import type { StoragePort } from "../../ports/storage.js";
 const ORIGIN = "mcp";
 
 export interface YokeMcpDeps {
-  /** The persona tool needs provenance.actor lookups (listByActor), which requires the adapter extension. */
-  store: StoragePort & Pick<PersonaPort, "listByActor">;
+  /** The persona tool needs provenance.actor lookups (listByActor), which requires the adapter extension.
+   * logAudit (PLAN 8.4) is optional: adapters without it simply skip injection auditing. */
+  store: StoragePort &
+    Pick<PersonaPort, "listByActor"> & { logAudit?(event: AuditEvent): void };
   ontology: TypeDef[];
   /** Default actor when a tool call omits one (resolved from env at server startup). */
   defaultActor: string;
@@ -98,9 +103,17 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       },
     },
     async ({ query, includeDraft, limit }) => {
-      const { items } = await inject(store, ontology, query, now(), {
+      const ts = now();
+      const { items } = await inject(store, ontology, query, ts, {
         includeDraft,
         limit,
+      });
+      // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
+      store.logAudit?.({
+        actor: defaultActor,
+        action: "inject",
+        detail: `${query} -> ${items.map((it) => it.entity.id).join(" ")}`,
+        at: ts,
       });
       if (items.length === 0)
         return ok(`no verified knowledge found for: ${query}`);
@@ -185,16 +198,25 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     async ({ person, query }) => {
       if (!(await store.getEntity(person)))
         return err(`person not found: ${person}`);
+      const ts = now();
       const { decisions, facts } = await personaQuery(
         store,
         ontology,
         person,
-        now(),
+        ts,
       );
       const q = query?.toLowerCase();
       const hit = (e: Entity) =>
         q === undefined ||
         JSON.stringify(e.attributes).toLowerCase().includes(q);
+      // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.
+      const injected = [...decisions.filter(hit), ...facts.filter(hit)];
+      store.logAudit?.({
+        actor: defaultActor,
+        action: "persona",
+        detail: `${person}${query ? ` ${query}` : ""} -> ${injected.map((e) => e.id).join(" ")}`,
+        at: ts,
+      });
       const blocks: string[] = [];
       for (const d of decisions.filter(hit))
         blocks.push(

@@ -12,11 +12,14 @@ import Database from "better-sqlite3";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { makeGithubPrConnector } from "../../connectors/github-pr.js";
 import { ingest } from "../../connectors/ingest.js";
+import { makeNotesConnector } from "../../connectors/meeting-notes.js";
 import {
   ingestMapped,
   type MappingSpec,
   makeRdbMappingConnector,
 } from "../../connectors/rdb-mapping.js";
+import { makeSlackConnector } from "../../connectors/slack.js";
+import type { Connector } from "../../connectors/types.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { inject } from "../../core/inject.js";
@@ -44,6 +47,7 @@ type Values = {
   mapping?: string;
   dsn?: string;
   sqlite?: string;
+  channel?: string;
   "all-drafts"?: boolean;
   "include-draft"?: boolean;
 };
@@ -62,6 +66,7 @@ const OPTIONS = {
   mapping: { type: "string" },
   dsn: { type: "string" },
   sqlite: { type: "string" },
+  channel: { type: "string" },
   "all-drafts": { type: "boolean" },
   "include-draft": { type: "boolean" },
 } as const;
@@ -317,14 +322,61 @@ async function cmdInject(
   const limit = v.limit === undefined ? undefined : Number(v.limit);
   return withStore(db, async (store) => {
     const ontology = store.loadOntology();
-    const { items } = await inject(store, ontology, query, now(), {
+    const ts = now();
+    const { items } = await inject(store, ontology, query, ts, {
       includeDraft: v["include-draft"],
       limit,
+    });
+    // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core stays pure.
+    store.logAudit({
+      actor: resolveActor(v, env),
+      action: "inject",
+      detail: `${query} -> ${items.map((it) => it.entity.id).join(" ")}`,
+      at: ts,
     });
     const lines = items.map(
       (it) => `${it.citation}  ${summarize(it.entity.attributes)}`,
     );
     emit(v, items.length ? lines.join("\n") : "no results", items);
+    return 0;
+  });
+}
+
+// history (PLAN 8.4): the append-only version rows ARE the change audit — this just exposes them.
+async function cmdHistory(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const id = positionals[0];
+  if (!id) {
+    console.error("usage: yoke history <id>");
+    return 1;
+  }
+  const db = resolveDb(v, env);
+  return withStore(db, async (store) => {
+    const versions = store.listHistory(id);
+    if (versions.length === 0) {
+      console.error(`not found: ${id}`);
+      return 1;
+    }
+    const lines = versions.map(
+      (e) =>
+        `v${e.version}  ${e.status}  ${e.provenance.actor}  ${e.last_confirmed}  ${summarize(e.attributes)}`,
+    );
+    emit(v, lines.join("\n"), versions);
+    return 0;
+  });
+}
+
+async function cmdAudit(v: Values, env: Env): Promise<number> {
+  const db = resolveDb(v, env);
+  return withStore(db, async (store) => {
+    const events = store.listAudit(v.since);
+    const lines = events.map(
+      (e) => `${e.at}  ${e.actor}  ${e.action}  ${e.detail}`,
+    );
+    emit(v, events.length ? lines.join("\n") : "no audit events", events);
     return 0;
   });
 }
@@ -397,25 +449,14 @@ async function cmdOntology(
   return 1;
 }
 
-async function cmdConnect(
-  positionals: string[],
+/** Shared connect tail: route any connector through ingest (draft staging, idempotent external_id). */
+async function runIngest(
+  connector: Connector,
   v: Values,
   env: Env,
 ): Promise<number> {
-  const source = positionals[0];
-  if (source === "rdb") return cmdConnectRdb(v, env);
-  if (source !== "github-pr" || !v.repo) {
-    console.error(
-      "usage: yoke connect github-pr --repo owner/name [--since date] [--actor a]",
-    );
-    return 1;
-  }
   const db = resolveDb(v, env);
   const actor = resolveActor(v, env);
-  const connector = makeGithubPrConnector({
-    repo: v.repo,
-    token: env.GITHUB_TOKEN,
-  });
   return withStore(db, async (store) => {
     const ontology = store.loadOntology();
     const { added, skipped } = await ingest(
@@ -429,6 +470,51 @@ async function cmdConnect(
     emit(v, `added ${added}, skipped ${skipped}`, { added, skipped });
     return 0;
   });
+}
+
+async function cmdConnect(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const source = positionals[0];
+  if (source === "rdb") return cmdConnectRdb(v, env);
+  if (source === "slack") {
+    if (!v.channel) {
+      console.error(
+        "usage: yoke connect slack --channel C123 [--since ts] (SLACK_TOKEN env required)",
+      );
+      return 1;
+    }
+    if (!env.SLACK_TOKEN) {
+      console.error("SLACK_TOKEN environment variable is required");
+      return 1;
+    }
+    return runIngest(
+      makeSlackConnector({ channel: v.channel, token: env.SLACK_TOKEN }),
+      v,
+      env,
+    );
+  }
+  if (source === "notes") {
+    const dir = positionals[1];
+    if (!dir) {
+      console.error("usage: yoke connect notes <dir> [--actor a]");
+      return 1;
+    }
+    return runIngest(makeNotesConnector({ dir }), v, env);
+  }
+  if (source !== "github-pr" || !v.repo) {
+    console.error(
+      "usage: yoke connect <github-pr --repo owner/name | slack --channel C123 | notes <dir> | rdb --mapping f.json> [--since ts] [--actor a]",
+    );
+    return 1;
+  }
+  return runIngest(
+    makeGithubPrConnector({ repo: v.repo, token: env.GITHUB_TOKEN }),
+    v,
+    env,
+  );
 }
 
 // connect rdb (PLAN 8.3): read-map an existing RDB into verified entities. See rdb-mapping.ts for the
@@ -558,6 +644,10 @@ export async function runCli(
         return await cmdDeprecate(rest, values, env);
       case "inject":
         return await cmdInject(rest, values, env);
+      case "history":
+        return await cmdHistory(rest, values, env);
+      case "audit":
+        return await cmdAudit(values, env);
       case "conflicts":
         return await cmdConflicts(values, env);
       case "ontology":
@@ -572,7 +662,7 @@ export async function runCli(
         return 0;
       default:
         console.error(
-          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|conflicts|ontology|connect|persona|mcp> ...`,
+          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|history|audit|conflicts|ontology|connect|persona|mcp> ...`,
         );
         return 1;
     }

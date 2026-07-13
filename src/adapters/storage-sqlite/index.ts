@@ -47,7 +47,24 @@ CREATE TABLE IF NOT EXISTS ontology_types (
   def TEXT NOT NULL,                 -- JSON (full TypeDef)
   PRIMARY KEY (name, version)
 );
+
+-- Injection audit (PLAN 8.4). Append-only, written by front tiers only (core stays pure).
+-- Entity mutations need no row here — the append-only version history already records them.
+CREATE TABLE IF NOT EXISTS audit_log (
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  at TEXT NOT NULL                   -- ISO 8601
+);
 `;
+
+/** One audit_log row. 'who saw what when' (ENTERPRISE.md) — inject/persona reads at the front tier. */
+export interface AuditEvent {
+  actor: string;
+  action: string;
+  detail: string;
+  at: string;
+}
 
 interface EntityRow {
   id: string;
@@ -341,6 +358,41 @@ export class SqliteStorage implements StoragePort {
       )
       .all(type) as RelationRow[];
     return rows.map(rowToRelation);
+  }
+
+  /** All versions of an id, ascending (outside StoragePort — for CLI history, PLAN 8.4).
+   * getEntity returns one version; the append-only rows ARE the change audit, this just exposes them. */
+  listHistory(id: string): Entity[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM entities WHERE id = ? ORDER BY version ASC`)
+      .all(id) as EntityRow[];
+    return rows.map(rowToEntity);
+  }
+
+  /** Append one injection-audit event (outside StoragePort — written by front tiers, PLAN 8.4). */
+  logAudit(event: AuditEvent): void {
+    this.db
+      .prepare(
+        `INSERT INTO audit_log (actor, action, detail, at) VALUES (?, ?, ?, ?)`,
+      )
+      .run(event.actor, event.action, event.detail, event.at);
+  }
+
+  /** Audit events in insertion order, optionally filtered to at >= since (for CLI audit --since). */
+  listAudit(since?: string): AuditEvent[] {
+    return (
+      since === undefined
+        ? this.db
+            .prepare(
+              `SELECT actor, action, detail, at FROM audit_log ORDER BY rowid`,
+            )
+            .all()
+        : this.db
+            .prepare(
+              `SELECT actor, action, detail, at FROM audit_log WHERE at >= ? ORDER BY rowid`,
+            )
+            .all(since)
+    ) as AuditEvent[];
   }
 
   /** Load only the latest version per name, in first-registration order. */

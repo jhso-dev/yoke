@@ -1,7 +1,13 @@
 // CLI scenario tests — call runCli directly (no process spawn needed; exit code is the return value).
 // Uses a temp-directory DB for one init→add→get→search round-trip plus one rejected add (exit 1).
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -312,5 +318,95 @@ describe("runCli", () => {
 
     // add-type with a missing file → exit 1
     expect(await runCli(["ontology", "add-type", "--db", db])).toBe(1);
+  });
+
+  it("history lists all versions; audit records inject events (PLAN 8.4)", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "title=audittoken",
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+    expect(await runCli(["verify", id, "--db", db])).toBe(0);
+
+    // history: v1 draft + v2 verified, ascending
+    expect(await runCli(["history", id, "--db", db, "--json"])).toBe(0);
+    const history = JSON.parse(logs.at(-1) as string);
+    expect(history.map((e: { version: number }) => e.version)).toEqual([1, 2]);
+    expect(history.map((e: { status: string }) => e.status)).toEqual([
+      "draft",
+      "verified",
+    ]);
+    // absent id → exit 1
+    expect(await runCli(["history", "nope", "--db", db])).toBe(1);
+
+    // inject writes an audit event
+    expect(
+      await runCli(["inject", "audittoken", "--db", db, "--actor", "alice"]),
+    ).toBe(0);
+    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    const events = JSON.parse(logs.at(-1) as string);
+    expect(events).toHaveLength(1);
+    expect(events[0].actor).toBe("alice");
+    expect(events[0].action).toBe("inject");
+    expect(events[0].detail).toContain("audittoken");
+    expect(events[0].detail).toContain(id);
+
+    // --since in the future filters it out
+    expect(
+      await runCli(["audit", "--db", db, "--since", "2099-01-01T00:00:00Z"]),
+    ).toBe(0);
+    expect(logs.at(-1)).toBe("no audit events");
+  });
+
+  it("connect notes ingests transcript chunks as drafts, idempotently (PLAN 8.5)", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const notesDir = join(dir, "notes-fixture");
+    mkdirSync(notesDir, { recursive: true });
+    writeFileSync(
+      join(notesDir, "sync.md"),
+      "# Sync\nwe chose sqlite\n\nnext review friday\n",
+    );
+
+    expect(
+      await runCli(["connect", "notes", notesDir, "--db", db, "--json"]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toEqual({
+      added: 2,
+      skipped: 0,
+    });
+    // re-run skips (external_id idempotency)
+    expect(
+      await runCli(["connect", "notes", notesDir, "--db", db, "--json"]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toEqual({
+      added: 0,
+      skipped: 2,
+    });
+
+    // staged as drafts (governance: connectors never bypass review)
+    expect(await runCli(["review", "--db", db, "--type", "fact"])).toBe(0);
+    expect(logs.at(-1)).toContain("we chose sqlite");
+
+    // missing dir arg → usage, exit 1
+    expect(await runCli(["connect", "notes", "--db", db])).toBe(1);
+
+    // connect slack without SLACK_TOKEN → exit 1 (no live call)
+    expect(
+      await runCli(["connect", "slack", "--channel", "C123", "--db", db], {
+        ...process.env,
+        SLACK_TOKEN: undefined,
+      }),
+    ).toBe(1);
+    expect(errs.at(-1)).toContain("SLACK_TOKEN");
   });
 });

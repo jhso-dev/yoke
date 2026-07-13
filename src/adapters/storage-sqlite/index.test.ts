@@ -102,3 +102,57 @@ describe("sqlite-vec similar", () => {
     store.close();
   });
 });
+
+describe("audit extensions (PLAN 8.4)", () => {
+  const base = {
+    type: "fact",
+    status: "draft" as const,
+    version: 1,
+    last_confirmed: "2026-01-01T00:00:00Z",
+    provenance: {
+      actor: "yoke:system",
+      origin: "cli",
+      occurred_at: "2026-01-01T00:00:00Z",
+    },
+  };
+
+  it("listHistory returns all versions ascending", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    await store.putEntity({ ...base, id: "e", attributes: { n: "v1" } });
+    await store.putEntity({
+      ...base,
+      id: "e",
+      version: 2,
+      status: "verified",
+      attributes: { n: "v2" },
+    });
+    const history = store.listHistory("e");
+    expect(history.map((e) => e.version)).toEqual([1, 2]);
+    expect(history.map((e) => e.status)).toEqual(["draft", "verified"]);
+    expect(store.listHistory("nope")).toEqual([]);
+    store.close();
+  });
+
+  it("logAudit/listAudit round-trip with since filter", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    const a = {
+      actor: "alice",
+      action: "inject",
+      detail: "cache -> id1 id2",
+      at: "2026-01-01T00:00:00Z",
+    };
+    const b = {
+      actor: "bob",
+      action: "persona",
+      detail: "p1 -> id3",
+      at: "2026-02-01T00:00:00Z",
+    };
+    store.logAudit(a);
+    store.logAudit(b);
+    expect(store.listAudit()).toEqual([a, b]);
+    expect(store.listAudit("2026-01-15T00:00:00Z")).toEqual([b]);
+    store.close();
+  });
+});
