@@ -1,7 +1,7 @@
 // CLI 시나리오 테스트 — runCli를 직접 호출 (프로세스 spawn 불필요, exit code는 반환값).
 // 임시 디렉토리 DB로 init→add→get→search 1개 + add 거절(exit 1) 1개.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -229,6 +229,53 @@ describe("runCli", () => {
     expect(await runCli(["init", "--db", db2])).toBe(0);
     expect(await runCli(["conflicts", "--db", db2])).toBe(0);
     expect(logs.at(-1)).toBe("no conflicts");
+  });
+
+  it("persona writes SKILL.md for a person to --out dir", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    // yoke:system(person, verified) 을 actor로 결정 기록 후 같은 actor로 승격.
+    expect(
+      await runCli([
+        "add",
+        "decision",
+        "--db",
+        db,
+        "--actor",
+        "yoke:system",
+        "--attr",
+        "conclusion=use SQLite",
+        "--attr",
+        "rationale=zero-config",
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+    expect(
+      await runCli(["verify", id, "--db", db, "--actor", "yoke:system"]),
+    ).toBe(0);
+
+    expect(
+      await runCli([
+        "persona",
+        "yoke:system",
+        "--db",
+        db,
+        "--out",
+        dir,
+        "--json",
+      ]),
+    ).toBe(0);
+    const { path, sources } = JSON.parse(logs.at(-1) as string);
+    expect(path).toBe(join(dir, "persona-yoke-system", "SKILL.md"));
+    expect(sources).toBeGreaterThanOrEqual(1);
+    const md = readFileSync(path, "utf8");
+    expect(md).toContain("name: persona-yoke-system");
+    expect(md).toContain("use SQLite");
+    expect(md).toContain("인용 없는 답변 금지");
+
+    // 미존재 person → exit 1
+    expect(await runCli(["persona", "nobody", "--db", db])).toBe(1);
   });
 
   it("ontology list + add-type (migration = new version)", async () => {

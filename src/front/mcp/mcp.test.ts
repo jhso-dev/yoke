@@ -108,8 +108,53 @@ describe("yoke MCP server", () => {
     expect(names).toEqual([
       "yoke_commit",
       "yoke_inject",
+      "yoke_persona",
       "yoke_record_decision",
     ]);
+    await s.close();
+  });
+
+  it("yoke_persona: 인물 verified 결정을 인용과 함께 반환, 미존재 인물은 도구 에러", async () => {
+    // yoke:system 이 결정을 기록하고 (같은 actor로) verify → persona에 잡힌다.
+    const seed = await openSession();
+    const rec = await seed.client.callTool({
+      name: "yoke_record_decision",
+      arguments: {
+        conclusion: "adopt append-only storage",
+        rationale: "audit trail requires immutable history",
+      },
+    });
+    const id = JSON.parse(text(rec)).id as string;
+    await seed.close();
+    // verify는 CLI 몫 — actor를 yoke:system으로 유지해 provenance.actor 매칭이 살아있게.
+    expect(
+      await runCli(["verify", id, "--db", db, "--actor", "yoke:system"]),
+    ).toBe(0);
+
+    const s = await openSession();
+    const res = await s.client.callTool({
+      name: "yoke_persona",
+      arguments: { person: "yoke:system" },
+    });
+    expect(res.isError).toBeFalsy();
+    const out = text(res);
+    expect(out).toContain("adopt append-only storage");
+    expect(out).toContain(id); // citation
+
+    // query 필터: 매칭 없으면 '기록 없음'
+    const filtered = await s.client.callTool({
+      name: "yoke_persona",
+      arguments: { person: "yoke:system", query: "nonexistent-topic-xyz" },
+    });
+    expect(text(filtered)).toContain("기록 없음");
+
+    // 미존재 인물 → 도구 에러
+    const missing = await s.client.callTool({
+      name: "yoke_persona",
+      arguments: { person: "nobody" },
+    });
+    expect(missing.isError).toBe(true);
+    expect(text(missing)).toContain("person not found");
     await s.close();
   });
 });

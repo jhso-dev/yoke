@@ -306,6 +306,26 @@ export class SqliteStorage implements StoragePort {
     return rows.map(rowToEntity);
   }
 
+  /** provenance.actor로 entity 필터 (StoragePort 밖 — persona 6.1용).
+   * search는 text 기반이라 provenance를 못 걸러 부적합하고, listByStatus와 동일 패턴.
+   * actor 매칭은 이력 전체(모든 버전) 대상 — verify가 최신 버전 provenance를 승격자로
+   * 갱신해도 원저자의 기여가 소실되지 않는다 (append-only 이력이 원저자를 보존).
+   * 반환은 매칭된 id의 최신 버전 행. */
+  listByActor(actor: string): Entity[] {
+    const rows = this.db
+      .prepare(
+        `SELECT e.* FROM entities e
+         WHERE e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)
+           AND e.id IN (
+             SELECT id FROM entities
+             WHERE json_extract(provenance, '$.actor') = ?
+           )
+         ORDER BY e.created_at`,
+      )
+      .all(actor) as EntityRow[];
+    return rows.map(rowToEntity);
+  }
+
   /** type별 최신 버전 relation 목록 (StoragePort 밖 — CLI conflicts용).
    * neighbors는 특정 id 기준이라 전역 목록에 부적합해 어댑터 확장 메서드로 둔다. */
   listRelationsByType(type: string): Relation[] {

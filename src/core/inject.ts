@@ -14,7 +14,7 @@ export interface InjectItem {
 }
 
 /** `[{type}:{id}@v{version}] {actor}, {occurred_at}` — 감사 인용 형식. */
-function citation(e: Entity): string {
+export function citation(e: Entity): string {
   return `[${e.type}:${e.id}@v${e.version}] ${e.provenance.actor}, ${e.provenance.occurred_at}`;
 }
 

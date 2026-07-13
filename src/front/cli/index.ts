@@ -4,7 +4,8 @@
 // 명령 핸들러는 runCli(argv, env)로 분리 — 프로세스 spawn 없이 테스트 가능, exit code는 반환값.
 // Date 획득은 이 front 계층에서만 (core는 now를 주입받는다).
 
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
@@ -15,6 +16,11 @@ import { makeFetchEmbedder } from "../../core/embedding.js";
 import { inject } from "../../core/inject.js";
 import { deprecate, verify } from "../../core/lifecycle.js";
 import { seedOntology, type TypeDef } from "../../core/ontology.js";
+import {
+  personaQuery,
+  renderPersonaSkill,
+  safeName,
+} from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { runMcp } from "../mcp/index.js";
 
@@ -28,6 +34,7 @@ type Values = {
   json?: boolean;
   repo?: string;
   since?: string;
+  out?: string;
   "all-drafts"?: boolean;
   "include-draft"?: boolean;
 };
@@ -42,6 +49,7 @@ const OPTIONS = {
   json: { type: "boolean" },
   repo: { type: "string" },
   since: { type: "string" },
+  out: { type: "string" },
   "all-drafts": { type: "boolean" },
   "include-draft": { type: "boolean" },
 } as const;
@@ -410,6 +418,38 @@ async function cmdConnect(
   });
 }
 
+async function cmdPersona(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const id = positionals[0];
+  if (!id) {
+    console.error("usage: yoke persona <person-id> [--out dir]");
+    return 1;
+  }
+  const db = resolveDb(v, env);
+  return withStore(db, async (store) => {
+    const person = await store.getEntity(id);
+    if (!person) {
+      console.error(`not found: ${id}`);
+      return 1;
+    }
+    const ontology = store.loadOntology();
+    const ts = now();
+    const result = await personaQuery(store, ontology, id, ts);
+    const md = renderPersonaSkill(person, result, ts);
+    // fs는 CLI 계층에서만 (core는 문자열만 생성).
+    const outDir = join(v.out ?? ".", `persona-${safeName(id)}`);
+    mkdirSync(outDir, { recursive: true });
+    const file = join(outDir, "SKILL.md");
+    writeFileSync(file, md);
+    const sources = result.decisions.length + result.facts.length;
+    emit(v, `saved: ${file}\n소스 지식 ${sources}건`, { path: file, sources });
+    return 0;
+  });
+}
+
 export async function runCli(
   argv: string[],
   env: Env = process.env,
@@ -452,13 +492,15 @@ export async function runCli(
         return await cmdOntology(rest, values, env);
       case "connect":
         return await cmdConnect(rest, values, env);
+      case "persona":
+        return await cmdPersona(rest, values, env);
       case "mcp":
         // stdio 서버 기동 — 연결이 닫힐 때까지 resolve되지 않는다 (process 유지).
         await runMcp(resolveDb(values, env), env);
         return 0;
       default:
         console.error(
-          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|conflicts|ontology|connect|mcp> ...`,
+          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|conflicts|ontology|connect|persona|mcp> ...`,
         );
         return 1;
     }

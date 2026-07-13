@@ -11,15 +11,17 @@ import { z } from "zod";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
-import { inject } from "../../core/inject.js";
+import { citation, inject } from "../../core/inject.js";
 import type { TypeDef } from "../../core/ontology.js";
-import type { EntityInput } from "../../core/types.js";
+import { type PersonaPort, personaQuery } from "../../core/persona.js";
+import type { Entity, EntityInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
 
 const ORIGIN = "mcp";
 
 export interface YokeMcpDeps {
-  store: StoragePort;
+  /** persona 도구가 provenance.actor 조회(listByActor)를 필요로 해 어댑터 확장을 요구한다. */
+  store: StoragePort & Pick<PersonaPort, "listByActor">;
   ontology: TypeDef[];
   /** 도구 입력에 actor가 없을 때의 기본값 (서버 기동 시 env로 해석). */
   defaultActor: string;
@@ -151,6 +153,47 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       if (rejected_alternatives)
         attributes.rejected_alternatives = rejected_alternatives;
       return doCommit({ type: "decision", attributes }, actor);
+    },
+  );
+
+  server.registerTool(
+    "yoke_persona",
+    {
+      description:
+        "특정 인물의 기록된 판단·지식(verified)을 인용과 함께 조회한다. " +
+        '"Nathen이라면 어떻게 결정할까?"류 질의에, 그 인물의 결정·근거·사실을 인용 기반으로 제공한다. ' +
+        "흉내가 아니라 인용이다 — 기록에 없으면 '기록 없음'이라고 답하라.",
+      inputSchema: {
+        person: z.string().describe("person entity id"),
+        query: z
+          .string()
+          .optional()
+          .describe("결정·사실을 걸러낼 텍스트 (선택, 단순 포함 매칭)"),
+      },
+    },
+    async ({ person, query }) => {
+      if (!(await store.getEntity(person)))
+        return err(`person not found: ${person}`);
+      const { decisions, facts } = await personaQuery(
+        store,
+        ontology,
+        person,
+        now(),
+      );
+      const q = query?.toLowerCase();
+      const hit = (e: Entity) =>
+        q === undefined ||
+        JSON.stringify(e.attributes).toLowerCase().includes(q);
+      const blocks: string[] = [];
+      for (const d of decisions.filter(hit))
+        blocks.push(
+          `[결정] ${String(d.attributes.conclusion)}\n근거: ${String(d.attributes.rationale)}\n${citation(d)}`,
+        );
+      for (const f of facts.filter(hit))
+        blocks.push(`[지식] ${JSON.stringify(f.attributes)}\n${citation(f)}`);
+      if (blocks.length === 0)
+        return ok(`${person}의 기록된 지식이 없습니다 (기록 없음).`);
+      return ok(blocks.join("\n\n"));
     },
   );
 
