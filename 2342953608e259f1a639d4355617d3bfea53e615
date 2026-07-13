@@ -1,0 +1,39 @@
+src/front/cli/index.ts
+  d735c99471326cb3 1-231
+src/front/cli/cli.test.ts
+  d735c99471326cb3 1-70
+src/ports/conformance.ts
+  d735c99471326cb3 138-144
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "2342953608e259f1a639d4355617d3bfea53e615",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 17,
+        "mcp__openviking__find": 1,
+        "Write": 11,
+        "Edit": 26,
+        "ToolSearch": 1,
+        "WebSearch": 6,
+        "Agent": 7,
+        "Read": 6
+      },
+      "total_additions": 310,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
