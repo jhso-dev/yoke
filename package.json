@@ -29,7 +29,7 @@
     "build": "tsc",
     "test": "npm run test:main && npm run test:kuzu",
     "test:main": "vitest run",
-    "test:kuzu": "node scripts/test-kuzu.mjs",
+    "test:kuzu": "npm run build && node scripts/test-kuzu.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "eval": "tsx eval/inject-quality.ts",

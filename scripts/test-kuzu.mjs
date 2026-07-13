@@ -1,41 +1,55 @@
 #!/usr/bin/env node
-// kuzu's native binding sometimes kills its vitest fork AFTER the tests pass
-// (ERR_IPC_CHANNEL_CLOSED — worse on Linux), corrupting the exit code. So we
-// judge the run by its JSON report, not its exit code: success = the report
-// exists, ran at least one test, and none failed. A crash BEFORE the report is
-// written still fails (no report / zero tests).
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+// Runs the StoragePort conformance suite against the kuzu adapter IN THE MAIN
+// PROCESS — no vitest, no fork, no IPC. kuzu's native binding cannot survive a
+// vitest pool (fork IPC dies, threads segfault), and even sequential
+// open→close→open cycles of kuzu Databases segfault (~3-4 cycles in). So:
+// ONE database hosts the whole suite — safe because every case uses globally
+// unique ids and distinctive search tokens — and the process exits WITHOUT
+// closing: the verdict is recorded via process.exit before any native
+// teardown can run. The temp dir is removed while handles are open (POSIX ok).
+// Cases come from the same runner-neutral module the vitest wrapper uses
+// (dist/ports/conformance-cases.js) — one contract source. Requires a prior
+// `npm run build` (the npm script chains it).
+
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { conformanceCases } from "../dist/ports/conformance-cases.js";
+import { KuzuStorage } from "../dist/adapters/storage-kuzu/index.js";
+import { seedOntology } from "../dist/core/ontology.js";
 
-const dir = mkdtempSync(join(tmpdir(), "yoke-kuzu-report-"));
-const report = join(dir, "report.json");
+const scratch = mkdtempSync(join(tmpdir(), "yoke-kuzu-conf-"));
+const port = new KuzuStorage(join(scratch, "db"));
+await port.init();
 
-const r = spawnSync(
-  "npx",
-  [
-    "vitest",
-    "run",
-    "--config",
-    "vitest.kuzu.config.ts",
-    "--reporter=json",
-    `--outputFile=${report}`,
-  ],
-  { stdio: ["ignore", "inherit", "inherit"] },
-);
-
-let ok = false;
-try {
-  const j = JSON.parse(readFileSync(report, "utf8"));
-  ok = j.numTotalTests > 0 && j.numFailedTests === 0 && j.numTotalTestSuites > 0;
-  console.log(
-    `kuzu suite: ${j.numPassedTests}/${j.numTotalTests} passed` +
-      (r.status === 0 ? "" : " (post-success native teardown crash tolerated)"),
-  );
-} catch {
-  console.error("kuzu suite: no test report produced — treating as failure");
-} finally {
-  rmSync(dir, { recursive: true, force: true });
+let failed = 0;
+for (const c of conformanceCases) {
+  try {
+    await c.run(port);
+    console.log(`  ✓ ${c.name}`);
+  } catch (e) {
+    failed += 1;
+    console.error(`  ✗ ${c.name}\n    ${e.message}`);
+  }
 }
-process.exit(ok ? 0 : 1);
+
+// Ontology round-trip (the adapter-extension surface the CLI init path uses).
+try {
+  const seed = seedOntology();
+  await port.saveOntology(seed);
+  assert.deepStrictEqual(await port.loadOntology(), seed);
+  console.log("  ✓ ontology save/load round-trips the seed");
+} catch (e) {
+  failed += 1;
+  console.error(`  ✗ ontology save/load\n    ${e.message}`);
+}
+
+try {
+  rmSync(scratch, { recursive: true, force: true });
+} catch {
+  // best-effort cleanup; the tmpdir reaper gets the rest.
+}
+const total = conformanceCases.length + 1;
+console.log(`kuzu suite: ${total - failed}/${total} passed`);
+process.exit(failed === 0 ? 0 : 1);
