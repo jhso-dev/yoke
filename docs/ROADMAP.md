@@ -56,8 +56,8 @@ port capabilities, etc. See SPEC).
 ## v2.0 — backend expansion + traditional-DB compatibility
 
 - [x] Graph DB adapter (KuzuDB embedded first, Neo4j next) — passes conformance
-- [ ] Vector DB adapter (Qdrant) — a similar-capability implementation
-- [ ] **RDB read-mapping**: Postgres/MySQL tables → read-only entity mapping
+- [x] Vector DB adapter (Qdrant) — a similar-capability implementation
+- [x] **RDB read-mapping**: Postgres/MySQL tables → read-only entity mapping
       (a table-to-ontology mapping declaration file; the enterprise wedge — MARKET strategy 3)
 - [ ] Audit log (a query API over the immutable record of gate/promotion/injection)
 - [ ] More connectors: Slack, meeting notes
