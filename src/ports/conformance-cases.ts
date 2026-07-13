@@ -65,8 +65,12 @@ function eq(actual: unknown, expected: unknown, msg?: string): void {
   );
 }
 
-const byId = (a: { id: string }, b: { id: string }) =>
-  a.id.localeCompare(b.id);
+// Written as a declaration (not an arrow) on purpose: the arrow form sits at
+// biome's 80-column boundary, where the darwin and linux binaries disagree on
+// CJK-adjacent width math and flip-flop the formatting.
+function byId(a: { id: string }, b: { id: string }): number {
+  return a.id.localeCompare(b.id);
+}
 
 export interface ConformanceCase {
   name: string;
@@ -161,7 +165,10 @@ export const conformanceCases: ConformanceCase[] = [
     // where "parseArgs" carries a particle suffix; prefix matching must strip it.
     name: "search matches token prefixes (Korean suffix tolerance)",
     async run(port) {
-      const e = makeEntity({ attributes: { title: "결정은 parseArgs로 한다" } });
+      // Extracted const keeps the line clear of the 80-column boundary, where
+      // biome's darwin/linux binaries disagree on CJK width (see byId above).
+      const title = "결정은 parseArgs로 한다";
+      const e = makeEntity({ attributes: { title } });
       await port.putEntity(e);
       eq(await port.search({ text: "parseArgs" }), [e]);
     },
