@@ -59,8 +59,8 @@ port capabilities, etc. See SPEC).
 - [x] Vector DB adapter (Qdrant) — a similar-capability implementation
 - [x] **RDB read-mapping**: Postgres/MySQL tables → read-only entity mapping
       (a table-to-ontology mapping declaration file; the enterprise wedge — MARKET strategy 3)
-- [ ] Audit log (a query API over the immutable record of gate/promotion/injection)
-- [ ] More connectors: Slack, meeting notes
+- [x] Audit log (a query API over the immutable record of gate/promotion/injection)
+- [x] More connectors: Slack, meeting notes
 
 ## v2.5 — web UI
 
