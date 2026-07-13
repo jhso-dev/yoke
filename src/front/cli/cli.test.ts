@@ -555,4 +555,46 @@ describe("runCli", () => {
       ),
     ).toBe(true);
   });
+
+  it("--help / no args / 'help' print grouped usage and exit 0", async () => {
+    for (const argv of [["--help"], ["-h"], ["help"], []]) {
+      expect(await runCli(argv.concat(["--db", newDb()]))).toBe(0);
+      expect(logs.at(-1)).toContain("getting started");
+    }
+    // Unknown command shows the same usage but exits 1.
+    expect(await runCli(["frobnicate", "--db", newDb()])).toBe(1);
+    expect(errs.at(-1)).toContain("getting started");
+  });
+
+  it("ontology-needing commands on an uninitialized DB point at 'yoke init'", async () => {
+    const db = newDb();
+    expect(
+      await runCli(["add", "fact", "--db", db, "--attr", "note=x"]),
+    ).toBe(1);
+    expect(errs.at(-1)).toContain("yoke init");
+    expect(await runCli(["inject", "anything", "--db", db])).toBe(1);
+    expect(errs.at(-1)).toContain("yoke init");
+  });
+
+  it("inject with only draft matches says the drafts were withheld (json stays raw)", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli(["add", "fact", "--db", db, "--attr", "note=quarantined"]),
+    ).toBe(0);
+
+    expect(await runCli(["inject", "quarantined", "--db", db])).toBe(0);
+    expect(logs.at(-1)).toContain("withheld");
+    expect(logs.at(-1)).toContain("yoke review");
+
+    // --json contract unchanged: raw (empty) items array, no hint text.
+    expect(await runCli(["inject", "quarantined", "--db", db, "--json"])).toBe(
+      0,
+    );
+    expect(JSON.parse(logs.at(-1) as string)).toEqual([]);
+
+    // A genuinely absent topic still reads "no results".
+    expect(await runCli(["inject", "nonexistent-topic", "--db", db])).toBe(0);
+    expect(logs.at(-1)).toBe("no results");
+  });
 });

@@ -39,7 +39,8 @@ Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server requir
 ## 60-second quickstart
 
 ```bash
-npm install -g yoke      # or: npx yoke <cmd>
+git clone https://github.com/jhso-dev/yoke && cd yoke
+npm install && npm run build && npm link   # provides the global `yoke` command
 
 yoke init                                    # create ./yoke.db + seed the ontology
 yoke add fact --attr statement="Deployments only happen Tuesday mornings"

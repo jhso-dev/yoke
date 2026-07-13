@@ -28,8 +28,8 @@
   "scripts": {
     "build": "tsc",
     "test": "npm run test:main && npm run test:kuzu",
-    "test:main": "vitest run --passWithNoTests --exclude src/adapters/storage-kuzu/**",
-    "test:kuzu": "vitest run src/adapters/storage-kuzu",
+    "test:main": "vitest run",
+    "test:kuzu": "vitest run --config vitest.kuzu.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "eval": "tsx eval/inject-quality.ts",

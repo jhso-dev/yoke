@@ -54,6 +54,7 @@ type Values = {
   type?: string;
   limit?: string;
   json?: boolean;
+  help?: boolean;
   repo?: string;
   since?: string;
   out?: string;
@@ -83,6 +84,7 @@ const OPTIONS = {
   type: { type: "string" },
   limit: { type: "string" },
   json: { type: "boolean" },
+  help: { type: "boolean", short: "h" },
   repo: { type: "string" },
   since: { type: "string" },
   out: { type: "string" },
@@ -151,6 +153,43 @@ function summarize(attributes: Record<string, unknown>): string {
 const resolveShards = (v: Values, env: Env): string | undefined =>
   v.shards ?? env.YOKE_SHARDS;
 
+/** Compact grouped usage — one source for --help, no-args, and unknown-command. */
+function usage(): string {
+  return `yoke — knowledge your AI can trust
+
+getting started:
+  init                      create ./yoke.db and seed the ontology
+  add <type> --attr k=v     stage knowledge (enters as draft)
+  review / verify <id...>   inspect and promote drafts
+  inject <query>            retrieve verified knowledge with citations
+
+knowledge:  get, search, history, conflicts, deprecate, ontology, persona
+capture:    connect github-pr|slack|notes|rdb
+serving:    mcp, ui, serve, token
+data:       backup, restore, export, audit
+
+common options: --db <path> --ns <namespace> --actor <id> --json
+run 'yoke <command>' with missing args to see its usage`;
+}
+
+/** Ontology-needing commands: an empty ontology means the DB was never `yoke init`ed.
+ * Returns the ontology, or null after printing an actionable error (caller returns 1). */
+function requireOntology(
+  store: YokeStore,
+  ns: string | null | undefined,
+  v: Values,
+  env: Env,
+): TypeDef[] | null {
+  const ontology = store.loadOntology(ns);
+  if (ontology.length === 0) {
+    console.error(
+      `not initialized: ${resolveDb(v, env)} — run 'yoke init' first`,
+    );
+    return null;
+  }
+  return ontology;
+}
+
 // Open the resolved store (ShardedStorage under --shards, else SqliteStorage), run fn, always close.
 async function withStore<T>(
   v: Values,
@@ -211,7 +250,8 @@ async function cmdAdd(
   const ns = resolveNs(v.ns, env);
   const attributes = parseAttrs(v.attr ?? []);
   return withStore(v, env, async (store) => {
-    const ontology = store.loadOntology(ns);
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
     const ts = now();
     try {
       const { entity, duplicates } = await commit(
@@ -363,7 +403,8 @@ async function cmdInject(
   const limit = v.limit === undefined ? undefined : Number(v.limit);
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const ontology = store.loadOntology(ns);
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
     const ts = now();
     const { items } = await inject(store, ontology, query, ts, {
       includeDraft: v["include-draft"],
@@ -380,7 +421,16 @@ async function cmdInject(
     const lines = items.map(
       (it) => `${it.citation}  ${summarize(it.entity.attributes)}`,
     );
-    emit(v, items.length ? lines.join("\n") : "no results", items);
+    // Draft-invisibility fix: zero verified hits, but drafts match → say so, don't imply the
+    // knowledge simply isn't there. --json output stays the raw items array (contract unchanged).
+    let human = items.length ? lines.join("\n") : "no results";
+    if (items.length === 0 && !v.json) {
+      const drafts = await store.search({ text: query, status: "draft", ns });
+      if (drafts.length > 0) {
+        human = `no verified knowledge (${drafts.length} draft match(es) withheld — review with 'yoke review')`;
+      }
+    }
+    emit(v, human, items);
     return 0;
   });
 }
@@ -479,6 +529,8 @@ async function cmdOntology(
       return 1;
     }
     return withStore(v, env, async (store) => {
+      // No initialized-ontology requirement here: add-type IS how a fresh
+      // (e.g. shard tenant) ontology gets seeded — requiring one is a chicken-and-egg.
       // An existing name means a new version = a migration (same append-only model as entities).
       // ns targets a tenant ontology (overlaid on the shared base); omitted = shared.
       store.saveOntology([def], ns);
@@ -498,7 +550,8 @@ async function runIngest(
 ): Promise<number> {
   const actor = resolveActor(v, env);
   return withStore(v, env, async (store) => {
-    const ontology = store.loadOntology();
+    const ontology = requireOntology(store, undefined, v, env);
+    if (!ontology) return 1;
     const { added, skipped } = await ingest(
       store,
       ontology,
@@ -593,7 +646,8 @@ async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
   const connector = makeRdbMappingConnector({ query, mapping });
   try {
     return await withStore(v, env, async (store) => {
-      const ontology = store.loadOntology();
+      const ontology = requireOntology(store, undefined, v, env);
+      if (!ontology) return 1;
       const { added, updated, skipped } = await ingestMapped(
         store,
         ontology,
@@ -624,12 +678,13 @@ async function cmdPersona(
   }
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
     const person = await store.getEntity(id);
     if (!person) {
       console.error(`not found: ${id}`);
       return 1;
     }
-    const ontology = store.loadOntology(ns);
     const ts = now();
     const result = await personaQuery(store, ontology, id, ts, ns);
     const md = renderPersonaSkill(person, result, ts);
@@ -860,6 +915,10 @@ export async function runCli(
   }
   const { values, positionals } = parsed;
   const [command, ...rest] = positionals;
+  if (values.help || command === "help" || command === undefined) {
+    console.log(usage());
+    return 0;
+  }
   try {
     switch (command) {
       case "init":
@@ -907,9 +966,7 @@ export async function runCli(
         await runMcp(resolveDb(values, env), env, resolveShards(values, env));
         return 0;
       default:
-        console.error(
-          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|history|audit|conflicts|ontology|connect|persona|ui|serve|token|backup|restore|export|mcp> ...`,
-        );
+        console.error(`unknown command: ${command}\n\n${usage()}`);
         return 1;
     }
   } catch (e) {

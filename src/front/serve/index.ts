@@ -27,7 +27,7 @@ import { verify } from "../../core/lifecycle.js";
 import { resolveNs } from "../../core/namespace.js";
 import { createYokeMcpServer } from "../mcp/index.js";
 import { openStore, type YokeStore } from "../store.js";
-import { createUiHandler } from "../ui/server.js";
+import { createUiHandler, listen } from "../ui/server.js";
 import {
   makeOidcVerifier,
   type OidcConfig,
@@ -320,7 +320,7 @@ export async function runServe(
   const server = createServeServer({ ...common, store, readOnly, replica });
   // Replica owns its own store lifecycle (it swaps stores on refresh) — see createServeServer.
   if (!replica) server.on("close", () => store.close());
-  await new Promise<void>((resolve) => server.listen(port, resolve));
+  await listen(server, port);
   const addr = server.address();
   const bound = typeof addr === "object" && addr ? addr.port : port;
   console.log(

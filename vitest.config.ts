@@ -9,10 +9,18 @@ import { defineConfig } from "vitest/config";
 //    deterministic. ponytail: dangerouslyIgnoreUnhandledErrors masks all
 //    runner-level rejections — vitest 4's onUnhandledError would let us match
 //    the exact code. Revisit when upgrading vitest or kuzu.
+// Shared settings; the kuzu split lives in the two config files (not in npm
+// script globs — an unquoted glob in package.json gets shell-expanded into
+// positional filters, which once silently reduced `test:main` to zero files).
+export const shared = {
+  pool: "forks" as const,
+  poolOptions: { forks: { singleFork: true } },
+  dangerouslyIgnoreUnhandledErrors: true,
+};
+
 export default defineConfig({
   test: {
-    pool: "forks",
-    poolOptions: { forks: { singleFork: true } },
-    dangerouslyIgnoreUnhandledErrors: true,
+    ...shared,
+    exclude: ["**/node_modules/**", "**/dist/**", "src/adapters/storage-kuzu/**"],
   },
 });

@@ -187,6 +187,21 @@ export function createUiServer(deps: UiDeps): Server {
   });
 }
 
+/** listen() that rejects on bind failure — EADDRINUSE becomes a one-line actionable message
+ * (runCli's catch prints it and exits 1; no stack trace). Shared with serve mode. */
+export function listen(server: Server, port: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    server.once("error", (e: NodeJS.ErrnoException) => {
+      reject(
+        e.code === "EADDRINUSE"
+          ? new Error(`port ${port} is already in use (try --port ${port + 1})`)
+          : e,
+      );
+    });
+    server.listen(port, resolve);
+  });
+}
+
 /** Open the DB, resolve the actor from env, start listening. Returns the running server. */
 export async function runUi(
   db: string,
@@ -200,7 +215,7 @@ export async function runUi(
   const actor = env.YOKE_ACTOR ?? "yoke:system";
   const server = createUiServer({ store, actor, ns: ns ?? null });
   server.on("close", () => store.close());
-  await new Promise<void>((resolve) => server.listen(port, resolve));
+  await listen(server, port);
   const addr = server.address();
   const bound = typeof addr === "object" && addr ? addr.port : port;
   console.log(`yoke ui listening: http://localhost:${bound}`);
