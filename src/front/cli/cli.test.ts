@@ -568,9 +568,9 @@ describe("runCli", () => {
 
   it("ontology-needing commands on an uninitialized DB point at 'yoke init'", async () => {
     const db = newDb();
-    expect(
-      await runCli(["add", "fact", "--db", db, "--attr", "note=x"]),
-    ).toBe(1);
+    expect(await runCli(["add", "fact", "--db", db, "--attr", "note=x"])).toBe(
+      1,
+    );
     expect(errs.at(-1)).toContain("yoke init");
     expect(await runCli(["inject", "anything", "--db", db])).toBe(1);
     expect(errs.at(-1)).toContain("yoke init");
