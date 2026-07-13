@@ -1,0 +1,47 @@
+src/core/embedding.ts
+  d735c99471326cb3 1-57
+src/adapters/storage-sqlite/index.ts
+  d735c99471326cb3 3,6-7,92,96-109,139-149,232-262,298-311
+src/core/commit.ts
+  d735c99471326cb3 3-4,8-9,20-22,33-51,64-78,89-90,103-126,136-137,139,141,143,145-172
+src/front/mcp/index.ts
+  d735c99471326cb3 13,28-29,37,47,57,64-65,179
+src/core/embedding.test.ts
+  d735c99471326cb3 1-80
+src/adapters/storage-sqlite/index.test.ts
+  d735c99471326cb3 31-74
+src/front/cli/cli.test.ts
+  d735c99471326cb3 4,8-11,173-249
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "ac6efe47e3e2e166ec586da3e99f4fb50a31f1c3",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 25,
+        "mcp__openviking__find": 1,
+        "Write": 11,
+        "Edit": 29,
+        "ToolSearch": 1,
+        "WebSearch": 6,
+        "Agent": 11,
+        "Read": 9
+      },
+      "total_additions": 1227,
+      "total_deletions": 0,
+      "overriden_lines": 199
+    }
+  }
+}
