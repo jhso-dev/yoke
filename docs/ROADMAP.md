@@ -29,10 +29,10 @@
 
 ## v0.4 — 중복·모순
 
-- [ ] 임베딩 provider 설정 (미설정 시 FTS 폴백)
-- [ ] sqlite-vec 통합, storage port `similar` capability
-- [ ] 게이트 3·4단계 (중복 후보 제안, conflicts_with 생성)
-- [ ] CLI: `conflicts`
+- [x] 임베딩 provider 설정 (미설정 시 FTS 폴백)
+- [x] sqlite-vec 통합, storage port `similar` capability
+- [x] 게이트 3·4단계 (중복 후보 제안, conflicts_with 생성)
+- [x] CLI: `conflicts`
 
 ## v0.5 — 캡처 커넥터
 
