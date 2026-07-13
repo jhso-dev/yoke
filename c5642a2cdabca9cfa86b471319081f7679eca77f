@@ -1,0 +1,66 @@
+src/adapters/storage-sharded/config.ts
+  d735c99471326cb3 1-116
+src/adapters/storage-sharded/index.ts
+  d735c99471326cb3 1-275
+src/front/store.ts
+  d735c99471326cb3 1-26
+src/front/cli/index.ts
+  d735c99471326cb3 41,48,77,150-154,156-158,160-163,174,213,253,276,290,314,342,365,399,415,426,460,481,500,595,626,658,675,699-701,711-713,726-728,751-754,774-779,826-829,835,901-905,907-911
+src/front/mcp/index.ts
+  d735c99471326cb3 11,20,255,257
+src/adapters/storage-sharded/index.test.ts
+  d735c99471326cb3 1-283
+vitest.config.ts
+  d735c99471326cb3 3-11,13-16
+docs/ENTERPRISE.md
+  d735c99471326cb3 55-57,59-68
+package.json
+  d735c99471326cb3 30-32
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "c5642a2cdabca9cfa86b471319081f7679eca77f",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:23:54.194Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:29:05.116Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 85,
+        "mcp__openviking__find": 1,
+        "Write": 15,
+        "Edit": 51,
+        "ToolSearch": 2,
+        "WebSearch": 11,
+        "Agent": 26,
+        "Read": 19,
+        "WebFetch": 1,
+        "SendMessage": 1,
+        "ScheduleWakeup": 2
+      },
+      "total_additions": 2155,
+      "total_deletions": 0,
+      "overriden_lines": 4
+    }
+  }
+}
