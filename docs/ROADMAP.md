@@ -64,10 +64,10 @@ port capabilities, etc. See SPEC).
 
 ## v2.5 — web UI
 
-- [ ] review/verify dashboard (draft queue, bulk promotion)
-- [ ] conflicts view (compare and resolve contradiction pairs)
-- [ ] ontology browser (visualize types and relations)
-- [ ] persona preview
+- [x] review/verify dashboard (draft queue, bulk promotion)
+- [x] conflicts view (compare and resolve contradiction pairs)
+- [x] ontology browser (visualize types and relations)
+- [x] persona preview
 
 ## v3.0 — enterprise (multi-tenancy, auth)
 
