@@ -8,9 +8,15 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import Database from "better-sqlite3";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { makeGithubPrConnector } from "../../connectors/github-pr.js";
 import { ingest } from "../../connectors/ingest.js";
+import {
+  ingestMapped,
+  type MappingSpec,
+  makeRdbMappingConnector,
+} from "../../connectors/rdb-mapping.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { inject } from "../../core/inject.js";
@@ -35,6 +41,9 @@ type Values = {
   repo?: string;
   since?: string;
   out?: string;
+  mapping?: string;
+  dsn?: string;
+  sqlite?: string;
   "all-drafts"?: boolean;
   "include-draft"?: boolean;
 };
@@ -50,6 +59,9 @@ const OPTIONS = {
   repo: { type: "string" },
   since: { type: "string" },
   out: { type: "string" },
+  mapping: { type: "string" },
+  dsn: { type: "string" },
+  sqlite: { type: "string" },
   "all-drafts": { type: "boolean" },
   "include-draft": { type: "boolean" },
 } as const;
@@ -391,6 +403,7 @@ async function cmdConnect(
   env: Env,
 ): Promise<number> {
   const source = positionals[0];
+  if (source === "rdb") return cmdConnectRdb(v, env);
   if (source !== "github-pr" || !v.repo) {
     console.error(
       "usage: yoke connect github-pr --repo owner/name [--since date] [--actor a]",
@@ -416,6 +429,62 @@ async function cmdConnect(
     emit(v, `added ${added}, skipped ${skipped}`, { added, skipped });
     return 0;
   });
+}
+
+// connect rdb (PLAN 8.3): read-map an existing RDB into verified entities. See rdb-mapping.ts for the
+// design exception (bypasses draft staging, still validates against the ontology).
+async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
+  if (!v.mapping) {
+    console.error(
+      "usage: yoke connect rdb --mapping <file.json> [--dsn postgres://...] [--sqlite <path>]",
+    );
+    return 1;
+  }
+  let mapping: MappingSpec[];
+  try {
+    mapping = JSON.parse(readFileSync(v.mapping, "utf8")) as MappingSpec[];
+  } catch (e) {
+    console.error(`cannot read mapping: ${(e as Error).message}`);
+    return 1;
+  }
+
+  // Source driver: --dsn → Postgres (pg, lazy-imported so the sqlite path never needs pg);
+  // --sqlite → local better-sqlite3 file (no server needed for local/demo use).
+  let query: (sql: string) => Promise<Record<string, unknown>[]>;
+  let closeSrc = (): void => {};
+  if (v.dsn) {
+    const { makePgQuery } = await import("../../connectors/rdb-pg.js");
+    query = makePgQuery(v.dsn);
+  } else if (v.sqlite) {
+    const src = new Database(v.sqlite, { readonly: true });
+    query = async (sql) => src.prepare(sql).all() as Record<string, unknown>[];
+    closeSrc = () => src.close();
+  } else {
+    console.error("connect rdb requires --dsn or --sqlite");
+    return 1;
+  }
+
+  const db = resolveDb(v, env);
+  const connector = makeRdbMappingConnector({ query, mapping });
+  try {
+    return await withStore(db, async (store) => {
+      const ontology = store.loadOntology();
+      const { added, updated, skipped } = await ingestMapped(
+        store,
+        ontology,
+        connector,
+        now(),
+      );
+      emit(v, `mapped ${added} added, ${updated} updated, ${skipped} skipped`, {
+        added,
+        updated,
+        skipped,
+      });
+      return 0;
+    });
+  } finally {
+    closeSrc();
+  }
 }
 
 async function cmdPersona(
