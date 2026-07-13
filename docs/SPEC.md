@@ -76,7 +76,9 @@ v1 구현체: `storage-sqlite` (better-sqlite3 + FTS5 + sqlite-vec).
 
 - 기본 필터: `status === 'verified'` 그리고 신선하지 않으면 제외
   (신선도 = `last_confirmed` + 온톨로지 타입별 TTL, **읽기 시점 계산**)
-- `opts.includeDraft` 시 draft 포함하되 결과에 상태 라벨 명시
+- `opts.includeDraft` 시 draft 포함하되 결과에 상태 라벨 명시.
+  stale/deprecated는 옵션과 무관하게 **항상 제외** (주입은 엄격하게 —
+  부패 신호를 주입하지 않는다. stale 열람은 review/CLI의 몫)
 - 반환: entity 목록 + 각각의 출처(감사 가능한 인용 형식)
 
 ## MCP 도구
