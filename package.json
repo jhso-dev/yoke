@@ -3,14 +3,35 @@
   "version": "0.1.0",
   "description": "온톨로지 기반 지식 DB — AI 에이전트용 context injection",
   "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zigbang/yoke.git"
+  },
+  "keywords": [
+    "knowledge",
+    "ontology",
+    "mcp",
+    "context-injection",
+    "ai-agent",
+    "sqlite"
+  ],
   "bin": {
     "yoke": "dist/front/cli/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check ."
+    "lint": "biome check .",
+    "eval": "tsx eval/inject-quality.ts",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -23,6 +44,7 @@
     "@biomejs/biome": "^2.1.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.10",
+    "tsx": "^4.23.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }

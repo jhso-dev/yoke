@@ -4,7 +4,12 @@
 // 명령 핸들러는 runCli(argv, env)로 분리 — 프로세스 spawn 없이 테스트 가능, exit code는 반환값.
 // Date 획득은 이 front 계층에서만 (core는 now를 주입받는다).
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -511,6 +516,17 @@ export async function runCli(
 }
 
 // 직접 실행 시에만 구동 (테스트 import 시에는 실행 안 함).
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+// realpathSync: npm bin 심링크(node_modules/.bin/yoke) 경유 시 argv[1]은 심링크,
+// import.meta.url은 실경로라 불일치 → CLI가 무반응 no-op이 되는 배포 함정 방지.
+function isMain(): boolean {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argv1)).href;
+  } catch {
+    return false;
+  }
+}
+if (isMain()) {
   runCli(process.argv.slice(2)).then((code) => process.exit(code));
 }
