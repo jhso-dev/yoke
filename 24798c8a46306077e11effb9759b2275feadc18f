@@ -1,0 +1,62 @@
+src/front/cli/index.ts
+  d735c99471326cb3 57,87,156-192,253-254,406-407,424-433,532-533,552-554,648-650,680-682,917-921,968-969
+src/front/ui/server.ts
+  d735c99471326cb3 190-204,218
+src/front/serve/index.ts
+  d735c99471326cb3 30,323
+README.md
+  d735c99471326cb3 42-43
+src/front/cli/cli.test.ts
+  d735c99471326cb3 558-599
+vitest.kuzu.config.ts
+  d735c99471326cb3 1-13
+package.json
+  d735c99471326cb3 31-32
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "24798c8a46306077e11effb9759b2275feadc18f",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:23:54.194Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:29:05.116Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 105,
+        "mcp__openviking__find": 1,
+        "Write": 15,
+        "Edit": 54,
+        "ToolSearch": 2,
+        "WebSearch": 11,
+        "Agent": 27,
+        "Read": 23,
+        "WebFetch": 1,
+        "SendMessage": 2,
+        "ScheduleWakeup": 3
+      },
+      "total_additions": 705,
+      "total_deletions": 0,
+      "overriden_lines": 9
+    }
+  }
+}
