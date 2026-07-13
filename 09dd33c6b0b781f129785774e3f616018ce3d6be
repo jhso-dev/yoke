@@ -1,0 +1,13 @@
+docs/PLAN-V2.md
+  h_9aabb7d8448c0a 161-192
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "09dd33c6b0b781f129785774e3f616018ce3d6be",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
