@@ -1,0 +1,78 @@
+src/core/namespace.ts
+  d735c99471326cb3 1-18
+src/core/types.ts
+  d735c99471326cb3 28-30
+src/ports/storage.ts
+  d735c99471326cb3 13-16
+src/core/commit.ts
+  d735c99471326cb3 10,51-53,131-132,138-140,169-170
+src/core/inject.ts
+  d735c99471326cb3 30,32-36
+src/core/persona.ts
+  d735c99471326cb3 24-26,48,51
+src/adapters/storage-sqlite/index.ts
+  d735c99471326cb3 9,24,37,51,81,90,99-101,115-128,155-156,166,215-216,226,264,270,274,318-323,328,333,338,342-343,346-347,350,356,360-361,365,368,372,425-426,430-432,434,437-449
+src/adapters/storage-kuzu/index.ts
+  d735c99471326cb3 9,17-18,21,25,41,50,59-61,91-99,120,131,141,145,155,167,181,204,212,219-220
+src/adapters/storage-qdrant/index.ts
+  d735c99471326cb3 16,62,70,79-81,232,275,313,320-321
+src/ports/conformance.ts
+  d735c99471326cb3 29,155-174
+src/ports/conformance.self.test.ts
+  d735c99471326cb3 54,60-61
+src/front/cli/index.ts
+  d735c99471326cb3 27,41,62,179,182,191,245,247,255,258,280,283,333,335,340,431,434,456-457,599-601,606-610,627-629
+src/front/ui/server.ts
+  d735c99471326cb3 25-26,75,95,117,123,167,172
+src/front/mcp/index.ts
+  d735c99471326cb3 18,34-35,48,68,114,212,259,262,264
+src/core/namespace.test.ts
+  d735c99471326cb3 1-76
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "135302b306eb278acbdc7373f8302e2e2d38a379",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:23:54.194Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:29:05.116Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 63,
+        "mcp__openviking__find": 1,
+        "Write": 13,
+        "Edit": 45,
+        "ToolSearch": 2,
+        "WebSearch": 11,
+        "Agent": 23,
+        "Read": 16,
+        "WebFetch": 1,
+        "SendMessage": 1,
+        "ScheduleWakeup": 1
+      },
+      "total_additions": 935,
+      "total_deletions": 0,
+      "overriden_lines": 51
+    }
+  }
+}
