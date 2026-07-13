@@ -1,7 +1,8 @@
-// commit 게이트 — 지식이 storage로 진입하는 유일한 쓰기 경로 (KNOWLEDGE-POLICY 하드 규칙 1~3).
-// 파이프라인 순서 고정. 시간은 주입받는다 — core에서 new Date() 금지 (SPEC 시간 주입).
-// 3·4단계(중복·모순, v0.4): embedder가 주입되고 임베딩이 가능할 때만 동작. 임베딩 장애는
-// commit을 막지 않는다 (FTS 폴백 시 중복 탐지 skip — 오탐 회피). 자동 병합·자동 거절 없음.
+// commit gate — the only write path into storage (KNOWLEDGE-POLICY hard rules 1–3).
+// The pipeline order is fixed. Time is injected — never call new Date() in core (SPEC: inject the clock).
+// Stages 3 & 4 (duplicate/conflict, v0.4) run only when an embedder is injected and embedding
+// succeeds. An embedding failure never blocks a commit (on FTS fallback, duplicate detection is
+// skipped to avoid false positives). No auto-merge, no auto-reject.
 
 import { ulid } from "ulid";
 import type { StoragePort } from "../ports/storage.js";
@@ -17,7 +18,7 @@ import type {
   RelationInput,
 } from "./types.js";
 
-// ponytail: 임계값 상수 하나(0.85)로 시작. 정밀도 문제가 실측되면 타입별 임계로.
+// ponytail: start with a single threshold constant (0.85). Move to per-type thresholds if precision problems show up in practice.
 const DUP_THRESHOLD = 0.85;
 
 export class CommitRejected extends Error {
@@ -32,24 +33,24 @@ export class CommitRejected extends Error {
 
 export interface CommitResult {
   entity: Entity | Relation;
-  /** 유사도 ≥ 임계인 기존 entity (자동 병합 금지 — 호출자 판단). */
+  /** Existing entities with similarity >= threshold (no auto-merge — the caller decides). */
   duplicates: Entity[];
-  /** 자동 생성된 conflicts_with relation (decision 모순 시). 양쪽 보존, 자동 해소 없음. */
+  /** Auto-created conflicts_with relations (on decision conflict). Both sides preserved, no auto-resolution. */
   conflicts?: Relation[];
-  /** duplicates가 비었을 때 그 근거: 임베딩 비교 결과 vs 탐지 자체를 skip.
-   * FTS 폴백(embedder 미설정·임베딩 실패·similar 미지원)에서는 후보 전부를 중복으로
-   * 취급하면 오탐이 많아 탐지를 skip한다. */
+  /** Why duplicates is empty: an embedding comparison ran vs. detection was skipped entirely.
+   * On FTS fallback (no embedder, embedding failed, or similar unsupported), treating every
+   * candidate as a duplicate yields too many false positives, so detection is skipped. */
   duplicateDetection: "embedding" | "skipped";
 }
 
 interface CommitOpts {
-  /** 지정 시 재커밋 = 현재 최신 version + 1 (append-only, 이력 보존). */
+  /** When set, a re-commit = current latest version + 1 (append-only, history preserved). */
   existingId?: string;
-  /** 주입받는 임베더. 없으면 중복·모순 탐지 skip (FTS 폴백). */
+  /** Injected embedder. Without it, duplicate/conflict detection is skipped (FTS fallback). */
   embedder?: Embedder;
 }
 
-/** actor/origin/occurred_at이 전부 비어있지 않은 문자열인지. */
+/** Whether actor/origin/occurred_at are all non-empty strings. */
 function provenanceOk(p: Provenance): boolean {
   return (
     typeof p.actor === "string" &&
@@ -61,7 +62,7 @@ function provenanceOk(p: Provenance): boolean {
   );
 }
 
-/** 코사인 유사도. 정규화 안 된 벡터도 처리 (provider별 스케일 무관). */
+/** Cosine similarity. Handles unnormalized vectors too (provider-independent scale). */
 function cosine(a: Float32Array, b: Float32Array): number {
   const n = Math.min(a.length, b.length);
   let dot = 0;
@@ -77,8 +78,8 @@ function cosine(a: Float32Array, b: Float32Array): number {
 }
 
 /**
- * 지식 적재 게이트. EntityInput/RelationInput을 검증·부여 후 저장한다.
- * @param now ISO 8601. last_confirmed로 부여 (core는 시간을 만들지 않는다).
+ * The knowledge-ingest gate. Validates an EntityInput/RelationInput, assigns governed fields, then stores it.
+ * @param now ISO 8601. Assigned as last_confirmed (core does not create time).
  */
 export async function commit(
   port: StoragePort,
@@ -88,11 +89,11 @@ export async function commit(
   now: string,
   opts?: CommitOpts,
 ): Promise<CommitResult> {
-  // (1) 온톨로지 검증
+  // (1) Ontology validation.
   const v = validateInput(ontology, input);
   if (!v.ok) throw new CommitRejected("ontology", v.reason);
 
-  // (2) provenance 필수 필드 검증
+  // (2) Validate required provenance fields.
   if (!provenanceOk(prov))
     throw new CommitRejected(
       "provenance",
@@ -102,7 +103,7 @@ export async function commit(
   const existingId = opts?.existingId;
   const isRelation = "from" in input;
 
-  // (3) 유사 entity 조회 → 중복 후보. relation은 대상 아님.
+  // (3) Look up similar entities → duplicate candidates. Relations are not subject to this.
   let duplicates: Entity[] = [];
   let embedding: Float32Array | null = null;
   let duplicateDetection: CommitResult["duplicateDetection"] = "skipped";
@@ -119,11 +120,11 @@ export async function commit(
       );
       duplicateDetection = "embedding";
     }
-    // embedding null(폴백) 또는 similar 미지원 → skipped 유지 (탐지 skip, 빈 배열).
+    // embedding null (fallback) or similar unsupported → stays "skipped" (detection skipped, empty array).
   }
 
-  // (5) id·version·status·last_confirmed 부여 후 저장 (SPEC 순서상 5단계지만,
-  // 4단계 conflicts_with가 새 entity id를 참조하므로 먼저 저장한다).
+  // (5) Assign id/version/status/last_confirmed, then store. (This is stage 5 in the SPEC order,
+  // but stage 4's conflicts_with references the new entity id, so we store first.)
   const prev = existingId ? await port.getEntity(existingId) : null;
   const governed = {
     id: existingId ?? ulid(),
@@ -143,10 +144,11 @@ export async function commit(
   if (embedding) entity.embedding = embedding;
   await port.putEntity(entity);
 
-  // (4) 모순 감지 — decision 한정 휴리스틱. 유사(중복 후보) decision 중 conclusion이
-  // 다르면 conflicts_with 생성. 판정 입력은 conclusion 텍스트뿐 (v1 온톨로지에 subject 없음).
-  // 양쪽 보존, 자동 해소 금지. relation도 게이트를 거쳐야 하므로 commit을 내부 재사용
-  // (relation은 3·4단계를 타지 않아 무한 재귀 없음).
+  // (4) Conflict detection — a decision-only heuristic. Among similar (duplicate-candidate)
+  // decisions, a differing conclusion creates a conflicts_with. The only input to the judgment is
+  // the conclusion text (the v1 ontology has no subject). Both sides preserved, no auto-resolution.
+  // Relations must also pass the gate, so we reuse commit internally (relations skip stages 3 & 4,
+  // so there is no infinite recursion).
   const conflicts: Relation[] = [];
   if (input.type === "decision") {
     const conclusion = String(input.attributes.conclusion ?? "");

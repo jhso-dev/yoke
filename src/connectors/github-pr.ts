@@ -1,7 +1,7 @@
-// github-pr 커넥터 (PLAN 5.2). GitHub REST v3를 fetch로 직접 호출 (octokit 금지 — 엔드포인트 2개).
-// 리뷰 코멘트 1건 → decision draft. 작성자 person 자동 생성은 하지 않는다: actor 매핑 정책
-// (GitHub login ↔ person)이 SPEC에 없어 발명 금지 원칙에 걸린다. provenance.actor는 ingest
-// 호출자(--actor)로 두고, 코멘트 작성자 login은 attributes.author로 보존한다.
+// github-pr connector (PLAN 5.2). Calls GitHub REST v3 directly with fetch (no octokit — only 2 endpoints).
+// One review comment → one decision draft. It does not auto-create an author person: no actor-mapping
+// policy (GitHub login ↔ person) exists in the SPEC, so inventing one violates the no-invention rule.
+// provenance.actor is left to the ingest caller (--actor), and the comment author's login is preserved in attributes.author.
 
 import type { EntityInput } from "../core/types.js";
 import type { Connector } from "./types.js";
@@ -20,7 +20,7 @@ interface ReviewComment {
   user: { login: string } | null;
 }
 
-/** GitHub PR 리뷰 코멘트 → decision 커넥터. token 없으면 Authorization 생략(공개 레포). */
+/** GitHub PR review comment → decision connector. Omits Authorization when there's no token (public repos). */
 export function makeGithubPrConnector(opts: {
   repo: string;
   token?: string;
@@ -48,8 +48,8 @@ export function makeGithubPrConnector(opts: {
   return {
     name: "github-pr",
     async *pull(since?: string) {
-      // GitHub /pulls는 since 파라미터 미지원 — 클라이언트 측 updated_at 필터.
-      // updated 내림차순 정렬이므로 경계 도달 시 중단해도 안전하다.
+      // GitHub /pulls has no `since` parameter — filter on updated_at client-side.
+      // Sorted by updated descending, so stopping once we cross the boundary is safe.
       const pulls = await getJson<PullRequest[]>(
         `${base}/repos/${opts.repo}/pulls?state=all&sort=updated&direction=desc`,
       );
@@ -63,7 +63,7 @@ export function makeGithubPrConnector(opts: {
             type: "decision",
             attributes: {
               conclusion: c.body,
-              rationale: `PR #${pr.number} ${pr.title} 리뷰, ${c.path}:${c.line ?? "?"}`,
+              rationale: `PR #${pr.number} ${pr.title} review, ${c.path}:${c.line ?? "?"}`,
               external_id: c.html_url,
               author: c.user?.login ?? "unknown",
             },

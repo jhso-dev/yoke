@@ -1,5 +1,5 @@
-// lifecycle 테스트 — 실제 SqliteStorage(:memory:) + commit 게이트로 데이터 준비.
-// verify 버전 증가+이력 보존 / TTL 경과 stale / ttl 미지정 무제한 / deprecate / 미존재 에러.
+// lifecycle tests — data is prepared through the real SqliteStorage(:memory:) + commit gate.
+// verify version bump + history preservation / TTL-expired stale / no ttl = unlimited / deprecate / unknown-id error.
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
@@ -47,22 +47,22 @@ describe("lifecycle", () => {
       origin: "lifecycle",
       occurred_at: later,
     });
-    // 이력 보존: draft였던 v1 그대로 조회 가능
+    // History preserved: v1, which was a draft, is still queryable.
     const v1 = await port.getEntity(id, 1);
     expect(v1?.status).toBe("draft");
-    // 최신은 verified v2
+    // Latest is the verified v2.
     expect((await port.getEntity(id))?.status).toBe("verified");
   });
 
   it("effectiveStatus is 'stale' when verified fact exceeds its TTL", async () => {
     const id = await addFact("stale-able");
-    await verify(port, [id], "alice", now); // fact TTL = 180일
+    await verify(port, [id], "alice", now); // fact TTL = 180 days
     const e = await port.getEntity(id);
     if (!e) throw new Error("missing");
 
-    // 179일 후: 신선
+    // After 179 days: fresh.
     expect(effectiveStatus(e, ont, "2027-01-07T00:00:00Z")).toBe("verified");
-    // 181일 후: stale (저장은 verified 그대로)
+    // After 181 days: stale (the stored status stays verified).
     expect(isFresh(e, ont, "2027-01-10T00:00:00Z")).toBe(false);
     expect(effectiveStatus(e, ont, "2027-01-10T00:00:00Z")).toBe("stale");
     expect(e.status).toBe("verified");

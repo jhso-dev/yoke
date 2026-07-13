@@ -1,7 +1,7 @@
-// lifecycle — status 전이 + 신선도 (KNOWLEDGE-POLICY 소프트 규칙 4·7).
-// verify/deprecate는 지식 내용 변경이 아니라 상태 전이이므로 commit 게이트가 아닌
-// 별도 쓰기 경로다. putEntity 직접 호출은 이 파일 안에만 존재한다.
-// 시간은 주입받는다 — core에서 new Date() 금지 (SPEC 시간 주입).
+// lifecycle — status transitions and freshness (KNOWLEDGE-POLICY soft rules 4 & 7).
+// verify/deprecate change status, not knowledge content, so they take a separate write
+// path rather than the commit gate. The only direct putEntity calls live in this file.
+// Time is injected — never call new Date() in core (SPEC: inject the clock).
 
 import type { StoragePort } from "../ports/storage.js";
 import type { TypeDef } from "./ontology.js";
@@ -10,8 +10,8 @@ import type { Entity, Status } from "./types.js";
 const DAY_MS = 86_400_000;
 
 /**
- * 상태 전이 공통 경로. getEntity 후 새 버전 행을 append-only로 추가한다.
- * provenance는 승격/폐기 행위의 감사 추적으로 갱신된다 (origin: 'lifecycle').
+ * Shared transition path. Reads with getEntity, then appends a new version row (append-only).
+ * Provenance is refreshed to record the promote/retire action itself (origin: 'lifecycle').
  */
 async function transition(
   port: StoragePort,
@@ -23,7 +23,7 @@ async function transition(
   const out: Entity[] = [];
   for (const id of ids) {
     const prev = await port.getEntity(id);
-    // 미존재 id는 조용히 skip하지 않는다 — 승격/폐기는 명시 행위.
+    // Do not silently skip unknown ids — promote/retire are explicit actions.
     if (!prev) throw new Error(`cannot transition unknown entity: ${id}`);
     const next: Entity = {
       ...prev,
@@ -38,7 +38,7 @@ async function transition(
   return out;
 }
 
-/** status→'verified', last_confirmed=now. 새 버전 행 추가 (append-only). */
+/** status → 'verified', last_confirmed = now. Appends a new version row (append-only). */
 export function verify(
   port: StoragePort,
   ids: string[],
@@ -48,7 +48,7 @@ export function verify(
   return transition(port, ids, actor, now, "verified");
 }
 
-/** status→'deprecated'. verify와 동일 메커니즘 (append-only 새 버전). */
+/** status → 'deprecated'. Same mechanism as verify (append-only new version). */
 export function deprecate(
   port: StoragePort,
   ids: string[],
@@ -59,8 +59,8 @@ export function deprecate(
 }
 
 /**
- * 신선도 판정. 타입의 ttl_days 미지정이면 항상 fresh.
- * 지정 시 last_confirmed + ttl_days ≥ now (밀리초 산술, dep 없음).
+ * Freshness check. Always fresh if the type has no ttl_days.
+ * Otherwise fresh while last_confirmed + ttl_days >= now (millisecond arithmetic, no deps).
  */
 export function isFresh(e: Entity, ontology: TypeDef[], now: string): boolean {
   const ttl = ontology.find((t) => t.name === e.type)?.ttl_days;
@@ -69,8 +69,8 @@ export function isFresh(e: Entity, ontology: TypeDef[], now: string): boolean {
 }
 
 /**
- * 읽기 시점 상태. verified인데 신선하지 않으면 'stale' (저장하지 않음).
- * 그 외에는 저장된 status 그대로.
+ * Status at read time. If verified but no longer fresh, reports 'stale' (never persisted).
+ * Otherwise returns the stored status as-is.
  */
 export function effectiveStatus(
   e: Entity,

@@ -1,5 +1,5 @@
-// embedding.ts 테스트 — 미설정 시 no-op(null), 스텁 fetch로 성공·실패 경로.
-// 실 API 호출 없음 (global fetch를 vi로 스텁). 실 provider 확인은 사람 확인 대기 목록.
+// embedding.ts tests — no-op (null) when unconfigured; success/failure paths via a stub fetch.
+// No real API calls (global fetch is stubbed with vi). Verifying against a real provider is on the human-check list.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeFetchEmbedder, serializeText } from "./embedding.js";
@@ -10,7 +10,7 @@ describe("makeFetchEmbedder", () => {
   it("returns a no-op (null) embedder when URL/MODEL unset", async () => {
     const embed = makeFetchEmbedder({});
     expect(await embed("hello")).toBeNull();
-    // env는 있으나 model 없음 → 여전히 no-op
+    // URL present but model missing → still a no-op.
     const embed2 = makeFetchEmbedder({ YOKE_EMBED_URL: "http://x" });
     expect(await embed2("hello")).toBeNull();
   });
@@ -33,7 +33,7 @@ describe("makeFetchEmbedder", () => {
       expect.closeTo(0.2),
       expect.closeTo(0.3),
     ]);
-    // 트레일링 슬래시 정규화 + Bearer 인증
+    // Trailing-slash normalization + Bearer auth.
     const [url, init] = fetchMock.mock.calls[0] as unknown as [
       string,
       RequestInit,
@@ -74,7 +74,7 @@ describe("makeFetchEmbedder", () => {
 });
 
 describe("serializeText", () => {
-  it("joins type and attributes JSON (FTS/embedding 공통 규칙)", () => {
+  it("joins type and attributes JSON (shared FTS/embedding rule)", () => {
     expect(serializeText("fact", '{"a":1}')).toBe('fact {"a":1}');
   });
 });

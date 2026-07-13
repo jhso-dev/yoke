@@ -1,21 +1,21 @@
-// 커넥터 공통 적재 (PLAN 5.1). core가 아니라 front 계열 소비자 — 커넥터 pull을 순회하며
-// commit 게이트로 넣는다(우회 금지). 멱등성: externalId를 attributes.external_id로 저장하고
-// 재실행 시 FTS로 조회해 이미 있으면 skip.
+// Shared connector ingest (PLAN 5.1). Not core but a front-tier consumer — it iterates a connector's
+// pull and routes each item through the commit gate (no bypass). Idempotency: externalId is stored as
+// attributes.external_id, and on re-run it is looked up via FTS and skipped if already present.
 
 import { commit } from "../core/commit.js";
 import type { TypeDef } from "../core/ontology.js";
 import type { StoragePort } from "../ports/storage.js";
 import type { Connector } from "./types.js";
 
-/** external_id로 기존 entity 존재 확인. FTS로 후보 조회 후 정확 일치(false positive 배제). */
+/** Check whether an entity with this external_id exists. Fetch candidates via FTS, then match exactly (excludes false positives). */
 async function exists(port: StoragePort, externalId: string): Promise<boolean> {
   const hits = await port.search({ text: externalId });
   return hits.some((e) => e.attributes.external_id === externalId);
 }
 
 /**
- * 커넥터 pull → commit 게이트 적재. 없으면 draft로 commit, 있으면 skip.
- * @param now ISO 8601 (core는 시간을 만들지 않는다 — front가 주입).
+ * Route a connector's pull through the commit gate. Commit as draft if absent, skip if present.
+ * @param now ISO 8601 (core does not create time — the front tier injects it).
  */
 export async function ingest(
   port: StoragePort,
@@ -33,7 +33,7 @@ export async function ingest(
       skipped++;
       continue;
     }
-    // external_id를 attributes에 확정 부여(멱등 키의 단일 출처는 ingest).
+    // Definitively set external_id in attributes (ingest is the single source of the idempotency key).
     await commit(
       port,
       ontology,

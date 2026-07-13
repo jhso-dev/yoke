@@ -1,6 +1,6 @@
-// MCP E2E (PLAN 3.3) — 두 개의 독립 클라이언트 연결이 같은 DB를 본다(세션 간 지속성).
-// spawn 대신 InMemoryTransport 사용(허용됨): 서버·클라이언트를 링크된 페어로 연결하되,
-// 각 연결마다 DB 파일을 새로 여닫아 "Client A 커밋 → 닫기 → Client B 조회" 시나리오를 유지한다.
+// MCP E2E (PLAN 3.3) — two independent client connections see the same DB (cross-session persistence).
+// Uses InMemoryTransport instead of spawn (allowed): server and client are connected as a linked pair,
+// but each connection opens and closes the DB file afresh, preserving the "Client A commits → close → Client B reads" scenario.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,7 +16,7 @@ const dir = mkdtempSync(join(tmpdir(), "yoke-mcp-"));
 const db = join(dir, "yoke.db");
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-/** DB 파일에 대해 서버+클라이언트를 새로 열어 연결한다 (독립 세션 1개). */
+/** Open a fresh server + client against the DB file and connect them (one independent session). */
 async function openSession() {
   const store = new SqliteStorage(db);
   await store.init();
@@ -49,8 +49,8 @@ beforeAll(async () => {
 });
 
 describe("yoke MCP server", () => {
-  it("Client A가 기록한 결정을 별도 Client B가 (draft로) 본다", async () => {
-    // (A) 결정 기록 → 연결 종료
+  it("a decision recorded by Client A is seen (as a draft) by a separate Client B", async () => {
+    // (A) record a decision → close the connection
     const a = await openSession();
     const rec = await a.client.callTool({
       name: "yoke_record_decision",
@@ -64,7 +64,7 @@ describe("yoke MCP server", () => {
     expect(text(rec)).toMatch(/"status":"draft"/);
     await a.close();
 
-    // (B) 별도 연결에서 조회 — draft라 기본 inject엔 안 나온다
+    // (B) read from a separate connection — as a draft it does not show in the default inject
     const b = await openSession();
     const def = await b.client.callTool({
       name: "yoke_inject",
@@ -72,7 +72,7 @@ describe("yoke MCP server", () => {
     });
     expect(text(def)).toContain("no verified knowledge found");
 
-    // includeDraft로는 나온다 (상태 라벨 + attributes 포함)
+    // with includeDraft it does show (status label + attributes)
     const withDraft = await b.client.callTool({
       name: "yoke_inject",
       arguments: { query: "sqlitembed", includeDraft: true },
@@ -83,7 +83,7 @@ describe("yoke MCP server", () => {
     await b.close();
   });
 
-  it("yoke_commit: 미등록 타입은 도구 에러로 거절된다", async () => {
+  it("yoke_commit: an unregistered type is rejected as a tool error", async () => {
     const s = await openSession();
     const bad = await s.client.callTool({
       name: "yoke_commit",
@@ -101,7 +101,7 @@ describe("yoke MCP server", () => {
     await s.close();
   });
 
-  it("verify/deprecate 도구는 노출하지 않는다 (거버넌스: 에이전트는 draft 적재만)", async () => {
+  it("does not expose verify/deprecate tools (governance: agents may only ingest drafts)", async () => {
     const s = await openSession();
     const { tools } = await s.client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -114,8 +114,8 @@ describe("yoke MCP server", () => {
     await s.close();
   });
 
-  it("yoke_persona: 인물 verified 결정을 인용과 함께 반환, 미존재 인물은 도구 에러", async () => {
-    // yoke:system 이 결정을 기록하고 (같은 actor로) verify → persona에 잡힌다.
+  it("yoke_persona: returns a person's verified decisions with citations; an absent person is a tool error", async () => {
+    // yoke:system records a decision and verifies it (with the same actor) → it is picked up by persona.
     const seed = await openSession();
     const rec = await seed.client.callTool({
       name: "yoke_record_decision",
@@ -126,7 +126,7 @@ describe("yoke MCP server", () => {
     });
     const id = JSON.parse(text(rec)).id as string;
     await seed.close();
-    // verify는 CLI 몫 — actor를 yoke:system으로 유지해 provenance.actor 매칭이 살아있게.
+    // verify is the CLI's job — keep actor as yoke:system so the provenance.actor match stays alive.
     expect(
       await runCli(["verify", id, "--db", db, "--actor", "yoke:system"]),
     ).toBe(0);
@@ -141,14 +141,14 @@ describe("yoke MCP server", () => {
     expect(out).toContain("adopt append-only storage");
     expect(out).toContain(id); // citation
 
-    // query 필터: 매칭 없으면 '기록 없음'
+    // query filter: no match → "no record"
     const filtered = await s.client.callTool({
       name: "yoke_persona",
       arguments: { person: "yoke:system", query: "nonexistent-topic-xyz" },
     });
-    expect(text(filtered)).toContain("기록 없음");
+    expect(text(filtered)).toContain("no record");
 
-    // 미존재 인물 → 도구 에러
+    // absent person → tool error
     const missing = await s.client.callTool({
       name: "yoke_persona",
       arguments: { person: "nobody" },

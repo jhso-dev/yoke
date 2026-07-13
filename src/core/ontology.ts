@@ -1,6 +1,6 @@
-// yoke 온톨로지 — 타입 정의 + 입력 검증 + 시드.
-// 검증기는 4종 AttrSpec만 다루는 수동 구현. 스키마 라이브러리 도입 금지.
-// ponytail: 타입 4종 수동 검증. 중첩 객체 스키마가 필요해지면 zod로.
+// yoke ontology — type definitions, input validation, and the seed set.
+// The validator is a hand-rolled implementation covering only 4 AttrSpec kinds. No schema library.
+// ponytail: 4 attribute kinds, validated by hand. Reach for zod if nested object schemas become necessary.
 
 import type { EntityInput, RelationInput } from "./types.js";
 
@@ -13,11 +13,11 @@ export type TypeDef = {
   name: string;
   kind: "entity" | "relation";
   attrs: Record<string, AttrSpec>;
-  /** 신선도 판정용 TTL (일). 미지정 = 무제한. 2.1 lifecycle에서 사용. */
+  /** TTL (in days) for freshness. Omit = unlimited. Used by the 2.1 lifecycle. */
   ttl_days?: number;
 };
 
-/** AttrSpec.type과 실제 값이 맞는지. */
+/** Whether the actual value matches AttrSpec.type. */
 function matchesType(spec: AttrSpec["type"], value: unknown): boolean {
   switch (spec) {
     case "string":

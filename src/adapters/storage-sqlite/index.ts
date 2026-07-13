@@ -1,6 +1,6 @@
-// storage-sqlite — StoragePort의 better-sqlite3 구현 (SPEC.md / PLAN 1.5).
-// append-only: (id, version) 행만 추가. FTS5는 최신 버전만 유지(delete+insert).
-// sqlite-vec(vec0)로 임베딩/similar 지원 (PLAN 4.2) — 최신 버전만 유지(FTS와 동일 정책).
+// storage-sqlite — the better-sqlite3 implementation of StoragePort (SPEC.md / PLAN 1.5).
+// append-only: only (id, version) rows are added. FTS5 keeps just the latest version (delete+insert).
+// sqlite-vec (vec0) provides embeddings/similar (PLAN 4.2) — latest version only (same policy as FTS).
 
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
@@ -9,8 +9,8 @@ import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 import type { StoragePort, TextQuery } from "../../ports/storage.js";
 
-// 스키마는 .sql 파일 대신 TS 상수 (번들링 단순화). created_at은 Entity 계약 밖의
-// 내부 컬럼이라 DB default로 채운다 — put 인자로 받지 않는다.
+// The schema is a TS constant rather than a .sql file (simpler bundling). created_at is an
+// internal column outside the Entity contract, so a DB default fills it — it is not a put argument.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS entities (
   id TEXT NOT NULL,
@@ -40,11 +40,11 @@ CREATE TABLE IF NOT EXISTS relations (
 
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(id UNINDEXED, text);
 
--- 게이트 비경유. append-only: name별 버전 누적, load 시 최신만.
+-- Bypasses the gate. append-only: versions accumulate per name; load returns only the latest.
 CREATE TABLE IF NOT EXISTS ontology_types (
   name TEXT NOT NULL,
   version INTEGER NOT NULL,
-  def TEXT NOT NULL,                 -- JSON (TypeDef 전문)
+  def TEXT NOT NULL,                 -- JSON (full TypeDef)
   PRIMARY KEY (name, version)
 );
 `;
@@ -93,9 +93,10 @@ export class SqliteStorage implements StoragePort {
     this.db.exec(SCHEMA);
   }
 
-  // vec0 테이블은 첫 임베딩 삽입 시 lazy 생성한다. 차원(N)은 첫 벡터 길이로 고정 —
-  // provider별 차원이 다르고 삽입 전엔 알 수 없으므로 env 고정보다 견고하다.
-  // ponytail: 차원은 최초 임베딩에 고정. provider를 바꿔 차원이 달라지면 벡터 테이블 재생성 필요.
+  // The vec0 table is created lazily on the first embedding insert. Its dimension (N) is fixed to
+  // the first vector's length — providers differ in dimension and it is unknown before insertion,
+  // which is more robust than fixing it via env.
+  // ponytail: dimension is pinned to the first embedding. Switching to a provider with a different dimension requires rebuilding the vector table.
   private ensureVecTable(dim: number): void {
     const exists = this.db
       .prepare(
@@ -128,7 +129,7 @@ export class SqliteStorage implements StoragePort {
         JSON.stringify(e.provenance),
         e.last_confirmed,
       );
-    // FTS는 최신 버전만: id 행 제거 후 최신 버전 텍스트 재삽입.
+    // FTS keeps only the latest version: drop the id's row, then re-insert the latest version's text.
     const latest = this.db
       .prepare(
         `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
@@ -139,9 +140,9 @@ export class SqliteStorage implements StoragePort {
       .prepare(`INSERT INTO entities_fts (id, text) VALUES (?, ?)`)
       .run(e.id, serializeText(latest.type, latest.attributes));
 
-    // 벡터도 최신 버전만 유지 (FTS와 동일 delete+insert). embedding 있을 때만 손댄다 —
-    // 임베딩 없는 버전으로 재put하면 기존 벡터는 그대로 둔다 (entities에 벡터 컬럼이 없어
-    // 최신 벡터를 재구성할 수 없다).
+    // Keep only the latest version's vector too (same delete+insert as FTS). Touch it only when an
+    // embedding is present — re-putting a version without an embedding leaves the existing vector in
+    // place (entities has no vector column, so the latest vector cannot be reconstructed).
     if (e.embedding) {
       this.ensureVecTable(e.embedding.length);
       this.db.prepare(`DELETE FROM entity_vec WHERE id = ?`).run(e.id);
@@ -203,7 +204,7 @@ export class SqliteStorage implements StoragePort {
           ? "to_id = @id"
           : "(from_id = @id OR to_id = @id)";
     const typeClause = relType === undefined ? "" : " AND type = @relType";
-    // 최신 버전 relation만 반환 (append-only 재커밋 대비).
+    // Return only latest-version relations (guards against append-only re-commits).
     const rows = this.db
       .prepare(
         `SELECT r.* FROM relations r
@@ -215,8 +216,9 @@ export class SqliteStorage implements StoragePort {
   }
 
   async search(q: TextQuery): Promise<Entity[]> {
-    // 사용자 텍스트를 FTS5 phrase로 감싸 특수문자(-, :, * 등) 구문 오류 방지.
-    // 접두 매칭(*): 한국어 조사가 붙은 토큰("parseArgs로")도 어간("parseArgs")으로 검색되게.
+    // Wrap the user text as an FTS5 phrase to avoid syntax errors from special characters (-, :, *, etc.).
+    // Prefix match (*): so a token carrying a trailing particle/suffix (common in agglutinative
+    // languages like Korean) is still found by its stem — e.g. searching "parseArgs" matches "parseArgs<suffix>".
     const match = `"${q.text.replace(/"/g, '""')}"*`;
     const typeClause = q.type === undefined ? "" : " AND e.type = @type";
     const statusClause =
@@ -238,8 +240,8 @@ export class SqliteStorage implements StoragePort {
     return rows.map(rowToEntity);
   }
 
-  /** KNN 유사 entity. vec0 테이블 미생성(임베딩 삽입 이력 없음)이면 빈 배열.
-   * 반환 entity에는 .embedding을 복원해 담는다 — 게이트가 코사인 유사도를 계산해 임계 판정한다. */
+  /** KNN-nearest entities. Empty array if the vec0 table was never created (no embedding ever inserted).
+   * Returned entities carry a restored .embedding — the gate computes cosine similarity to apply the threshold. */
   async similar(embedding: Float32Array, k: number): Promise<Entity[]> {
     const exists = this.db
       .prepare(
@@ -272,9 +274,9 @@ export class SqliteStorage implements StoragePort {
     return out;
   }
 
-  // --- StoragePort 밖의 어댑터 확장: 온톨로지 시드 저장/로드 (CLI init용) ---
+  // --- Adapter extensions outside StoragePort: ontology seed save/load (for CLI init) ---
 
-  /** append-only로 온톨로지 정의 저장. name별 다음 버전으로 누적. */
+  /** Append-only save of ontology definitions. Accumulates as the next version per name. */
   saveOntology(defs: TypeDef[]): void {
     const nextVersion = this.db.prepare(
       `SELECT COALESCE(MAX(version), 0) + 1 AS v FROM ontology_types WHERE name = ?`,
@@ -291,9 +293,9 @@ export class SqliteStorage implements StoragePort {
     tx(defs);
   }
 
-  /** status로 최신 버전 entity 필터 (StoragePort 밖 — CLI review/verify --all-drafts용).
-   * search는 text 필수라 부적합하고, StoragePort에 list(filter)를 추가하면 계약 변경이라
-   * saveOntology와 같은 어댑터 확장 메서드로 둔다. */
+  /** Filter latest-version entities by status (outside StoragePort — for CLI review / verify --all-drafts).
+   * search requires text so it doesn't fit, and adding list(filter) to StoragePort would change the
+   * contract, so this is an adapter extension method like saveOntology. */
   listByStatus(status: string): Entity[] {
     const rows = this.db
       .prepare(
@@ -306,11 +308,12 @@ export class SqliteStorage implements StoragePort {
     return rows.map(rowToEntity);
   }
 
-  /** provenance.actor로 entity 필터 (StoragePort 밖 — persona 6.1용).
-   * search는 text 기반이라 provenance를 못 걸러 부적합하고, listByStatus와 동일 패턴.
-   * actor 매칭은 이력 전체(모든 버전) 대상 — verify가 최신 버전 provenance를 승격자로
-   * 갱신해도 원저자의 기여가 소실되지 않는다 (append-only 이력이 원저자를 보존).
-   * 반환은 매칭된 id의 최신 버전 행. */
+  /** Filter entities by provenance.actor (outside StoragePort — for persona 6.1).
+   * search is text-based and can't filter provenance, so it doesn't fit; same pattern as listByStatus.
+   * The actor match spans the entire history (all versions) — even if verify updates the latest
+   * version's provenance to the promoter, the original author's contribution is not lost (the
+   * append-only history preserves the original author).
+   * Returns the latest-version row of each matching id. */
   listByActor(actor: string): Entity[] {
     const rows = this.db
       .prepare(
@@ -326,8 +329,8 @@ export class SqliteStorage implements StoragePort {
     return rows.map(rowToEntity);
   }
 
-  /** type별 최신 버전 relation 목록 (StoragePort 밖 — CLI conflicts용).
-   * neighbors는 특정 id 기준이라 전역 목록에 부적합해 어댑터 확장 메서드로 둔다. */
+  /** Latest-version relations of a given type (outside StoragePort — for CLI conflicts).
+   * neighbors is scoped to a specific id and doesn't fit a global listing, so this is an adapter extension. */
   listRelationsByType(type: string): Relation[] {
     const rows = this.db
       .prepare(
@@ -340,7 +343,7 @@ export class SqliteStorage implements StoragePort {
     return rows.map(rowToRelation);
   }
 
-  /** name별 최신 버전만, 최초 등록 순서로 로드. */
+  /** Load only the latest version per name, in first-registration order. */
   loadOntology(): TypeDef[] {
     const rows = this.db
       .prepare(

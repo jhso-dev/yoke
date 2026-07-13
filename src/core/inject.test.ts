@@ -1,5 +1,5 @@
-// inject 테스트 — 실제 SqliteStorage(:memory:) + commit 게이트로 데이터 준비.
-// draft 제외 / verify 후 포함 / includeDraft 라벨 / TTL 경과 verified 제외 / citation 형식.
+// inject tests — data is prepared through the real SqliteStorage(:memory:) + commit gate.
+// draft exclusion / inclusion after verify / includeDraft label / TTL-expired verified exclusion / citation format.
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
@@ -61,7 +61,7 @@ describe("inject", () => {
 
   it("excludes verified entities that have gone stale (TTL exceeded)", async () => {
     const id = await addFact("aging knowledge");
-    await verify(port, [id], "alice", now); // fact TTL = 180일
+    await verify(port, [id], "alice", now); // fact TTL = 180 days
     const { items } = await inject(port, ont, "aging", "2027-01-10T00:00:00Z");
     expect(items).toEqual([]);
   });

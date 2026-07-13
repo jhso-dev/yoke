@@ -1,76 +1,53 @@
 # yoke — Vision
 
-## 문제
+## The problem
 
-AI 에이전트는 조직/개인의 지식을 모른다. 지식은 위키, DB, 파일, 사람 머릿속에 흩어져 있고,
-AI에게 전달되는 건 매번 수동으로 복붙한 조각뿐이다.
+AI agents don't know an organization's or a person's knowledge. That knowledge is scattered across wikis, databases, files, and people's heads, and what reaches the AI is only the fragments someone copy-pastes by hand, every single time.
 
-## yoke가 하는 것
+## What yoke does
 
-**지식에 최적화된 DB**: 온톨로지(entity/relation 스키마)로 지식을 구조화해 저장하고,
-사용자의 현재 맥락에 맞는 부분집합을 골라 AI에게 주입한다(context injection).
+**A database optimized for knowledge.** It structures and stores knowledge as an ontology (an entity/relation schema), then selects the subset relevant to the user's current context and injects it into the AI (context injection).
 
-- **앞단**: AI가 소비하기 좋은 인터페이스 — MCP 서버, CLI.
-- **뒷단**: 이미 있는 저장소를 활용 — SQLite, 전통 RDB, 벡터 DB, 그래프 DB, 파일.
-- **호환**: 전통 DB와 잘 붙는다. 기존 데이터를 yoke 온톨로지로 매핑해 읽을 수 있어야 한다.
+- **Front end**: interfaces AI consumes well — an MCP server and a CLI.
+- **Back end**: reuse the stores you already have — SQLite, a traditional RDB, a vector DB, a graph DB, files.
+- **Compatibility**: plays well with traditional databases. It must be able to read existing data by mapping it onto the yoke ontology.
 
-## v1 스코프
+## v1 scope
 
-**포함**: 코어 지식 모델(entity/relation/온톨로지), SQLite 백엔드 1개,
-MCP 서버, thin CLI, 기본 검색(키워드 + 관계 탐색),
-지식 정책 전체(docs/KNOWLEDGE-POLICY.md — 게이트, lifecycle, 주입 필터,
-중복·모순 탐지, 신선도, 승격 CLI),
-**persona**(person 스코프 질의 + skill export) 및 캡처 경로 3개(MCP 기록
-도구, CLI, GitHub PR 리뷰 커넥터).
+**Included**: the core knowledge model (entity/relation/ontology), one SQLite backend, the MCP server, a thin CLI, basic search (keyword + relation traversal), the full knowledge policy (docs/KNOWLEDGE-POLICY.md — the gate, lifecycle, injection filter, duplicate/contradiction detection, freshness, and the promotion CLI), **persona** (person-scoped queries + skill export), and three capture paths (an MCP recording tool, the CLI, and a GitHub PR review connector).
 
-v1 구현 순서: 코어 모델 → SQLite → 지식 정책 게이트 → MCP 서버 →
-캡처 → persona. persona는 앞 단계 전부를 소비하는 최상층이므로 마지막.
+v1 build order: core model → SQLite → knowledge-policy gate → MCP server → capture → persona. persona sits on top of everything before it, so it comes last.
 
-**v1 제외 — 로드맵 버전으로 계획됨 (docs/ROADMAP.md)**:
+**Excluded from v1 — planned as later roadmap versions (docs/ROADMAP.md)**:
 
-| 항목 | 버전 | 설계 문서 |
+| Item | Version | Design doc |
 |---|---|---|
-| 벡터·그래프 DB 어댑터, RDB read-mapping | v2.0 | docs/BACKENDS.md |
-| 감사 로그 | v2.0 | docs/ENTERPRISE.md |
-| 웹 UI | v2.5 | docs/WEB-UI.md |
-| 멀티테넌시 / auth / RBAC | v3.0 | docs/ENTERPRISE.md |
-| 분산 / HA | v3.5 | docs/ENTERPRISE.md |
+| Vector/graph DB adapters, RDB read-mapping | v2.0 | docs/BACKENDS.md |
+| Audit log | v2.0 | docs/ENTERPRISE.md |
+| Web UI | v2.5 | docs/WEB-UI.md |
+| Multi-tenancy / auth / RBAC | v3.0 | docs/ENTERPRISE.md |
+| Distribution / HA | v3.5 | docs/ENTERPRISE.md |
 
-상위 버전 항목을 하위 버전에서 먼저 구현하는 PR은 거절한다.
-단, **설계가 이를 막지 않게는 한다** — 지켜야 할 하위 호환 제약은
-각 설계 문서 상단에 명시돼 있다 (예: ENTERPRISE.md의 "v0.1부터 지켜야 하는 제약").
+A PR that implements a higher-version item in a lower version will be rejected. But **the design must not foreclose it** — the backward-compatibility constraints to honor are stated at the top of each design doc (e.g. "Constraints to honor from v0.1 onward" in ENTERPRISE.md).
 
-## persona — 사람의 판단 연속성 (v1 포함)
+## persona — continuity of a person's judgment (included in v1)
 
-엔터프라이즈 요구: "Nathen(FE 팀장)이 부재해도 Nathen의 기록된 판단 기준으로
-업무가 진행된다." yoke에서 이것은 새 시스템이 아니라 **질의 + 포장**이다:
+The enterprise requirement: "Even when Nathen (the FE lead) is away, work proceeds on Nathen's recorded judgment criteria." In yoke this is not a new system but **a query plus packaging**:
 
-- **persona = 특정 인물이 출처인 verified 지식 + 판단 원칙의 person 스코프 질의.**
-  하드 규칙 2(출처 필수)가 있어 모든 지식이 이미 사람과 연결되어 있으므로 가능하다.
-- **주 소비 경로는 MCP 실시간 주입** (`yoke_persona` 도구): 연결된 AI가 판단이
-  필요한 순간 호출하면 그 시점의 verified 지식에서 생성돼 컨텍스트에 주입된다 —
-  일반 지식 주입(`yoke_inject`)과 동일한 흐름, 스코프만 사람. 파일 설치·동기화 없음.
-  SKILL.md export(`yoke persona --out`)는 MCP 연결이 없는 환경용 오프라인 보조 경로.
-- **파생물이지 저장물이 아니다.** 매 호출이 곧 재생성 — stale 강등·폐기가 즉시
-  반영된다. 스냅샷/파인튜닝 방식은 거버넌스를 상속받지 못하므로 금지.
-- **흉내가 아니라 인용.** 출력은 "Nathen은 X를 이렇게 결정했고 근거는 Y [출처]"
-  형식. 환각 persona는 오염 주입이며, 인용 기반이어야 감사 가능하다.
-- **판단은 문서가 아니라 결정에 있다.** 기본 온톨로지에 `decision` entity 타입
-  (결론·근거·기각한 대안) 포함. 이 타입 없이는 persona가 설 데이터가 안 쌓인다.
+- **A persona is a person-scoped query over the verified knowledge and judgment principles sourced from a specific person.** Hard rule 2 (provenance required) means every piece of knowledge is already tied to a person, which is what makes this possible.
+- **The primary consumption path is real-time MCP injection** (the `yoke_persona` tool): when a connected AI hits a moment that needs judgment, it calls the tool, and the result is generated from the verified knowledge as of that moment and injected into context — the same flow as ordinary knowledge injection (`yoke_inject`), only scoped to a person. No files to install or sync. The SKILL.md export (`yoke persona --out`) is an offline fallback for environments with no MCP connection.
+- **A derivative, not a stored artifact.** Every call is a regeneration, so stale demotions and deprecations take effect immediately. Snapshot or fine-tuning approaches are forbidden because they don't inherit governance.
+- **Citation, not impersonation.** The output takes the form "Nathen decided X this way, and the rationale was Y [source]." A hallucinated persona is a contaminated injection; being citation-based is what keeps it auditable.
+- **Judgment lives in decisions, not documents.** The default ontology includes a `decision` entity type (conclusion, rationale, rejected alternatives). Without this type, the data a persona stands on never accumulates.
 
-persona의 병목은 질의가 아니라 **캡처**다. v1 캡처 경로 3개:
+The bottleneck for persona is not the query but **capture**. The three v1 capture paths:
 
-1. **MCP 기록 도구** — AI 에이전트가 작업 중 내린 결정을 `record_decision`으로
-   yoke에 적재 (MCP 서버가 이미 v1에 있으므로 도구 하나 추가).
-2. **CLI** — 사람이 직접 기록.
-3. **외부 소스 커넥터 1개** — 첫 대상은 GitHub PR 리뷰 코멘트(개발 조직에서
-   결정 밀도가 가장 높고 API가 단순). Slack·회의록은 같은 커넥터 패턴의 반복이므로
-   두 번째부터는 어댑터 추가 작업이다.
+1. **MCP recording tool** — an AI agent loads a decision it made mid-task into yoke via `record_decision` (the MCP server is already in v1, so this is just one more tool).
+2. **CLI** — a person records directly.
+3. **One external-source connector** — the first target is GitHub PR review comments (in a development org, decision density is highest there and the API is simple). Slack and meeting notes follow the same connector pattern, so from the second one onward it's just adapter work.
 
-시장 조사 기준, person 스코프 판단 연속성을 제공하는 경쟁자는 없다 —
-"거버닝된 지식" 포지셔닝의 킬러 유스케이스이며 v1의 승부수다.
+Per our market survey, no competitor offers person-scoped continuity of judgment — it's the killer use case for the "governed knowledge" positioning, and yoke's winning bet in v1.
 
-## 성공 기준 (v1)
+## Success criterion (v1)
 
-Claude Code에서 MCP로 yoke에 지식을 넣고, 다른 세션에서 맥락 질의로 그 지식이
-정확히 주입되는 것을 실사용으로 확인한다.
+From Claude Code, put knowledge into yoke over MCP, then confirm in real use that a contextual query in a different session injects exactly that knowledge back.

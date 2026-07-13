@@ -1,51 +1,39 @@
 # yoke — Knowledge Policy
 
-지식관리는 엄격하다. 엄격함이 무너지는 지점은 항상 쓰기 경로이므로,
-**모든 지식은 core의 단일 commit 경로 하나로만 진입한다.** 어댑터가 storage에
-직접 쓰는 길은 없다 (ARCHITECTURE 불변식 1과 맞물림).
+Knowledge management is strict. Strictness always breaks down on the write path, so **all knowledge enters through exactly one commit path in the core.** There is no route for an adapter to write to storage directly (this dovetails with ARCHITECTURE invariant 1).
 
-한 줄 요약: **저장은 관대하게, 주입은 엄격하게.**
+One-line summary: **lenient on write, strict on injection.**
 
-## 하드 규칙 — 위반 시 거절
+## Hard rules — reject on violation
 
-1. **온톨로지 검증**: 스키마에 없는 entity/relation 타입은 거절.
-   온톨로지 변경은 명시적 마이그레이션으로만.
-2. **출처(provenance) 필수**: 누가/무엇이(사람·에이전트·문서)/언제 — 없으면 거절.
-   출처 없는 지식은 지식이 아니라 소문이다.
-3. **불변 이력**: 덮어쓰기·물리 삭제 금지. 수정은 새 버전, 삭제는 tombstone.
-   임의 시점의 지식 상태를 항상 재구성할 수 있어야 한다.
+1. **Ontology validation**: an entity/relation type not in the schema is rejected. The ontology changes only through an explicit migration.
+2. **Provenance required**: who/what (person, agent, or document) and when — reject if missing. Knowledge without provenance isn't knowledge, it's rumor.
+3. **Immutable history**: no overwrites, no physical deletes. An edit is a new version; a delete is a tombstone. You must always be able to reconstruct the state of knowledge at any point in time.
 
-## 소프트 규칙 — 통과시키되 등급으로 격리
+## Soft rules — let it through, but quarantine by grade
 
-4. **상태 lifecycle**: 모든 지식은 `draft → verified → stale | deprecated`.
-   신규 진입은 기본 `draft`.
-5. **주입 필터**: context injection은 기본 `verified`만 주입.
-   `draft`/`stale`은 명시적 요청 시에만, 상태 라벨을 붙여서.
-   엄격함의 실제 집행 지점은 쓰기가 아니라 여기다.
-6. **중복·모순은 삭제가 아니라 기록**:
-   - commit 시 유사 entity 조회 → 중복이면 병합 제안(자동 병합 금지).
-   - 기존 지식과 모순이면 둘 다 보존하고 `conflicts_with` relation으로 연결.
-   - 모순의 자동 해소는 절대 하지 않는다. 모순의 존재 자체가 지식이다.
-7. **신선도**: `last_confirmed` 타임스탬프 필수. verified라도 확인 주기를
-   넘기면 자동으로 `stale` 강등 → 주입 대상에서 제외.
-   지식은 방치하면 부패한다는 것을 시스템이 전제한다.
+4. **Status lifecycle**: every piece of knowledge is `draft → verified → stale | deprecated`. New entries default to `draft`.
+5. **Injection filter**: context injection injects only `verified` by default. `draft`/`stale` only on explicit request, and with a status label attached. This — not the write path — is where strictness is actually enforced.
+6. **Duplicates and contradictions are recorded, not deleted**:
+   - On commit, look up similar entities → if it's a duplicate, propose a merge (no automatic merging).
+   - If it contradicts existing knowledge, keep both and link them with a `conflicts_with` relation.
+   - Never auto-resolve a contradiction. The existence of the contradiction is itself knowledge.
+7. **Freshness**: a `last_confirmed` timestamp is required. Even verified knowledge is automatically demoted to `stale` once it exceeds its confirmation interval → and excluded from injection. The system assumes that knowledge, left alone, rots.
 
-## v1 구현 범위 — 전부 포함
+## v1 implementation scope — all included
 
-| 규칙 | v1 구현 형태 |
+| Rule | v1 form |
 |---|---|
-| 1~3 하드 규칙 | commit 경로에서 동기 검증 |
-| 4 lifecycle | entity 스키마의 `status` 필드 |
-| 5 주입 필터 | 질의 레이어 기본 필터 (`verified`) |
-| 6 중복 탐지 | sqlite-vec 임베딩 유사도 (별도 벡터 DB 없이 SQLite 안에서) |
-| 6 모순 기록 | 예약 relation 타입 `conflicts_with` |
-| 7 stale 강등 | 배치가 아니라 **읽기 시점 판정** — 질의할 때 `last_confirmed` + 온톨로지별 TTL로 계산. 데몬/크론 불필요 |
-| 승격 워크플로우 | CLI: `yoke review` (draft 목록) / `yoke verify <id>` (승격, 일괄 지원). `last_confirmed` 갱신도 동일 명령 |
+| Hard rules 1–3 | synchronous validation on the commit path |
+| 4 lifecycle | a `status` field in the entity schema |
+| 5 injection filter | a default filter (`verified`) in the query layer |
+| 6 duplicate detection | sqlite-vec embedding similarity (inside SQLite, no separate vector DB) |
+| 6 contradiction recording | the reserved relation type `conflicts_with` |
+| 7 stale demotion | **decided at read time**, not by a batch job — computed at query time from `last_confirmed` + a per-ontology TTL. No daemon or cron needed |
+| promotion workflow | CLI: `yoke review` (list drafts) / `yoke verify <id>` (promote, batch supported). The same command refreshes `last_confirmed` |
 
-<!-- ponytail: stale 판정은 읽기 시점 계산. 지식 수만 건 + 질의 지연이 문제 되면 배치 강등으로 전환 -->
+<!-- ponytail: stale is computed at read time. If tens of thousands of entries plus query latency become a problem, switch to batch demotion -->
 
-## 콜드 스타트 트레이드오프
+## Cold-start trade-off
 
-초기엔 전부 draft라 주입할 게 없다. 완화책은 **승격을 싸게** 만드는 것
-(`yoke review` → 일괄 verify)이지, 주입 기본값을 느슨하게 푸는 것이 아니다.
-기본값을 풀면 아무도 다시 조이지 않는다.
+Early on, everything is draft, so there's nothing to inject. The remedy is to make **promotion cheap** (`yoke review` → batch verify), not to loosen the injection default. Loosen the default and no one ever tightens it again.

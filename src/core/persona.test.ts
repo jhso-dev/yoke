@@ -1,6 +1,6 @@
-// persona 테스트 — 실제 SqliteStorage(:memory:) + commit 게이트로 데이터 준비.
-// 수집: actor 매칭 / authored_by / draft·stale 제외 / decision·fact 분류.
-// renderPersonaSkill은 고정 fixture + 고정 now로 스냅샷.
+// persona tests — data is prepared through the real SqliteStorage(:memory:) + commit gate.
+// Collection: actor match / authored_by / draft & stale exclusion / decision vs fact classification.
+// renderPersonaSkill is snapshotted with a fixed fixture and a fixed now.
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
@@ -46,7 +46,7 @@ describe("personaQuery", () => {
       "nathen",
     );
     const f = await add("fact", { note: "ships fridays" }, "nathen");
-    // 같은 actor로 verify → provenance.actor 매칭 유지.
+    // Verify with the same actor → keeps the provenance.actor match.
     await verify(port, [d, f], "nathen", now);
 
     const res = await personaQuery(port, ont, "nathen", now);
@@ -56,7 +56,7 @@ describe("personaQuery", () => {
 
   it("collects via authored_by relation even when verify actor differs", async () => {
     const f = await add("fact", { note: "connector fact" }, "connector");
-    // authored_by: from=entity → to=person (entity가 person에 의해 작성됨).
+    // authored_by: from=entity → to=person (the entity was authored by the person).
     await commit(
       port,
       ont,
@@ -64,7 +64,7 @@ describe("personaQuery", () => {
       prov("connector"),
       now,
     );
-    await verify(port, [f], "admin", now); // 다른 actor로 승격 — (b) 경로는 무관.
+    await verify(port, [f], "admin", now); // promoted by a different actor — irrelevant to path (b).
 
     const res = await personaQuery(port, ont, "nathen", now);
     expect(res.facts.map((e) => e.id)).toEqual([f]);
@@ -76,7 +76,7 @@ describe("personaQuery", () => {
       { conclusion: "use FTS prefix", rationale: "korean suffix" },
       "nathen",
     );
-    await verify(port, [d], "admin", now); // 타인 승격 — v1 이력의 원저자로 매칭돼야 한다.
+    await verify(port, [d], "admin", now); // promoted by someone else — must still match the original author in the v1 history.
 
     const res = await personaQuery(port, ont, "nathen", now);
     expect(res.decisions.map((e) => e.id)).toEqual([d]);
@@ -90,7 +90,7 @@ describe("personaQuery", () => {
   });
 
   it("excludes verified-but-stale (TTL exceeded)", async () => {
-    const f = await add("fact", { note: "aging" }, "nathen"); // fact TTL = 180일
+    const f = await add("fact", { note: "aging" }, "nathen"); // fact TTL = 180 days
     await verify(port, [f], "nathen", now);
     const res = await personaQuery(port, ont, "nathen", "2027-06-01T00:00:00Z");
     expect(res.facts).toEqual([]);
@@ -145,32 +145,32 @@ describe("renderPersonaSkill", () => {
     expect(md).toMatchInlineSnapshot(`
       "---
       name: persona-nathen
-      description: Nathen의 기록된 판단·지식 기반 persona
+      description: Persona grounded in Nathen's recorded judgments and knowledge
       ---
 
       # Nathen persona
 
-      생성 시각: 2026-07-12T12:00:00Z
-      소스 지식 (2건): 01DECISION@v2, 01FACT@v1
+      Generated: 2026-07-12T12:00:00Z
+      Source knowledge (2): 01DECISION@v2, 01FACT@v1
 
-      ## 판단 원칙
+      ## Guiding principles
 
       - zero-config single file keeps the CLI simple
 
-      ## 결정 기록
+      ## Decision record
 
       ### use SQLite
-      - 근거: zero-config single file keeps the CLI simple
-      - 출처: [decision:01DECISION@v2] nathen, 2026-07-01T00:00:00Z
+      - Rationale: zero-config single file keeps the CLI simple
+      - Source: [decision:01DECISION@v2] nathen, 2026-07-01T00:00:00Z
 
-      ## 지식
+      ## Knowledge
 
       - team ships on Fridays — [fact:01FACT@v1] nathen, 2026-07-02T00:00:00Z
 
-      ## 지시
+      ## Instructions
 
-      인용 없는 답변 금지. 위 기록에 없으면 '기록 없음'이라고 답하라.
-      Nathen인 척 말하지 말고 기록을 인용하라.
+      Do not answer without a citation. If it is not in the records above, answer "no record".
+      Do not speak as if you were Nathen; cite the records.
       "
     `);
   });

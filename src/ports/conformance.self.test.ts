@@ -1,12 +1,12 @@
-// conformance 스위트 자기 검증 — 인메모리 fake 어댑터로 계약을 확인한다.
-// fake는 테스트 헬퍼로만 존재 (src의 프로덕션 코드가 아니라 .test.ts 안).
+// conformance suite self-check — verify the contract with an in-memory fake adapter.
+// The fake exists only as a test helper (inside a .test.ts, not production code under src).
 
 import type { Entity, Relation } from "../core/types.js";
 import { describeStoragePort } from "./conformance.js";
 import type { StoragePort, TextQuery } from "./storage.js";
 
 function makeFake(): StoragePort {
-  const entities: Entity[] = []; // append-only 행들
+  const entities: Entity[] = []; // append-only rows
   const relations: Relation[] = [];
 
   const latestById = (): Map<string, Entity> => {
@@ -23,7 +23,7 @@ function makeFake(): StoragePort {
     close() {},
 
     async putEntity(e) {
-      entities.push(e); // append-only: 기존 행 변경 없음
+      entities.push(e); // append-only: never modify existing rows
     },
     async getEntity(id, version) {
       const rows = entities.filter((e) => e.id === id);
@@ -61,7 +61,7 @@ function makeFake(): StoragePort {
       if (q.limit !== undefined) out = out.slice(0, q.limit);
       return out;
     },
-    // similar 미구현 → capability 부재
+    // similar unimplemented → capability absent
   };
 }
 

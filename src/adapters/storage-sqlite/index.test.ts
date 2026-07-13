@@ -1,5 +1,5 @@
-// storage-sqlite 테스트 — conformance 스위트를 :memory:와 임시 파일 양쪽으로 돌리고,
-// 온톨로지 저장/로드 왕복을 확인한다.
+// storage-sqlite tests — run the conformance suite against both :memory: and a temp file,
+// and check the ontology save/load round-trip.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -73,7 +73,7 @@ describe("sqlite-vec similar", () => {
     });
     const hits = await store.similar(emb([1, 0, 0]), 2);
     expect(hits.map((h) => h.id)).toEqual(["x", "near"]);
-    // embedding 복원 (게이트의 코사인 판정을 위해)
+    // Embedding restored (for the gate's cosine judgment).
     expect(hits[0].embedding).toBeInstanceOf(Float32Array);
     expect(Array.from(hits[0].embedding as Float32Array)).toEqual([1, 0, 0]);
     store.close();

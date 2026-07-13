@@ -12,7 +12,7 @@ describe("validateInput", () => {
   it("rejects missing required attribute", () => {
     const r = validateInput(ont, {
       type: "decision",
-      attributes: { conclusion: "ship it" }, // rationale 누락
+      attributes: { conclusion: "ship it" }, // rationale missing
     });
     expect(r.ok).toBe(false);
   });

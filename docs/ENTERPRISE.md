@@ -1,49 +1,62 @@
-# yoke — Enterprise (v3.x 설계)
+# yoke — Enterprise (v3.x design)
 
-멀티테넌시·auth·RBAC·분산의 설계 방향. 착수 시점(v3.0)에 이 문서를 상세 스펙으로
-승격한다. 여기 적힌 것은 **v0.1부터 지켜야 하는 하위 호환 제약**과 방향 결정이다.
+The design direction for multi-tenancy, auth, RBAC, and distribution. When work
+starts (v3.0), this document is promoted to a detailed spec. What's written here is
+the set of **backward-compatibility constraints to uphold from v0.1 on** and the
+directional decisions.
 
-## v0.1부터 지켜야 하는 제약 (이것 때문에 이 문서가 지금 존재한다)
+## Constraints to uphold from v0.1 on (the reason this document exists now)
 
-1. **ID는 불투명 문자열** — 테넌트 네임스페이스 프리픽스(`tenant/ulid`)를 나중에
-   붙일 수 있어야 한다. ID를 파싱해 의미를 꺼내는 코드 금지.
-2. **모든 읽기/쓰기는 core 경로 통과** — auth/RBAC는 이 경로에 미들웨어로 꽂힌다.
-   어댑터 우회 경로가 하나라도 있으면 v3에서 보안 구멍이 된다.
-3. **append-only 이력** — 감사 로그와 PITR의 기반. 물리 삭제 코드 금지(tombstone).
-4. **provenance.actor는 person entity 참조** — 나중에 이것이 auth 주체와 연결된다.
+1. **IDs are opaque strings** — so a tenant-namespace prefix (`tenant/ulid`) can be
+   added later. No code that parses an ID to extract meaning.
+2. **All reads/writes pass through the core path** — auth/RBAC plug into this path as
+   middleware. A single adapter side door becomes a security hole in v3.
+3. **Append-only history** — the basis for the audit log and PITR. No
+   physical-delete code (tombstone instead).
+4. **provenance.actor references a person entity** — this is what later connects to
+   the auth subject.
 
-## 멀티테넌시 (v3.0)
+## Multi-tenancy (v3.0)
 
-- 격리 단위: 네임스페이스. 테넌트 = 최상위 네임스페이스.
-- 방식: 논리 격리(단일 DB + 네임스페이스 컬럼)로 시작, 물리 격리(테넌트별 DB 파일)는
-  규제 고객 요구 시 storage port 뒤에서 전환 — 인터페이스 변경 없음.
-- 온톨로지: 테넌트별 온톨로지 + 조직 공유 온톨로지 상속(공유가 base, 테넌트가 확장).
+- Isolation unit: the namespace. A tenant = a top-level namespace.
+- Approach: start with logical isolation (a single DB + a namespace column); switch
+  to physical isolation (a per-tenant DB file) behind the storage port when a
+  regulated customer requires it — with no interface change.
+- Ontology: a per-tenant ontology + inheritance from the org-shared ontology (the
+  shared one is the base; the tenant extends it).
 
 ## Auth / RBAC (v3.0)
 
-- 인증: OIDC/SSO(엔터프라이즈 표준) + API 토큰(에이전트·CI용).
-  자체 비밀번호 저장은 하지 않는다.
-- 인가 축: 네임스페이스 × 온톨로지 타입 × 동작(read / write / **verify**).
-  **verify 권한이 곧 지식 거버넌스 권한** — 누가 지식을 승격할 수 있는가가
-  이 제품의 권한 모델에서 가장 중요한 축이다. admin/write/verify를 분리한다.
-- MCP 연결: 토큰 스코프에 위 3축을 담는다. 에이전트는 기본 write-only
-  (draft 적재만 가능, verify 불가) — 사람이 게이트를 관장한다는 정책의 강제.
+- Authentication: OIDC/SSO (the enterprise standard) + API tokens (for agents and
+  CI). We don't store passwords ourselves.
+- Authorization axes: namespace × ontology type × action (read / write / **verify**).
+  **The verify permission *is* the knowledge-governance permission** — who can
+  promote knowledge is the single most important axis in this product's permission
+  model. We separate admin/write/verify.
+- MCP connection: the token scope carries the three axes above. An agent is
+  write-only by default (can only stage drafts, cannot verify) — enforcing the policy
+  that a human owns the gate.
 
-## 감사 로그 (v2.0에서 선행)
+## Audit log (staged early, in v2.0)
 
-- 대상: commit(수락/거절 사유 포함), verify/강등, inject(누가 어떤 지식을 주입받았나).
-- 구현: 별도 시스템이 아니라 append-only 이력 + provenance의 조회 뷰.
-  "무엇이 지식이었나"(entity 버전)와 "누가 언제 봤나"(inject 로그)를 분리 보관.
+- Targets: commit (with the accept/reject reason), verify/demotion, inject (who got
+  what knowledge injected).
+- Implementation: not a separate system, but a query view over the append-only
+  history + provenance. Keep "what the knowledge was" (entity versions) and "who saw
+  it when" (the inject log) stored separately.
 
-## 분산 / HA (v3.5)
+## Distribution / HA (v3.5)
 
-- 순서: 읽기 레플리카 먼저 — 주입(읽기)이 트래픽의 지배적 비중이고,
-  쓰기는 게이트를 거치는 저빈도 작업이라 단일 라이터로 오래 버틴다.
-- 백업/PITR: append-only라 스냅샷 + 이력 재생으로 자연 구현.
-- 샤딩: 실측 한계 확인 전 설계 금지. 테넌트 단위 샤딩이 자연스러운 경계라는
-  것만 기록해 둔다(네임스페이스 격리가 선행 조건).
+- Order: read replicas first — injection (reads) is the dominant share of traffic,
+  and writes are low-frequency work that passes the gate, so a single writer holds up
+  for a long time.
+- Backup/PITR: append-only makes this fall out naturally from snapshot + history
+  replay.
+- Sharding: no design before measured limits are confirmed. We only note that
+  per-tenant sharding is the natural boundary (namespace isolation is the
+  precondition).
 
-## 하지 않는 것
+## What we don't do
 
-- 자체 IdP 구축, 필드 단위 암호화(요구 고객 나올 때), 크로스 테넌트 지식 공유
-  마켓플레이스(비전 아님).
+- Build our own IdP, field-level encryption (until a customer requires it), or a
+  cross-tenant knowledge-sharing marketplace (not the vision).

@@ -1,6 +1,6 @@
-// inject — context injection (KNOWLEDGE-POLICY 소프트 규칙 5: 주입은 엄격하게).
-// search → effectiveStatus 계산 → 기본 verified만 통과 (stale/draft/deprecated 제외).
-// citation 형식은 감사 추적의 최소 단위 — 테스트로 고정.
+// inject — context injection (KNOWLEDGE-POLICY soft rule 5: inject strictly).
+// search → compute effectiveStatus → by default only verified passes (stale/draft/deprecated excluded).
+// The citation format is the smallest unit of the audit trail — pinned by tests.
 
 import type { StoragePort } from "../ports/storage.js";
 import { effectiveStatus } from "./lifecycle.js";
@@ -13,14 +13,14 @@ export interface InjectItem {
   citation: string;
 }
 
-/** `[{type}:{id}@v{version}] {actor}, {occurred_at}` — 감사 인용 형식. */
+/** `[{type}:{id}@v{version}] {actor}, {occurred_at}` — the audit citation format. */
 export function citation(e: Entity): string {
   return `[${e.type}:${e.id}@v${e.version}] ${e.provenance.actor}, ${e.provenance.occurred_at}`;
 }
 
 /**
- * 질의에 매칭되는 verified 지식을 인용과 함께 반환한다.
- * @param includeDraft draft도 포함 (라벨은 effectiveStatus로 구분됨). stale/deprecated는 항상 제외.
+ * Returns the verified knowledge matching a query, each with its citation.
+ * @param includeDraft also include drafts (the label is carried by effectiveStatus). stale/deprecated are always excluded.
  */
 export async function inject(
   port: StoragePort,

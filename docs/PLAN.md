@@ -1,81 +1,91 @@
-# yoke — v1 구현 계획 (상세)
+# yoke — v1 implementation plan (detailed)
 
-ROADMAP의 v0.1~v1.0을 실행 단위로 분해한다. 계약은 SPEC.md가 진실이며,
-이 문서는 순서·파일·완료 조건을 정한다. 충돌 시 SPEC 우선.
+This breaks ROADMAP v0.1–v1.0 down into executable units. SPEC.md is the source of
+truth for contracts; this document fixes the order, the files, and the definition
+of done. When they conflict, SPEC wins.
 
-## 전역 규칙
+## Global rules
 
-- **태스크 = 커밋 단위.** 각 태스크는 `tsc --noEmit` + `biome check` + `vitest run`
-  green 상태로 커밋한다.
-- **의존 방향 검증**: core는 ports/adapters/front를 import하지 않는다.
-  (v0.1에서 biome/eslint 룰이 아니라 디렉토리 구조 리뷰로 시작,
-  위반이 실제 발생하면 룰 추가 — ROADMAP 외 작업 금지 원칙 유지)
-- 하위 호환 제약 4개(ENTERPRISE.md) 상시 적용: 불투명 ID, 단일 core 경로,
-  append-only, actor=person 참조.
+- **A task is a commit unit.** Each task is committed with `tsc --noEmit` +
+  `biome check` + `vitest run` all green.
+- **Dependency-direction check**: core does not import ports/adapters/front.
+  (In v0.1 this starts as a directory-structure review rather than a biome/eslint
+  rule; add a rule only once a real violation occurs — staying within the "no work
+  beyond ROADMAP" principle.)
+- The four backward-compatibility constraints (ENTERPRISE.md) apply at all times:
+  opaque IDs, a single core path, append-only, and actor-as-person references.
 
-## 무인 진행 프로토콜 (goal 모드)
+## Unattended-execution protocol (goal mode)
 
-- **진행 추적**: 태스크 완료 시 ROADMAP.md 체크박스 갱신을 같은 커밋에 포함.
-  중단 후 재개 시 체크박스가 재개 지점이다.
-- **미세 결정 규칙**: SPEC/PLAN이 침묵하는 세부(에러 메시지 문구, 정렬 순서 등)는
-  비목표 목록을 위반하지 않는 최소 구현을 선택하고 진행한다. 멈추지 않는다.
-  단 **SPEC의 계약(스키마·시그니처·게이트 순서)을 바꿔야 할 것 같으면 멈추고 보고**.
-- **외부 의존은 전부 비차단**: 실 API 키·수동 확인이 필요한 검증(3.3의 Claude Code
-  확인, 4.1 실 임베딩, 5.2 실 GitHub, 7.3 실기기 npx)은 "사람 확인 대기" 목록에
-  기록만 하고 진행한다. DoD는 스텁/fixture 기반 자동 테스트로 충족된다.
-- **완료 정의**: 7.1~7.3의 자동화 가능 DoD 전부 green + "사람 확인 대기" 목록 출력.
+- **Progress tracking**: when a task completes, update its ROADMAP.md checkbox in
+  the same commit. On resuming after an interruption, the checkboxes are the resume
+  point.
+- **Micro-decision rule**: for details SPEC/PLAN are silent on (error message
+  wording, sort order, etc.), pick the minimal implementation that doesn't violate
+  the non-goals list, and keep going. Don't stall. But **if it looks like you'd
+  have to change a SPEC contract (schema, signature, gate order), stop and report**.
+- **All external dependencies are non-blocking**: verifications that need a real
+  API key or manual confirmation (the Claude Code check in 3.3, real embeddings in
+  4.1, real GitHub in 5.2, real-device npx in 7.3) are recorded on the "awaiting
+  human confirmation" list and you proceed. The DoD is satisfied by
+  stub/fixture-based automated tests.
+- **Definition of done**: every automatable DoD in 7.1–7.3 green, plus the
+  "awaiting human confirmation" list printed out.
 
-## 최종 디렉토리 (v1.0 시점)
+## Final directory layout (as of v1.0)
 
 ```
 src/
   core/
-    types.ts        # Entity, Relation, Provenance, Ontology 타입
-    ontology.ts     # 검증 + 시드 + 마이그레이션
-    commit.ts       # 게이트 파이프라인 (단일 쓰기 경로)
-    lifecycle.ts    # status 전이, 신선도
-    inject.ts       # context injection + 인용
-    persona.ts      # person 스코프 질의 + SKILL.md 생성
-    embedding.ts    # provider 클라이언트 (fetch, OpenAI 호환)
+    types.ts        # Entity, Relation, Provenance, Ontology types
+    ontology.ts     # validation + seed + migration
+    commit.ts       # gate pipeline (the single write path)
+    lifecycle.ts    # status transitions, freshness
+    inject.ts       # context injection + citations
+    persona.ts      # person-scoped queries + SKILL.md generation
+    embedding.ts    # provider client (fetch, OpenAI-compatible)
   ports/
-    storage.ts      # StoragePort 인터페이스
-    conformance.ts  # 공통 테스트 스위트 (test factory)
+    storage.ts      # StoragePort interface
+    conformance.ts  # shared test suite (test factory)
   adapters/
     storage-sqlite/ # index.ts, schema.sql
   connectors/
     github-pr.ts
   front/
-    cli/index.ts    # 서브커맨드 라우팅 (node:util parseArgs)
-    mcp/index.ts    # MCP stdio 서버
+    cli/index.ts    # subcommand routing (node:util parseArgs)
+    mcp/index.ts    # MCP stdio server
 eval/
-  inject-quality.ts # 오염 주입률 측정
+  inject-quality.ts # contamination-rate measurement
 ```
 
 ---
 
-## v0.1 — 코어 모델 + SQLite + 게이트
+## v0.1 — core model + SQLite + gate
 
-### 1.1 프로젝트 셋업
+### 1.1 Project setup
 
 - `npm init` — `"type": "module"`, `"bin": {"yoke": "dist/front/cli/index.js"}`
 - deps: `better-sqlite3`, `ulid` / devDeps: `typescript`, `vitest`, `@biomejs/biome`,
   `@types/node`, `@types/better-sqlite3`
-- tsconfig: strict, NodeNext, outDir dist / biome.json 기본 + import 정렬
-- scripts: `build`(tsc), `test`(vitest run), `typecheck`(tsc --noEmit), `lint`(biome check)
-- **DoD**: 4개 스크립트 전부 green (빈 src로).
+- tsconfig: strict, NodeNext, outDir dist / biome.json defaults + import sorting
+- scripts: `build` (tsc), `test` (vitest run), `typecheck` (tsc --noEmit),
+  `lint` (biome check)
+- **DoD**: all four scripts green (against an empty src).
 
-### 1.2 코어 타입 (`core/types.ts`)
+### 1.2 Core types (`core/types.ts`)
 
-SPEC의 Entity/Relation을 그대로 타입화. 추가 결정사항:
+Type SPEC's Entity/Relation verbatim. Additional decisions:
 
-- `id`: `ulid()` 생성, 소비처는 불투명 문자열로만 취급
-- `EntityInput` 분리: commit이 받는 입력형 (id/status/version/last_confirmed 없음
-  — 이것들은 게이트가 부여). **어댑터·front가 Entity를 직접 조립할 수 없게
-  타입 수준에서 강제**하는 것이 이 파일의 존재 이유.
-- `Provenance.occurred_at`, `last_confirmed`: ISO 8601 string (Date 객체 저장 금지)
-- **DoD**: 타입만. 테스트 없음 (로직 없음).
+- `id`: generated with `ulid()`; consumers treat it only as an opaque string.
+- Separate `EntityInput`: the input shape that commit accepts (no id/status/version/
+  last_confirmed — those are assigned by the gate). **Forcing, at the type level,
+  that adapters and front cannot assemble an Entity directly** is the reason this
+  file exists.
+- `Provenance.occurred_at`, `last_confirmed`: ISO 8601 string (never store Date
+  objects).
+- **DoD**: types only. No tests (no logic).
 
-### 1.3 온톨로지 (`core/ontology.ts`)
+### 1.3 Ontology (`core/ontology.ts`)
 
 ```ts
 type AttrSpec = { type: 'string'|'number'|'boolean'|'string[]', required?: boolean }
@@ -87,35 +97,38 @@ seedOntology(): TypeDef[]   // person, fact, decision, term, resource
                             // + authored_by, relates_to, supersedes, conflicts_with
 ```
 
-- decision attrs: `conclusion`(string, required), `rationale`(string, required),
-  `rejected_alternatives`(string[])
-- 검증기는 직접 구현 (~40줄). ajv/zod 같은 스키마 라이브러리 도입 금지
-  — AttrSpec 4종이면 충분하다. <!-- ponytail: 타입 4종 수동 검증. 중첩 객체 스키마가 필요해지면 zod로 -->
-- 온톨로지는 별도 `ontology_types` 테이블 (SPEC 참고 — **게이트 비경유**, 순환 방지).
-  v0.1에서는 시드 저장/로드만 구현, 마이그레이션 명령은 4.4에서.
-- **테스트**: 미등록 타입 거절 / required 누락 거절 / 타입 불일치 거절 /
-  정상 통과 / relation의 from·to 필수.
+- decision attrs: `conclusion` (string, required), `rationale` (string, required),
+  `rejected_alternatives` (string[])
+- Implement the validator by hand (~40 lines). Do not pull in a schema library like
+  ajv or zod — four AttrSpec kinds are enough.
+  <!-- ponytail: manual validation of 4 types. Move to zod if a nested-object schema is ever needed -->
+- The ontology lives in its own `ontology_types` table (see SPEC — **it bypasses
+  the gate**, to avoid a cycle). v0.1 implements only seed store/load; the migration
+  command comes in 4.4.
+- **Tests**: reject unregistered type / reject missing required / reject type
+  mismatch / accept valid / relation's from & to are required.
 
 ### 1.4 storage port + conformance (`ports/`)
 
-- `storage.ts`: SPEC의 인터페이스 그대로 + `init(): Promise<void>`, `close()`
-- `conformance.ts`: **test factory** — 어댑터 테스트가 호출:
+- `storage.ts`: SPEC's interface verbatim + `init(): Promise<void>`, `close()`
+- `conformance.ts`: a **test factory** that adapter tests call:
 
 ```ts
 export function describeStoragePort(name: string, make: () => Promise<StoragePort>)
 ```
 
-포함 케이스 (최소 세트, v1.0에서 확장):
-1. putEntity → getEntity 왕복
-2. **putEntity 같은 id 재호출 → 두 버전 존재, getEntity는 최신, version 지정 시 과거**
-3. 물리 삭제 API가 없음 (인터페이스 차원 확인)
-4. putRelation → neighbors 방향 필터 (in/out/양방향)
-5. neighbors relType 필터
-6. search: FTS 매칭 / 무결과 빈 배열
-7. getEntity 미존재 → null
-8. similar 미구현 어댑터에서 undefined (capability 부재 확인)
+Cases included (minimal set, expanded in v1.0):
+1. putEntity → getEntity round-trip
+2. **putEntity with the same id again → both versions exist; getEntity returns the latest, or a past one when a version is specified**
+3. no physical-delete API (verified at the interface level)
+4. putRelation → neighbors direction filter (in/out/both)
+5. neighbors relType filter
+6. search: FTS match / empty array on no results
+7. getEntity on a missing id → null
+8. similar returns undefined on adapters that don't implement it (verifies the absent capability)
 
-- **DoD**: 스위트가 인메모리 fake로 자기 검증 통과 (fake는 테스트 헬퍼로만, src에 두지 않음).
+- **DoD**: the suite self-validates against an in-memory fake (the fake is a test
+  helper only — not placed under src).
 
 ### 1.5 storage-sqlite (`adapters/storage-sqlite/`)
 
@@ -131,16 +144,16 @@ CREATE TABLE entities (
   created_at TEXT NOT NULL,
   PRIMARY KEY (id, version)
 ) WITHOUT ROWID;
-CREATE TABLE relations ( ... 동일 골격 + from_id, to_id ... );
+CREATE TABLE relations ( ... same skeleton + from_id, to_id ... );
 CREATE VIRTUAL TABLE entities_fts USING fts5(id UNINDEXED, text);
--- text = type + attributes 직렬화. put 시 최신 버전만 유지 (delete+insert)
+-- text = type + serialized attributes. On put, keep only the latest version (delete+insert)
 ```
 
-- WAL 모드, `PRAGMA foreign_keys` 불사용(append-only라 FK 무의미)
-- getEntity 최신 = `ORDER BY version DESC LIMIT 1`
-- **DoD**: conformance 통과 (`:memory:` + 임시 파일 양쪽).
+- WAL mode; `PRAGMA foreign_keys` unused (append-only makes FKs meaningless).
+- getEntity latest = `ORDER BY version DESC LIMIT 1`
+- **DoD**: passes conformance (`:memory:` and a temp file, both).
 
-### 1.6 commit 게이트 (`core/commit.ts`)
+### 1.6 commit gate (`core/commit.ts`)
 
 ```ts
 class CommitRejected extends Error { reason: 'ontology'|'provenance' }
@@ -149,44 +162,52 @@ commit(port: StoragePort, ontology: TypeDef[], input: EntityInput|RelationInput,
        prov: Provenance): Promise<{ entity: Entity, duplicates: Entity[] }>
 ```
 
-v0.1은 파이프라인 1·2단계만: 온톨로지 검증 → provenance 검증(actor/origin/occurred_at
-비어있지 않음) → id·version·status='draft'·last_confirmed 부여 → put.
-`duplicates`는 v0.4까지 항상 `[]` (시그니처는 지금 고정 — 호출자 변경 방지).
+v0.1 implements only pipeline stages 1 and 2: ontology validation → provenance
+validation (actor/origin/occurred_at non-empty) → assign id/version/status='draft'/
+last_confirmed → put. `duplicates` is always `[]` until v0.4 (the signature is
+fixed now to avoid a later caller change).
 
-- **기존 id 재커밋 = 새 버전** (수정 경로도 게이트 통과, 동일 검증)
-- **테스트**: 거절 2종 / draft 부여 / 재커밋 버전 증가 / relation 커밋.
+- **Recommitting an existing id = a new version** (the edit path also passes the
+  gate, with the same validation).
+- **Tests**: two rejection kinds / draft assignment / version bump on recommit /
+  relation commit.
 
-### 1.7 CLI 골격 (`front/cli/index.ts`)
+### 1.7 CLI skeleton (`front/cli/index.ts`)
 
-- `node:util` parseArgs. commander 등 도입 금지 (서브커맨드 10개 수준).
-- `yoke init [--db path]` — 기본 `./yoke.db`. DB 생성 + 온톨로지 시드 +
-  **`yoke:system` person 시드** (부트스트랩 actor, SPEC 참고).
-- `yoke add <type> [--actor <id>] [--attr k=v ...]` — commit 경유. 거절 사유 출력.
-  - actor 해석: `--actor` > `YOKE_ACTOR` env > `yoke:system` (모든 명령 공통 헬퍼)
-  - `--attr` 반복 지정 = string[] (예: `--attr alt=a --attr alt=b`)
+- `node:util` parseArgs. Do not pull in commander or similar (we're at ~10
+  subcommands).
+- `yoke init [--db path]` — defaults to `./yoke.db`. Creates the DB + seeds the
+  ontology + **seeds the `yoke:system` person** (the bootstrap actor, see SPEC).
+- `yoke add <type> [--actor <id>] [--attr k=v ...]` — goes through commit; prints
+  the rejection reason.
+  - actor resolution: `--actor` > `YOKE_ACTOR` env > `yoke:system` (a shared helper
+    across all commands)
+  - repeating `--attr` = string[] (e.g. `--attr alt=a --attr alt=b`)
 - `yoke get <id> [--version n]`
 - `yoke search <query>`
-- DB 경로 해석: `--db` > `YOKE_DB` env > `./yoke.db` (공통 헬퍼 1개)
-- **DoD**: 스모크 테스트 1개 (init→add→search 를 자식 프로세스로 실행) +
-  수동 시나리오 확인. CLI 출력은 사람용 텍스트, `--json` 플래그로 기계용.
+- DB path resolution: `--db` > `YOKE_DB` env > `./yoke.db` (one shared helper)
+- **DoD**: one smoke test (init→add→search run as a child process) + manual scenario
+  check. CLI output is human text; `--json` flag for machine output.
 
 ---
 
-## v0.2 — lifecycle + 주입
+## v0.2 — lifecycle + injection
 
 ### 2.1 lifecycle (`core/lifecycle.ts`)
 
 ```ts
 verify(port, ids: string[], actor: string): Promise<Entity[]>
-  // status→verified, last_confirmed=now. 새 버전 행 (append-only)
+  // status→verified, last_confirmed=now. New version row (append-only)
 deprecate(port, id, actor)
 isFresh(e: Entity, ontology: TypeDef[], now: string): boolean
-  // TypeDef에 ttl_days?: number 추가 (기본: fact 180, decision 365, person/term/resource 무제한)
+  // add ttl_days?: number to TypeDef (defaults: fact 180, decision 365, person/term/resource unlimited)
 ```
 
-- stale은 **저장하지 않는다** — 읽기 시점에 `verified && !isFresh` → stale로 판정.
-  deprecated만 명시 저장. (SPEC의 읽기 시점 판정 구현)
-- **테스트**: verify 버전 증가 / TTL 경과 판정 / 무제한 타입 / deprecate.
+- stale is **never stored** — it's decided at read time: `verified && !isFresh` →
+  stale. Only deprecated is stored explicitly. (This implements SPEC's read-time
+  determination.)
+- **Tests**: verify bumps the version / TTL-elapsed determination / unlimited types
+  / deprecate.
 
 ### 2.2 inject (`core/inject.ts`)
 
@@ -195,165 +216,190 @@ inject(port, ontology, query: string, opts?: { includeDraft?: boolean, limit?: n
   : Promise<{ items: Array<{ entity, effectiveStatus, citation: string }> }>
 ```
 
-- 파이프라인: search(+ v0.4부터 similar 병합) → effectiveStatus 계산 →
-  기본 verified만 → citation 생성
-- citation 형식 고정: `[{type}:{id}@v{version}] {actor}, {occurred_at}` —
-  이 형식이 감사 추적의 최소 단위. 테스트로 고정.
-- **테스트**: draft 제외 / includeDraft 시 라벨 / stale 제외 / citation 형식.
+- Pipeline: search (+ merge similar from v0.4 on) → compute effectiveStatus →
+  verified-only by default → generate citation.
+- Citation format is fixed: `[{type}:{id}@v{version}] {actor}, {occurred_at}` — this
+  format is the atomic unit of the audit trail. Locked down by a test.
+- **Tests**: draft excluded / label shown when includeDraft / stale excluded /
+  citation format.
 
 ### 2.3 CLI: `review` / `verify`
 
-- `yoke review` — draft 목록 (id, type, 요약, 출처). **한 화면에 훑고 일괄 결정**이
-  목적이므로 페이징보다 압축 표시 우선.
-- `yoke verify <id...>` / `yoke verify --all-drafts` (콜드 스타트용 일괄)
-- `yoke deprecate <id...>` — lifecycle.deprecate 노출 (모순 해소에도 사용)
-- **DoD**: add(draft) → inject에 안 나옴 → verify → 나옴, E2E 스모크.
+- `yoke review` — the draft list (id, type, summary, source). Its purpose is to
+  **scan the whole thing in one screen and decide in bulk**, so favor a compact
+  display over paging.
+- `yoke verify <id...>` / `yoke verify --all-drafts` (bulk, for cold start)
+- `yoke deprecate <id...>` — exposes lifecycle.deprecate (also used to resolve
+  contradictions)
+- **DoD**: add (draft) → not in inject → verify → appears. E2E smoke.
 
 ---
 
-## v0.3 — MCP 서버
+## v0.3 — MCP server
 
-### 3.1 서버 골격 (`front/mcp/index.ts`)
+### 3.1 Server skeleton (`front/mcp/index.ts`)
 
-- deps 추가: `@modelcontextprotocol/sdk`, `zod` (SDK 도구 스키마용 peer)
-- stdio transport. `yoke mcp [--db path]`로 기동.
+- add deps: `@modelcontextprotocol/sdk`, `zod` (a peer, for the SDK's tool schemas)
+- stdio transport. Started with `yoke mcp [--db path]`.
 
-### 3.2 도구 3개
+### 3.2 Three tools
 
-| 도구 | 입력(zod) | 동작 |
+| Tool | Input (zod) | Behavior |
 |---|---|---|
-| `yoke_inject` | query, includeDraft? | inject() 결과를 인용 포함 텍스트로 |
-| `yoke_commit` | type, attributes, actor | commit() — 거절 시 사유를 도구 에러로 |
-| `yoke_record_decision` | conclusion, rationale, rejected_alternatives?, actor | decision 커밋 숏컷 |
+| `yoke_inject` | query, includeDraft? | inject() result as citation-included text |
+| `yoke_commit` | type, attributes, actor | commit() — a rejection surfaces as a tool error |
+| `yoke_record_decision` | conclusion, rationale, rejected_alternatives?, actor | decision-commit shortcut |
 
-- 도구 설명문이 곧 에이전트 UX — "결정을 내렸으면 record_decision을 호출하라"는
-  트리거 조건을 설명문에 명시 (MCP 서버의 채택률이 여기서 갈린다).
+- The tool description *is* the agent UX — spell out the trigger condition in the
+  description ("if you've reached a decision, call record_decision"). Adoption of
+  the MCP server hinges on this.
 
-### 3.3 E2E 검증
+### 3.3 E2E verification
 
-- **자동 (DoD)**: MCP SDK의 Client를 테스트에서 직접 사용 — 서버 프로세스를
-  stdio로 spawn → record_decision 호출 → 새 Client 연결(별도 프로세스) →
-  yoke_inject로 주입 확인. 세션 간 지속성의 자동화 검증.
-- **수동 (비차단, 사람 확인 대기 목록행)**: `.mcp.json` 등록 후 Claude Code
-  세션 A/B 실사용 확인 → 결과를 README 초안에 기록.
+- **Automated (DoD)**: use the MCP SDK's Client directly in a test — spawn the
+  server process over stdio → call record_decision → connect a fresh Client (a
+  separate process) → confirm injection via yoke_inject. This automates the check
+  for cross-session persistence.
+- **Manual (non-blocking, an item on the awaiting-human-confirmation list)**: after
+  registering `.mcp.json`, confirm in real use across Claude Code sessions A/B →
+  record the result in the README draft.
 
 ---
 
-## v0.4 — 중복·모순
+## v0.4 — duplicates + contradictions
 
-### 4.1 임베딩 (`core/embedding.ts`)
+### 4.1 Embedding (`core/embedding.ts`)
 
-- SPEC의 `Embedder` 함수형 구현: OpenAI 호환 `/v1/embeddings`를 fetch로 직접 호출
-  (SDK 금지, ~30줄). core 함수들은 Embedder를 **파라미터로 주입**받는다.
-- 설정: `YOKE_EMBED_URL`, `YOKE_EMBED_MODEL`, `YOKE_EMBED_KEY` env.
-  미설정 → `null` 반환 → 호출측 FTS 폴백. 실패도 폴백 + stderr 경고
-  (임베딩 장애가 commit을 막으면 안 된다 — 게이트 하드 규칙이 아님).
-- **테스트는 결정적 스텁 Embedder 사용** (단어 해시 기반 고정 벡터 등).
-  실 API 호출 테스트 없음 — 실 provider 확인은 사람 확인 대기 목록행.
+- Functional implementation of SPEC's `Embedder`: call an OpenAI-compatible
+  `/v1/embeddings` directly with fetch (no SDK, ~30 lines). The core functions
+  receive the Embedder **as a parameter**.
+- Config: `YOKE_EMBED_URL`, `YOKE_EMBED_MODEL`, `YOKE_EMBED_KEY` env. Unset →
+  returns `null` → the caller falls back to FTS. A failure also falls back, with a
+  stderr warning (an embedding outage must not block commit — this is not a hard
+  gate rule).
+- **Tests use a deterministic stub Embedder** (e.g. a fixed vector from a word
+  hash). No real-API test — confirming a real provider is an item on the
+  awaiting-human-confirmation list.
 
-### 4.2 sqlite-vec 통합
+### 4.2 sqlite-vec integration
 
-- `sqlite-vec` dep 추가, `vec0` 가상 테이블 (최신 버전만 유지, FTS와 동일 정책)
-- storage-sqlite에 `similar()` 구현 → conformance의 capability 케이스 활성화.
+- add the `sqlite-vec` dep, a `vec0` virtual table (keep only the latest version,
+  same policy as FTS).
+- implement `similar()` in storage-sqlite → activates the conformance capability
+  case.
 
-### 4.3 게이트 3·4단계 (`core/commit.ts` 확장)
+### 4.3 Gate stages 3 and 4 (`core/commit.ts` extension)
 
-- 3단계: similar(있으면) 또는 FTS로 top-5 → 코사인 유사도/휴리스틱 임계 초과를
-  `duplicates`로 반환. **자동 병합·자동 거절 금지** — 호출자(CLI가 "유사 지식 존재"
-  경고, MCP가 도구 결과에 포함)가 판단.
-  <!-- ponytail: 임계값 상수 하나(0.85)로 시작. 정밀도 문제가 실측되면 타입별 임계로 -->
-- 4단계: **decision 타입 한정 휴리스틱** — 기존 decision과 유사도 ≥ 임계인데
-  `conclusion` 텍스트가 다르면 conflicts_with 생성. 판정 입력은 이 두 값뿐
-  (subject 개념 없음 — v1 온톨로지에 그런 필드가 없다).
-  범용 모순 탐지는 v1 이후 (NLI 모델 영역, 지금 안 함).
-- **테스트**: 중복 후보 반환 / 임계 미달 시 빈 배열 / conflicts_with 생성·양쪽 보존.
+- Stage 3: similar (when available) or FTS for the top 5 → return anything over the
+  cosine-similarity/heuristic threshold as `duplicates`. **No auto-merge, no
+  auto-reject** — the caller decides (the CLI warns "similar knowledge exists"; the
+  MCP tool includes it in the result).
+  <!-- ponytail: start with a single threshold constant (0.85). Move to per-type thresholds if precision proves to be a problem -->
+- Stage 4: a **decision-type-only heuristic** — when similarity to an existing
+  decision is ≥ threshold but the `conclusion` text differs, create a conflicts_with
+  edge. The only inputs to the judgment are these two values (there is no "subject"
+  concept — the v1 ontology has no such field). General contradiction detection is
+  post-v1 (NLI-model territory; not doing it now).
+- **Tests**: duplicate candidates returned / empty array below threshold /
+  conflicts_with created and both sides preserved.
 
 ### 4.4 CLI: `conflicts` / `ontology`
 
-- `yoke conflicts` — 쌍 목록 + 각 출처. 해소는 `yoke verify`/`deprecate`로 (전용 명령 없음).
-- `yoke ontology list` / `yoke ontology add-type <json-file>` (마이그레이션 = 온톨로지
-  레코드 새 버전 — entity와 동일한 append-only 메커니즘 재사용).
+- `yoke conflicts` — the pair list + each source. Resolution is via
+  `yoke verify`/`deprecate` (no dedicated command).
+- `yoke ontology list` / `yoke ontology add-type <json-file>` (a migration = a new
+  version of an ontology record — reusing the same append-only mechanism as
+  entities).
 
 ---
 
-## v0.5 — 캡처 커넥터
+## v0.5 — capture connectors
 
-### 5.1 커넥터 계약 (`connectors/`)
+### 5.1 Connector contract (`connectors/`)
 
 ```ts
 type Connector = { name: string, pull(since?: string): AsyncIterable<EntityInput & { externalId: string }> }
 ```
 
-- 커넥터는 **EntityInput 생산자일 뿐** — 저장은 반드시 commit 게이트 경유 (우회 금지).
-- 멱등성: `externalId`(예: PR 코멘트 URL)를 attributes에 저장,
-  재실행 시 동일 externalId 존재하면 skip. 이것이 커넥터 공통 패턴의 전부다 —
-  프레임워크를 만들지 않는다.
+- A connector is **just an EntityInput producer** — storage must go through the
+  commit gate (no side door).
+- Idempotency: store `externalId` (e.g. the PR comment URL) in attributes; on rerun,
+  skip if the same externalId already exists. That is the entirety of the connectors'
+  shared pattern — we don't build a framework.
 
-### 5.2 github-pr 커넥터
+### 5.2 github-pr connector
 
-- GitHub REST (fetch + `GITHUB_TOKEN`). octokit 도입 금지 (엔드포인트 2개:
-  pulls 목록, review comments).
-- 매핑: 리뷰 코멘트 → `decision` draft (conclusion=코멘트 본문 요약 없이 원문,
-  rationale=스레드 맥락, actor=코멘트 작성자 → person entity 자동 생성-or-참조).
+- GitHub REST (fetch + `GITHUB_TOKEN`). Do not pull in octokit (two endpoints: the
+  pulls list and review comments).
+- Mapping: review comment → `decision` draft (conclusion = the comment body verbatim,
+  no summarization; rationale = the thread context; actor = the comment author → a
+  person entity is auto-created or referenced).
 - `yoke connect github-pr --repo owner/name [--since date]`
-- **테스트**: fixture JSON → EntityInput 매핑 / 멱등 재실행. (실 API는 수동 1회)
+- **Tests**: fixture JSON → EntityInput mapping / idempotent rerun. (Real API is a
+  one-time manual check.)
 
 ---
 
 ## v0.6 — persona
 
-### 6.1 person 스코프 질의 (`core/persona.ts`)
+### 6.1 Person-scoped query (`core/persona.ts`)
 
 ```ts
 personaQuery(port, ontology, personId, now): Promise<{ decisions: Entity[], facts: Entity[] }>
 ```
 
-- provenance.actor = personId **또는** authored_by relation → 해당 인물 지식 수집,
-  verified+fresh만 (inject와 동일 필터 재사용 — 새 필터 로직 작성 금지).
-- 반환은 두 그룹뿐. SKILL.md의 "판단 원칙" 섹션은 별도 entity 타입이 아니라
-  **decision들의 rationale에서 발췌**해 구성한다 (principle 타입 추가 금지 —
-  온톨로지에 없는 개념을 코드가 발명하지 않는다).
+- provenance.actor = personId **or** an authored_by relation → collect that person's
+  knowledge, verified+fresh only (reusing inject's filter — no new filter logic).
+- The return is just the two groups. The "guiding principles" section of the SKILL.md
+  is not a separate entity type; it's **assembled from the rationale of the
+  decisions** (no principle type added — the code doesn't invent a concept the
+  ontology lacks).
 
 ### 6.2 SKILL.md export
 
-- `yoke persona <person-id> [--out dir]` → SKILL.md 생성 (`now` 주입 —
-  스냅샷 테스트는 고정 시각 사용):
-  frontmatter(name: persona-{person}, description) + 판단 원칙 섹션 +
-  결정 목록(conclusion/rationale/citation) + **"인용 없는 답변 금지, 기록에 없으면
-  '기록 없음'이라고 답하라"** 지시문.
-- 파일 헤더에 생성 시각 + 소스 지식 (id@version) 목록 — 재생성 원칙의 감사 근거.
-- **테스트**: 스냅샷 테스트 1개 (고정 fixture → SKILL.md 출력 고정).
+- `yoke persona <person-id> [--out dir]` → generates SKILL.md (`now` injected — the
+  snapshot test uses a fixed time):
+  frontmatter (name: persona-{person}, description) + a guiding-principles section +
+  the decision list (conclusion/rationale/citation) + the instruction
+  **"never answer without a citation; if it's not in the record, say 'no record'"**.
+- The file header carries the generation time + the source knowledge (id@version)
+  list — the audit basis for the regenerate-from-scratch principle.
+- **Tests**: one snapshot test (fixed fixture → fixed SKILL.md output).
 
 ### 6.3 MCP `yoke_persona`
 
-- 입력: person, query? — personaQuery 결과를 인용 포함 텍스트로.
+- Input: person, query? — the personaQuery result as citation-included text.
 
 ---
 
-## v1.0 — 품질·패키징
+## v1.0 — quality + packaging
 
 ### 7.1 CI
 
-- GitHub Actions: typecheck + lint + vitest (conformance 포함), Node 20/22 매트릭스.
+- GitHub Actions: typecheck + lint + vitest (conformance included), Node 20/22
+  matrix.
 
-### 7.2 주입 품질 eval (`eval/inject-quality.ts`)
+### 7.2 Injection-quality eval (`eval/inject-quality.ts`)
 
-- 시나리오 생성: 사실 N개를 절반 verified, 절반 draft(오염 가정)로 시드 →
-  질의 세트 실행 → **오염 주입률 = 주입 결과 중 draft 비율 (목표 0%)**,
-  모순 미탐지율 = 심어둔 반대 결론 쌍 중 conflicts_with 미생성 비율.
-- vitest가 아니라 실행 스크립트 (`npm run eval`) — 수치가 산출물 (MARKET 전략 6의
-  마케팅 근거 데이터가 된다).
+- Scenario generation: seed N facts, half verified, half draft (the contamination
+  assumption) → run the query set → **contamination rate = share of draft entries
+  among inject results (target 0%)**, missed-contradiction rate = share of the
+  planted opposing-conclusion pairs with no conflicts_with edge.
+- A run script (`npm run eval`), not vitest — the numbers are a deliverable (they
+  become the marketing-evidence data for MARKET strategy 6).
 
-### 7.3 패키징
+### 7.3 Packaging
 
-- `npm pack` → tarball을 임시 디렉토리에 설치해 `yoke init` 콜드 스타트 자동 확인
-  (better-sqlite3/sqlite-vec 프리빌드 바이너리 — **가장 흔한 배포 함정**).
-  타 플랫폼 실기기 확인은 사람 확인 대기 목록행. npm publish는 계획 밖 (사람 결정).
-- README: 한마디 포지셔닝 + 60초 퀵스타트 + MCP 등록법.
+- `npm pack` → install the tarball into a temp directory and auto-confirm a
+  `yoke init` cold start (the better-sqlite3/sqlite-vec prebuilt binaries — **the
+  single most common distribution trap**). Real-device checks on other platforms are
+  an item on the awaiting-human-confirmation list. `npm publish` is out of scope (a
+  human decision).
+- README: one-line positioning + the 60-second quickstart + the MCP setup.
 
 ---
 
-## 순서 의존성 요약
+## Ordering-dependency summary
 
 ```
 1.1 → 1.2 → 1.3 ─┐
@@ -362,9 +408,11 @@ personaQuery(port, ontology, personId, now): Promise<{ decisions: Entity[], fact
                                   → [v0.5] 5.x → [v0.6] 6.x → [v1.0] 7.x
 ```
 
-v0.4와 v0.3은 순서 교환 가능 (둘 다 v0.2에만 의존). 기본은 ROADMAP 순서.
+v0.4 and v0.3 can be swapped (both depend only on v0.2). The default is ROADMAP
+order.
 
-## 명시적 비목표 (v1 기간 중 요청돼도 거절)
+## Explicit non-goals (rejected even if requested during v1)
 
-모노레포 분리, DI 컨테이너, 이벤트 버스, 플러그인 시스템, 설정 파일 포맷
-(env + 플래그로 충분), 국제화, 로깅 프레임워크(console + stderr로 충분).
+Monorepo split, DI container, event bus, plugin system, a config-file format
+(env + flags are enough), internationalization, a logging framework (console +
+stderr are enough).

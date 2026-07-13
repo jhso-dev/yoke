@@ -1,5 +1,5 @@
-// CLI 시나리오 테스트 — runCli를 직접 호출 (프로세스 spawn 불필요, exit code는 반환값).
-// 임시 디렉토리 DB로 init→add→get→search 1개 + add 거절(exit 1) 1개.
+// CLI scenario tests — call runCli directly (no process spawn needed; exit code is the return value).
+// Uses a temp-directory DB for one init→add→get→search round-trip plus one rejected add (exit 1).
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,11 +38,11 @@ describe("runCli", () => {
 
     expect(await runCli(["init", "--db", db])).toBe(0);
 
-    // 재실행 멱등: 재시드하지 않는다.
+    // Idempotent re-run: does not re-seed.
     expect(await runCli(["init", "--db", db])).toBe(0);
     expect(logs.at(-1)).toContain("already initialized");
 
-    // add (--json으로 id 확보)
+    // add (use --json to capture the id)
     expect(
       await runCli([
         "add",
@@ -63,7 +63,7 @@ describe("runCli", () => {
     expect(await runCli(["get", added.id, "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string).id).toBe(added.id);
 
-    // 미존재 get → exit 1
+    // absent get → exit 1
     expect(await runCli(["get", "nope", "--db", db])).toBe(1);
 
     // search
@@ -75,12 +75,12 @@ describe("runCli", () => {
   it("rejects invalid add with exit 1", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
-    // decision은 conclusion/rationale required → 누락 시 게이트 거절.
+    // decision requires conclusion/rationale → the gate rejects when they are missing.
     expect(await runCli(["add", "decision", "--db", db])).toBe(1);
     expect(errs.at(-1)).toContain("rejected");
   });
 
-  it("lifecycle E2E: add(draft) → inject 제외 → review → verify → inject 노출 → deprecate → 제외", async () => {
+  it("lifecycle E2E: add(draft) → excluded from inject → review → verify → shown in inject → deprecate → excluded", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
 
@@ -98,13 +98,13 @@ describe("runCli", () => {
     ).toBe(0);
     const id = JSON.parse(logs.at(-1) as string).id as string;
 
-    // draft는 기본 inject에서 제외
+    // a draft is excluded from inject by default
     expect(
       await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toHaveLength(0);
 
-    // --include-draft면 노출
+    // --include-draft shows it
     expect(
       await runCli([
         "inject",
@@ -117,7 +117,7 @@ describe("runCli", () => {
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toHaveLength(1);
 
-    // review에 draft가 뜬다
+    // the draft appears in review
     expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
     expect(
       JSON.parse(logs.at(-1) as string).some(
@@ -125,11 +125,11 @@ describe("runCli", () => {
       ),
     ).toBe(true);
 
-    // verify → 승격
+    // verify → promoted
     expect(await runCli(["verify", id, "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)[0].status).toBe("verified");
 
-    // review에서 이 fact는 사라진다 (yoke:system draft는 남아있을 수 있음)
+    // this fact disappears from review (the yoke:system draft may remain)
     expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
     expect(
       JSON.parse(logs.at(-1) as string).some(
@@ -137,7 +137,7 @@ describe("runCli", () => {
       ),
     ).toBe(false);
 
-    // verified → 기본 inject에 노출 (citation 포함)
+    // verified → shown in the default inject (with citation)
     expect(
       await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
     ).toBe(0);
@@ -145,7 +145,7 @@ describe("runCli", () => {
     expect(injected).toHaveLength(1);
     expect(injected[0].citation).toContain(id);
 
-    // deprecate → inject에서 사라짐
+    // deprecate → disappears from inject
     expect(await runCli(["deprecate", id, "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)[0].status).toBe("deprecated");
     expect(
@@ -165,7 +165,7 @@ describe("runCli", () => {
     expect(await runCli(["verify", "--all-drafts", "--db", db, "--json"])).toBe(
       0,
     );
-    // yoke:system person(draft) + fact 2개 = 3건 승격
+    // yoke:system person (draft) + 2 facts = 3 promoted
     expect(JSON.parse(logs.at(-1) as string).length).toBeGreaterThanOrEqual(2);
     expect(await runCli(["review", "--db", db])).toBe(0);
     expect(logs.at(-1)).toBe("no drafts");
@@ -174,7 +174,7 @@ describe("runCli", () => {
   it("conflicts lists conflicts_with pairs with both entities", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
-    // 두 모순 decision + conflicts_with relation을 게이트 경유로 직접 시드.
+    // Seed two conflicting decisions + a conflicts_with relation directly, through the gate.
     const ont = seedOntology();
     const now = "2026-07-12T00:00:00Z";
     const prov: Provenance = {
@@ -224,7 +224,7 @@ describe("runCli", () => {
     expect(out[0].from.id).toBe(b.entity.id);
     expect(out[0].to.id).toBe(a.entity.id);
 
-    // no conflicts인 새 DB
+    // a fresh DB with no conflicts
     const db2 = newDb();
     expect(await runCli(["init", "--db", db2])).toBe(0);
     expect(await runCli(["conflicts", "--db", db2])).toBe(0);
@@ -234,7 +234,7 @@ describe("runCli", () => {
   it("persona writes SKILL.md for a person to --out dir", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
-    // yoke:system(person, verified) 을 actor로 결정 기록 후 같은 actor로 승격.
+    // Record a decision with yoke:system (person, verified) as actor, then promote it with the same actor.
     expect(
       await runCli([
         "add",
@@ -272,9 +272,9 @@ describe("runCli", () => {
     const md = readFileSync(path, "utf8");
     expect(md).toContain("name: persona-yoke-system");
     expect(md).toContain("use SQLite");
-    expect(md).toContain("인용 없는 답변 금지");
+    expect(md).toContain("Do not answer without a citation");
 
-    // 미존재 person → exit 1
+    // absent person → exit 1
     expect(await runCli(["persona", "nobody", "--db", db])).toBe(1);
   });
 
@@ -282,14 +282,14 @@ describe("runCli", () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
 
-    // list에 시드 타입이 뜬다
+    // the seed types appear in list
     expect(await runCli(["ontology", "list", "--db", db, "--json"])).toBe(0);
     const listed = JSON.parse(logs.at(-1) as string);
     expect(listed.some((d: { name: string }) => d.name === "decision")).toBe(
       true,
     );
 
-    // add-type: 새 타입 JSON 파일
+    // add-type: a new type JSON file
     const file = join(dir, "meeting.json");
     writeFileSync(
       file,
@@ -303,14 +303,14 @@ describe("runCli", () => {
     expect(await runCli(["ontology", "add-type", file, "--db", db])).toBe(0);
     expect(logs.at(-1)).toContain("meeting");
 
-    // list에 새 타입 반영
+    // the new type is reflected in list
     expect(await runCli(["ontology", "list", "--db", db, "--json"])).toBe(0);
     const after = JSON.parse(logs.at(-1) as string);
     expect(after.some((d: { name: string }) => d.name === "meeting")).toBe(
       true,
     );
 
-    // add-type 파일 누락 → exit 1
+    // add-type with a missing file → exit 1
     expect(await runCli(["ontology", "add-type", "--db", db])).toBe(1);
   });
 });

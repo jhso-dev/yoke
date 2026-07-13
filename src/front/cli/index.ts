@@ -1,15 +1,10 @@
 #!/usr/bin/env node
 
-// yoke CLI 골격 (PLAN 1.7) — node:util parseArgs만 사용. commander 등 금지.
-// 명령 핸들러는 runCli(argv, env)로 분리 — 프로세스 spawn 없이 테스트 가능, exit code는 반환값.
-// Date 획득은 이 front 계층에서만 (core는 now를 주입받는다).
+// yoke CLI skeleton (PLAN 1.7) — uses only node:util parseArgs (no commander etc.).
+// Command handlers are split out as runCli(argv, env) — testable without spawning a process; exit code is the return value.
+// Time is obtained only in this front tier (core receives `now` by injection).
 
-import {
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -69,7 +64,7 @@ const resolveDb = (v: Values, env: Env): string =>
 const resolveActor = (v: Values, env: Env): string =>
   v.actor ?? env.YOKE_ACTOR ?? "yoke:system";
 
-/** --attr k=v 목록 → attributes. 같은 key 반복 지정 시 string[]. */
+/** --attr k=v list → attributes. A repeated key becomes a string[]. */
 function parseAttrs(attrs: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const a of attrs) {
@@ -88,7 +83,7 @@ function parseAttrs(attrs: string[]): Record<string, unknown> {
   return out;
 }
 
-/** --json이면 기계용 JSON, 아니면 사람용 텍스트. */
+/** Machine JSON with --json, human text otherwise. */
 function emit(v: Values, human: string, data: unknown): void {
   console.log(v.json ? JSON.stringify(data) : human);
 }
@@ -97,7 +92,7 @@ function formatEntity(e: Entity | Relation): string {
   return `${e.id}  ${e.type}  ${e.status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
 }
 
-/** attributes의 첫 string 값을 60자로 자른 요약 (review/inject 압축 표시용). */
+/** The first string value in attributes, truncated to 60 chars (for compact review/inject output). */
 function summarize(attributes: Record<string, unknown>): string {
   for (const val of Object.values(attributes)) {
     if (typeof val === "string") return val.slice(0, 60);
@@ -121,15 +116,15 @@ async function withStore<T>(
 async function cmdInit(v: Values, env: Env): Promise<number> {
   const db = resolveDb(v, env);
   return withStore(db, async (store) => {
-    // 재실행 멱등: yoke:system이 이미 있으면 재시드하지 않는다.
+    // Idempotent re-run: if yoke:system already exists, do not re-seed.
     if (await store.getEntity("yoke:system")) {
       emit(v, `already initialized: ${db}`, { db, seeded: false });
       return 0;
     }
     const ontology = seedOntology();
     store.saveOntology(ontology);
-    // yoke:system person 시드 — 게이트 우회(putEntity) 금지. commit을 well-known id로.
-    // 미존재 id면 version 1 신규 생성되므로 게이트를 정상 통과한다 (부트스트랩).
+    // Seed the yoke:system person — no gate bypass (putEntity). Use commit with a well-known id.
+    // A nonexistent id creates version 1, so it passes the gate normally (bootstrap).
     const ts = now();
     await commit(
       store,
@@ -139,7 +134,7 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
       ts,
       { existingId: "yoke:system" },
     );
-    // 시스템 person을 draft로 두면 review 큐에 영원히 남는다 — 시드 직후 승격.
+    // Leaving the system person as a draft would keep it in the review queue forever — promote right after seeding.
     await verify(store, ["yoke:system"], "yoke:system", ts);
     emit(v, `initialized: ${db}`, { db, seeded: true });
     return 0;
@@ -173,9 +168,9 @@ async function cmdAdd(
       );
       const human =
         duplicates.length > 0
-          ? `${formatEntity(entity)}\n유사 지식 ${duplicates.length}건: ${duplicates.map((d) => d.id).join(" ")}`
+          ? `${formatEntity(entity)}\nsimilar knowledge (${duplicates.length}): ${duplicates.map((d) => d.id).join(" ")}`
           : formatEntity(entity);
-      // --json은 entity 그대로 (기존 계약 유지). 유사 지식 경고는 사람용 텍스트에만.
+      // --json emits the entity as-is (preserving the existing contract). The similar-knowledge warning is human text only.
       emit(v, human, entity);
       return 0;
     } catch (e) {
@@ -330,7 +325,7 @@ async function cmdConflicts(v: Values, env: Env): Promise<number> {
       emit(v, "no conflicts", []);
       return 0;
     }
-    // 각 쌍의 양쪽 entity 요약을 붙여 한 줄로 (해소는 verify/deprecate로 — 전용 명령 없음).
+    // Join each pair's two entity summaries onto one line (resolution is via verify/deprecate — no dedicated command).
     const items = await Promise.all(
       rels.map(async (r) => {
         const from = await store.getEntity(r.from);
@@ -380,7 +375,7 @@ async function cmdOntology(
       return 1;
     }
     return withStore(db, async (store) => {
-      // 기존 name이면 새 버전 = 마이그레이션 (entity와 동일 append-only).
+      // An existing name means a new version = a migration (same append-only model as entities).
       store.saveOntology([def]);
       emit(v, `saved type: ${def.name}`, def);
       return 0;
@@ -444,13 +439,16 @@ async function cmdPersona(
     const ts = now();
     const result = await personaQuery(store, ontology, id, ts);
     const md = renderPersonaSkill(person, result, ts);
-    // fs는 CLI 계층에서만 (core는 문자열만 생성).
+    // fs lives only in the CLI tier (core produces only a string).
     const outDir = join(v.out ?? ".", `persona-${safeName(id)}`);
     mkdirSync(outDir, { recursive: true });
     const file = join(outDir, "SKILL.md");
     writeFileSync(file, md);
     const sources = result.decisions.length + result.facts.length;
-    emit(v, `saved: ${file}\n소스 지식 ${sources}건`, { path: file, sources });
+    emit(v, `saved: ${file}\nsource knowledge: ${sources}`, {
+      path: file,
+      sources,
+    });
     return 0;
   });
 }
@@ -500,7 +498,7 @@ export async function runCli(
       case "persona":
         return await cmdPersona(rest, values, env);
       case "mcp":
-        // stdio 서버 기동 — 연결이 닫힐 때까지 resolve되지 않는다 (process 유지).
+        // Start the stdio server — does not resolve until the connection closes (keeps the process alive).
         await runMcp(resolveDb(values, env), env);
         return 0;
       default:
@@ -515,9 +513,9 @@ export async function runCli(
   }
 }
 
-// 직접 실행 시에만 구동 (테스트 import 시에는 실행 안 함).
-// realpathSync: npm bin 심링크(node_modules/.bin/yoke) 경유 시 argv[1]은 심링크,
-// import.meta.url은 실경로라 불일치 → CLI가 무반응 no-op이 되는 배포 함정 방지.
+// Run only when executed directly (not when imported by a test).
+// realpathSync: via the npm bin symlink (node_modules/.bin/yoke), argv[1] is the symlink while
+// import.meta.url is the real path — a mismatch would make the CLI a silent no-op. This avoids that deployment trap.
 function isMain(): boolean {
   const argv1 = process.argv[1];
   if (!argv1) return false;

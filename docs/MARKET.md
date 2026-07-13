@@ -1,53 +1,45 @@
-# yoke — Market (2026-07 조사)
+# yoke — Market (surveyed 2026-07)
 
-## 한마디 포지셔닝
+## One-line positioning
 
-**"AI에 주입되는 지식의 Git."**
-경쟁자는 기억(memory, 자동)을 팔고, yoke는 지식(knowledge, 거버닝)을 판다.
-메모리 레이어는 AI가 뭘 기억할지를 자동화하고, yoke는 AI가 뭘 믿을지를 관리한다.
+**"Git for the knowledge that gets injected into AI."**
+Competitors sell memory (automatic); yoke sells knowledge (governed). A memory layer automates what the AI remembers; yoke governs what the AI is allowed to believe.
 
-## 경쟁 지형 (5개 카테고리)
+## Competitive landscape (five categories)
 
-| 카테고리 | 플레이어 | 우리와의 관계 |
+| Category | Players | Relationship to us |
 |---|---|---|
-| AI 메모리 레이어 | **Cognee**(임베디드 그래프+벡터, 최근접 경쟁), **Zep/Graphiti**(바이템포럴, 모순 무효화), Mem0, Letta, LangMem | 정면 겹침. 단 전원 "자동" 지향, 거버넌스 없음 |
-| MCP 메모리 서버 | Basic Memory, Knowledge Graph Memory(공식 레퍼런스), RAG Memory | 개인용 수준. 우리의 초기 유통 채널이기도 |
-| 온톨로지/KG DB | TypeDB, Stardog(RDB 가상 그래프 페더레이션), Graphwise/Ontotext, Fluree | 거버넌스 있으나 무겁고 고가, SPARQL 세계 |
-| GraphRAG 프레임워크 | MS GraphRAG, LlamaIndex, txtai, RAGFlow, R2R | 파이프라인이지 시스템 오브 레코드 아님 |
-| 엔터프라이즈 검색 SaaS | Glean, Onyx(오픈소스), GoSearch, Guru, Dust | 문서 검색이지 구조화 지식 관리 아님 |
+| AI memory layers | **Cognee** (embedded graph+vector, our closest competitor), **Zep/Graphiti** (bitemporal, contradiction invalidation), Mem0, Letta, LangMem | Head-on overlap. But all lean "automatic," with no governance |
+| MCP memory servers | Basic Memory, Knowledge Graph Memory (the official reference), RAG Memory | Personal-grade. Also our early distribution channel |
+| Ontology / KG databases | TypeDB, Stardog (RDB virtual-graph federation), Graphwise/Ontotext, Fluree | Governed, but heavy and expensive — the SPARQL world |
+| GraphRAG frameworks | MS GraphRAG, LlamaIndex, txtai, RAGFlow, R2R | A pipeline, not a system of record |
+| Enterprise search SaaS | Glean, Onyx (open source), GoSearch, Guru, Dust | Document search, not structured knowledge management |
 
-## 정직한 평가
+## An honest assessment
 
-Cognee + Graphiti를 합치면 우리 기술 설계의 ~70%가 이미 존재한다.
-기술로는 차별화 불가. **신뢰 모델로 차별화한다.**
+Combine Cognee and Graphiti and roughly 70% of our technical design already exists. We can't differentiate on technology. **We differentiate on the trust model.**
 
-## 전략
+## Strategy
 
-1. **카테고리 분리**: "자동 메모리" vs "거버닝된 지식". lifecycle·사람이 관장하는
-   승격·verified만 주입·감사 가능 이력. 경쟁자들은 "자동"이 세일즈 포인트라
-   이 방향으로 못 온다(자기 피치 부정). 구조적 해자.
-2. **빈 사분면**: 엔터프라이즈 거버넌스 × 로컬/임베디드 경량. `npx yoke`로 시작해
-   조직의 지식 시스템 오브 레코드로 성장.
-3. **전통 DB read-mapping이 엔터프라이즈 쐐기**: "기존 RDB를 이관 없이 온톨로지로
-   읽어 AI에 주입" — 이 세그먼트에서 경량 MCP 네이티브로 하는 곳 없음.
-4. **채택 경로**: 개발자 개인(MCP 서버) → 팀(거버넌스 발동) → 조직. 톱다운 영업 아님.
-5. **persona가 킬러 유스케이스**: person 스코프 판단 연속성은 조사 범위 내 경쟁자 전무.
-6. **측정으로 증명**: recall 벤치마크(Zep DMR 94.8%) 대신 주입 품질
-   (오염 지식 주입률, 모순 미탐지율) eval을 자체 정의.
+1. **Split the category**: "automatic memory" vs. "governed knowledge" — lifecycle, human-owned promotion, verified-only injection, an auditable history. Competitors can't move this way because "automatic" is their sales point (they'd be contradicting their own pitch). A structural moat.
+2. **The empty quadrant**: enterprise governance × local/embedded lightweight. Start with `npx yoke` and grow into the organization's knowledge system of record.
+3. **Traditional-DB read-mapping is the enterprise wedge**: "read your existing RDB as an ontology and inject it into AI, with no migration" — no one serves this segment in a lightweight, MCP-native way.
+4. **Adoption path**: individual developer (MCP server) → team (governance kicks in) → organization. Not top-down sales.
+5. **persona is the killer use case**: person-scoped continuity of judgment has no competitor within the survey's scope.
+6. **Prove it by measurement**: instead of a recall benchmark (Zep DMR 94.8%), define our own eval for injection quality (contaminated-knowledge injection rate, undetected-contradiction rate).
 
-**하지 말 것**: 대화 자동 추출(Mem0), RAG 파이프라인(LlamaIndex), 문서 검색(Glean) 정면승부.
+**Don't do**: go head-to-head on conversational auto-extraction (Mem0), RAG pipelines (LlamaIndex), or document search (Glean).
 
-## 리스크
+## Risks
 
-- 거버넌스 마찰이 비싸면 "번거로운 Mem0"로 보인다 → 승격을 극단적으로 싸게(일괄 verify).
-- "AI가 틀린 사내 지식을 답했다"는 시장 고통이 늦게 오면 차별화 체감이 늦다
-  → v1은 개인에게 즉시 유용한 MCP 서버로 진입.
+- If the governance friction is expensive, we look like "a clunkier Mem0" → make promotion extremely cheap (batch verify).
+- If the market pain of "the AI answered with wrong internal knowledge" arrives late, the differentiation lands late → v1 enters as an MCP server that is immediately useful to an individual.
 
-## 출처
+## Sources
 
 - https://atlan.com/know/best-ai-agent-memory-frameworks-2026/
 - https://www.cognee.ai/blog/guides/best-ai-memory-layers-for-ai-agents-in-2026-comparison
-- https://arxiv.org/abs/2501.13956 (Zep 논문)
+- https://arxiv.org/abs/2501.13956 (Zep paper)
 - https://github.com/getzep/graphiti
 - https://mcp.directory/blog/claude-code-memory-mcp-servers-2026
 - https://flur.ee/blog/enterprise-kg-buyers-guide-2026

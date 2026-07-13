@@ -1,26 +1,33 @@
-# yoke — Web UI (v2.5 설계)
+# yoke — Web UI (v2.5 design)
 
-웹 UI는 **거버넌스 작업대**다. 검색/챗 UI가 아니다(그건 AI 도구들의 몫이고,
-yoke는 그 도구들에 MCP로 주입한다). 착수 시점(v2.5)에 상세화한다.
+The web UI is a **governance workbench**. It is not a search or chat UI (that's the
+job of the AI tools, and yoke feeds those tools via MCP). Detailed when work starts
+(v2.5).
 
-## 화면 (이 4개가 전부)
+## Screens (these four, and no more)
 
-1. **Review 큐** — draft 목록, 출처·중복 후보 표시, 일괄 verify/기각.
-   존재 이유: 승격 마찰을 0에 가깝게 (MARKET 리스크 1 대응). 핵심 화면.
-2. **Conflicts 뷰** — conflicts_with 쌍 나란히 비교, 한쪽 deprecate 또는 공존 유지.
-3. **온톨로지 브라우저** — 타입·relation 시각화, 마이그레이션 이력.
-4. **Persona 미리보기** — person 선택 → 주입될 지식 목록 확인 → skill export.
+1. **Review queue** — the draft list, with source and duplicate candidates shown,
+   and bulk verify/reject. Reason for being: drive promotion friction close to zero
+   (addressing MARKET risk 1). The core screen.
+2. **Conflicts view** — conflicts_with pairs compared side by side; deprecate one
+   side or keep them coexisting.
+3. **Ontology browser** — visualize types and relations, with migration history.
+4. **Persona preview** — pick a person → review the knowledge that would be injected
+   → export the skill.
 
-## 설계 결정
+## Design decisions
 
-- 서버: CLI에 내장(`yoke ui` → 로컬 HTTP). v3 서버 모드에서 동일 UI가
-  원격으로 서빙된다 — 별도 배포물 아님.
-- 스택: 착수 시점의 보편 스택으로 결정 미룸. 조건 두 개만 고정 —
-  단일 정적 번들(임베디드 배포), API는 core 함수의 HTTP 노출만
-  (UI 전용 비즈니스 로직 금지 — 모든 동작은 CLI로도 가능해야 한다).
-- 감사 표시: 모든 화면에서 지식은 항상 출처·버전과 함께 표시.
+- Server: embedded in the CLI (`yoke ui` → a local HTTP server). In the v3 server
+  mode, the same UI is served remotely — not a separate artifact.
+- Stack: deferred to the prevailing stack at start time. Only two conditions are
+  fixed — a single static bundle (embedded distribution), and the API is only the
+  HTTP exposure of core functions (no UI-only business logic — every action must be
+  possible from the CLI too).
+- Audit surfacing: across every screen, knowledge is always shown with its source
+  and version.
 
-## 하지 않는 것
+## What we don't do
 
-- 챗/검색 인터페이스, 지식 작성 에디터(작성은 캡처 경로가 담당),
-  대시보드성 통계(eval 리포트는 CLI 출력으로 충분).
+- A chat/search interface, a knowledge-authoring editor (authoring is the capture
+  path's job), or dashboard-style statistics (CLI output is enough for the eval
+  report).

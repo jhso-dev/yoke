@@ -1,16 +1,16 @@
-// 주입 품질 eval (PLAN 7.2, MARKET 전략 6 "측정으로 증명").
-// vitest가 아니라 실행 스크립트다 — 수치가 산출물(마케팅 근거 데이터).
-// 실행: npm run eval  (tsx eval/inject-quality.ts)
+// Injection-quality eval (PLAN 7.2, MARKET strategy 6 "prove it with measurement").
+// This is a runnable script, not a vitest suite — the numbers are the deliverable (evidence data for marketing).
+// Run: npm run eval  (tsx eval/inject-quality.ts)
 //
-// 측정 두 가지:
-//   1) 오염 주입률 = inject() 결과 중 draft 비율 (기대 0%).
-//      게이트가 verified만 주입한다는 하드 규칙을, 같은 주제의 verified/draft를
-//      나란히 심고 질의해 증명한다.
-//   2) 모순 미탐지율 = 심어둔 반대 결론 decision 쌍 중 conflicts_with 미생성 비율
-//      (기대 0%). 게이트 4단계는 embedder + similar()가 있어야 동작하므로,
-//      주제 키워드가 같으면 동일 벡터를 내는 결정적 스텁 embedder를 주입해 실동작시킨다.
+// Two measurements:
+//   1) Contamination rate = the share of drafts among inject() results (expected 0%).
+//      Proves the hard rule that the gate injects only verified knowledge, by planting a verified/draft
+//      pair on the same topic side by side and querying it.
+//   2) Conflict miss rate = the share of planted opposing-conclusion decision pairs with no conflicts_with
+//      created (expected 0%). Gate stage 4 runs only with an embedder + similar(), so we inject a
+//      deterministic stub embedder that yields the same vector for the same topic keyword to exercise it.
 //
-// 수치 조작 금지 — 게이트가 실패하면 수치가 정직하게 그것을 드러낸다.
+// No number-fudging — if the gate fails, the numbers honestly reveal it.
 
 import { SqliteStorage } from "../src/adapters/storage-sqlite/index.js";
 import { commit } from "../src/core/commit.js";
@@ -28,7 +28,7 @@ const prov = (): Provenance => ({
   occurred_at: NOW,
 });
 
-// 사실용 주제 20종. 서로 접두 관계 없는 distinct 토큰 — FTS 접두 매칭 교차오염 회피.
+// 20 fact topics. Distinct tokens with no prefix relationship to each other — avoids FTS prefix-match cross-contamination.
 const FACT_TOPICS = [
   "photosynthesis",
   "gravity",
@@ -52,7 +52,7 @@ const FACT_TOPICS = [
   "fermentation",
 ];
 
-// 반대 결론 decision 쌍 5쌍. 주제 키워드가 같고 conclusion이 다르다.
+// 5 opposing-conclusion decision pairs. Same topic keyword, different conclusions.
 const DECISION_PAIRS: Array<{ topic: string; a: string; b: string }> = [
   { topic: "caching", a: "Use Redis for caching", b: "Avoid Redis; keep caching in-process" },
   { topic: "deployment", a: "Adopt blue-green deployment", b: "Reject blue-green deployment; roll forward only" },
@@ -64,9 +64,9 @@ const DECISION_PAIRS: Array<{ topic: string; a: string; b: string }> = [
 const DECISION_TOPICS = DECISION_PAIRS.map((p) => p.topic);
 
 /**
- * 결정적 스텁 embedder. 텍스트에 등장하는 decision 주제 키워드의 one-hot 벡터를 낸다.
- * 같은 주제 → 동일 벡터(코사인 1.0 ≥ 임계 0.85), 다른 주제 → 직교(코사인 0).
- * 실 API 없이 게이트 3·4단계를 결정적으로 실동작시킨다 (SPEC: 테스트는 결정적 스텁 주입).
+ * Deterministic stub embedder. Emits a one-hot vector over the decision topic keywords present in the text.
+ * Same topic → identical vector (cosine 1.0 >= threshold 0.85), different topic → orthogonal (cosine 0).
+ * Exercises gate stages 3 & 4 deterministically without a real API (SPEC: tests inject a deterministic stub).
  */
 function makeStubEmbedder(topics: string[]): Embedder {
   const dim = Math.max(topics.length, 1);
@@ -81,9 +81,9 @@ function makeStubEmbedder(topics: string[]): Embedder {
 
 interface Report {
   contamination: {
-    ftsCandidates: number; // FTS가 후보로 올린 총 항목 (verified+draft)
-    injected: number; // inject()가 통과시킨 총 항목
-    injectedDraft: number; // 그중 draft (오염)
+    ftsCandidates: number; // total items FTS raised as candidates (verified+draft)
+    injected: number; // total items inject() let through
+    injectedDraft: number; // of those, drafts (contamination)
     rate: number; // injectedDraft / injected
   };
   conflict: {
@@ -99,8 +99,8 @@ async function run(): Promise<Report> {
   await store.init();
   const ontology = seedOntology();
 
-  // (a) verified 사실 20 + (b) 같은 주제 draft 사실 20. embedder 없이 커밋 —
-  // 오염 측정은 inject()의 FTS 경로만 쓰므로 임베딩과 무관하다.
+  // (a) 20 verified facts + (b) 20 draft facts on the same topics. Committed without an embedder —
+  // the contamination measurement only uses inject()'s FTS path, so it is independent of embeddings.
   const verifiedIds: string[] = [];
   for (const topic of FACT_TOPICS) {
     const verified = await commit(
@@ -111,7 +111,7 @@ async function run(): Promise<Report> {
       NOW,
     );
     verifiedIds.push(verified.entity.id);
-    // 오염 가정 draft: 같은 주제를 다르게 서술. verify하지 않는다 → draft로 남는다.
+    // Assumed-contaminating draft: states the same topic differently. Left unverified → stays a draft.
     await commit(
       store,
       ontology,
@@ -122,7 +122,7 @@ async function run(): Promise<Report> {
   }
   await verify(store, verifiedIds, ACTOR, NOW);
 
-  // (c) 반대 결론 decision 쌍 — 결정적 스텁 embedder 주입 → 게이트 4단계 실동작.
+  // (c) Opposing-conclusion decision pairs — inject the deterministic stub embedder → exercises gate stage 4.
   const embedder = makeStubEmbedder(DECISION_TOPICS);
   const pairIds: Array<[string, string]> = [];
   for (const { topic, a, b } of DECISION_PAIRS) {
@@ -145,7 +145,7 @@ async function run(): Promise<Report> {
     pairIds.push([first.entity.id, second.entity.id]);
   }
 
-  // 측정 1: 오염 주입률. 주제별 질의 → inject() 결과의 draft 비율.
+  // Measurement 1: contamination rate. Per-topic query → share of drafts among inject() results.
   let ftsCandidates = 0;
   let injected = 0;
   let injectedDraft = 0;
@@ -153,11 +153,11 @@ async function run(): Promise<Report> {
     ftsCandidates += (await store.search({ text: topic })).length;
     const { items } = await inject(store, ontology, topic, NOW, { limit: 100 });
     injected += items.length;
-    // 정직한 판정: 주입된 entity의 저장 status를 직접 본다 (effectiveStatus가 아니라 원천).
+    // Honest judgment: read the injected entity's stored status directly (the source, not effectiveStatus).
     injectedDraft += items.filter((it) => it.entity.status === "draft").length;
   }
 
-  // 측정 2: 모순 미탐지율. 심어둔 각 쌍에 conflicts_with 관계가 생겼는지 DB에서 확인.
+  // Measurement 2: conflict miss rate. Check in the DB whether each planted pair got a conflicts_with relation.
   const conflictRels = store.listRelationsByType("conflicts_with");
   const hasEdge = (x: string, y: string): boolean =>
     conflictRels.some(
@@ -191,21 +191,21 @@ function pct(x: number): string {
 
 const r = await run();
 
-// 사람 읽는 표.
+// Human-readable table.
 console.log("yoke — inject quality eval");
 console.log("========================================");
-console.log(`FTS candidates (verified+draft)  ${r.contamination.ftsCandidates}`);
-console.log(`injected (passed gate)           ${r.contamination.injected}`);
-console.log(`  of which draft (contamination) ${r.contamination.injectedDraft}`);
-console.log(`오염 주입률 (target 0%)          ${pct(r.contamination.rate)}`);
+console.log(`FTS candidates (verified+draft)   ${r.contamination.ftsCandidates}`);
+console.log(`injected (passed gate)            ${r.contamination.injected}`);
+console.log(`  of which draft (contamination)  ${r.contamination.injectedDraft}`);
+console.log(`contamination rate (target 0%)    ${pct(r.contamination.rate)}`);
 console.log("----------------------------------------");
-console.log(`decision 쌍 (planted)            ${r.conflict.plantedPairs}`);
-console.log(`conflicts_with 생성 (detected)   ${r.conflict.detected}`);
-console.log(`모순 미탐지율 (target 0%)        ${pct(r.conflict.rate)}`);
+console.log(`decision pairs (planted)          ${r.conflict.plantedPairs}`);
+console.log(`conflicts_with created (detected) ${r.conflict.detected}`);
+console.log(`conflict miss rate (target 0%)    ${pct(r.conflict.rate)}`);
 console.log("========================================");
 
-// 기계용 JSON.
+// Machine-readable JSON.
 console.log(JSON.stringify(r, null, 2));
 
-// 비정상(오염>0 또는 미탐지>0)이면 non-zero exit — CI/사람이 즉시 인지.
+// Non-zero exit on anomalies (contamination > 0 or misses > 0) — so CI/humans notice immediately.
 process.exit(r.contamination.rate === 0 && r.conflict.rate === 0 ? 0 : 1);

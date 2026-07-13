@@ -1,7 +1,7 @@
 {
   "name": "yoke",
   "version": "0.1.0",
-  "description": "온톨로지 기반 지식 DB — AI 에이전트용 context injection",
+  "description": "Ontology-based knowledge DB — governed context injection for AI agents",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zigbang/yoke.git"
+    "url": "git+https://github.com/jhso-dev/yoke.git"
   },
   "keywords": [
     "knowledge",

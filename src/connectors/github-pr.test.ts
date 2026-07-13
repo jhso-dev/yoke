@@ -1,5 +1,5 @@
-// github-pr 커넥터 + ingest 테스트 (PLAN 5.2). 실 GitHub API 호출 없음 — fetchImpl 스텁으로
-// fixture(PR 1개 + 코멘트 2개) 반환. 매핑 정확성 / ingest 멱등성(재실행 skip)을 검증한다.
+// github-pr connector + ingest tests (PLAN 5.2). No real GitHub API calls — a fetchImpl stub returns
+// a fixture (1 PR + 2 comments). Verifies mapping accuracy and ingest idempotency (a re-run skips).
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
@@ -25,7 +25,7 @@ const COMMENTS = [
   },
 ];
 
-/** URL로 라우팅하는 fetch 스텁. Response 최소 형태만 흉내. */
+/** A fetch stub that routes by URL. Mimics only the minimal Response shape. */
 function stubFetch(): typeof fetch {
   return (async (url: string | URL) => {
     const u = String(url);
@@ -66,7 +66,7 @@ describe("github-pr connector", () => {
     expect(first.type).toBe("decision");
     expect(first.attributes.conclusion).toBe("use lru_cache here");
     expect(first.attributes.rationale).toBe(
-      "PR #7 Add cache 리뷰, src/cache.ts:12",
+      "PR #7 Add cache review, src/cache.ts:12",
     );
     expect(first.attributes.external_id).toBe(
       "https://github.com/o/r/pull/7#discussion_r1",

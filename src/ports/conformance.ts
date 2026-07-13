@@ -1,6 +1,6 @@
-// StoragePort conformance 스위트 — 어댑터 테스트가 호출하는 test factory.
-// vitest를 사용하며, 어떤 백엔드든 동일 계약을 지키는지 검증한다.
-// 테스트용 fixture 빌더는 여기(테스트 코드) 안에만 둔다.
+// StoragePort conformance suite — a test factory that adapter tests invoke.
+// It uses vitest to verify that any backend honors the same contract.
+// The test fixture builders live only here (in the test code).
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Entity, Relation } from "../core/types.js";
@@ -66,14 +66,14 @@ export function describeStoragePort(
       port.close();
     });
 
-    // (1) putEntity → getEntity 왕복
+    // (1) putEntity → getEntity round-trip.
     it("round-trips putEntity → getEntity", async () => {
       const e = makeEntity();
       await port.putEntity(e);
       expect(await port.getEntity(e.id)).toEqual(e);
     });
 
-    // (2) 같은 id 재put → 두 버전 존재, getEntity 최신, version 지정 시 과거
+    // (2) Re-put the same id → both versions exist; getEntity returns the latest, version selects the past.
     it("keeps every version on re-put; getEntity returns latest, version selects past", async () => {
       const id = nextId();
       const v1 = makeEntity({ id, version: 1, attributes: { title: "v1" } });
@@ -85,7 +85,7 @@ export function describeStoragePort(
       expect(await port.getEntity(id, 2)).toEqual(v2);
     });
 
-    // (3) 물리 삭제 API 부재 (인터페이스 차원 확인)
+    // (3) No physical-delete API (checked at the interface level).
     it("exposes no physical-delete API", () => {
       for (const banned of [
         "delete",
@@ -99,7 +99,7 @@ export function describeStoragePort(
       }
     });
 
-    // (4) putRelation → neighbors 방향 필터 in/out/양방향
+    // (4) putRelation → neighbors direction filter in/out/both.
     it("neighbors filters by direction (in/out/both)", async () => {
       const a = nextId();
       const b = nextId();
@@ -113,7 +113,7 @@ export function describeStoragePort(
       expect(await port.neighbors(b)).toEqual([r]);
     });
 
-    // (5) neighbors relType 필터
+    // (5) neighbors relType filter.
     it("neighbors filters by relType", async () => {
       const a = nextId();
       const b = nextId();
@@ -127,7 +127,7 @@ export function describeStoragePort(
       expect(await port.neighbors(a)).toEqual(expect.arrayContaining([r1, r2]));
     });
 
-    // (6) search: FTS 매칭 / 무결과 빈 배열
+    // (6) search: FTS match / empty array on no match.
     it("search matches FTS text and returns [] on no match", async () => {
       const e = makeEntity({ attributes: { title: "photosynthesis basics" } });
       await port.putEntity(e);
@@ -135,7 +135,9 @@ export function describeStoragePort(
       expect(await port.search({ text: "no-such-token" })).toEqual([]);
     });
 
-    // (6b) search: 접두 매칭 — 조사가 붙은 한국어 토큰도 어간으로 검색된다
+    // (6b) search: prefix match — a token with an attached particle is still found by its stem.
+    // The Korean title below is a deliberate fixture ("the decision is made with parseArgs"), in which
+    // "parseArgs" is followed by a particle. It asserts that the FTS prefix match strips that suffix.
     it("search matches token prefixes (Korean suffix tolerance)", async () => {
       const e = makeEntity({
         attributes: { title: "결정은 parseArgs로 한다" },
@@ -144,12 +146,12 @@ export function describeStoragePort(
       expect(await port.search({ text: "parseArgs" })).toEqual([e]);
     });
 
-    // (7) getEntity 미존재 → null
+    // (7) getEntity of an absent id → null.
     it("getEntity returns null when absent", async () => {
       expect(await port.getEntity("missing-id")).toBeNull();
     });
 
-    // (8) similar: optional capability — 미구현 시 undefined
+    // (8) similar: optional capability — undefined when unimplemented.
     it("exposes similar as optional capability (undefined or function)", () => {
       const cap = port.similar;
       expect(cap === undefined || typeof cap === "function").toBe(true);

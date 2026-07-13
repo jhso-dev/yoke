@@ -1,6 +1,6 @@
-// commit 게이트 테스트 — 실제 SqliteStorage(:memory:)로 게이트 파이프라인을 검증한다.
-// PLAN 1.6 케이스: 온톨로지 거절 / provenance 거절 / draft·version=1·last_confirmed /
-// 재커밋 version 증가 + 이력 보존 / relation 커밋.
+// commit gate tests — exercise the gate pipeline against the real SqliteStorage(:memory:).
+// PLAN 1.6 cases: ontology rejection / provenance rejection / draft·version=1·last_confirmed /
+// re-commit version bump + history preservation / relation commit.
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
@@ -17,8 +17,8 @@ const prov: Provenance = {
   occurred_at: "2026-07-12T00:00:00Z",
 };
 
-// 결정적 스텁 임베더 — bag-of-words 해시. 같은 단어 조합 → 같은 벡터.
-// 텍스트가 겹칠수록 코사인↑ (실 API 없이 게이트 3·4단계를 결정적으로 검증).
+// Deterministic stub embedder — a bag-of-words hash. Same word set → same vector.
+// The more the text overlaps, the higher the cosine (exercises gate stages 3 & 4 deterministically without a real API).
 const stubEmbedder: Embedder = async (text) => {
   const v = new Float32Array(64);
   for (const w of text
@@ -105,11 +105,11 @@ describe("commit gate", () => {
     expect(second.entity.id).toBe(first.entity.id);
     expect(second.entity.version).toBe(2);
     expect(second.entity.last_confirmed).toBe(later);
-    // 이력 보존: 과거 버전 조회 가능
+    // History preserved: the past version is still queryable.
     const v1 = await port.getEntity(first.entity.id, 1);
     expect(v1?.version).toBe(1);
     expect(v1?.attributes).toEqual({ note: "v1" });
-    // 최신은 v2
+    // Latest is v2.
     expect(await port.getEntity(first.entity.id)).toEqual(second.entity);
   });
 
@@ -219,17 +219,17 @@ describe("commit gate stage 4 (decision conflict)", () => {
       now,
       { embedder: stubEmbedder },
     );
-    // conflicts_with 생성
+    // conflicts_with created
     expect(b.conflicts).toBeDefined();
     expect(b.conflicts?.length).toBe(1);
     const rel = b.conflicts?.[0];
     expect(rel?.type).toBe("conflicts_with");
     expect(rel?.from).toBe(b.entity.id);
     expect(rel?.to).toBe(a.entity.id);
-    // neighbors로도 조회된다
+    // Also reachable via neighbors.
     const rels = await port.neighbors(b.entity.id, "conflicts_with", "out");
     expect(rels.map((r) => r.to)).toContain(a.entity.id);
-    // 양쪽 보존: 둘 다 여전히 존재하고 deprecated 아님 (자동 해소 금지)
+    // Both preserved: both still exist and neither is deprecated (no auto-resolution).
     expect((await port.getEntity(a.entity.id))?.status).not.toBe("deprecated");
     expect((await port.getEntity(b.entity.id))?.status).not.toBe("deprecated");
   });
@@ -257,7 +257,7 @@ describe("commit gate stage 4 (decision conflict)", () => {
       now,
       { embedder: stubEmbedder },
     );
-    expect(b.duplicates.length).toBeGreaterThan(0); // 유사(중복)로는 잡힘
-    expect(b.conflicts).toBeUndefined(); // 모순은 아님
+    expect(b.duplicates.length).toBeGreaterThan(0); // caught as similar (duplicate)
+    expect(b.conflicts).toBeUndefined(); // but not a conflict
   });
 });
