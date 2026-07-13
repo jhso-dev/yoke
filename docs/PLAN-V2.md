@@ -158,3 +158,35 @@ test harnesses, WebSockets, GraphQL, password auth, per-field encryption.
 (8.x tasks are independent of each other after 8.1's conformance touch-ups,
 so 8.2/8.3/8.5 may run in parallel; 9.x needs 8.4's audit extensions;
 10.x is strictly sequential; 11.x last.)
+
+## v3.6 — sharding + multi-backend federation
+
+### 12.1 sharded composite storage
+
+- src/adapters/storage-sharded/: `ShardedStorage implements StoragePort`,
+  composing member StoragePorts. Core untouched — sharding lives entirely
+  behind the port (the ARCHITECTURE bet paying off).
+- Shard config (JSON): `{ shards: [{ name, kind: sqlite|kuzu|qdrant,
+  path?|url?, namespaces: [..], default?: true }] }`. A namespace routes to
+  the shard listing it; unlisted/null ns routes to the default shard.
+- Routing: writes (putEntity/putRelation) route by the row's ns. Point reads
+  (getEntity, neighbors) fan out to all shards (ids are globally unique
+  ULIDs; first hit wins / merge). search: ns-scoped → owner shard only;
+  un-scoped → fan-out + merge + post-merge limit. similar: fan out to
+  capable shards, re-rank merged hits by cosine to the query vector, slice k.
+- Extension methods (listByStatus/listByActor/listHistory/logAudit/ontology):
+  delegate to members that implement them; ns-scoped calls go to the owner
+  shard. Ontology lives per shard (owner shard's overlay). Audit is written
+  to the shard that served the write. Ceilings documented.
+- Duplicate/contradiction detection stays intra-shard (a tenant's knowledge
+  dedups against itself — cross-tenant dedup would be a data leak, so this
+  is correct, not just lazy).
+
+### 12.2 config + front threading
+
+- `--shards <config.json>` accepted wherever `--db` is (CLI commands, mcp,
+  ui, serve). `--db` remains the single-backend fast path. Loader validates
+  config (exactly one default shard, no ns claimed twice).
+- Conformance: ShardedStorage(single sqlite member) passes the full suite;
+  plus routed tests (two sqlite members: ns isolation across shards,
+  fan-out getEntity, merged un-scoped search, per-shard ontology).
