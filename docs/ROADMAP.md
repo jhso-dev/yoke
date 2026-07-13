@@ -23,8 +23,8 @@
 
 ## v0.3 — MCP 서버
 
-- [ ] MCP stdio 서버 (`yoke mcp`)
-- [ ] 도구: `yoke_inject` / `yoke_commit` / `yoke_record_decision`
+- [x] MCP stdio 서버 (`yoke mcp`)
+- [x] 도구: `yoke_inject` / `yoke_commit` / `yoke_record_decision`
 - [ ] Claude Code 실사용 검증 (성공 기준: 타 세션에서 지식 주입 확인)
 
 ## v0.4 — 중복·모순

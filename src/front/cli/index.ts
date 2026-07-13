@@ -12,6 +12,7 @@ import { inject } from "../../core/inject.js";
 import { deprecate, verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
+import { runMcp } from "../mcp/index.js";
 
 type Values = {
   db?: string;
@@ -330,9 +331,13 @@ export async function runCli(
         return await cmdDeprecate(rest, values, env);
       case "inject":
         return await cmdInject(rest, values, env);
+      case "mcp":
+        // stdio 서버 기동 — 연결이 닫힐 때까지 resolve되지 않는다 (process 유지).
+        await runMcp(resolveDb(values, env), env);
+        return 0;
       default:
         console.error(
-          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject> ...`,
+          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|mcp> ...`,
         );
         return 1;
     }
