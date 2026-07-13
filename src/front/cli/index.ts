@@ -32,10 +32,12 @@ import {
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { runMcp } from "../mcp/index.js";
+import { runUi } from "../ui/server.js";
 
 type Values = {
   db?: string;
   actor?: string;
+  port?: string;
   attr?: string[];
   version?: string;
   type?: string;
@@ -55,6 +57,7 @@ type Values = {
 const OPTIONS = {
   db: { type: "string" },
   actor: { type: "string" },
+  port: { type: "string" },
   attr: { type: "string", multiple: true },
   version: { type: "string" },
   type: { type: "string" },
@@ -608,6 +611,16 @@ async function cmdPersona(
   });
 }
 
+// ui (PLAN 9.x): the governance workbench. Server keeps the process alive until SIGINT.
+async function cmdUi(v: Values, env: Env): Promise<number> {
+  const port = v.port === undefined ? 4800 : Number(v.port);
+  const server = await runUi(resolveDb(v, env), port, env);
+  await new Promise<void>((resolve) => {
+    process.on("SIGINT", () => server.close(() => resolve()));
+  });
+  return 0;
+}
+
 export async function runCli(
   argv: string[],
   env: Env = process.env,
@@ -656,13 +669,15 @@ export async function runCli(
         return await cmdConnect(rest, values, env);
       case "persona":
         return await cmdPersona(rest, values, env);
+      case "ui":
+        return await cmdUi(values, env);
       case "mcp":
         // Start the stdio server — does not resolve until the connection closes (keeps the process alive).
         await runMcp(resolveDb(values, env), env);
         return 0;
       default:
         console.error(
-          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|history|audit|conflicts|ontology|connect|persona|mcp> ...`,
+          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|history|audit|conflicts|ontology|connect|persona|ui|mcp> ...`,
         );
         return 1;
     }
