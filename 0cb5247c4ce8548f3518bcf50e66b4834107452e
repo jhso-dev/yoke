@@ -1,0 +1,43 @@
+eval/inject-quality.ts
+  d735c99471326cb3 1-211
+package.json
+  d735c99471326cb3 6-21,25-27,32-34,47
+.github/workflows/ci.yml
+  d735c99471326cb3 1-23
+LICENSE
+  d735c99471326cb3 1-21
+README.md
+  d735c99471326cb3 1-90
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "0cb5247c4ce8548f3518bcf50e66b4834107452e",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 38,
+        "mcp__openviking__find": 1,
+        "Write": 11,
+        "Edit": 34,
+        "ToolSearch": 1,
+        "WebSearch": 6,
+        "Agent": 14,
+        "Read": 12
+      },
+      "total_additions": 392,
+      "total_deletions": 0,
+      "overriden_lines": 12
+    }
+  }
+}
