@@ -48,9 +48,9 @@
 
 ## v1.0 — 품질·패키징
 
-- [ ] conformance 스위트 완성 + CI
-- [ ] 주입 품질 eval (오염 주입률·모순 미탐지율) — MARKET 전략 6
-- [ ] npm 패키징 (`npx yoke`), README, 온보딩 문서
+- [x] conformance 스위트 완성 + CI
+- [x] 주입 품질 eval (오염 주입률·모순 미탐지율) — MARKET 전략 6
+- [x] npm 패키징 (`npx yoke`), README, 온보딩 문서
 
 ## v2.0 — 백엔드 확장 + 전통 DB 호환
 
