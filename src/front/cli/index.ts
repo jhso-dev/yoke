@@ -8,6 +8,8 @@ import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
+import { makeGithubPrConnector } from "../../connectors/github-pr.js";
+import { ingest } from "../../connectors/ingest.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { inject } from "../../core/inject.js";
@@ -24,6 +26,8 @@ type Values = {
   type?: string;
   limit?: string;
   json?: boolean;
+  repo?: string;
+  since?: string;
   "all-drafts"?: boolean;
   "include-draft"?: boolean;
 };
@@ -36,6 +40,8 @@ const OPTIONS = {
   type: { type: "string" },
   limit: { type: "string" },
   json: { type: "boolean" },
+  repo: { type: "string" },
+  since: { type: "string" },
   "all-drafts": { type: "boolean" },
   "include-draft": { type: "boolean" },
 } as const;
@@ -371,6 +377,39 @@ async function cmdOntology(
   return 1;
 }
 
+async function cmdConnect(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const source = positionals[0];
+  if (source !== "github-pr" || !v.repo) {
+    console.error(
+      "usage: yoke connect github-pr --repo owner/name [--since date] [--actor a]",
+    );
+    return 1;
+  }
+  const db = resolveDb(v, env);
+  const actor = resolveActor(v, env);
+  const connector = makeGithubPrConnector({
+    repo: v.repo,
+    token: env.GITHUB_TOKEN,
+  });
+  return withStore(db, async (store) => {
+    const ontology = store.loadOntology();
+    const { added, skipped } = await ingest(
+      store,
+      ontology,
+      connector,
+      actor,
+      now(),
+      v.since,
+    );
+    emit(v, `added ${added}, skipped ${skipped}`, { added, skipped });
+    return 0;
+  });
+}
+
 export async function runCli(
   argv: string[],
   env: Env = process.env,
@@ -411,13 +450,15 @@ export async function runCli(
         return await cmdConflicts(values, env);
       case "ontology":
         return await cmdOntology(rest, values, env);
+      case "connect":
+        return await cmdConnect(rest, values, env);
       case "mcp":
         // stdio 서버 기동 — 연결이 닫힐 때까지 resolve되지 않는다 (process 유지).
         await runMcp(resolveDb(values, env), env);
         return 0;
       default:
         console.error(
-          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|conflicts|ontology|mcp> ...`,
+          `unknown command: ${command ?? "(none)"}\nusage: yoke <init|add|get|search|review|verify|deprecate|inject|conflicts|ontology|connect|mcp> ...`,
         );
         return 1;
     }

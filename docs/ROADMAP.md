@@ -36,9 +36,9 @@
 
 ## v0.5 — 캡처 커넥터
 
-- [ ] 커넥터 공통 패턴 (외부 소스 → draft entity 적재)
-- [ ] github-pr 커넥터 (PR 리뷰 코멘트 → draft decision)
-- [ ] CLI: `connect github-pr`
+- [x] 커넥터 공통 패턴 (외부 소스 → draft entity 적재)
+- [x] github-pr 커넥터 (PR 리뷰 코멘트 → draft decision)
+- [x] CLI: `connect github-pr`
 
 ## v0.6 — persona
 
