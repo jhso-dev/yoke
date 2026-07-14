@@ -61,3 +61,11 @@ an adapter (a read-only entity source, not a storage port implementation).
 github-pr (v0.5) → Slack, meeting notes (v2.0) → Confluence/Notion (by demand).
 Shared pattern: external source → draft entity staging (unlike read-mapping, it
 passes the gate).
+
+**Slack connector verified live (2026-07-14, real workspace channel)**: history +
+thread replies ingested as draft facts, external_id idempotency, `--since`
+scoping, and the review→verify→inject flow all confirmed. Two real-API fixes
+came out of it: 429 rate-limit retry honoring Retry-After (a busy channel trips
+the replies limit fast) and skipping `subtype` system events (join notices were
+landing in the review queue as noise). Note: a full-history first sync of a
+large channel is rate-limit-bound and slow by nature — scope with `--since`.
