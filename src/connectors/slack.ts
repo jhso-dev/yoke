@@ -11,6 +11,7 @@ interface SlackMessage {
   text?: string;
   user?: string;
   reply_count?: number;
+  subtype?: string;
 }
 
 interface SlackPage {
@@ -34,23 +35,36 @@ export function makeSlackConnector(opts: {
     params: Record<string, string>,
   ): Promise<SlackPage> {
     const url = `${base}/${method}?${new URLSearchParams(params)}`;
-    const res = await fetchImpl(url, {
-      headers: { Authorization: `Bearer ${opts.token}` },
-    });
-    if (!res.ok)
-      throw new Error(`Slack API ${res.status} ${res.statusText} for ${url}`);
-    const body = (await res.json()) as SlackPage;
-    if (!body.ok)
-      throw new Error(
-        `Slack API error for ${method}: ${body.error ?? "unknown"}`,
-      );
-    return body;
+    // conversations.replies fires once per threaded message, so a busy channel
+    // trips Slack's rate limit quickly (seen live: 429 mid-sync). Honor
+    // Retry-After and retry a few times before giving up.
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetchImpl(url, {
+        headers: { Authorization: `Bearer ${opts.token}` },
+      });
+      if (res.status === 429 && attempt < 5) {
+        const wait = Number(res.headers.get("retry-after") ?? "5");
+        await new Promise((r) => setTimeout(r, wait * 1000));
+        continue;
+      }
+      if (!res.ok)
+        throw new Error(`Slack API ${res.status} ${res.statusText} for ${url}`);
+      const body = (await res.json()) as SlackPage;
+      if (!body.ok)
+        throw new Error(
+          `Slack API error for ${method}: ${body.error ?? "unknown"}`,
+        );
+      return body;
+    }
   }
 
   function toItem(
     m: SlackMessage,
   ): (EntityInput & { externalId: string }) | null {
-    if (!m.text) return null; // joins/uploads etc. carry no statement
+    // Skip system events (channel_join, bot_message, etc.) — seen live: join
+    // notices carry text and were landing in the review queue as noise.
+    if (m.subtype) return null;
+    if (!m.text) return null; // uploads etc. carry no statement
     const externalId = `slack:${opts.channel}:${m.ts}`;
     return {
       type: "fact",

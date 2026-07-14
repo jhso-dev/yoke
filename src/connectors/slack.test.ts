@@ -12,7 +12,14 @@ const HISTORY = {
   messages: [
     { ts: "1700.001", text: "we will use sqlite", user: "U1", reply_count: 1 },
     { ts: "1700.002", text: "standup at 10", user: "U2" },
-    { ts: "1700.003", user: "U3" }, // no text (join/upload) → skipped
+    { ts: "1700.003", user: "U3" }, // no text (upload) → skipped
+    // system event WITH text (seen live: join notices) → skipped by subtype
+    {
+      ts: "1700.004",
+      text: "U4 has joined",
+      user: "U4",
+      subtype: "channel_join",
+    },
   ],
 };
 const REPLIES = {
@@ -117,6 +124,36 @@ describe("slack connector", () => {
     await expect(c2.pull()[Symbol.asyncIterator]().next()).rejects.toThrow(
       /invalid_auth/,
     );
+  });
+
+  it("retries on 429 honoring Retry-After (seen live: replies rate limit)", async () => {
+    let calls = 0;
+    const rateLimitedOnce = (async (url: string | URL) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ok: false,
+          status: 429,
+          statusText: "Too Many Requests",
+          headers: { get: (h: string) => (h === "retry-after" ? "0" : null) },
+        } as unknown as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => HISTORY,
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const c = makeSlackConnector({
+      channel: "C123",
+      token: "t",
+      fetchImpl: rateLimitedOnce,
+    });
+    const first = await c.pull()[Symbol.asyncIterator]().next();
+    expect(calls).toBe(2); // 429 → retried → succeeded
+    expect(first.done).toBe(false);
   });
 
   it("ingest is idempotent on re-run (external_id skip)", async () => {
