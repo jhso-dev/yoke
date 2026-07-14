@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "yoke": {
+      "command": "node",
+      "args": ["dist/front/cli/index.js", "mcp", "--db", "./yoke.db"],
+      "env": {
+        "YOKE_EMBED_URL": "http://localhost:11434/v1",
+        "YOKE_EMBED_MODEL": "nomic-embed-text"
+      }
+    }
+  }
+}
