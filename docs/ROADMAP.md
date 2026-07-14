@@ -26,7 +26,7 @@ port capabilities, etc. See SPEC).
 
 - [x] MCP stdio server (`yoke mcp`)
 - [x] Tools: `yoke_inject` / `yoke_commit` / `yoke_record_decision`
-- [ ] Claude Code real-use verification (success criterion: knowledge injection confirmed from another session)
+- [x] Claude Code real-use verification (success criterion: knowledge injection confirmed from another session)
 
 ## v0.4 — duplicates + contradictions
 

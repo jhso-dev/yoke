@@ -272,10 +272,16 @@ export class SqliteStorage implements StoragePort {
   }
 
   async search(q: TextQuery): Promise<Entity[]> {
-    // Wrap the user text as an FTS5 phrase to avoid syntax errors from special characters (-, :, *, etc.).
-    // Prefix match (*): so a token carrying a trailing particle/suffix (common in agglutinative
-    // languages like Korean) is still found by its stem — e.g. searching "parseArgs" matches "parseArgs<suffix>".
-    const match = `"${q.text.replace(/"/g, '""')}"*`;
+    // AND-of-prefix-tokens: every query term must appear (any order), each with
+    // prefix tolerance — so "Slack retry" finds "Slack connector retries", and a
+    // token carrying a trailing particle/suffix (common in agglutinative languages
+    // like Korean) is still found by its stem. Each token is quoted (special chars
+    // are safe) and starred. This also matches the kuzu/qdrant adapters' semantics —
+    // the original whole-query phrase match required consecutive terms, which made
+    // multi-word queries silently miss (found in live MCP verification).
+    const tokens = q.text.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    if (tokens.length === 0) return [];
+    const match = tokens.map((t) => `"${t.replace(/"/g, '""')}"*`).join(" ");
     const typeClause = q.type === undefined ? "" : " AND e.type = @type";
     const statusClause =
       q.status === undefined ? "" : " AND e.status = @status";

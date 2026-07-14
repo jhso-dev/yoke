@@ -174,6 +174,24 @@ export const conformanceCases: ConformanceCase[] = [
     },
   },
   {
+    // (6c) search: multi-word queries are AND-of-terms in any order — NOT a strict
+    // phrase. "slack rate" must find "slack connector retries rate limits" (found in
+    // live MCP verification: the original whole-query phrase semantics silently
+    // missed any multi-word query whose terms weren't consecutive in the text).
+    // Note: prefix matching is character-level — "retry" does NOT match "retries"
+    // (y vs i); stemming is out of scope. Prefix tolerance itself is case (6b).
+    name: "search treats multi-word queries as AND of prefix terms, any order",
+    async run(port) {
+      const e = makeEntity({
+        attributes: { title: "slack connector retries rate limits" },
+      });
+      await port.putEntity(e);
+      eq(await port.search({ text: "slack rate" }), [e]); // non-consecutive terms
+      eq(await port.search({ text: "retries slack" }), [e]); // reversed order
+      eq(await port.search({ text: "slack missingword" }), []); // AND, not OR
+    },
+  },
+  {
     // (7) getEntity of an absent id → null.
     name: "getEntity returns null when absent",
     async run(port) {

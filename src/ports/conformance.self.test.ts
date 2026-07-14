@@ -50,13 +50,22 @@ function makeFake(): StoragePort {
     },
 
     async search(q: TextQuery) {
-      const needle = q.text.toLowerCase();
+      // AND-of-prefix-tokens — the port's search semantics (matches sqlite/kuzu/qdrant).
+      const queryTokens = q.text
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter(Boolean);
+      if (queryTokens.length === 0) return [];
       const wantNs = q.ns == null || q.ns === "" ? null : q.ns;
-      let out = [...latestById().values()].filter((e) =>
-        `${e.type} ${JSON.stringify(e.attributes)}`
+      let out = [...latestById().values()].filter((e) => {
+        const textTokens = `${e.type} ${JSON.stringify(e.attributes)}`
           .toLowerCase()
-          .includes(needle),
-      );
+          .split(/[^\p{L}\p{N}]+/u)
+          .filter(Boolean);
+        return queryTokens.every((qt) =>
+          textTokens.some((tt) => tt.startsWith(qt)),
+        );
+      });
       // Namespace isolation (PLAN-V2 10.1): default ns sees only default-ns rows.
       out = out.filter((e) => (e.ns ?? null) === wantNs);
       if (q.type) out = out.filter((e) => e.type === q.type);
