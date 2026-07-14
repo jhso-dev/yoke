@@ -87,9 +87,22 @@ function makeFakeQdrant(): typeof fetch {
     const coll = collections.get(name);
     if (!coll) return json({ status: { error: "Not found" } }, 404);
 
-    // Upsert points
+    // Upsert points. Real Qdrant rejects a point with no `vector` field even in
+    // an empty-named-vectors collection (verified live) — the fake mirrors that.
     if (sub === "points" && op === undefined && method === "PUT") {
-      for (const p of body.points as Point[]) coll.points.set(p.id, p);
+      for (const p of body.points as Point[]) {
+        if (p.vector === undefined) {
+          return json(
+            {
+              status: {
+                error: "Format error in JSON body: missing field `vector`",
+              },
+            },
+            400,
+          );
+        }
+        coll.points.set(p.id, p);
+      }
       return json({ result: { status: "completed" } });
     }
 

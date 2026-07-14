@@ -231,8 +231,10 @@ export class QdrantStorage implements StoragePort {
       txt: serializeText(e.type, attributes),
       ns: normalizeNs(e.ns),
     };
+    // vector: {} — real Qdrant requires the field even in an empty-named-vectors
+    // collection (found in live verification; the original fake tolerated its absence).
     await this.req("PUT", `/collections/${ENTITIES}/points`, {
-      points: [{ id: pointId(`${e.id}#${e.version}`), payload }],
+      points: [{ id: pointId(`${e.id}#${e.version}`), payload, vector: {} }],
     });
     // Keep only the latest version's vector: one point per entity id (re-upsert overwrites).
     // Touched only when an embedding is present — a versionless re-put leaves the old vector,
@@ -277,7 +279,7 @@ export class QdrantStorage implements StoragePort {
       to_id: r.to,
     };
     await this.req("PUT", `/collections/${RELATIONS}/points`, {
-      points: [{ id: pointId(`${r.id}#${r.version}`), payload }],
+      points: [{ id: pointId(`${r.id}#${r.version}`), payload, vector: {} }],
     });
   }
 
@@ -377,6 +379,7 @@ export class QdrantStorage implements StoragePort {
           {
             id: pointId(`${def.name}#${version}`),
             payload: { name: def.name, version, def: JSON.stringify(def), seq },
+            vector: {},
           },
         ],
       });
