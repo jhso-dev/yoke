@@ -48,6 +48,13 @@ an adapter (a read-only entity source, not a storage port implementation).
 - Read-only by principle. Bidirectional sync is designed separately if and when the
   need is real (conflict resolution is inherently hard — we don't add it casually).
 - Target order: Postgres → MySQL. The rest by demand.
+- **Verified live against Supabase Postgres (2026-07-14)**: initial sync,
+  external_id idempotency, change detection (new version pair), FK relations,
+  and injection all confirmed. Operational notes for Supabase specifically:
+  `db.<ref>.supabase.co` is IPv6-only — on IPv4-only networks use the pooler
+  host (`aws-0-<region>.pooler.supabase.com`, username `postgres.<ref>`);
+  URL-encode special characters in the password; append `?sslmode=no-verify`
+  (or provide certs) for pg's SSL handshake.
 
 ## Connector roadmap (the capture family)
 

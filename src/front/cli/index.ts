@@ -143,7 +143,11 @@ function formatEntity(e: Entity | Relation): string {
 
 /** The first string value in attributes, truncated to 60 chars (for compact review/inject output). */
 function summarize(attributes: Record<string, unknown>): string {
-  for (const val of Object.values(attributes)) {
+  for (const [key, val] of Object.entries(attributes)) {
+    // external_id is an idempotency key, not content — connector-ingested rows
+    // put it first, which made every summary read "rdb:table:1" instead of the
+    // actual knowledge. Same for author (metadata, not the statement).
+    if (key === "external_id" || key === "author") continue;
     if (typeof val === "string") return val.slice(0, 60);
   }
   return "";
