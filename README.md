@@ -91,6 +91,15 @@ export YOKE_EMBED_MODEL=text-embedding-3-small
 export YOKE_EMBED_KEY=sk-...
 ```
 
+Free, local, and keyless via [Ollama](https://ollama.com) (verified live —
+duplicate warnings and `conflicts_with` detection both fire):
+
+```bash
+ollama pull nomic-embed-text
+export YOKE_EMBED_URL=http://localhost:11434/v1
+export YOKE_EMBED_MODEL=nomic-embed-text            # no key needed
+```
+
 ## CLI
 
 ```
