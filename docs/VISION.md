@@ -32,12 +32,12 @@ A PR that implements a higher-version item in a lower version will be rejected. 
 
 ## persona — continuity of a person's judgment (included in v1)
 
-The enterprise requirement: "Even when Nathen (the FE lead) is away, work proceeds on Nathen's recorded judgment criteria." In yoke this is not a new system but **a query plus packaging**:
+The enterprise requirement: "Even when Alex (the frontend lead) is away, work proceeds on Alex's recorded judgment criteria." In yoke this is not a new system but **a query plus packaging**:
 
 - **A persona is a person-scoped query over the verified knowledge and judgment principles sourced from a specific person.** Hard rule 2 (provenance required) means every piece of knowledge is already tied to a person, which is what makes this possible.
 - **The primary consumption path is real-time MCP injection** (the `yoke_persona` tool): when a connected AI hits a moment that needs judgment, it calls the tool, and the result is generated from the verified knowledge as of that moment and injected into context — the same flow as ordinary knowledge injection (`yoke_inject`), only scoped to a person. No files to install or sync. The SKILL.md export (`yoke persona --out`) is an offline fallback for environments with no MCP connection.
 - **A derivative, not a stored artifact.** Every call is a regeneration, so stale demotions and deprecations take effect immediately. Snapshot or fine-tuning approaches are forbidden because they don't inherit governance.
-- **Citation, not impersonation.** The output takes the form "Nathen decided X this way, and the rationale was Y [source]." A hallucinated persona is a contaminated injection; being citation-based is what keeps it auditable.
+- **Citation, not impersonation.** The output takes the form "Alex decided X this way, and the rationale was Y [source]." A hallucinated persona is a contaminated injection; being citation-based is what keeps it auditable.
 - **Judgment lives in decisions, not documents.** The default ontology includes a `decision` entity type (conclusion, rationale, rejected alternatives). Without this type, the data a persona stands on never accumulates.
 
 The bottleneck for persona is not the query but **capture**. The three v1 capture paths:

@@ -82,7 +82,7 @@ The `commit(input, provenance)` pipeline — fixed order:
 | `yoke_inject` | contextual query → inject verified knowledge (with citations) |
 | `yoke_commit` | load knowledge (through the gate) |
 | `yoke_record_decision` | a commit shortcut dedicated to decision entities |
-| `yoke_persona` | person-scoped injection ("what would Nathen do") |
+| `yoke_persona` | person-scoped injection ("what would Alex do") |
 
 ## CLI commands
 

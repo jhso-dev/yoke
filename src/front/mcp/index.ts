@@ -193,7 +193,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       description:
         "Retrieve a specific person's recorded (verified) judgments and knowledge, each with its citation. " +
         "When a decision calls for the judgment of an absent colleague or owner, call this tool (even if the user does not name them directly). " +
-        'For questions like "How would Nathen decide this?", it provides that person\'s decisions, rationales, and facts on a citation basis. ' +
+        'For questions like "How would Alex decide this?", it provides that person\'s decisions, rationales, and facts on a citation basis. ' +
         "It is generated live from the verified knowledge at the moment of each call. " +
         'This is citation, not impersonation — if it is not in the records, answer "no record".',
       inputSchema: {

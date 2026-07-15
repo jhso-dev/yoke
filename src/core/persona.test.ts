@@ -43,13 +43,13 @@ describe("personaQuery", () => {
     const d = await add(
       "decision",
       { conclusion: "use SQLite", rationale: "zero-config" },
-      "nathen",
+      "alex",
     );
-    const f = await add("fact", { note: "ships fridays" }, "nathen");
+    const f = await add("fact", { note: "ships fridays" }, "alex");
     // Verify with the same actor → keeps the provenance.actor match.
-    await verify(port, [d, f], "nathen", now);
+    await verify(port, [d, f], "alex", now);
 
-    const res = await personaQuery(port, ont, "nathen", now);
+    const res = await personaQuery(port, ont, "alex", now);
     expect(res.decisions.map((e) => e.id)).toEqual([d]);
     expect(res.facts.map((e) => e.id)).toEqual([f]);
   });
@@ -60,13 +60,13 @@ describe("personaQuery", () => {
     await commit(
       port,
       ont,
-      { type: "authored_by", attributes: {}, from: f, to: "nathen" },
+      { type: "authored_by", attributes: {}, from: f, to: "alex" },
       prov("connector"),
       now,
     );
     await verify(port, [f], "admin", now); // promoted by a different actor — irrelevant to path (b).
 
-    const res = await personaQuery(port, ont, "nathen", now);
+    const res = await personaQuery(port, ont, "alex", now);
     expect(res.facts.map((e) => e.id)).toEqual([f]);
   });
 
@@ -74,25 +74,25 @@ describe("personaQuery", () => {
     const d = await add(
       "decision",
       { conclusion: "use FTS prefix", rationale: "korean suffix" },
-      "nathen",
+      "alex",
     );
     await verify(port, [d], "admin", now); // promoted by someone else — must still match the original author in the v1 history.
 
-    const res = await personaQuery(port, ont, "nathen", now);
+    const res = await personaQuery(port, ont, "alex", now);
     expect(res.decisions.map((e) => e.id)).toEqual([d]);
   });
 
   it("excludes drafts (unverified)", async () => {
-    await add("decision", { conclusion: "x", rationale: "y" }, "nathen");
-    const res = await personaQuery(port, ont, "nathen", now);
+    await add("decision", { conclusion: "x", rationale: "y" }, "alex");
+    const res = await personaQuery(port, ont, "alex", now);
     expect(res.decisions).toEqual([]);
     expect(res.facts).toEqual([]);
   });
 
   it("excludes verified-but-stale (TTL exceeded)", async () => {
-    const f = await add("fact", { note: "aging" }, "nathen"); // fact TTL = 180 days
-    await verify(port, [f], "nathen", now);
-    const res = await personaQuery(port, ont, "nathen", "2027-06-01T00:00:00Z");
+    const f = await add("fact", { note: "aging" }, "alex"); // fact TTL = 180 days
+    await verify(port, [f], "alex", now);
+    const res = await personaQuery(port, ont, "alex", "2027-06-01T00:00:00Z");
     expect(res.facts).toEqual([]);
   });
 });
@@ -100,11 +100,11 @@ describe("personaQuery", () => {
 describe("renderPersonaSkill", () => {
   it("renders a stable SKILL.md for a fixed fixture", () => {
     const person: Entity = {
-      id: "nathen",
+      id: "alex",
       type: "person",
       version: 2,
       status: "verified",
-      attributes: { name: "Nathen" },
+      attributes: { name: "Alex" },
       last_confirmed: "2026-07-12T00:00:00Z",
       provenance: { actor: "yoke:system", origin: "cli", occurred_at: now },
     };
@@ -119,7 +119,7 @@ describe("renderPersonaSkill", () => {
       },
       last_confirmed: "2026-07-12T00:00:00Z",
       provenance: {
-        actor: "nathen",
+        actor: "alex",
         origin: "cli",
         occurred_at: "2026-07-01T00:00:00Z",
       },
@@ -132,7 +132,7 @@ describe("renderPersonaSkill", () => {
       attributes: { note: "team ships on Fridays" },
       last_confirmed: "2026-07-12T00:00:00Z",
       provenance: {
-        actor: "nathen",
+        actor: "alex",
         origin: "cli",
         occurred_at: "2026-07-02T00:00:00Z",
       },
@@ -144,11 +144,11 @@ describe("renderPersonaSkill", () => {
     );
     expect(md).toMatchInlineSnapshot(`
       "---
-      name: persona-nathen
-      description: Persona grounded in Nathen's recorded judgments and knowledge
+      name: persona-alex
+      description: Persona grounded in Alex's recorded judgments and knowledge
       ---
 
-      # Nathen persona
+      # Alex persona
 
       Generated: 2026-07-12T12:00:00Z
       Source knowledge (2): 01DECISION@v2, 01FACT@v1
@@ -161,16 +161,16 @@ describe("renderPersonaSkill", () => {
 
       ### use SQLite
       - Rationale: zero-config single file keeps the CLI simple
-      - Source: [decision:01DECISION@v2] nathen, 2026-07-01T00:00:00Z
+      - Source: [decision:01DECISION@v2] alex, 2026-07-01T00:00:00Z
 
       ## Knowledge
 
-      - team ships on Fridays — [fact:01FACT@v1] nathen, 2026-07-02T00:00:00Z
+      - team ships on Fridays — [fact:01FACT@v1] alex, 2026-07-02T00:00:00Z
 
       ## Instructions
 
       Do not answer without a citation. If it is not in the records above, answer "no record".
-      Do not speak as if you were Nathen; cite the records.
+      Do not speak as if you were Alex; cite the records.
       "
     `);
   });
