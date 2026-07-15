@@ -1,0 +1,69 @@
+src/core/inject.ts
+  d735c99471326cb3 7,25-29,36-41,43-72,74,81-84
+src/core/ontology.ts
+  d735c99471326cb3 79-88,93-94
+src/front/mcp/index.ts
+  d735c99471326cb3 8,42-76,86,96,99,105,109-122,145-146,161-167,170,177,214-219,222-223,244-249,252,256,338-349,356
+src/front/cli/index.ts
+  d735c99471326cb3 66,97,252-254,263,265,268,270,272-285
+docs/SPEC.md
+  d735c99471326cb3 34-36,79-104
+docs/ROADMAP.md
+  d735c99471326cb3 95,98,102,104
+src/core/inject.test.ts
+  d735c99471326cb3 37-47,95-167
+src/front/mcp/mcp.test.ts
+  d735c99471326cb3 12-14,16,163-264
+src/front/cli/cli.test.ts
+  d735c99471326cb3 90-128
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "aeaa46d7c983afca0d5caf3148040415c84f6442",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:23:54.194Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:29:05.116Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 218,
+        "mcp__openviking__find": 1,
+        "Write": 25,
+        "Edit": 81,
+        "ToolSearch": 4,
+        "WebSearch": 11,
+        "Agent": 28,
+        "Read": 35,
+        "WebFetch": 1,
+        "SendMessage": 2,
+        "ScheduleWakeup": 4,
+        "PushNotification": 1,
+        "mcp__yoke__yoke_inject": 4,
+        "mcp__yoke__yoke_record_decision": 1
+      },
+      "total_additions": 866,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
