@@ -127,11 +127,15 @@ describe("inject scoped (v4.0)", () => {
     );
   });
 
-  it("with a query, intersects the hop set with search hits by id", async () => {
+  it("with a query, returns all query hits with scope-linked ones first (scope prioritizes, not imprisons)", async () => {
     const s = await scene();
     const { items } = await inject(port, ont, "alpha", now, { scope: s.ws });
-    // "alpha unlinked" matches the query but is not linked; "gamma" is linked but off-query.
-    expect(items.map((i) => i.entity.id)).toEqual([s.linkedVerified]);
+    // Both "alpha" facts match; the scope-linked one leads, the org-wide one still flows in.
+    // "gamma" is linked but off-query → excluded (query relevance still gates).
+    expect(items.map((i) => i.entity.id)).toEqual([
+      s.linkedVerified,
+      s.unlinked,
+    ]);
   });
 
   it("includes a linked draft only with includeDraft", async () => {

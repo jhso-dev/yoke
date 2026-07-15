@@ -22,11 +22,13 @@ export function citation(e: Entity): string {
 /**
  * Returns the verified knowledge matching a query, each with its citation.
  * @param includeDraft also include drafts (the label is carried by effectiveStatus). stale/deprecated are always excluded.
- * @param scope an entity id — when set, restrict the candidate set to knowledge one relation hop from
- *   the scope entity (the generic "shared working context" mechanism; persona is the person-shaped
- *   instance). The scope entity itself is never returned. With a non-empty query too, the hop set is
- *   intersected with the query's search hits (by id). The same verified/draft/ns filters apply, and
- *   `limit` is applied after filtering (the hop set is small — no reason to cap it early).
+ * @param scope an entity id — the shared-working-context mechanism (persona is the person-shaped
+ *   instance). Scope PRIORITIZES, it does not imprison:
+ *   - scope + query: the full query results, with knowledge one relation hop from the scope entity
+ *     ordered first — the working context leads, org-wide knowledge still flows in.
+ *   - scope, no query: only the one-hop set (a briefing of that working context).
+ *   The scope entity itself is never returned. The same verified/draft/ns filters apply, and
+ *   `limit` is applied after ordering/filtering.
  */
 export async function inject(
   port: StoragePort,
@@ -45,23 +47,27 @@ export async function inject(
   let candidates: Entity[];
   if (scope) {
     // One relation hop, both directions → the other-end entity ids (never the scope itself).
-    const otherIds = new Set<string>();
+    const hopIds = new Set<string>();
     for (const r of await port.neighbors(scope)) {
       const other: string = r.from === scope ? r.to : r.from;
-      if (other !== scope) otherIds.add(other);
+      if (other !== scope) hopIds.add(other);
     }
-    // With a query, intersect the hop set with the query's search hits by id (simplest correct match).
-    let queryIds: Set<string> | null = null;
     if (query) {
+      // Full query results, scope-linked ones first (stable partition) — the
+      // working context leads, org-wide matches still included.
       const hits = await port.search({ text: query, ns: opts?.ns });
-      queryIds = new Set(hits.map((e) => e.id));
-    }
-    candidates = [];
-    for (const id of otherIds) {
-      if (queryIds && !queryIds.has(id)) continue;
-      const e = await port.getEntity(id);
-      // ns is not a point-read filter (getEntity is id-based), so enforce it here to match search().
-      if (e && normalizeNs(e.ns) === ns) candidates.push(e);
+      candidates = [
+        ...hits.filter((e) => hopIds.has(e.id)),
+        ...hits.filter((e) => !hopIds.has(e.id)),
+      ];
+    } else {
+      // No query: a briefing of the working context — the hop set only.
+      candidates = [];
+      for (const id of hopIds) {
+        const e = await port.getEntity(id);
+        // ns is not a point-read filter (getEntity is id-based), so enforce it here to match search().
+        if (e && normalizeNs(e.ns) === ns) candidates.push(e);
+      }
     }
   } else {
     candidates = await port.search({

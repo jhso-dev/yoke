@@ -334,12 +334,19 @@ describe("yoke MCP server", () => {
       arguments: { query: "levers", scope: wsB.id },
     });
     expect(text(onB)).toContain("overridescopedecision use levers");
-    // The pinned scope wsA got no link → nothing there.
-    const onA = await s2.client.callTool({
+    // Briefing mode (no query) proves the link landed on wsB, not the pinned wsA:
+    // scope prioritizes rather than imprisons, so a query would still surface
+    // org-wide hits — only the no-query briefing isolates the hop set.
+    const briefA = await s2.client.callTool({
       name: "yoke_inject",
-      arguments: { query: "levers", scope: wsA.id },
+      arguments: { query: "", scope: wsA.id },
     });
-    expect(text(onA)).toContain("no verified knowledge found");
+    expect(text(briefA)).not.toContain("overridescopedecision");
+    const briefB = await s2.client.callTool({
+      name: "yoke_inject",
+      arguments: { query: "", scope: wsB.id },
+    });
+    expect(text(briefB)).toContain("overridescopedecision");
     await s2.close();
   });
 });

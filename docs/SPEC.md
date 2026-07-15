@@ -80,15 +80,16 @@ The `commit(input, provenance)` pipeline — fixed order:
 
 `inject(query, { scope })` where `scope` is an entity id (e.g. a `workstream`):
 
-- Candidate set = knowledge **one relation hop** from the scope entity, both directions
-  (`neighbors(scope)` → the other-end entity ids → `getEntity` each). The scope entity itself
-  is never returned.
+- **Scope prioritizes, it does not imprison.** A pinned working context must never hide
+  org-wide knowledge (or personas — `yoke_persona` is a separate tool and unaffected by scope).
+- With a non-empty `query`: the **full query results** are returned, with knowledge one relation
+  hop from the scope entity (both directions via `neighbors(scope)`) **ordered first** — the
+  working context leads, org-wide matches still flow in. `limit` applies after ordering.
+- With no `query`: only the one-hop set is returned — a briefing of that working context.
+  The scope entity itself is never returned.
 - The **same filters** apply as unscoped injection: verified-only by default (`includeDraft` still
-  works), stale/deprecated always excluded, and the namespace filter is enforced on the fetched
+  works), stale/deprecated always excluded, and the namespace filter is enforced on fetched
   entities (`getEntity` is id-based, so the ns check happens in `inject`, not the port).
-- With a non-empty `query` too, the hop set is **intersected by id** with the query's search hits
-  (a knowledge item passes only if it is both linked to the scope and a search match). `limit` is
-  applied after filtering.
 - Persona is the person-shaped instance of the same mechanism.
 
 **Capture-side linking**: `yoke add --scope <id>`, and the `scope` argument on `yoke_commit` /
