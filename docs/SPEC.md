@@ -95,12 +95,20 @@ The `commit(input, provenance)` pipeline — fixed order:
 `yoke_record_decision`, link new knowledge to a scope entity via a `relates_to` relation created
 through a second gate-passing commit at the front tier (core `commit` is untouched).
 
-**Default scope (MCP server)**: at startup, `YOKE_SCOPE` (an entity id) sets the default injection
-and capture scope. Alternatively `YOKE_SCOPE_PATTERN` (a regex with one capture group) extracts a
-work-item key from the current git branch (e.g. ticket keys like `ABC-123` from
-`feature/ABC-123-description`) and resolves it to a `workstream` whose `key` attribute matches
-exactly; if none matches, there is no default scope. A tool-call `scope` argument always overrides
-the default.
+**Declared scope (MCP server)**: scope is stated, not guessed. The agent declares which work item the
+current work belongs to — when the user says so or the agent infers it ("this is `ABC-12345` work") —
+by calling `yoke_use_scope { key }`. The key is resolved to a scope entity: an exact entity id
+(`getEntity`), else a `workstream` whose `key` OR `title` attribute equals the key. On a match it is
+pinned as the session default for subsequent injections and recordings, and the resolved `{ id, title }`
+is returned; on no match the tool returns a non-error hint to create one via `yoke_commit` (type
+`workstream`, attributes `{ title, key }`) and call again. Precedence: a per-call `scope` argument >
+the session pin (`yoke_use_scope`) > `YOKE_SCOPE` (an entity id or workstream key resolved at startup,
+for fixed setups). In stateless (serve) deployments the session pin does not persist, so the agent
+passes `scope` per call — `yoke_use_scope` still returns the resolved id for reuse.
+
+We deliberately do **not** infer scope from the git branch: branch names usually carry a *child* task
+key while the shared context lives on the *parent* workstream, so regex-from-branch systematically
+picks the wrong scope.
 
 ## MCP tools
 
@@ -110,6 +118,7 @@ the default.
 | `yoke_commit` | load knowledge (through the gate) |
 | `yoke_record_decision` | a commit shortcut dedicated to decision entities |
 | `yoke_persona` | person-scoped injection ("what would Alex do") |
+| `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
 
 ## CLI commands
 

@@ -5,7 +5,6 @@
 // Governance: agents may only ingest drafts (no verify/deprecate tools — promotion is the CLI's job).
 // Time is obtained only in this front tier (core receives `now` by injection).
 
-import { execFileSync } from "node:child_process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -39,43 +38,34 @@ export interface YokeMcpDeps {
   /** Per-request RBAC hook (PLAN-V2 10.4). Default allow-all — stdio `yoke mcp` is single-user
    * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */
   authorize?: (action: "read" | "write" | "verify", type?: string) => boolean;
-  /** Default injection/capture scope (a workstream/entity id) resolved at startup from YOKE_SCOPE or
-   * a git-branch key (v4.0). A tool-call `scope` argument always overrides it. null = no default. */
+  /** Default injection/capture scope (a workstream/entity id) resolved at startup from YOKE_SCOPE
+   * (v4.0). The agent can also pin one at runtime via yoke_use_scope; a tool-call `scope` argument
+   * always overrides both. null = no default. */
   defaultScope?: string | null;
 }
 
-/** Extract a work-item key from a git branch via YOKE_SCOPE_PATTERN (a regex with one capture group),
- * then resolve it to a workstream entity id (search + exact `key` attribute match). Front-tier only:
- * git access and env live here, never in core. Returns null (and warns once) when nothing resolves.
- * @param branch current branch name (injected for testability; a real caller shells out to git).
+/** Resolve a work-item key (or entity id) to a scope entity. Exact entity id wins (getEntity);
+ * otherwise search for a `workstream` whose `key` OR `title` attribute equals the key. Front-tier
+ * only. Returns null when nothing matches. Shared by startup (YOKE_SCOPE) and the yoke_use_scope tool.
  */
 export async function resolveScope(
-  env: Record<string, string | undefined>,
-  store: Pick<StoragePort, "search">,
+  store: Pick<StoragePort, "getEntity" | "search">,
   ns: string | null,
-  branch: () => string | null,
-  warn: (msg: string) => void = (m) => process.stderr.write(`${m}\n`),
-): Promise<string | null> {
-  // Explicit id wins: YOKE_SCOPE is used directly as the scope entity id.
-  if (env.YOKE_SCOPE) return env.YOKE_SCOPE;
-  const pattern = env.YOKE_SCOPE_PATTERN;
-  if (!pattern) return null;
-  const name = branch();
-  if (!name) return null;
-  // e.g. ticket keys like ABC-123 from feature/ABC-123-description branches.
-  const key = name.match(new RegExp(pattern))?.[1];
-  if (!key) return null;
+  key: string,
+): Promise<{ id: string; title: string } | null> {
+  const asEntity = (e: Entity) => ({
+    id: e.id,
+    title: String(e.attributes.title ?? e.id),
+  });
+  const byId = await store.getEntity(key);
+  if (byId) return asEntity(byId);
   const hits = await store.search({ text: key, ns });
   const ws = hits.find(
-    (e) => e.type === "workstream" && e.attributes.key === key,
+    (e) =>
+      e.type === "workstream" &&
+      (e.attributes.key === key || e.attributes.title === key),
   );
-  if (!ws) {
-    warn(
-      `yoke: no workstream matches key "${key}" (branch "${name}") — no default scope`,
-    );
-    return null;
-  }
-  return ws.id;
+  return ws ? asEntity(ws) : null;
 }
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
@@ -86,6 +76,12 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   const { store, ontology, defaultActor, embedder } = deps;
   const ns = deps.ns ?? null;
   const defaultScope = deps.defaultScope ?? null;
+  // Runtime scope pinned by yoke_use_scope. Mutable state in the closure is fine for stdio's
+  // long-lived process; serve mode uses a fresh server per request so it simply never persists.
+  let sessionScope: string | null = null;
+  // Precedence: explicit per-call scope > session pin (yoke_use_scope) > startup YOKE_SCOPE.
+  const effectiveScope = (scope?: string) =>
+    scope ?? sessionScope ?? defaultScope ?? undefined;
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
   const forbidden = () =>
@@ -115,7 +111,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // Capture-side linking (v4.0): attach the new knowledge to the scope entity via relates_to.
       // A second gate-passing commit at the front tier — core commit stays untouched (like conflicts_with,
       // but that lives inside commit for decisions; this is caller-driven so it belongs here).
-      const linkTo = scope ?? defaultScope;
+      const linkTo = effectiveScope(scope);
       if (linkTo) {
         await commit(
           store,
@@ -180,7 +176,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         includeDraft,
         limit,
         ns,
-        scope: scope ?? defaultScope ?? undefined,
+        scope: effectiveScope(scope),
       });
       // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
       store.logAudit?.({
@@ -321,6 +317,37 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     },
   );
 
+  server.registerTool(
+    "yoke_use_scope",
+    {
+      description:
+        "When the user states or implies which work item / workstream the current work belongs to " +
+        "(e.g. 'this is ABC-12345 work'), call this once — subsequent injections and recordings default " +
+        "to that scope. Resolves the key to a workstream (by exact entity id, or a workstream whose key " +
+        "or title matches). If none matches, it says so and you can create one via yoke_commit (type " +
+        "workstream, attributes { title, key }) then call yoke_use_scope again. In stateless deployments " +
+        "the session pin does not persist, so pass scope per call — this tool still returns the resolved id for reuse.",
+      inputSchema: {
+        key: z
+          .string()
+          .describe(
+            "The work-item key (e.g. ABC-12345) or workstream entity id the current work belongs to",
+          ),
+      },
+    },
+    async ({ key }) => {
+      if (!authorize("read")) return forbidden();
+      const found = await resolveScope(store, ns, key);
+      if (!found)
+        return ok(
+          `no workstream matches "${key}". Create one via yoke_commit ` +
+            `(type: workstream, attributes: { title, key }), then call yoke_use_scope again.`,
+        );
+      sessionScope = found.id;
+      return ok(JSON.stringify({ id: found.id, title: found.title }));
+    },
+  );
+
   return server;
 }
 
@@ -341,18 +368,17 @@ export async function runMcp(
     process.exit(1);
   }
   const ns = resolveNs(undefined, env);
-  // Default working-context scope (v4.0): YOKE_SCOPE (an id) or a key extracted from the git branch
-  // via YOKE_SCOPE_PATTERN. Reading the branch is best-effort — any git failure means no scope.
-  const branch = (): string | null => {
-    try {
-      return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-        encoding: "utf8",
-      }).trim();
-    } catch {
-      return null;
-    }
-  };
-  const defaultScope = await resolveScope(env, store, ns, branch);
+  // Default working-context scope (v4.0): YOKE_SCOPE, an explicit entity id or workstream key resolved
+  // at startup (for fixed setups). At runtime the agent pins scope via the yoke_use_scope tool instead.
+  let defaultScope: string | null = null;
+  if (env.YOKE_SCOPE) {
+    const resolved = await resolveScope(store, ns, env.YOKE_SCOPE);
+    if (resolved) defaultScope = resolved.id;
+    else
+      process.stderr.write(
+        `yoke: YOKE_SCOPE "${env.YOKE_SCOPE}" did not resolve to any entity or workstream — no default scope\n`,
+      );
+  }
   const server = createYokeMcpServer({
     store,
     ontology: store.loadOntology(ns),

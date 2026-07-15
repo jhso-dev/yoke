@@ -101,6 +101,8 @@ ordering within v2/v3 can be adjusted.
       initiative, experiment, …)
 - [x] Capture-side linking: `record_decision`/`commit` accept an optional
       scope entity to attach the new knowledge to (relates_to)
-- [x] Work-item key auto-detection: extract a scope key from the git branch
-      name via a configurable pattern; the MCP server uses it as the default
-      injection scope
+- [x] Declaration-based scope: the agent declares the current work item via the
+      `yoke_use_scope` tool (the user states or implies it, e.g. "this is
+      ABC-12345 work"), which resolves the key to a workstream and pins it as the
+      session's default injection/capture scope. No branch-regex guessing — branch
+      names carry the child task key, not the parent workstream everyone shares.

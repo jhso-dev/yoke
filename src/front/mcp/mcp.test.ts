@@ -113,6 +113,7 @@ describe("yoke MCP server", () => {
       "yoke_inject",
       "yoke_persona",
       "yoke_record_decision",
+      "yoke_use_scope",
     ]);
     await s.close();
   });
@@ -206,32 +207,148 @@ describe("yoke MCP server", () => {
     expect(text(scoped)).toContain("scopedecision use widgets");
     await s2.close();
   });
+
+  it("yoke_use_scope pins the session scope by key; a later record_decision links to it without an explicit scope (v4.0)", async () => {
+    const s = await openSession();
+    const ws = JSON.parse(
+      text(
+        await s.client.callTool({
+          name: "yoke_commit",
+          arguments: {
+            type: "workstream",
+            attributes: { title: "pin ws", key: "PIN-1" },
+          },
+        }),
+      ),
+    );
+    // Pin by key — resolves to the workstream and returns its id/title.
+    const use = await s.client.callTool({
+      name: "yoke_use_scope",
+      arguments: { key: "PIN-1" },
+    });
+    expect(use.isError).toBeFalsy();
+    expect(JSON.parse(text(use)).id).toBe(ws.id);
+    // Record a decision with NO scope arg → it should link to the pinned session scope.
+    const dec = JSON.parse(
+      text(
+        await s.client.callTool({
+          name: "yoke_record_decision",
+          arguments: {
+            conclusion: "pinnedscopedecision use gadgets",
+            rationale: "gadgets fit",
+          },
+        }),
+      ),
+    );
+    await s.close();
+    expect(
+      await runCli([
+        "verify",
+        ws.id,
+        dec.id,
+        "--db",
+        db,
+        "--actor",
+        "yoke:system",
+      ]),
+    ).toBe(0);
+    const s2 = await openSession();
+    const scoped = await s2.client.callTool({
+      name: "yoke_inject",
+      arguments: { query: "gadgets", scope: ws.id },
+    });
+    expect(text(scoped)).toContain("pinnedscopedecision use gadgets");
+    await s2.close();
+  });
+
+  it("yoke_use_scope with an unknown key returns a non-error create hint (v4.0)", async () => {
+    const s = await openSession();
+    const res = await s.client.callTool({
+      name: "yoke_use_scope",
+      arguments: { key: "NOPE-404" },
+    });
+    expect(res.isError).toBeFalsy();
+    const out = text(res);
+    expect(out).toContain("no workstream matches");
+    expect(out).toContain("yoke_commit");
+    await s.close();
+  });
+
+  it("an explicit per-call scope overrides the pinned session scope (v4.0)", async () => {
+    const s = await openSession();
+    const wsA = JSON.parse(
+      text(
+        await s.client.callTool({
+          name: "yoke_commit",
+          arguments: {
+            type: "workstream",
+            attributes: { title: "override A", key: "OVR-A" },
+          },
+        }),
+      ),
+    );
+    const wsB = JSON.parse(
+      text(
+        await s.client.callTool({
+          name: "yoke_commit",
+          arguments: {
+            type: "workstream",
+            attributes: { title: "override B", key: "OVR-B" },
+          },
+        }),
+      ),
+    );
+    await s.client.callTool({
+      name: "yoke_use_scope",
+      arguments: { key: "OVR-A" },
+    });
+    // Explicit scope wsB on the call must win over the pinned wsA.
+    const dec = JSON.parse(
+      text(
+        await s.client.callTool({
+          name: "yoke_record_decision",
+          arguments: {
+            conclusion: "overridescopedecision use levers",
+            rationale: "levers win",
+            scope: wsB.id,
+          },
+        }),
+      ),
+    );
+    await s.close();
+    expect(
+      await runCli([
+        "verify",
+        wsA.id,
+        wsB.id,
+        dec.id,
+        "--db",
+        db,
+        "--actor",
+        "yoke:system",
+      ]),
+    ).toBe(0);
+    const s2 = await openSession();
+    const onB = await s2.client.callTool({
+      name: "yoke_inject",
+      arguments: { query: "levers", scope: wsB.id },
+    });
+    expect(text(onB)).toContain("overridescopedecision use levers");
+    // The pinned scope wsA got no link → nothing there.
+    const onA = await s2.client.callTool({
+      name: "yoke_inject",
+      arguments: { query: "levers", scope: wsA.id },
+    });
+    expect(text(onA)).toContain("no verified knowledge found");
+    await s2.close();
+  });
 });
 
-describe("resolveScope (branch key auto-detection)", () => {
+describe("resolveScope (key/id → workstream lookup)", () => {
   const now = "2026-07-14T00:00:00Z";
   const prov: Provenance = { actor: "t", origin: "cli", occurred_at: now };
-  const emptyStore = { search: async () => [] };
 
-  it("uses YOKE_SCOPE directly as the scope id", async () => {
-    expect(
-      await resolveScope({ YOKE_SCOPE: "ws-1" }, emptyStore, null, () => null),
-    ).toBe("ws-1");
-  });
-
-  it("returns null with no pattern, or when the branch is unavailable", async () => {
-    expect(await resolveScope({}, emptyStore, null, () => "any")).toBeNull();
-    expect(
-      await resolveScope(
-        { YOKE_SCOPE_PATTERN: "([A-Z]+-\\d+)" },
-        emptyStore,
-        null,
-        () => null,
-      ),
-    ).toBeNull();
-  });
-
-  it("extracts a key from the branch and resolves it to a matching workstream", async () => {
+  it("resolves an exact entity id, a matching key attribute, or a matching title; null otherwise", async () => {
     const port = new SqliteStorage(":memory:");
     await port.init();
     const { entity } = await commit(
@@ -241,25 +358,11 @@ describe("resolveScope (branch key auto-detection)", () => {
       prov,
       now,
     );
-    const scope = await resolveScope(
-      { YOKE_SCOPE_PATTERN: "([A-Z]+-\\d+)" },
-      port,
-      null,
-      () => "feature/ABC-123-do-things",
-    );
-    expect(scope).toBe(entity.id);
-
-    // No workstream for the extracted key → null, and it warns once.
-    const warns: string[] = [];
-    const none = await resolveScope(
-      { YOKE_SCOPE_PATTERN: "([A-Z]+-\\d+)" },
-      port,
-      null,
-      () => "feature/ZZZ-999-x",
-      (m) => warns.push(m),
-    );
-    expect(none).toBeNull();
-    expect(warns).toHaveLength(1);
+    const want = { id: entity.id, title: "auth" };
+    expect(await resolveScope(port, null, entity.id)).toEqual(want); // exact id
+    expect(await resolveScope(port, null, "ABC-123")).toEqual(want); // by key
+    expect(await resolveScope(port, null, "auth")).toEqual(want); // by title
+    expect(await resolveScope(port, null, "ZZZ-999")).toBeNull(); // no match
     port.close();
   });
 });
