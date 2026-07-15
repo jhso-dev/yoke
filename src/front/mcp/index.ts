@@ -80,8 +80,12 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   // long-lived process; serve mode uses a fresh server per request so it simply never persists.
   let sessionScope: string | null = null;
   // Precedence: explicit per-call scope > session pin (yoke_use_scope) > startup YOKE_SCOPE.
+  // An explicit empty string opts OUT for that call — without it, a pinned session
+  // could never record or query knowledge outside its workstream.
   const effectiveScope = (scope?: string) =>
-    scope ?? sessionScope ?? defaultScope ?? undefined;
+    scope === ""
+      ? undefined
+      : (scope ?? sessionScope ?? defaultScope ?? undefined);
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
   const forbidden = () =>
@@ -165,7 +169,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .optional()
           .describe(
             "Entity id to scope the injection to (one relation hop) — e.g. a workstream id to " +
-              "retrieve only the knowledge linked to that unit of work",
+              'retrieve only the knowledge linked to that unit of work. Pass "" to query ' +
+              "without any scope when a session scope is pinned",
           ),
       },
     },
@@ -217,7 +222,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .string()
           .optional()
           .describe(
-            "Entity id (e.g. a workstream) to link the new knowledge to via a relates_to relation",
+            "Entity id (e.g. a workstream) to link the new knowledge to via a relates_to relation. " +
+              'Pass "" to record outside the pinned session scope',
           ),
       },
     },
@@ -247,7 +253,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .string()
           .optional()
           .describe(
-            "Entity id (e.g. a workstream) to link this decision to via a relates_to relation",
+            "Entity id (e.g. a workstream) to link this decision to via a relates_to relation. " +
+              'Pass "" to record outside the pinned session scope',
           ),
       },
     },
