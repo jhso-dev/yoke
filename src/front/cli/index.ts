@@ -63,6 +63,7 @@ type Values = {
   sqlite?: string;
   channel?: string;
   name?: string;
+  scope?: string;
   scopes?: string;
   auth?: boolean;
   until?: string;
@@ -93,6 +94,7 @@ const OPTIONS = {
   sqlite: { type: "string" },
   channel: { type: "string" },
   name: { type: "string" },
+  scope: { type: "string" },
   scopes: { type: "string" },
   auth: { type: "boolean" },
   until: { type: "string" },
@@ -247,7 +249,9 @@ async function cmdAdd(
 ): Promise<number> {
   const type = positionals[0];
   if (!type) {
-    console.error("usage: yoke add <type> [--actor id] [--attr k=v ...]");
+    console.error(
+      "usage: yoke add <type> [--actor id] [--attr k=v ...] [--scope entity-id]",
+    );
     return 1;
   }
   const actor = resolveActor(v, env);
@@ -258,14 +262,27 @@ async function cmdAdd(
     if (!ontology) return 1;
     const ts = now();
     try {
+      const prov = { actor, origin: "cli", occurred_at: ts };
       const { entity, duplicates } = await commit(
         store,
         ontology,
         { type, attributes },
-        { actor, origin: "cli", occurred_at: ts },
+        prov,
         ts,
         { embedder: makeFetchEmbedder(env), ns },
       );
+      // Capture-side linking (v4.0): --scope <entity-id> links the new knowledge to that entity via
+      // relates_to, through the same gate (a second commit at the front tier — core commit untouched).
+      if (v.scope) {
+        await commit(
+          store,
+          ontology,
+          { type: "relates_to", attributes: {}, from: entity.id, to: v.scope },
+          prov,
+          ts,
+          { ns },
+        );
+      }
       const human =
         duplicates.length > 0
           ? `${formatEntity(entity)}\nsimilar knowledge (${duplicates.length}): ${duplicates.map((d) => d.id).join(" ")}`

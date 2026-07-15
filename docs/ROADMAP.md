@@ -92,15 +92,15 @@ ordering within v2/v3 can be adjusted.
 
 ## v4.0 — shared working context
 
-- [ ] Entity-scoped injection: `inject(scope: <entity-id>)` — verified knowledge
+- [x] Entity-scoped injection: `inject(scope: <entity-id>)` — verified knowledge
       within one relation hop of any entity (the generic mechanism; persona is
       the person-shaped instance of the same idea)
-- [ ] `workstream` seed entity type + `works_on` relation — a unit of
+- [x] `workstream` seed entity type + `works_on` relation — a unit of
       collaborative work that groups people and knowledge for its duration
       (orgs can define their own equivalents in their ontology: epic,
       initiative, experiment, …)
-- [ ] Capture-side linking: `record_decision`/`commit` accept an optional
+- [x] Capture-side linking: `record_decision`/`commit` accept an optional
       scope entity to attach the new knowledge to (relates_to)
-- [ ] Work-item key auto-detection: extract a scope key from the git branch
+- [x] Work-item key auto-detection: extract a scope key from the git branch
       name via a configurable pattern; the MCP server uses it as the default
       injection scope

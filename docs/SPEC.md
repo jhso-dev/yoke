@@ -31,8 +31,9 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 
 ## Default ontology (seed)
 
-- entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`
-- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved)
+- entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`, `workstream` (attributes: title (required), status) — a unit of collaborative work grouping people and knowledge (v4.0)
+- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → workstream, v4.0)
+- **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
 - **Bootstrap**: `yoke init` seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself). All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
 
@@ -74,6 +75,32 @@ The `commit(input, provenance)` pipeline — fixed order:
   stale/deprecated are **always excluded** regardless of options (strict on injection —
   we don't inject a decay signal. Viewing stale is the job of review/CLI)
 - Returns: a list of entities, each with its provenance (an auditable citation format)
+
+### Scoped injection (v4.0 — shared working context)
+
+`inject(query, { scope })` where `scope` is an entity id (e.g. a `workstream`):
+
+- Candidate set = knowledge **one relation hop** from the scope entity, both directions
+  (`neighbors(scope)` → the other-end entity ids → `getEntity` each). The scope entity itself
+  is never returned.
+- The **same filters** apply as unscoped injection: verified-only by default (`includeDraft` still
+  works), stale/deprecated always excluded, and the namespace filter is enforced on the fetched
+  entities (`getEntity` is id-based, so the ns check happens in `inject`, not the port).
+- With a non-empty `query` too, the hop set is **intersected by id** with the query's search hits
+  (a knowledge item passes only if it is both linked to the scope and a search match). `limit` is
+  applied after filtering.
+- Persona is the person-shaped instance of the same mechanism.
+
+**Capture-side linking**: `yoke add --scope <id>`, and the `scope` argument on `yoke_commit` /
+`yoke_record_decision`, link new knowledge to a scope entity via a `relates_to` relation created
+through a second gate-passing commit at the front tier (core `commit` is untouched).
+
+**Default scope (MCP server)**: at startup, `YOKE_SCOPE` (an entity id) sets the default injection
+and capture scope. Alternatively `YOKE_SCOPE_PATTERN` (a regex with one capture group) extracts a
+work-item key from the current git branch (e.g. ticket keys like `ABC-123` from
+`feature/ABC-123-description`) and resolves it to a `workstream` whose `key` attribute matches
+exactly; if none matches, there is no default scope. A tool-call `scope` argument always overrides
+the default.
 
 ## MCP tools
 

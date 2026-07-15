@@ -5,6 +5,7 @@
 // Governance: agents may only ingest drafts (no verify/deprecate tools — promotion is the CLI's job).
 // Time is obtained only in this front tier (core receives `now` by injection).
 
+import { execFileSync } from "node:child_process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -38,6 +39,43 @@ export interface YokeMcpDeps {
   /** Per-request RBAC hook (PLAN-V2 10.4). Default allow-all — stdio `yoke mcp` is single-user
    * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */
   authorize?: (action: "read" | "write" | "verify", type?: string) => boolean;
+  /** Default injection/capture scope (a workstream/entity id) resolved at startup from YOKE_SCOPE or
+   * a git-branch key (v4.0). A tool-call `scope` argument always overrides it. null = no default. */
+  defaultScope?: string | null;
+}
+
+/** Extract a work-item key from a git branch via YOKE_SCOPE_PATTERN (a regex with one capture group),
+ * then resolve it to a workstream entity id (search + exact `key` attribute match). Front-tier only:
+ * git access and env live here, never in core. Returns null (and warns once) when nothing resolves.
+ * @param branch current branch name (injected for testability; a real caller shells out to git).
+ */
+export async function resolveScope(
+  env: Record<string, string | undefined>,
+  store: Pick<StoragePort, "search">,
+  ns: string | null,
+  branch: () => string | null,
+  warn: (msg: string) => void = (m) => process.stderr.write(`${m}\n`),
+): Promise<string | null> {
+  // Explicit id wins: YOKE_SCOPE is used directly as the scope entity id.
+  if (env.YOKE_SCOPE) return env.YOKE_SCOPE;
+  const pattern = env.YOKE_SCOPE_PATTERN;
+  if (!pattern) return null;
+  const name = branch();
+  if (!name) return null;
+  // e.g. ticket keys like ABC-123 from feature/ABC-123-description branches.
+  const key = name.match(new RegExp(pattern))?.[1];
+  if (!key) return null;
+  const hits = await store.search({ text: key, ns });
+  const ws = hits.find(
+    (e) => e.type === "workstream" && e.attributes.key === key,
+  );
+  if (!ws) {
+    warn(
+      `yoke: no workstream matches key "${key}" (branch "${name}") — no default scope`,
+    );
+    return null;
+  }
+  return ws.id;
 }
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
@@ -47,6 +85,7 @@ const err = (text: string) => ({ ...ok(text), isError: true });
 export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   const { store, ontology, defaultActor, embedder } = deps;
   const ns = deps.ns ?? null;
+  const defaultScope = deps.defaultScope ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
   const forbidden = () =>
@@ -56,22 +95,37 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   // Input actor > server startup env (defaultActor) > 'yoke:system' (already folded into defaultActor).
   const resolveActor = (actor?: string) => actor ?? defaultActor;
 
-  async function doCommit(input: EntityInput, actor?: string) {
+  async function doCommit(input: EntityInput, actor?: string, scope?: string) {
     if (!authorize("write", input.type)) return forbidden();
     const ts = now();
+    const prov = {
+      actor: resolveActor(actor),
+      origin: ORIGIN,
+      occurred_at: ts,
+    };
     try {
       const { entity, duplicates } = await commit(
         store,
         ontology,
         input,
-        {
-          actor: resolveActor(actor),
-          origin: ORIGIN,
-          occurred_at: ts,
-        },
+        prov,
         ts,
         { embedder, ns },
       );
+      // Capture-side linking (v4.0): attach the new knowledge to the scope entity via relates_to.
+      // A second gate-passing commit at the front tier — core commit stays untouched (like conflicts_with,
+      // but that lives inside commit for decisions; this is caller-driven so it belongs here).
+      const linkTo = scope ?? defaultScope;
+      if (linkTo) {
+        await commit(
+          store,
+          ontology,
+          { type: "relates_to", attributes: {}, from: entity.id, to: linkTo },
+          prov,
+          ts,
+          { ns },
+        );
+      }
       return ok(
         JSON.stringify({
           id: entity.id,
@@ -94,7 +148,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       description:
         "Before starting a task, use this tool to retrieve relevant knowledge (past decisions, facts, terms). " +
         "It returns verified knowledge matching the query, each with its citation. " +
-        "Set includeDraft to also include unverified (draft) knowledge, tagged with its status label.",
+        "Set includeDraft to also include unverified (draft) knowledge, tagged with its status label. " +
+        "Set scope to focus on one working context — e.g. the workstream the team is currently on.",
       inputSchema: {
         query: z.string().describe("Natural-language query to search for"),
         includeDraft: z
@@ -109,15 +164,23 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .positive()
           .optional()
           .describe("Maximum number of results"),
+        scope: z
+          .string()
+          .optional()
+          .describe(
+            "Entity id to scope the injection to (one relation hop) — e.g. a workstream id to " +
+              "retrieve only the knowledge linked to that unit of work",
+          ),
       },
     },
-    async ({ query, includeDraft, limit }) => {
+    async ({ query, includeDraft, limit, scope }) => {
       if (!authorize("read")) return forbidden();
       const ts = now();
       const { items } = await inject(store, ontology, query, ts, {
         includeDraft,
         limit,
         ns,
+        scope: scope ?? defaultScope ?? undefined,
       });
       // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
       store.logAudit?.({
@@ -154,9 +217,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .string()
           .optional()
           .describe("Actor id (defaults to the server default when omitted)"),
+        scope: z
+          .string()
+          .optional()
+          .describe(
+            "Entity id (e.g. a workstream) to link the new knowledge to via a relates_to relation",
+          ),
       },
     },
-    ({ type, attributes, actor }) => doCommit({ type, attributes }, actor),
+    ({ type, attributes, actor, scope }) =>
+      doCommit({ type, attributes }, actor, scope),
   );
 
   server.registerTool(
@@ -177,13 +247,19 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .string()
           .optional()
           .describe("Actor id (defaults to the server default when omitted)"),
+        scope: z
+          .string()
+          .optional()
+          .describe(
+            "Entity id (e.g. a workstream) to link this decision to via a relates_to relation",
+          ),
       },
     },
-    ({ conclusion, rationale, rejected_alternatives, actor }) => {
+    ({ conclusion, rationale, rejected_alternatives, actor, scope }) => {
       const attributes: Record<string, unknown> = { conclusion, rationale };
       if (rejected_alternatives)
         attributes.rejected_alternatives = rejected_alternatives;
-      return doCommit({ type: "decision", attributes }, actor);
+      return doCommit({ type: "decision", attributes }, actor, scope);
     },
   );
 
@@ -265,12 +341,25 @@ export async function runMcp(
     process.exit(1);
   }
   const ns = resolveNs(undefined, env);
+  // Default working-context scope (v4.0): YOKE_SCOPE (an id) or a key extracted from the git branch
+  // via YOKE_SCOPE_PATTERN. Reading the branch is best-effort — any git failure means no scope.
+  const branch = (): string | null => {
+    try {
+      return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+        encoding: "utf8",
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  const defaultScope = await resolveScope(env, store, ns, branch);
   const server = createYokeMcpServer({
     store,
     ontology: store.loadOntology(ns),
     defaultActor: env.YOKE_ACTOR ?? "yoke:system",
     ns,
     embedder: makeFetchEmbedder(env),
+    defaultScope,
   });
   await server.connect(new StdioServerTransport());
   // Wait until the client closes stdin (until then runCli does not resolve, so the process stays alive).

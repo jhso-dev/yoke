@@ -76,9 +76,21 @@ export function seedOntology(): TypeDef[] {
     },
     { name: "term", kind: "entity", attrs: {} },
     { name: "resource", kind: "entity", attrs: {} },
+    // A unit of collaborative work that groups people and knowledge for its duration (v4.0 shared
+    // working context). Orgs define their own equivalents in their ontology (initiative, experiment, …).
+    {
+      name: "workstream",
+      kind: "entity",
+      attrs: {
+        title: { type: "string", required: true },
+        status: { type: "string" },
+      },
+    },
     { name: "authored_by", kind: "relation", attrs: {} },
     { name: "relates_to", kind: "relation", attrs: {} },
     { name: "supersedes", kind: "relation", attrs: {} },
     { name: "conflicts_with", kind: "relation", attrs: {} },
+    // Links a person to a workstream they participate in (v4.0).
+    { name: "works_on", kind: "relation", attrs: {} },
   ];
 }

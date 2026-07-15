@@ -9,8 +9,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
+import { commit } from "../../core/commit.js";
+import { seedOntology } from "../../core/ontology.js";
+import type { Provenance } from "../../core/types.js";
 import { runCli } from "../cli/index.js";
-import { createYokeMcpServer } from "./index.js";
+import { createYokeMcpServer, resolveScope } from "./index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-mcp-"));
 const db = join(dir, "yoke.db");
@@ -156,5 +159,107 @@ describe("yoke MCP server", () => {
     expect(missing.isError).toBe(true);
     expect(text(missing)).toContain("person not found");
     await s.close();
+  });
+
+  it("scope links captured knowledge and scopes injection (v4.0)", async () => {
+    const s = await openSession();
+    const ws = JSON.parse(
+      text(
+        await s.client.callTool({
+          name: "yoke_commit",
+          arguments: { type: "workstream", attributes: { title: "scope ws" } },
+        }),
+      ),
+    );
+    const dec = JSON.parse(
+      text(
+        await s.client.callTool({
+          name: "yoke_record_decision",
+          arguments: {
+            conclusion: "scopedecision use widgets",
+            rationale: "widgets are simplest",
+            scope: ws.id,
+          },
+        }),
+      ),
+    );
+    await s.close();
+    // Verify both so scoped injection (verified-only) can see the decision.
+    expect(
+      await runCli([
+        "verify",
+        ws.id,
+        dec.id,
+        "--db",
+        db,
+        "--actor",
+        "yoke:system",
+      ]),
+    ).toBe(0);
+
+    const s2 = await openSession();
+    // Scoped inject returns the linked decision (the relates_to link was created capture-side).
+    const scoped = await s2.client.callTool({
+      name: "yoke_inject",
+      arguments: { query: "widgets", scope: ws.id },
+    });
+    expect(text(scoped)).toContain("scopedecision use widgets");
+    await s2.close();
+  });
+});
+
+describe("resolveScope (branch key auto-detection)", () => {
+  const now = "2026-07-14T00:00:00Z";
+  const prov: Provenance = { actor: "t", origin: "cli", occurred_at: now };
+  const emptyStore = { search: async () => [] };
+
+  it("uses YOKE_SCOPE directly as the scope id", async () => {
+    expect(
+      await resolveScope({ YOKE_SCOPE: "ws-1" }, emptyStore, null, () => null),
+    ).toBe("ws-1");
+  });
+
+  it("returns null with no pattern, or when the branch is unavailable", async () => {
+    expect(await resolveScope({}, emptyStore, null, () => "any")).toBeNull();
+    expect(
+      await resolveScope(
+        { YOKE_SCOPE_PATTERN: "([A-Z]+-\\d+)" },
+        emptyStore,
+        null,
+        () => null,
+      ),
+    ).toBeNull();
+  });
+
+  it("extracts a key from the branch and resolves it to a matching workstream", async () => {
+    const port = new SqliteStorage(":memory:");
+    await port.init();
+    const { entity } = await commit(
+      port,
+      seedOntology(),
+      { type: "workstream", attributes: { title: "auth", key: "ABC-123" } },
+      prov,
+      now,
+    );
+    const scope = await resolveScope(
+      { YOKE_SCOPE_PATTERN: "([A-Z]+-\\d+)" },
+      port,
+      null,
+      () => "feature/ABC-123-do-things",
+    );
+    expect(scope).toBe(entity.id);
+
+    // No workstream for the extracted key → null, and it warns once.
+    const warns: string[] = [];
+    const none = await resolveScope(
+      { YOKE_SCOPE_PATTERN: "([A-Z]+-\\d+)" },
+      port,
+      null,
+      () => "feature/ZZZ-999-x",
+      (m) => warns.push(m),
+    );
+    expect(none).toBeNull();
+    expect(warns).toHaveLength(1);
+    port.close();
   });
 });

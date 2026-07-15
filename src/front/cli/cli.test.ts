@@ -87,6 +87,45 @@ describe("runCli", () => {
     expect(errs.at(-1)).toContain("rejected");
   });
 
+  it("add --scope creates a relates_to link to the scope entity (v4.0)", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    // a workstream to scope to
+    expect(
+      await runCli([
+        "add",
+        "workstream",
+        "--db",
+        db,
+        "--attr",
+        "title=cli scope ws",
+        "--json",
+      ]),
+    ).toBe(0);
+    const wsId = JSON.parse(logs.at(-1) as string).id as string;
+    // a fact linked to it
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "title=scoped fact",
+        "--scope",
+        wsId,
+        "--json",
+      ]),
+    ).toBe(0);
+    const factId = JSON.parse(logs.at(-1) as string).id as string;
+    // verify the link via neighbors
+    const store = new SqliteStorage(db);
+    await store.init();
+    const rels = await store.neighbors(factId, "relates_to");
+    store.close();
+    expect(rels.some((r) => r.from === factId && r.to === wsId)).toBe(true);
+  });
+
   it("lifecycle E2E: add(draft) → excluded from inject → review → verify → shown in inject → deprecate → excluded", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

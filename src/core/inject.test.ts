@@ -34,6 +34,17 @@ async function addFact(note: string) {
   return entity.id;
 }
 
+/** relates_to link from → to (the capture-side link the front tiers create). */
+async function link(from: string, to: string) {
+  await commit(
+    port,
+    ont,
+    { type: "relates_to", attributes: {}, from, to },
+    prov,
+    now,
+  );
+}
+
 describe("inject", () => {
   it("excludes drafts by default", async () => {
     await addFact("draft knowledge");
@@ -79,5 +90,78 @@ describe("inject", () => {
     expect(items[0].citation).toBe(
       `[fact:${id}@v2] alice, 2026-07-13T00:00:00Z`,
     );
+  });
+});
+
+describe("inject scoped (v4.0)", () => {
+  // A workstream scope with linked/unlinked, verified/draft facts around it.
+  async function scene() {
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "workstream", attributes: { title: "auth revamp" } },
+      prov,
+      now,
+    );
+    const linkedVerified = await addFact("alpha linked verified");
+    const linkedDraft = await addFact("beta linked draft");
+    const linkedOther = await addFact("gamma linked verified");
+    const unlinked = await addFact("alpha unlinked verified");
+    await link(linkedVerified, ws.id);
+    await link(linkedDraft, ws.id);
+    await link(linkedOther, ws.id);
+    await verify(
+      port,
+      [ws.id, linkedVerified, linkedOther, unlinked],
+      "alice",
+      now,
+    );
+    return { ws: ws.id, linkedVerified, linkedDraft, linkedOther, unlinked };
+  }
+
+  it("returns only linked verified knowledge (draft and unlinked excluded)", async () => {
+    const s = await scene();
+    const { items } = await inject(port, ont, "", now, { scope: s.ws });
+    expect(items.map((i) => i.entity.id).sort()).toEqual(
+      [s.linkedVerified, s.linkedOther].sort(),
+    );
+  });
+
+  it("with a query, intersects the hop set with search hits by id", async () => {
+    const s = await scene();
+    const { items } = await inject(port, ont, "alpha", now, { scope: s.ws });
+    // "alpha unlinked" matches the query but is not linked; "gamma" is linked but off-query.
+    expect(items.map((i) => i.entity.id)).toEqual([s.linkedVerified]);
+  });
+
+  it("includes a linked draft only with includeDraft", async () => {
+    const s = await scene();
+    const { items } = await inject(port, ont, "", now, {
+      scope: s.ws,
+      includeDraft: true,
+    });
+    expect(items.map((i) => i.entity.id)).toContain(s.linkedDraft);
+  });
+
+  it("never returns the scope entity itself (self-loop is skipped)", async () => {
+    const s = await scene();
+    await link(s.ws, s.ws); // self relation
+    const { items } = await inject(port, ont, "", now, { scope: s.ws });
+    expect(items.map((i) => i.entity.id)).not.toContain(s.ws);
+  });
+
+  it("unknown scope id yields no results", async () => {
+    await scene();
+    const { items } = await inject(port, ont, "", now, { scope: "no-such-id" });
+    expect(items).toEqual([]);
+  });
+
+  it("limit applies after filtering", async () => {
+    const s = await scene();
+    const { items } = await inject(port, ont, "", now, {
+      scope: s.ws,
+      limit: 1,
+    });
+    expect(items).toHaveLength(1);
   });
 });
