@@ -36,6 +36,21 @@ contamination** and **0% missed contradictions** (see below).
 
 Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server required.
 
+## At a glance
+
+| | |
+|---|---|
+| **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
+| **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
+| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `kuzu` (embedded graph) · `qdrant` (vector search) · `sharded` (multi-backend federation by tenant). All pass one conformance suite. |
+| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
+| **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
+| **Shared working context** | Pin a `workstream` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
+| **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens · RBAC (the `verify` permission is the governance permission) · read replicas · online backup + point-in-time export. |
+| **License** | MIT |
+
+**Visual overview:** [the yoke project page](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
+
 ## 60-second quickstart
 
 ```bash
@@ -112,10 +127,12 @@ export YOKE_EMBED_MODEL=nomic-embed-text            # no key needed
 
 ```
 yoke init | add | get | search | review | verify | deprecate
-yoke inject <query> [--include-draft]
+yoke inject <query> [--include-draft] [--scope <id>]
 yoke conflicts | ontology <list|add-type> | persona <person-id>
-yoke connect github-pr --repo owner/name
-yoke mcp [--db path]
+yoke history <id> | audit [--since ts]
+yoke connect github-pr|slack|notes|rdb ...
+yoke mcp | ui | serve [--auth] | token <create|list|revoke>
+yoke backup | restore | export [--until ts]   # --shards <file> federates backends
 ```
 
 Common options: `--db` (> `YOKE_DB` env > `./yoke.db`), `--actor`
