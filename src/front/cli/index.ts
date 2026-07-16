@@ -42,6 +42,7 @@ import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
 import { openStore, type YokeStore } from "../store.js";
 import { runUi } from "../ui/server.js";
+import { banner, decorated, getStartedBlock, log } from "./banner.js";
 
 type Values = {
   db?: string;
@@ -214,11 +215,45 @@ async function withStore<T>(
   }
 }
 
+// Ollama auto-detect (TTY init only): a reachable local Ollama with no embedder
+// configured means duplicate/contradiction detection is silently off. Suggest the
+// two env vars that enable it. Never blocks (300ms timeout) and never fails init.
+async function suggestOllamaIfIdle(env: Env): Promise<void> {
+  if (env.YOKE_EMBED_URL) return;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 300);
+  try {
+    const res = await fetch("http://localhost:11434/api/tags", {
+      signal: ac.signal,
+    });
+    if (res.ok) {
+      console.log(
+        log.warn(
+          "embedding provider not configured — Ollama detected; export " +
+            "YOKE_EMBED_URL=http://localhost:11434/v1 YOKE_EMBED_MODEL=nomic-embed-text " +
+            "to enable duplicate/contradiction detection",
+        ),
+      );
+    }
+  } catch {
+    // unreachable / timed out — stay silent
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function cmdInit(v: Values, env: Env): Promise<number> {
   const db = resolveDb(v, env);
+  // Decorate only on an interactive stdout (never under --json), so non-TTY and
+  // machine output stay byte-identical to the plain path.
+  const deco = decorated() && !v.json;
   return withStore(v, env, async (store) => {
     // Idempotent re-run: if yoke:system already exists, do not re-seed.
     if (await store.getEntity("yoke:system")) {
+      if (deco) {
+        const b = banner();
+        if (b) console.log(`\n${b}\n`);
+      }
       emit(v, `already initialized: ${db}`, { db, seeded: false });
       return 0;
     }
@@ -237,7 +272,23 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
     );
     // Leaving the system person as a draft would keep it in the review queue forever — promote right after seeding.
     await verify(store, ["yoke:system"], "yoke:system", ts);
-    emit(v, `initialized: ${db}`, { db, seeded: true });
+    if (deco) {
+      const b = banner();
+      if (b) console.log(`\n${b}\n`);
+      const entityTypes = ontology.filter((d) => d.kind === "entity").length;
+      const relTypes = ontology.filter((d) => d.kind === "relation").length;
+      console.log(log.ok(`database created: ${db}`));
+      console.log(
+        log.ok(
+          `ontology seeded: ${entityTypes} entity types, ${relTypes} relation types`,
+        ),
+      );
+      console.log(log.ok("system actor ready"));
+      console.log(getStartedBlock());
+      await suggestOllamaIfIdle(env);
+    } else {
+      emit(v, `initialized: ${db}`, { db, seeded: true });
+    }
     return 0;
   });
 }

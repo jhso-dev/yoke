@@ -39,8 +39,9 @@ Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server requir
 ## 60-second quickstart
 
 ```bash
-git clone https://github.com/jhso-dev/yoke && cd yoke
-npm install && npm run build && npm link   # provides the global `yoke` command
+curl -fsSL https://raw.githubusercontent.com/jhso-dev/yoke/main/scripts/install.sh | bash
+# clones to ~/.yoke/app, builds, and links the global `yoke` command
+# (--skip-link to skip the link, --dir PATH to change the location)
 
 yoke init                                    # create ./yoke.db + seed the ontology
 yoke add fact --attr statement="Deployments only happen Tuesday mornings"
@@ -52,6 +53,13 @@ yoke inject "when do we deploy"              # inject only verified knowledge, w
 Anything added via `add` starts as a `draft`. It won't show up in `inject` until
 you promote it with `verify` — that gate is the whole point of the governance
 model. Use `yoke verify --all-drafts` to promote in bulk on a cold start.
+
+Prefer to build from source (contributors)? Clone and link directly:
+
+```bash
+git clone https://github.com/jhso-dev/yoke && cd yoke
+npm install && npm run build && npm link   # provides the global `yoke` command
+```
 
 Recording a decision:
 
