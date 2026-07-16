@@ -1,0 +1,61 @@
+src/front/cli/banner.ts
+  d735c99471326cb3 1-73
+src/front/cli/index.ts
+  d735c99471326cb3 41,45,218-244,247-249,253-256,275-291
+scripts/install.sh
+  d735c99471326cb3 1-191
+README.md
+  d735c99471326cb3 42-44,57-63
+src/front/cli/banner.test.ts
+  d735c99471326cb3 1-36
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "998ca36bc115601a8c15c783dba2c77c3847dad9",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:23:54.194Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:29:05.116Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 243,
+        "mcp__openviking__find": 1,
+        "Write": 25,
+        "Edit": 87,
+        "ToolSearch": 4,
+        "WebSearch": 12,
+        "Agent": 30,
+        "Read": 39,
+        "WebFetch": 1,
+        "SendMessage": 2,
+        "ScheduleWakeup": 4,
+        "PushNotification": 1,
+        "mcp__yoke__yoke_inject": 4,
+        "mcp__yoke__yoke_record_decision": 1
+      },
+      "total_additions": 367,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
