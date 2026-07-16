@@ -1,0 +1,63 @@
+README.md
+  d735c99471326cb3 39-53,130,132-135
+---
+{
+  "schema_version": "zax-attestation/1.1.0",
+  "base_commit_sha": "14c6504a7d2bf47941c2ace0f63f31f3e9aca425",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:23:54.194Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:29:05.116Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-16T02:12:32.680Z"
+        },
+        {
+          "id": "artifact-design",
+          "ts": "2026-07-16T02:13:10.089Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 249,
+        "mcp__openviking__find": 1,
+        "Write": 26,
+        "Edit": 90,
+        "ToolSearch": 4,
+        "WebSearch": 12,
+        "Agent": 30,
+        "Read": 40,
+        "WebFetch": 1,
+        "SendMessage": 2,
+        "ScheduleWakeup": 4,
+        "PushNotification": 1,
+        "mcp__yoke__yoke_inject": 4,
+        "mcp__yoke__yoke_record_decision": 1,
+        "Skill": 1,
+        "Artifact": 1
+      },
+      "total_additions": 35,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
