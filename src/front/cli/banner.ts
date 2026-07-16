@@ -17,16 +17,24 @@ const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";
 const RED = "\x1b[31m";
 
-// "YOKE" block wordmark, 5 rows. Coloured with a teal → indigo vertical gradient
-// (deliberately not Hermes gold).
+// "YOKE" wordmark in ANSI-Shadow style (solid faces, double-line shadow edges),
+// coloured with a teal → indigo vertical gradient (deliberately not Hermes gold).
 const WORDMARK = [
-  "█   █  █████  █   █  █████",
-  "█   █  █   █  █  █   █    ",
-  " ███   █   █  ███    ████ ",
-  "  █    █   █  █  █   █    ",
-  "  █    █████  █   █  █████",
+  "██╗   ██╗ ██████╗ ██╗  ██╗███████╗",
+  "╚██╗ ██╔╝██╔═══██╗██║ ██╔╝██╔════╝",
+  " ╚████╔╝ ██║   ██║█████╔╝ █████╗  ",
+  "  ╚██╔╝  ██║   ██║██╔═██╗ ██╔══╝  ",
+  "   ██║   ╚██████╔╝██║  ██╗███████╗",
+  "   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝",
 ];
-const GRADIENT = ["#14b8a6", "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1"];
+const GRADIENT = [
+  "#2dd4bf",
+  "#14b8a6",
+  "#06b6d4",
+  "#0ea5e9",
+  "#3b82f6",
+  "#6366f1",
+];
 
 const rgb = (hex: string): string => {
   const n = Number.parseInt(hex.slice(1), 16);
@@ -44,7 +52,7 @@ export function banner(): string | null {
   const lines = WORDMARK.map(
     (row, i) => `${BOLD}\x1b[38;2;${rgb(GRADIENT[i])}m${row}${RESET}`,
   );
-  lines.push(`${DIM}  knowledge your AI can trust · v${version}${RESET}`);
+  lines.push(`${DIM}   knowledge your AI can trust · v${version}${RESET}`);
   return lines.join("\n");
 }
 
