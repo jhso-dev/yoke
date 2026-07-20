@@ -1,6 +1,24 @@
-# yoke
+<div align="center">
+<pre>
+██╗   ██╗ ██████╗ ██╗  ██╗███████╗
+╚██╗ ██╔╝██╔═══██╗██║ ██╔╝██╔════╝
+ ╚████╔╝ ██║   ██║█████╔╝ █████╗
+  ╚██╔╝  ██║   ██║██╔═██╗ ██╔══╝
+   ██║   ╚██████╔╝██║  ██╗███████╗
+   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝
+</pre>
 
 **Knowledge your AI can trust.**
+
+ontology-based knowledge database · governed context injection for AI agents · MCP-native
+
+MIT · feature-complete through v4.0 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
+
+**English** | [한국어](README.ko.md)
+
+</div>
+
+---
 
 An AI agent with memory will repeat whatever it heard. An AI agent on yoke
 speaks only knowledge that carries a source, survived review, and is still
@@ -49,8 +67,6 @@ Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server requir
 | **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens · RBAC (the `verify` permission is the governance permission) · read replicas · online backup + point-in-time export. |
 | **License** | MIT |
 
-**Visual overview:** [the yoke project page](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
-
 ## 60-second quickstart
 
 ```bash
@@ -94,16 +110,20 @@ project root `.mcp.json`:
 {
   "mcpServers": {
     "yoke": {
-      "command": "npx",
-      "args": ["yoke", "mcp", "--db", "./yoke.db"]
+      "command": "yoke",
+      "args": ["mcp", "--db", "./yoke.db"]
     }
   }
 }
 ```
 
-Tools exposed: `yoke_inject` (query a context → inject verified knowledge),
-`yoke_commit` (stage knowledge), `yoke_record_decision` (decision shortcut), and
-`yoke_persona` (person-scoped injection).
+Tools exposed:
+
+- `yoke_inject` — query a context → inject verified knowledge, with citations
+- `yoke_commit` — stage knowledge (enters as `draft`)
+- `yoke_record_decision` — decision shortcut (conclusion + rationale + rejected alternatives)
+- `yoke_persona` — person-scoped injection ("how would a teammate decide?")
+- `yoke_use_scope` — pin the current workstream so the whole session shares one working context
 
 Configure the embedding provider (which enables duplicate/contradiction detection)
 through environment variables. If unset, yoke falls back to FTS:
@@ -138,6 +158,19 @@ yoke backup | restore | export [--until ts]   # --shards <file> federates backen
 Common options: `--db` (> `YOKE_DB` env > `./yoke.db`), `--actor`
 (> `YOKE_ACTOR` env > `yoke:system`), and `--json` (machine-readable output).
 
+## Shared working context
+
+A team builds one knowledge space together, in real time. When the user says
+"this is PAY-42 work", the agent declares it once with `yoke_use_scope`, and the
+whole session defaults to that `workstream` — injections lead with its knowledge,
+and anything recorded links to it automatically. A decision one person records
+(and a human verifies) is in every other session's context the next time they ask.
+
+Scope **prioritizes, it doesn't imprison**: a pinned workstream leads, but
+org-wide facts and personas still flow in on a query. And the context outlives
+the work — when the workstream wraps, its knowledge stays in the graph as org
+memory rather than vanishing into a closed ticket.
+
 ## Measuring quality
 
 Instead of a recall benchmark, yoke measures **injection quality** (`npm run eval`):
@@ -146,6 +179,19 @@ Instead of a recall benchmark, yoke measures **injection quality** (`npm run eva
 |---|---|---|---|
 | Contamination rate | Share of draft entries among inject results | 0% | **0.0%** (only the 20 verified of 40 candidates were injected) |
 | Missed-contradiction rate | Share of opposing-conclusion decision pairs with no conflicts_with edge | 0% | **0.0%** (5/5 detected) |
+
+## Docs
+
+| Doc | What's in it |
+|---|---|
+| [VISION](docs/VISION.md) | Why yoke exists, the version scope, persona & shared context |
+| [ARCHITECTURE](docs/ARCHITECTURE.md) | The ports-and-adapters boundary |
+| [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
+| [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v4.0, all shipped |
+| [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
+| [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
+| [MARKET](docs/MARKET.md) | Competitive landscape and positioning |
 
 ## License
 
