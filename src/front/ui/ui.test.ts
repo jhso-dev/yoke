@@ -167,6 +167,68 @@ describe("ui API", () => {
     const res = await fetch(base + "/api/nope");
     expect(res.status).toBe(404);
   });
+
+  it("entities browses with keyset paging and reports over-max limits as errors", async () => {
+    const all = await get("/api/entities");
+    expect(all.items.length).toBeGreaterThan(1);
+    expect(all.next).toBeNull();
+    // Every row carries a citation and a read-time freshness label (WEB-UI audit rule).
+    for (const r of all.items) {
+      expect(r.citation).toContain(r.id);
+      expect(r.effectiveStatus).toBeTruthy();
+    }
+    // Type filter, then a page + its cursor.
+    const decisions = await get("/api/entities?type=decision");
+    expect(
+      decisions.items.every((r: { type: string }) => r.type === "decision"),
+    ).toBe(true);
+    const p1 = await get("/api/entities?limit=1");
+    expect(p1.items).toHaveLength(1);
+    expect(p1.next).toBe(p1.items[0].id);
+    const p2 = await get(`/api/entities?limit=1&after=${p1.next}`);
+    expect(p2.items[0].id).not.toBe(p1.items[0].id);
+    // Over-max is a 400, never a silent cap.
+    const bad = await fetch(`${base}/api/entities?limit=99999`);
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toContain("limit must be <=");
+  });
+
+  it("entity detail returns full attributes, version history and both relation sides", async () => {
+    const detail = await get(`/api/entity/${decisionBId}`);
+    // Full attributes, not the 60-char summary the list rows carry.
+    expect(detail.entity.attributes.conclusion).toBe("use mysql");
+    expect(detail.entity.last_confirmed).toBeTruthy();
+    expect(detail.entity.citation).toContain(decisionBId);
+    // Append-only history is reachable.
+    expect(detail.history.length).toBeGreaterThanOrEqual(1);
+    expect(detail.history.map((h: { version: number }) => h.version)).toContain(
+      1,
+    );
+    // conflicts_with points B → A, so it is an out-edge with A resolved on the other end.
+    const out = detail.relations.out.find(
+      (r: { type: string }) => r.type === "conflicts_with",
+    );
+    expect(out.other.id).toBe(decisionAId);
+    expect(out.other.citation).toContain(decisionAId);
+    // The authorship edge the gate records is visible too.
+    expect(
+      detail.relations.out.some(
+        (r: { type: string }) => r.type === "authored_by",
+      ),
+    ).toBe(true);
+    // A is the same pair seen from the other direction.
+    const fromA = await get(`/api/entity/${decisionAId}`);
+    expect(
+      fromA.relations.in.some(
+        (r: { other: { id: string } }) => r.other.id === decisionBId,
+      ),
+    ).toBe(true);
+  });
+
+  it("entity detail 404s an unknown id", async () => {
+    const res = await fetch(base + "/api/entity/nope");
+    expect(res.status).toBe(404);
+  });
 });
 
 // A tenant must never see another tenant's knowledge through a global listing. Before this was

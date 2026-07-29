@@ -10,10 +10,11 @@ import {
   type ServerResponse,
 } from "node:http";
 import { citation } from "../../core/inject.js";
-import { deprecate, verify } from "../../core/lifecycle.js";
+import { deprecate, effectiveStatus, verify } from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
+import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
-import type { Entity } from "../../core/types.js";
+import type { Entity, Relation } from "../../core/types.js";
 import { openStore, type YokeStore } from "../store.js";
 import { html } from "./static/index.html.js";
 
@@ -39,18 +40,39 @@ function summarize(attributes: Record<string, unknown>): string {
   return "";
 }
 
-/** The audit-visible knowledge row shape shared by every screen (citation everywhere). */
-function row(e: Entity) {
+/** The audit-visible knowledge row shape shared by every screen (citation everywhere).
+ * effectiveStatus is always present because 'stale' is computed at read time and never stored
+ * (core/lifecycle) — without it a client physically cannot render an expired record as expired,
+ * and would show it as verified. The client renders effectiveStatus and never recomputes TTL. */
+function row(e: Entity, ontology: TypeDef[], ts: string) {
   return {
     id: e.id,
     type: e.type,
     version: e.version,
     status: e.status,
+    effectiveStatus: effectiveStatus(e, ontology, ts),
     summary: summarize(e.attributes),
     actor: e.provenance.actor,
     occurred_at: e.provenance.occurred_at,
     citation: citation(e),
   };
+}
+
+/** A relation row: the same shape plus its endpoints (row() reads a Relation structurally). */
+function relRow(r: Relation, ontology: TypeDef[], ts: string) {
+  return { ...row(r, ontology, ts), from: r.from, to: r.to };
+}
+
+/** A bounded positive-int query param. Throws (→400) on garbage or over max — never a silent cap,
+ * so a client asking for more than we serve learns it rather than quietly getting less. */
+function intParam(url: URL, name: string, def: number, max: number): number {
+  const raw = url.searchParams.get(name);
+  if (raw === null) return def;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1)
+    throw new Error(`${name} must be a positive integer`);
+  if (n > max) throw new Error(`${name} must be <= ${max}`);
+  return n;
 }
 
 function sendJson(res: ServerResponse, code: number, data: unknown): void {
@@ -88,6 +110,13 @@ export function createUiHandler(
     sendJson(res, 403, { error: "forbidden" });
     return true;
   };
+  /** A row serializer bound to this request's ontology and clock — so effectiveStatus is computed
+   * once per request rather than per row, and every route reports freshness the same way. */
+  const asRow = () => {
+    const ontology = store.loadOntology(ns);
+    const ts = now();
+    return (e: Entity) => row(e, ontology, ts);
+  };
 
   return async function handle(
     req: IncomingMessage,
@@ -108,7 +137,73 @@ export function createUiHandler(
       // Only this reviewer's raw draft list — no peers' pending approvals (Delphi independence
       // guard, see the note in index.html). Hook for v3 multi-reviewer aggregation.
       const drafts = await store.listEntities({ status: "draft", ns });
-      sendJson(res, 200, drafts.items.map(row));
+      sendJson(res, 200, drafts.items.map(asRow()));
+      return;
+    }
+
+    // Browse: enumerate knowledge. `type` doubles as the RBAC key, so a token scoped to one
+    // ontology type can use this endpoint by naming that type — and only that type.
+    if (method === "GET" && path === "/api/entities") {
+      const type = url.searchParams.get("type") ?? undefined;
+      if (!authorize("read", type) && deny(res)) return;
+      const q = {
+        ns,
+        type,
+        status: url.searchParams.get("status") ?? undefined,
+        after: url.searchParams.get("after") ?? undefined,
+        limit: intParam(url, "limit", 100, 1000),
+      };
+      const p = await store.listEntities(q);
+      sendJson(res, 200, { items: p.items.map(asRow()), next: p.next });
+      return;
+    }
+
+    // Entity detail: the record as stored — full attributes (not the truncated summary), every
+    // version, and the relations on both sides with the other end resolved.
+    if (method === "GET" && path.startsWith("/api/entity/")) {
+      const id = decodeURIComponent(path.slice("/api/entity/".length));
+      const e = await store.getEntity(id);
+      // Authorize on the loaded type before answering, and 404 after — so a denied caller cannot
+      // use the 404-vs-403 difference to probe which ids exist.
+      const ok = e ? authorize("read", e.type) : authorize("read");
+      if (!ok && deny(res)) return;
+      if (!e || normalizeNs(e.ns) !== normalizeNs(ns)) {
+        sendJson(res, 404, { error: "not found" });
+        return;
+      }
+      const asR = asRow();
+      const ont = store.loadOntology(ns);
+      const ts = now();
+      const rels = await store.neighbors(id);
+      const side = async (other: string) => {
+        const o = await store.getEntity(other);
+        return o && normalizeNs(o.ns) === normalizeNs(ns)
+          ? asR(o)
+          : { id: other, missing: true };
+      };
+      const edges = await Promise.all(
+        rels
+          .filter((r) => normalizeNs(r.ns) === normalizeNs(ns))
+          .map(async (r) => ({
+            ...relRow(r, ont, ts),
+            dir: r.from === id ? ("out" as const) : ("in" as const),
+            other: await side(r.from === id ? r.to : r.from),
+          })),
+      );
+      sendJson(res, 200, {
+        entity: {
+          ...asR(e),
+          attributes: e.attributes,
+          last_confirmed: e.last_confirmed,
+          origin: e.provenance.origin,
+          ...(e.ns != null ? { ns: e.ns } : {}),
+        },
+        history: store.listHistory(id).map(asR),
+        relations: {
+          out: edges.filter((x) => x.dir === "out"),
+          in: edges.filter((x) => x.dir === "in"),
+        },
+      });
       return;
     }
 
@@ -116,12 +211,13 @@ export function createUiHandler(
       if (!authorize("read") && deny(res)) return;
       const rels = (await store.listRelations({ type: "conflicts_with", ns }))
         .items;
+      const asR = asRow();
       // getEntity is id-based and deliberately not ns-filtered (ids are globally unique), so the
       // resolved side is checked here — the same guard core applies for the same reason (inject.ts).
       const side = async (id: string) => {
         const e = await store.getEntity(id);
         return e && normalizeNs(e.ns) === normalizeNs(ns)
-          ? row(e)
+          ? asR(e)
           : { id, missing: true };
       };
       const pairs = await Promise.all(
@@ -159,9 +255,10 @@ export function createUiHandler(
         at: ts,
         ns,
       });
+      const asR = asRow();
       sendJson(res, 200, {
-        decisions: result.decisions.map(row),
-        facts: result.facts.map(row),
+        decisions: result.decisions.map(asR),
+        facts: result.facts.map(asR),
       });
       return;
     }
@@ -185,7 +282,7 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      sendJson(res, 200, done.map(row));
+      sendJson(res, 200, done.map(asRow()));
       return;
     }
 
