@@ -261,3 +261,69 @@ describe("commit gate stage 4 (decision conflict)", () => {
     expect(b.conflicts).toBeUndefined(); // but not a conflict
   });
 });
+
+// Stage 4b — provenance mirrored into the graph. This is what lets a person anchor an injection
+// exactly like a workstream does (one mechanism), so the edge is part of the gate's contract.
+describe("authorship edge", () => {
+  const add = (attributes: Record<string, unknown>, actor: string) =>
+    commit(port, ont, { type: "fact", attributes }, { ...prov, actor }, now);
+
+  it("records authored_by from the entity to its provenance actor", async () => {
+    const { entity } = await add({ note: "ships fridays" }, "alex");
+    const rels = await port.neighbors(entity.id, "authored_by", "out");
+    expect(rels.map((r) => r.to)).toEqual(["alex"]);
+    // Reachable from the person's side too — the direction persona traverses.
+    const inbound = await port.neighbors("alex", "authored_by", "in");
+    expect(inbound.map((r) => r.from)).toEqual([entity.id]);
+  });
+
+  it("does not duplicate the edge when the same author re-commits", async () => {
+    const { entity } = await add({ note: "v1" }, "alex");
+    await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { note: "v2" } },
+      { ...prov, actor: "alex" },
+      now,
+      { existingId: entity.id },
+    );
+    expect((await port.neighbors(entity.id, "authored_by", "out")).length).toBe(
+      1,
+    );
+  });
+
+  it("adds a second edge when a different author re-commits", async () => {
+    const { entity } = await add({ note: "v1" }, "alex");
+    await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { note: "v2" } },
+      { ...prov, actor: "kim" },
+      now,
+      { existingId: entity.id },
+    );
+    const rels = await port.neighbors(entity.id, "authored_by", "out");
+    expect(rels.map((r) => r.to).sort()).toEqual(["alex", "kim"]);
+  });
+
+  it("does not author relations, and never authors an entity to itself", async () => {
+    const { entity } = await add({ note: "anchor" }, "alex");
+    // The authored_by relation itself must not get an authorship edge (that would recurse).
+    const [edge] = await port.neighbors(entity.id, "authored_by", "out");
+    expect((await port.neighbors(edge.id, "authored_by", "out")).length).toBe(
+      0,
+    );
+    // A person seeded with its own id as actor (the yoke:system bootstrap) gets no self-edge.
+    const self = await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "system" } },
+      prov,
+      now,
+      { existingId: "yoke:system" },
+    );
+    expect(
+      (await port.neighbors(self.entity.id, "authored_by", "out")).length,
+    ).toBe(0);
+  });
+});

@@ -3,6 +3,8 @@
 // Stages 3 & 4 (duplicate/conflict, v0.4) run only when an embedder is injected and embedding
 // succeeds. An embedding failure never blocks a commit (on FTS fallback, duplicate detection is
 // skipped to avoid false positives). No auto-merge, no auto-reject.
+// Every entity commit also records its authorship as an authored_by edge (stage 4b) so that
+// provenance is reachable by graph traversal — see the comment at that stage.
 
 import { ulid } from "ulid";
 import type { StoragePort } from "../ports/storage.js";
@@ -171,6 +173,36 @@ export async function commit(
       );
       conflicts.push(rel.entity as Relation);
     }
+  }
+
+  // (4b) Authorship as a graph edge. provenance.actor is a stored field, so a graph walk cannot see
+  // it — which is why persona used to need a listByActor lookup outside the port. Mirroring
+  // authorship as an authored_by relation makes "knowledge from this person" the same one-hop walk
+  // as "knowledge in this workstream": one mechanism, and it works on every conformant backend.
+  // Entities only (the inner call commits a relation, which returns above — no recursion), skipping
+  // self-authorship, and idempotent per (entity, actor) so re-commits never pile up edges.
+  // Skipped when the ontology in force does not declare authored_by: a tenant schema that never
+  // registered the type has not opted into an authorship graph (persona there stays empty), and a
+  // derived edge must never be the reason the caller's own commit fails.
+  if (
+    prov.actor !== entity.id &&
+    ontology.some((t) => t.name === "authored_by")
+  ) {
+    const authored = await port.neighbors(entity.id, "authored_by", "out");
+    if (!authored.some((r) => r.to === prov.actor))
+      await commit(
+        port,
+        ontology,
+        {
+          type: "authored_by",
+          attributes: {},
+          from: entity.id,
+          to: prov.actor,
+        },
+        prov,
+        now,
+        { ns },
+      );
   }
 
   return {
