@@ -117,7 +117,11 @@ export default function Audit() {
               </thead>
               <tbody>
                 {[...rows].reverse().map((e, i) => (
-                  <tr key={`${e.at}-${e.actor}-${i}`}>
+                  // The index is part of the key because audit_log has no primary key: two identical
+                  // events in the same second by the same actor are genuinely indistinguishable. The
+                  // rule guards against reordering, and this list is append-only and never reordered.
+                  // biome-ignore lint/suspicious/noArrayIndexKey: no id exists to key on.
+                  <tr key={`${e.at}-${e.actor}-${e.action}-${i}`}>
                     <td className="mono">{e.at}</td>
                     <td className="mono">{e.actor}</td>
                     <td className="mono" title={MEANING[e.action] ?? e.action}>
