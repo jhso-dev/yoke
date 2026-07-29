@@ -143,6 +143,25 @@ export YOKE_EMBED_URL=http://localhost:11434/v1
 export YOKE_EMBED_MODEL=nomic-embed-text            # 키 불필요
 ```
 
+## 웹 UI
+
+브라우저에서 쓰는 거버넌스 워크벤치 — CLI가 노출하는 것과 같은 core 함수의 사람용
+면입니다. 지식에 질문하는 곳은 아닙니다(그건 MCP로 연결된 AI의 일입니다): 모든 화면은
+타입·버전·인용이 붙은 **기록**을 보여줍니다.
+
+```bash
+yoke ui                      # http://127.0.0.1:4800 — 로컬, 단독, 인증 없음
+yoke serve --auth --host 0.0.0.0   # 팀 공유. `yoke token create` 로 만든 토큰으로 로그인
+```
+
+화면: review 큐, conflicts, 온톨로지 브라우저, persona 미리보기, 엔티티 상세, 주입
+미리보기("이 쿼리면 내 에이전트가 실제로 뭘 받나?"), 힘기반 그래프 탐색, 감사 로그.
+정적 번들 하나, 포트 하나 — 같은 프로세스가 `POST /mcp`도 처리하므로 따로 배포할 것이
+없습니다.
+
+서버는 기본적으로 루프백에 바인딩합니다. `yoke ui`는 인증이 없어서 개방은 명시적
+`--host`이고 경고를 출력합니다. `yoke serve`는 `--auth` 없이 비루프백 바인딩을 거부합니다.
+
 ## CLI
 
 ```
@@ -194,7 +213,8 @@ recall 벤치마크 대신, yoke는 **주입 품질**을 측정합니다(`npm ru
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | 포트/어댑터 경계 |
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | 게이트, 라이프사이클, 주입 필터 규칙 |
 | [SPEC](docs/SPEC.md) | 구현 계약 — 스키마, port, 게이트, MCP 도구, CLI |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v4.0, 전부 완료 |
+| [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 8개 화면과 넘지 않는 선 |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v4.0 완료, v5.0 진행 중 |
 | [BACKENDS](docs/BACKENDS.md) | 어댑터 확장 + RDB read-mapping (실사용 검증 노트 포함) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 복제, 샤딩 |
 | [MARKET](docs/MARKET.md) | 경쟁 지형과 포지셔닝 |

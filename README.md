@@ -144,6 +144,25 @@ export YOKE_EMBED_URL=http://localhost:11434/v1
 export YOKE_EMBED_MODEL=nomic-embed-text            # no key needed
 ```
 
+## Web UI
+
+A governance workbench in the browser — the human side of the same core functions the
+CLI exposes. Not a place to ask questions of your knowledge (that's your AI's job, over
+MCP): every screen shows **records**, typed and versioned and cited.
+
+```bash
+yoke ui                      # http://127.0.0.1:4800 — local, single-user, ungated
+yoke serve --auth --host 0.0.0.0   # a team; log in with a token from `yoke token create`
+```
+
+Screens: the review queue, conflicts, the ontology browser, persona preview, entity
+detail, injection preview ("what would my agent actually receive for this query?"), a
+force-directed graph explorer, and the audit log. One static bundle, one port — the same
+process answers `POST /mcp`, so there is nothing extra to deploy.
+
+Servers bind loopback by default. `yoke ui` has no authentication, so widening it is an
+explicit `--host` and says so; `yoke serve` refuses a non-loopback bind without `--auth`.
+
 ## CLI
 
 ```
@@ -196,7 +215,8 @@ Instead of a recall benchmark, yoke measures **injection quality** (`npm run eva
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | The ports-and-adapters boundary |
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v4.0, all shipped |
+| [WEB-UI](docs/WEB-UI.md) | The governance workbench — the eight screens and the line we don't cross |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v4.0 shipped, v5.0 in progress |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
 | [MARKET](docs/MARKET.md) | Competitive landscape and positioning |

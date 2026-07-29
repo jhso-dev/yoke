@@ -46,13 +46,46 @@ interface StoragePort {
   putRelation(r: Relation): Promise<void>
   neighbors(id: string, relType?: string, dir?: 'in'|'out'): Promise<Relation[]>
   search(q: TextQuery): Promise<Entity[]>    // keyword (FTS)
+  // enumeration (v5.0) — the read primitive behind browse and the graph explorer
+  listEntities(q: ListQuery): Promise<Page<Entity>>
+  listRelations(q: ListQuery): Promise<Page<Relation>>
   // optional capability — if absent, core falls back to keyword search
   similar?(embedding: Float32Array, k: number): Promise<Entity[]>
 }
+
+interface ListQuery {
+  ns?: string | null   // omitted/null = the default shared namespace ONLY, never "all namespaces"
+  type?: string        // entity type, or relation type on listRelations
+  status?: string      // stored status only ('stale' is computed at read time, never stored)
+  after?: string       // exclusive keyset cursor: id > after
+  limit?: number
+}
+
+interface Page<T> { items: T[]; next: string | null }
 ```
+
+Enumeration is the only port method that can return the whole database, so its contract
+is tighter than the rest. Each clause below is a conformance case:
+
+1. **Namespace-scoped, not optionally.** An implementation must never return a row from
+   another namespace. Precedent and non-precedent, both in the same adapter file:
+   `listByStatus` takes `ns`, `listRelationsByType` did not — and that omission was a
+   live cross-tenant leak in the conflicts view, closed before v5.0 started. Enumeration
+   does not repeat it.
+2. **Latest version only.** The append-only history is reachable through `listHistory`.
+3. **Deterministic total order**, ascending by `id`. Ids are ULIDs, so id order is
+   creation order: no sort column, no OFFSET scan, and a cursor that cannot skip or
+   duplicate a row.
+4. **`next` is truthful.** Non-null only when rows actually remain — adapters over-read
+   by one rather than inferring "more" from `items.length === limit`, so a caller can
+   report truncation honestly instead of guessing.
+5. **Bounded by the caller.** `limit` omitted returns every matching row (the semantics
+   `listByStatus` already had, so single-call CLI paths stay single-call); the HTTP tier
+   is where a maximum is clamped, and over-max is an error, never a silent cap.
 
 Every implementation must pass the shared `ports/conformance/` test suite.
 v1 implementation: `storage-sqlite` (better-sqlite3 + FTS5 + sqlite-vec).
+v5.0 implementations that must pass: sqlite, kuzu, qdrant, sharded.
 
 ## Commit gate (the single write path)
 
@@ -130,21 +163,87 @@ picks the wrong scope.
 | `yoke_persona` | person-anchored injection ("what would Alex do") |
 | `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
 
+## HTTP API (v5.0 contract)
+
+Served by `yoke ui` (local, ungated, loopback) and `yoke serve` (gated by `--auth`). The
+API is **only the HTTP exposure of core/adapter functions** — no UI-only business logic,
+so every action stays achievable from the CLI (WEB-UI.md). One port; the remote MCP
+endpoint shares it at `POST /mcp`.
+
+| Route | Core/adapter function | Action | Audited |
+|---|---|---|---|
+| `GET /` and the static bundle | — (no knowledge) | ungated, even under `--auth` | no |
+| `GET /api/meta` | — | ungated | no |
+| `GET /api/review` | `listEntities({status:'draft', ns})` | read | no |
+| `GET /api/conflicts` | `listRelationsByType('conflicts_with', ns)` | read | no |
+| `GET /api/ontology` | `loadOntology(ns)` | read | no |
+| `GET /api/entities` | `listEntities` | read (typed when `?type=`) | no |
+| `GET /api/entity/:id` | `getEntity` + `listHistory` + `neighbors` | read (typed) | no |
+| `GET /api/inject` | `inject(query, {scope, ns})` | read | **yes** (`inject_preview`) |
+| `GET /api/persona/:id` | `personaQuery` | read | **yes** (`persona`) |
+| `GET /api/graph` | `listEntities` + `listRelations` | read | no |
+| `GET /api/audit` | `listAudit({since, ns, limit})` | read | no |
+| `POST /api/verify` | `verify` | verify | yes |
+| `POST /api/deprecate` | `deprecate` | verify | yes |
+
+Rules that hold for every route:
+
+- **Read-only except lifecycle.** The only mutations are `verify` and `deprecate` on
+  records that already exist. There is no HTTP write path into knowledge — capture goes
+  through the gate via MCP, the CLI, or a connector.
+- **Any route that returns knowledge attributes writes an audit row.** A preview is an
+  injection: reading through the browser leaves the same trail as reading through MCP
+  (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing
+  routes that return only a truncated summary do not, but a route that returns full
+  attributes and cannot be audited must not exist.
+- **The injection preview is the real `inject()`.** Not a re-implementation with similar
+  filters — byte-for-byte what an agent would receive, so the screen cannot drift from
+  the behaviour it claims to show. Its audit action is `inject_preview`, distinct from
+  `inject`, so a human looking does not pollute the record of what an agent was told.
+- **Every row carries a citation**, source and version, on every screen (since v2.5).
+- **Namespace isolation holds on every route**, including the global listings. `getEntity`
+  is id-based and deliberately not ns-filtered, so a route that resolves an id re-checks
+  the resulting row's ns — the guard `inject` already applies for the same reason.
+- **`verify` is a permission separate from `read` and `write`**, including for a browser
+  session. A logged-in human is not automatically a verifier (ENTERPRISE.md).
+- **The static shell is ungated even under `--auth`.** It contains no knowledge, and a
+  static export has no middleware, so the shell must load before a login form can render.
+  Everything that returns data is gated.
+- **Bounded input.** Request bodies are capped and `content-type` validated; `limit`
+  parameters have documented maxima and over-max is a 400.
+
+Credentials are `Authorization: Bearer` — an API token from `yoke token create` or an
+OIDC id_token. No cookie session, therefore no CSRF surface.
+
 ## CLI commands
 
 ```
 yoke init                  # create the DB + seed the default ontology
 yoke add / get / search    # basic CRUD and search
+yoke get <id> [--relations]  # one record; --relations adds its in/out edges
+yoke list [--type t] [--status s] [--limit n] [--after id]   # enumerate (keyset paging)
+yoke graph [--limit n]     # the entity/relation graph, bounded, truncation reported
 yoke review                # list drafts
 yoke verify <id...>        # promote (batch), refresh last_confirmed
 yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction)
+yoke inject <query> [--include-draft] [--limit n] [--scope id]   # retrieve, with citations
 yoke conflicts             # list conflicts_with
+yoke history <id>          # every version of one id (the append-only rows)
+yoke audit [--since ts] [--limit n]   # the injection / governance audit trail
 yoke ontology <subcmd>     # inspect types / migrate
 yoke persona <person>      # generate/export a persona skill (SKILL.md)
 yoke backfill              # derive missing authored_by edges (upgrade path, idempotent)
-yoke connect github-pr     # PR review comments → load as draft decisions
+yoke connect <github-pr|slack|notes|rdb>   # external sources → draft knowledge
 yoke mcp                   # start the MCP server (stdio)
+yoke ui [--port] [--host]  # local governance workbench (loopback, ungated, single-user)
+yoke serve [--port] [--host] [--auth] [--replica-of <path>]   # UI + JSON API + remote MCP, one port
+yoke token <create|list|revoke>            # API tokens for agents/CI (scopes: ns:type:action)
+yoke backup <dest> / yoke restore <src>    # online snapshot, WAL-safe
+yoke export --until <ts>   # PITR-lite from the append-only history
 ```
+
+Common options: `--db <path>` (> `YOKE_DB` > `./yoke.db`), `--ns`, `--actor`, `--json`,
+`--shards <config.json>`.
 
 ## persona
 

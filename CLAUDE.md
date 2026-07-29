@@ -29,6 +29,7 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 - `docs/SPEC.md` — the v1 implementation contract (schema, port, gate, MCP tools, CLI)
 - `docs/ROADMAP.md` — per-version tasks from v0.1 → v3.5. Build in this order
 - `docs/PLAN.md` — the detailed v1 implementation plan (task = one commit, with files, signatures, tests, and DoD)
+- `docs/PLAN-V2.md` — the v2.0 → v3.6 plan, plus the dated record of which non-goals were later reversed and why
 - `docs/MARKET.md` — the competitive landscape and strategy (surveyed 2026-07)
 - `docs/ENTERPRISE.md` — multi-tenancy, auth, RBAC, and distribution design, plus the backward-compatibility constraints that hold from v0.1
 - `docs/BACKENDS.md` — backend adapter extension and the RDB read-mapping design
@@ -36,4 +37,7 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 
 ## Commands
 
-(To be added once code exists: build / test / typecheck / lint)
+- `npm run build` — tsc → `dist/`
+- `npm test` — `test:main` (vitest), then `test:kuzu` (a standalone runner; kuzu's native binding crashes in a vitest pool)
+- `npm run typecheck` · `npm run lint` (biome) · `npm run eval` (injection-quality report)
+- All four must be green in every commit.
