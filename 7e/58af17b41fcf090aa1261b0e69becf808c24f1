@@ -1,0 +1,17 @@
+README.ko.md
+  h_9aabb7d8448c0a 15,217
+README.md
+  h_9aabb7d8448c0a 15,219
+docs/ROADMAP.md
+  h_9aabb7d8448c0a 115,118,120,123,125,127,130,134-136,139-154
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "7e58af17b41fcf090aa1261b0e69becf808c24f1",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
