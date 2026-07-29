@@ -79,6 +79,10 @@ describe.skipIf(!built)("shipped web bundle", () => {
       "conflicts",
       "ontology",
       "persona",
+      "browse",
+      "entity",
+      "inject",
+      "audit",
       "login",
     ]) {
       expect(
