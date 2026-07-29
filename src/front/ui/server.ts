@@ -142,15 +142,20 @@ export function createUiHandler(
     if (method === "GET" && path.startsWith("/api/persona/")) {
       if (!authorize("read") && deny(res)) return;
       const id = decodeURIComponent(path.slice("/api/persona/".length));
-      const result = await personaQuery(
-        store,
-        store.loadOntology(ns),
-        id,
-        now(),
-        {
-          ns,
-        },
-      );
+      const ts = now();
+      const result = await personaQuery(store, store.loadOntology(ns), id, ts, {
+        ns,
+      });
+      // A persona read IS an injection — same knowledge, same citations — so it leaves the same
+      // trail as its MCP twin. ENTERPRISE.md's audit target is "who got what knowledge injected",
+      // and a read path that answers with attributes but writes no row makes that claim false.
+      const injected = [...result.decisions, ...result.facts];
+      store.logAudit({
+        actor,
+        action: "persona",
+        detail: `${id} -> ${injected.map((e) => e.id).join(" ")}`,
+        at: ts,
+      });
       sendJson(res, 200, {
         decisions: result.decisions.map(row),
         facts: result.facts.map(row),

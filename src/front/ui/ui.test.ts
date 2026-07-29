@@ -146,6 +146,12 @@ describe("ui API", () => {
     const all = [...result.decisions, ...result.facts];
     const f = all.find((e) => e.id === factId);
     expect(f?.citation).toContain(factId);
+    // ...and the read is audited, like its MCP twin: a path that answers with knowledge but leaves
+    // no trail would make the "who got what injected" audit claim false for the browser.
+    const audit = store.listAudit();
+    const entry = audit.find((a) => a.action === "persona");
+    expect(entry?.actor).toBe("reviewer");
+    expect(entry?.detail).toContain(factId);
   });
 
   it("GET / serves the HTML with all four tab markers", async () => {
