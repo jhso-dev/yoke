@@ -168,7 +168,7 @@ yoke serve --auth --host 0.0.0.0   # 팀 공유. `yoke token create` 로 만든 
 yoke init | add | get | search | review | verify | deprecate
 yoke inject <query> [--include-draft] [--scope <id>]
 yoke conflicts | ontology <list|add-type> | persona <person-id>
-yoke history <id> | audit [--since ts]
+yoke history <id> | audit [--since ts] [--limit n]
 yoke connect github-pr|slack|notes|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup | restore | export [--until ts]   # --shards <file> 로 백엔드 연합

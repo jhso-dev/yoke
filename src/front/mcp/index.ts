@@ -191,6 +191,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         action: "inject",
         detail: `${query} -> ${items.map((it) => it.entity.id).join(" ")}`,
         at: ts,
+        ns,
       });
       if (items.length === 0)
         return ok(`no verified knowledge found for: ${query}`);
@@ -309,6 +310,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         action: "persona",
         detail: `${person}${query ? ` ${query}` : ""} -> ${injected.map((e) => e.id).join(" ")}`,
         at: ts,
+        ns,
       });
       const blocks: string[] = [];
       for (const d of decisions)

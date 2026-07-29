@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
   actor TEXT NOT NULL,
   action TEXT NOT NULL,
   detail TEXT NOT NULL,
-  at TEXT NOT NULL                   -- ISO 8601
+  at TEXT NOT NULL,                  -- ISO 8601
+  ns TEXT                            -- tenant namespace; NULL = default shared ns
 );
 
 -- API tokens (PLAN-V2 10.3). Only a salted sha256 of the secret is stored — never the plaintext.
@@ -84,6 +85,16 @@ export interface AuditEvent {
   action: string;
   detail: string;
   at: string;
+  /** Tenant namespace the read/action happened in. Omitted = the default shared namespace.
+   * Without it an audit viewer would show every tenant's queries to every tenant. */
+  ns?: string | null;
+}
+
+/** listAudit filter. Most-recent-N window: `limit` takes the newest rows, returned oldest-first. */
+export interface AuditQuery {
+  since?: string;
+  ns?: string | null;
+  limit?: number;
 }
 
 /** A stored API token, sans secret (PLAN-V2 10.3) — for `yoke token list`. */
@@ -144,7 +155,13 @@ export class SqliteStorage implements StoragePort {
     // Migration for DBs created before PLAN-V2 10.1: add the nullable ns column. Fresh DBs already
     // have it (in SCHEMA), so ADD COLUMN throws "duplicate column" — caught and ignored. NULL default
     // means every pre-existing row belongs to the default shared namespace (backward compatible).
-    for (const table of ["entities", "relations", "ontology_types"]) {
+    // audit_log joined the list in v5.0 (its rows were namespace-blind until then).
+    for (const table of [
+      "entities",
+      "relations",
+      "ontology_types",
+      "audit_log",
+    ]) {
       try {
         this.db.exec(`ALTER TABLE ${table} ADD COLUMN ns TEXT`);
       } catch {
@@ -427,26 +444,39 @@ export class SqliteStorage implements StoragePort {
   logAudit(event: AuditEvent): void {
     this.db
       .prepare(
-        `INSERT INTO audit_log (actor, action, detail, at) VALUES (?, ?, ?, ?)`,
+        `INSERT INTO audit_log (actor, action, detail, at, ns) VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(event.actor, event.action, event.detail, event.at);
+      .run(
+        event.actor,
+        event.action,
+        event.detail,
+        event.at,
+        normalizeNs(event.ns),
+      );
   }
 
-  /** Audit events in insertion order, optionally filtered to at >= since (for CLI audit --since). */
-  listAudit(since?: string): AuditEvent[] {
-    return (
-      since === undefined
-        ? this.db
-            .prepare(
-              `SELECT actor, action, detail, at FROM audit_log ORDER BY rowid`,
-            )
-            .all()
-        : this.db
-            .prepare(
-              `SELECT actor, action, detail, at FROM audit_log WHERE at >= ? ORDER BY rowid`,
-            )
-            .all(since)
-    ) as AuditEvent[];
+  /** Audit events in insertion order (oldest first), filtered by ns and optionally at >= since.
+   * `limit` takes the most recent N and still returns them oldest-first, so a paging viewer and
+   * `yoke audit` read the same direction. */
+  listAudit(q: AuditQuery = {}): AuditEvent[] {
+    const sinceClause = q.since === undefined ? "" : " AND at >= @since";
+    // DESC + LIMIT selects the newest rows; the reverse below restores ascending order.
+    const order = q.limit === undefined ? "rowid" : "rowid DESC";
+    const limitClause = q.limit === undefined ? "" : " LIMIT @limit";
+    const rows = this.db
+      .prepare(
+        `SELECT actor, action, detail, at, ns FROM audit_log
+         WHERE ns IS @ns${sinceClause}
+         ORDER BY ${order}${limitClause}`,
+      )
+      .all({
+        ns: normalizeNs(q.ns),
+        since: q.since,
+        limit: q.limit,
+      }) as AuditEvent[];
+    // Default ns leaves the field absent, matching how entity rows carry ns (opaque parity).
+    for (const r of rows) if (r.ns == null) delete r.ns;
+    return q.limit === undefined ? rows : rows.reverse();
   }
 
   // --- API tokens (PLAN-V2 10.3) — Bearer auth for serve mode. Plaintext is never stored. ---

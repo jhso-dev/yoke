@@ -157,6 +157,7 @@ export function createUiHandler(
         action: "persona",
         detail: `${id} -> ${injected.map((e) => e.id).join(" ")}`,
         at: ts,
+        ns,
       });
       sendJson(res, 200, {
         decisions: result.decisions.map(row),
@@ -182,6 +183,7 @@ export function createUiHandler(
         action,
         detail: done.map((e) => e.id).join(" "),
         at: ts,
+        ns,
       });
       sendJson(res, 200, done.map(row));
       return;

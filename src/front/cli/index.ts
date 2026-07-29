@@ -493,6 +493,7 @@ async function cmdInject(
       action: "inject",
       detail: `${query} -> ${items.map((it) => it.entity.id).join(" ")}`,
       at: ts,
+      ns,
     });
     const lines = items.map(
       (it) => `${it.citation}  ${summarize(it.entity.attributes)}`,
@@ -538,8 +539,13 @@ async function cmdHistory(
 }
 
 async function cmdAudit(v: Values, env: Env): Promise<number> {
+  const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const events = store.listAudit(v.since);
+    const events = store.listAudit({
+      since: v.since,
+      ns,
+      limit: v.limit === undefined ? undefined : Number(v.limit),
+    });
     const lines = events.map(
       (e) => `${e.at}  ${e.actor}  ${e.action}  ${e.detail}`,
     );

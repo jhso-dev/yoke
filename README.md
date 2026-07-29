@@ -169,7 +169,7 @@ explicit `--host` and says so; `yoke serve` refuses a non-loopback bind without 
 yoke init | add | get | search | review | verify | deprecate
 yoke inject <query> [--include-draft] [--scope <id>]
 yoke conflicts | ontology <list|add-type> | persona <person-id>
-yoke history <id> | audit [--since ts]
+yoke history <id> | audit [--since ts] [--limit n]
 yoke connect github-pr|slack|notes|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup | restore | export [--until ts]   # --shards <file> federates backends

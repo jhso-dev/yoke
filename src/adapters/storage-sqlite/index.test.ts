@@ -150,10 +150,25 @@ describe("audit extensions (PLAN 8.4)", () => {
       detail: "p1 -> id3",
       at: "2026-02-01T00:00:00Z",
     };
+    const tenant = {
+      actor: "carol",
+      action: "inject",
+      detail: "tenant query -> id4",
+      at: "2026-03-01T00:00:00Z",
+      ns: "acme",
+    };
     store.logAudit(a);
     store.logAudit(b);
+    store.logAudit(tenant);
     expect(store.listAudit()).toEqual([a, b]);
-    expect(store.listAudit("2026-01-15T00:00:00Z")).toEqual([b]);
+    expect(store.listAudit({ since: "2026-01-15T00:00:00Z" })).toEqual([b]);
+    // Namespace isolation: an audit viewer must not show one tenant's queries to another, and the
+    // default namespace is not a wildcard over tenants.
+    expect(store.listAudit({ ns: "acme" })).toEqual([tenant]);
+    expect(store.listAudit({ ns: "globex" })).toEqual([]);
+    // limit takes the most recent N but still returns them oldest-first.
+    expect(store.listAudit({ limit: 1 })).toEqual([b]);
+    expect(store.listAudit({ limit: 5 })).toEqual([a, b]);
     store.close();
   });
 });

@@ -42,10 +42,14 @@ import type {
   StoragePort,
   TextQuery,
 } from "../../ports/storage.js";
-import type { AuditEvent, TokenInfo } from "../storage-sqlite/index.js";
+import type {
+  AuditEvent,
+  AuditQuery,
+  TokenInfo,
+} from "../storage-sqlite/index.js";
 import { loadShardConfig, makeShard } from "./config.js";
 
-export type { AuditEvent, TokenInfo };
+export type { AuditEvent, AuditQuery, TokenInfo };
 
 /** The full storage surface CLI/UI/serve rely on: the port plus the sqlite-shaped extension methods.
  *  SqliteStorage satisfies it structurally; ShardedStorage implements it by delegation. */
@@ -54,7 +58,7 @@ export interface YokeStore extends StoragePort {
   loadOntology(ns?: string | null): TypeDef[];
   listHistory(id: string): Entity[];
   logAudit(event: AuditEvent): void;
-  listAudit(since?: string): AuditEvent[];
+  listAudit(q?: AuditQuery): AuditEvent[];
   createToken(spec: { name: string; scopes: string[]; created_at: string }): {
     token: string;
   };
@@ -244,8 +248,8 @@ export class ShardedStorage implements YokeStore {
     (this.defaultShard.store as ExtStore).logAudit?.(event);
   }
 
-  listAudit(since?: string): AuditEvent[] {
-    return (this.defaultShard.store as ExtStore).listAudit?.(since) ?? [];
+  listAudit(q?: AuditQuery): AuditEvent[] {
+    return (this.defaultShard.store as ExtStore).listAudit?.(q) ?? [];
   }
 
   createToken(spec: { name: string; scopes: string[]; created_at: string }): {
