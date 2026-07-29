@@ -8,7 +8,7 @@ AI agents don't know an organization's or a person's knowledge. That knowledge i
 
 **A database optimized for knowledge.** It structures and stores knowledge as an ontology (an entity/relation schema), then selects the subset relevant to the user's current context and injects it into the AI (context injection).
 
-- **Front end**: interfaces AI consumes well — an MCP server and a CLI.
+- **Front end**: interfaces AI consumes well — an MCP server and a CLI. From v5.0 there is also a browser tier for humans, but it is a transport over the same core functions, not a third interface with capabilities of its own (see ARCHITECTURE).
 - **Back end**: reuse the stores you already have — SQLite, a traditional RDB, a vector DB, a graph DB, files.
 - **Compatibility**: plays well with traditional databases. It must be able to read existing data by mapping it onto the yoke ontology.
 
@@ -29,6 +29,8 @@ v1 build order: core model → SQLite → knowledge-policy gate → MCP server �
 | Distribution / HA | v3.5 | docs/ENTERPRISE.md |
 
 A PR that implements a higher-version item in a lower version will be rejected. But **the design must not foreclose it** — the backward-compatibility constraints to honor are stated at the top of each design doc (e.g. "Constraints to honor from v0.1 onward" in ENTERPRISE.md).
+
+This table is the **v1 exclusion record** and is not extended as new versions are planned — retrofitting a later decision into it would make it look like a v1 plan. docs/ROADMAP.md is the live version list.
 
 ## persona — continuity of a person's judgment (included in v1)
 

@@ -82,7 +82,9 @@ WEB-UI.md — on conflict, those win.
 ### 9.2 four screens, single static bundle
 
 - One `index.html` (vanilla JS + fetch, no framework, no build step) served
-  from `src/front/ui/static/`: Review queue (bulk verify/reject),
+  from `src/front/ui/static/` — *superseded for v5.0 by the static export in
+  `web/`; see the amendment at the end of this document. Kept as the record of
+  what 9.2 actually built*: Review queue (bulk verify/reject),
   Conflicts view (side-by-side, deprecate one side), Ontology browser
   (types + TTLs), Persona preview (person → would-be injection list + export).
 - Every knowledge row shows source/version (citation) — audit-visible rule.
@@ -90,6 +92,8 @@ WEB-UI.md — on conflict, those win.
   reviewers' pending approvals (design hook for v3 multi-reviewer; note in code).
 - DoD: vitest for API handlers (in-process), manual screenshot via `yoke ui`
   optional. Keep total UI code small (<600 lines target).
+  *(v5.0 replaces the line-count target — a bundler makes line counts
+  meaningless. The budgets that replace it are in the amendment below.)*
 
 ## v3.0 — enterprise (multi-tenancy, auth, RBAC)
 
@@ -151,6 +155,54 @@ WEB-UI.md — on conflict, those win.
 
 Express/Fastify, React/Vue/build pipelines, ORMs, yaml parsers, docker-compose
 test harnesses, WebSockets, GraphQL, password auth, per-field encryption.
+
+> **Amended 2026-07-29 (v5.0).** Two items of the list above were reversed by the
+> v5.0 web tier, deliberately and after the fact. They are recorded here rather
+> than edited out: the list is the record of what v2.x decided, and the reversal
+> is the news.
+>
+> - **React and a build pipeline are now allowed — for the web tier only.** The
+>   v2.5 bet was that four screens fit in one hand-written file (9.2). Eight
+>   screens including a force-directed graph do not, and the file we shipped is
+>   the evidence: an unterminated string literal in
+>   `src/front/ui/static/index.html.ts` turned the entire client `<script>` into
+>   a SyntaxError and nothing caught it, because a TS template string is never
+>   parsed as JS and the tests asserted HTML substrings. A build step buys the
+>   compiler that would have caught it, and JSX escaping removes the
+>   attribute-injection class of bug that the hand-rolled `esc()` still has (it
+>   escapes `&<>` but not quotes, while interpolating into `data-id="…"`).
+>   Scope of the reversal: Next.js with `output: 'export'`, React, `d3-force`,
+>   producing one static bundle served by the existing `node:http` server.
+> - **`d3-force` is a new runtime dependency**, and the only thing we take from
+>   d3. A force simulation is not a few lines.
+>
+> Still non-goals, unchanged and enforced: **Express/Fastify** — the HTTP server
+> stays `node:http`; Next is a build tool here, never a server, and
+> `output: 'export'` is the mechanism that keeps that true. **ORMs. yaml
+> parsers. docker-compose test harnesses. WebSockets** — the graph loads over
+> `fetch`; there is no live push. **GraphQL** — the JSON API stays
+> route-per-question. **password auth** — browser login reuses credentials we
+> already mint (`yoke token create`) or an OIDC id_token; yoke still never
+> stores a password. **per-field encryption.**
+>
+> Budgets replacing the 9.2 "<600 lines" target, because what matters is what
+> the user downloads and what we maintain:
+>
+> - **Shipped bundle ≤ 250 KB gzipped** (JS + CSS, whole static export),
+>   asserted by a test that stats the build output.
+> - **Hand-written web source ≤ 1,500 lines** under `web/` (eight screens, was
+>   four in one file).
+> - **Dependency budget: exactly `next`, `react`, `react-dom`, `d3-force`.** A
+>   fifth requires a note here first.
+> - **Zero new runtime deps in `src/front/ui/` and `src/front/serve/`**
+>   (`node:http` only), and **zero new listening ports**.
+> - **Zero web toolchain in the CLI install path** — a failed web build must
+>   still leave a working CLI.
+> - **A check that executes the shipped client bundle**, not one that greps the
+>   HTML for markers.
+>
+> The v5.0 task list lives in the plan file for that run; this document remains
+> the v2.0→v3.6 record and is not retrofitted.
 
 ## Order
 
