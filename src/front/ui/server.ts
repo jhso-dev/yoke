@@ -9,7 +9,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { citation } from "../../core/inject.js";
+import { citation, inject } from "../../core/inject.js";
 import { deprecate, effectiveStatus, verify } from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
@@ -228,6 +228,55 @@ export function createUiHandler(
         })),
       );
       sendJson(res, 200, pairs);
+      return;
+    }
+
+    // Injection preview: the real inject(), so what a human sees here is byte-for-byte what an
+    // agent would receive — a re-implementation with similar filters could drift from the behaviour
+    // the screen claims to show. Audited as `inject_preview`, distinct from `inject`, so a human
+    // checking does not pollute the record of what an agent was actually told.
+    if (method === "GET" && path === "/api/inject") {
+      if (!authorize("read") && deny(res)) return;
+      const query = url.searchParams.get("q") ?? "";
+      const scope = url.searchParams.get("scope") ?? undefined;
+      if (!query && !scope)
+        throw new Error("q or scope is required (scope alone is a briefing)");
+      const ts = now();
+      const includeDraft = url.searchParams.get("includeDraft") === "true";
+      const { items } = await inject(store, store.loadOntology(ns), query, ts, {
+        includeDraft,
+        limit: intParam(url, "limit", 50, 500),
+        ns,
+        scope,
+      });
+      store.logAudit({
+        actor,
+        action: "inject_preview",
+        detail: `${query} -> ${items.map((it) => it.entity.id).join(" ")}`,
+        at: ts,
+        ns,
+      });
+      const asR = asRow();
+      sendJson(res, 200, {
+        query,
+        scope: scope ?? null,
+        includeDraft,
+        items: items.map((it) => asR(it.entity)),
+      });
+      return;
+    }
+
+    // Audit viewer: the append-only trail, namespace-scoped. Most-recent-N, oldest-first — the same
+    // direction `yoke audit` prints, so a paging client does not have to reverse it.
+    if (method === "GET" && path === "/api/audit") {
+      if (!authorize("read") && deny(res)) return;
+      const limit = intParam(url, "limit", 200, 2000);
+      const events = store.listAudit({
+        since: url.searchParams.get("since") ?? undefined,
+        ns,
+        limit,
+      });
+      sendJson(res, 200, { items: events, limit });
       return;
     }
 

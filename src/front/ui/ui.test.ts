@@ -229,6 +229,50 @@ describe("ui API", () => {
     const res = await fetch(base + "/api/entity/nope");
     expect(res.status).toBe(404);
   });
+
+  it("injection preview shows exactly what an agent would receive, and audits the look", async () => {
+    // The fact was verified earlier; the two decisions are still drafts.
+    const shown = await get("/api/inject?q=sky");
+    expect(shown.items.map((r: { id: string }) => r.id)).toEqual([factId]);
+    expect(shown.items[0].citation).toContain(factId);
+    expect(shown.query).toBe("sky");
+
+    // Drafts are withheld by default and labelled when asked for — the injection filter itself,
+    // not a re-implementation of it.
+    const withoutDrafts = await get("/api/inject?q=mysql");
+    expect(withoutDrafts.items).toEqual([]);
+    const withDrafts = await get("/api/inject?q=mysql&includeDraft=true");
+    expect(withDrafts.items.map((r: { id: string }) => r.id)).toEqual([
+      decisionBId,
+    ]);
+    expect(withDrafts.items[0].effectiveStatus).toBe("draft");
+
+    // A preview is a read of knowledge, so it leaves a trail — under its own action name, so it
+    // never gets mistaken for what an agent was told.
+    const events = store.listAudit();
+    const preview = events.filter((e) => e.action === "inject_preview");
+    expect(preview.length).toBeGreaterThanOrEqual(3);
+    expect(preview[0].actor).toBe("reviewer");
+    expect(events.some((e) => e.action === "inject")).toBe(false);
+
+    // Neither q nor scope is a 400, not an accidental full dump.
+    const bad = await fetch(base + "/api/inject");
+    expect(bad.status).toBe(400);
+  });
+
+  it("audit viewer returns the trail, newest-N oldest-first", async () => {
+    const all = await get("/api/audit");
+    expect(all.items.length).toBeGreaterThan(1);
+    expect(all.items.map((e: { action: string }) => e.action)).toContain(
+      "verify",
+    );
+    // Ascending by time, so a client renders it without reversing.
+    const times = all.items.map((e: { at: string }) => e.at);
+    expect([...times].sort()).toEqual(times);
+    const one = await get("/api/audit?limit=1");
+    expect(one.items).toHaveLength(1);
+    expect(one.items[0].at).toBe(times[times.length - 1]);
+  });
 });
 
 // A tenant must never see another tenant's knowledge through a global listing. Before this was
