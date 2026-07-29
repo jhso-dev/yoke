@@ -33,7 +33,12 @@
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
-import type { StoragePort, TextQuery } from "../../ports/storage.js";
+import type {
+  ListQuery,
+  Page,
+  StoragePort,
+  TextQuery,
+} from "../../ports/storage.js";
 import type { AuditEvent, TokenInfo } from "../storage-sqlite/index.js";
 import { loadShardConfig, makeShard } from "./config.js";
 
@@ -158,6 +163,43 @@ export class ShardedStorage implements YokeStore {
     );
     const merged = groups.flat();
     return q.limit === undefined ? merged : merged.slice(0, q.limit);
+  }
+
+  listEntities(q: ListQuery): Promise<Page<Entity>> {
+    return this.listMerged(q, (m) => m.store.listEntities(q));
+  }
+
+  listRelations(q: ListQuery): Promise<Page<Relation>> {
+    return this.listMerged(q, (m) => m.store.listRelations(q));
+  }
+
+  /**
+   * ns-scoped goes to the owner shard and its cursor is that shard's cursor. Un-scoped fans out.
+   *
+   * No per-shard cursor map is needed, and that is not an accident: `id > after` is a GLOBAL
+   * predicate over globally unique ULIDs, so each member returns its own smallest matching rows and
+   * the global smallest `limit` are necessarily inside the union. Merge, sort, slice.
+   * ponytail: over-fetch is (members − 1) × limit rows per page — bounded, and the price of not
+   * tracking a cursor per shard. Revisit only if a deployment has enough shards for that to matter.
+   */
+  private async listMerged<T extends { id: string }>(
+    q: ListQuery,
+    fetch: (m: { store: StoragePort }) => Promise<Page<T>>,
+  ): Promise<Page<T>> {
+    if (normalizeNs(q.ns) !== null) return fetch(this.ownerOf(q.ns));
+    const pages = await Promise.all(this.members.map((m) => fetch(m)));
+    const merged = pages
+      .flatMap((p) => p.items)
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (q.limit === undefined || merged.length <= q.limit) {
+      // Even when the merge fits, a member may still have more rows behind its own cursor.
+      const next = pages.some((p) => p.next !== null)
+        ? (merged.at(-1)?.id ?? null)
+        : null;
+      return { items: merged, next };
+    }
+    const items = merged.slice(0, q.limit);
+    return { items, next: items[items.length - 1].id };
   }
 
   private async similarImpl(

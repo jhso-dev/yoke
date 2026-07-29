@@ -16,7 +16,13 @@ import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
-import type { StoragePort, TextQuery } from "../../ports/storage.js";
+import {
+  type ListQuery,
+  type Page,
+  page,
+  type StoragePort,
+  type TextQuery,
+} from "../../ports/storage.js";
 
 const ENTITIES = "entities";
 const RELATIONS = "relations";
@@ -327,6 +333,39 @@ export class QdrantStorage implements StoragePort {
     return (q.limit === undefined ? filtered : filtered.slice(0, q.limit)).map(
       payloadToEntity,
     );
+  }
+
+  /** Enumerate latest-version entities, ascending by id.
+   * The ordering is done client-side ON PURPOSE: scroll's `next_page_offset` is a point UUID
+   * (hashed from the id+version, see pointId), not the entity's ULID, so it cannot serve as the
+   * contract's keyset cursor and its order is unrelated to creation order.
+   * ponytail: full scan + client-side sort, the same O(n) ceiling search() already carries. */
+  async listEntities(q: ListQuery): Promise<Page<Entity>> {
+    const points = await this.scrollAll(ENTITIES);
+    const rows = points.map((p) => p.payload as EntityPayload);
+    return page(this.listFilter(rows, q).map(payloadToEntity), q.limit);
+  }
+
+  /** Enumerate latest-version relations, ascending by id. q.type filters the relation type. */
+  async listRelations(q: ListQuery): Promise<Page<Relation>> {
+    const points = await this.scrollAll(RELATIONS);
+    const rows = points.map((p) => p.payload as RelationPayload);
+    return page(this.listFilter(rows, q).map(payloadToRelation), q.limit);
+  }
+
+  /** latest version → ns/type/status/cursor filter → ascending id. Shared so both listings agree. */
+  private listFilter<T extends EntityPayload>(rows: T[], q: ListQuery): T[] {
+    const wantNs = normalizeNs(q.ns);
+    return latestByVersion(rows)
+      .filter(
+        (r) =>
+          (r.ns ?? null) === wantNs &&
+          (q.type === undefined || r.type === q.type) &&
+          (q.status === undefined || r.status === q.status) &&
+          (q.after === undefined || r.id > q.after),
+      )
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, q.limit === undefined ? undefined : q.limit + 1);
   }
 
   /** KNN over latest-version entities. Empty when no embedding was ever stored (no vector collection).

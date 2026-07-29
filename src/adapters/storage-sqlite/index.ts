@@ -9,7 +9,13 @@ import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
-import type { StoragePort, TextQuery } from "../../ports/storage.js";
+import {
+  type ListQuery,
+  type Page,
+  page,
+  type StoragePort,
+  type TextQuery,
+} from "../../ports/storage.js";
 
 // The schema is a TS constant rather than a .sql file (simpler bundling). created_at is an
 // internal column outside the Entity contract, so a DB default fills it — it is not a put argument.
@@ -302,6 +308,53 @@ export class SqliteStorage implements StoragePort {
         limit: q.limit,
       }) as EntityRow[];
     return rows.map(rowToEntity);
+  }
+
+  /** Enumerate latest-version entities, ascending by id (ULID order = creation order).
+   * Over-reads one row so `next` is non-null only when rows actually remain — see Page. */
+  async listEntities(q: ListQuery): Promise<Page<Entity>> {
+    return page(
+      this.listPage<EntityRow>("entities", "e", q).map(rowToEntity),
+      q.limit,
+    );
+  }
+
+  /** Enumerate latest-version relations, ascending by id. q.type filters the relation type. */
+  async listRelations(q: ListQuery): Promise<Page<Relation>> {
+    return page(
+      this.listPage<RelationRow>("relations", "r", q).map(rowToRelation),
+      q.limit,
+    );
+  }
+
+  /** Shared enumeration SQL. Both tables carry the same (id, version, type, status, ns) shape, so
+   * the only difference is the table name — keeping one query keeps the two contracts identical. */
+  private listPage<R>(
+    table: "entities" | "relations",
+    alias: string,
+    q: ListQuery,
+  ): R[] {
+    const a = alias;
+    const typeClause = q.type === undefined ? "" : ` AND ${a}.type = @type`;
+    const statusClause =
+      q.status === undefined ? "" : ` AND ${a}.status = @status`;
+    const afterClause = q.after === undefined ? "" : ` AND ${a}.id > @after`;
+    // limit + 1: the extra row is the evidence that a next page exists (never returned).
+    const limitClause = q.limit === undefined ? "" : " LIMIT @limit";
+    return this.db
+      .prepare(
+        `SELECT ${a}.* FROM ${table} ${a}
+         WHERE ${a}.version = (SELECT MAX(version) FROM ${table} WHERE id = ${a}.id)
+           AND ${a}.ns IS @ns${typeClause}${statusClause}${afterClause}
+         ORDER BY ${a}.id${limitClause}`,
+      )
+      .all({
+        ns: normalizeNs(q.ns),
+        type: q.type,
+        status: q.status,
+        after: q.after,
+        limit: q.limit === undefined ? undefined : q.limit + 1,
+      }) as R[];
   }
 
   /** KNN-nearest entities. Empty array if the vec0 table was never created (no embedding ever inserted).

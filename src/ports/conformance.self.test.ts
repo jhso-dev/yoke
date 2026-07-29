@@ -3,7 +3,12 @@
 
 import type { Entity, Relation } from "../core/types.js";
 import { describeStoragePort } from "./conformance.js";
-import type { StoragePort, TextQuery } from "./storage.js";
+import {
+  type ListQuery,
+  page,
+  type StoragePort,
+  type TextQuery,
+} from "./storage.js";
 
 function makeFake(): StoragePort {
   const entities: Entity[] = []; // append-only rows
@@ -16,6 +21,15 @@ function makeFake(): StoragePort {
       if (!cur || e.version > cur.version) m.set(e.id, e);
     }
     return m;
+  };
+
+  const latestRelations = (): Relation[] => {
+    const m = new Map<string, Relation>();
+    for (const r of relations) {
+      const cur = m.get(r.id);
+      if (!cur || r.version > cur.version) m.set(r.id, r);
+    }
+    return [...m.values()];
   };
 
   return {
@@ -73,8 +87,33 @@ function makeFake(): StoragePort {
       if (q.limit !== undefined) out = out.slice(0, q.limit);
       return out;
     },
+
+    async listEntities(q) {
+      return page(listFilter([...latestById().values()], q), q.limit);
+    },
+    async listRelations(q) {
+      return page(listFilter(latestRelations(), q), q.limit);
+    },
     // similar unimplemented → capability absent
   };
+}
+
+/** latest version → ns/type/status/cursor → ascending id, then over-read by one for `next`.
+ * The fake stays deliberately strict: a lenient fake hides the bugs a real backend then has. */
+function listFilter<
+  T extends { id: string; type: string; status: string; ns?: string | null },
+>(rows: T[], q: ListQuery): T[] {
+  const wantNs = q.ns == null || q.ns === "" ? null : q.ns;
+  return rows
+    .filter(
+      (r) =>
+        (r.ns ?? null) === wantNs &&
+        (q.type === undefined || r.type === q.type) &&
+        (q.status === undefined || r.status === q.status) &&
+        (q.after === undefined || r.id > q.after),
+    )
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, q.limit === undefined ? undefined : q.limit + 1);
 }
 
 describeStoragePort("in-memory fake", async () => makeFake());

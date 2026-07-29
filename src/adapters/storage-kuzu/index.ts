@@ -9,7 +9,13 @@ import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
-import type { StoragePort, TextQuery } from "../../ports/storage.js";
+import {
+  type ListQuery,
+  type Page,
+  page,
+  type StoragePort,
+  type TextQuery,
+} from "../../ports/storage.js";
 
 // Kuzu needs a single-column PRIMARY KEY, so the composite (id, version) becomes a synthetic pk.
 // `#` cannot collide because ids are opaque ULIDs and version is an integer.
@@ -233,6 +239,55 @@ export class KuzuStorage implements StoragePort {
     return (q.limit === undefined ? filtered : filtered.slice(0, q.limit)).map(
       rowToEntity,
     );
+  }
+
+  /** Enumerate latest-version entities, ascending by id.
+   * ponytail: full scan then filter in JS, the same ceiling search() already has — latest-version
+   * selection must happen BEFORE the status/type filter (an older row of the same id could match a
+   * filter the current version does not), so pushing predicates into Cypher would be wrong, not
+   * merely unnecessary. Promote to a Cypher ORDER BY … LIMIT when a corpus makes it hurt. */
+  async listEntities(q: ListQuery): Promise<Page<Entity>> {
+    const all = (await this.run(
+      `MATCH (e:Entity)
+       RETURN e.id AS id, e.version AS version, e.type AS type, e.status AS status,
+         e.attributes AS attributes, e.provenance AS provenance, e.last_confirmed AS last_confirmed,
+         e.ns AS ns`,
+      {},
+    )) as unknown as EntityRow[];
+    return page(this.listFilter(all, q).map(rowToEntity), q.limit);
+  }
+
+  /** Enumerate latest-version relations, ascending by id. q.type filters the relation type. */
+  async listRelations(q: ListQuery): Promise<Page<Relation>> {
+    // Relations are a NODE table with from_id/to_id columns, not a graph edge — same projection
+    // neighbors() uses. (Kuzu edges cannot carry their own append-only version rows.)
+    const all = (await this.run(
+      `MATCH (r:Relation)
+       RETURN r.id AS id, r.version AS version, r.type AS type, r.status AS status,
+         r.attributes AS attributes, r.provenance AS provenance, r.last_confirmed AS last_confirmed,
+         r.from_id AS from_id, r.to_id AS to_id, r.ns AS ns`,
+      {},
+    )) as unknown as RelationRow[];
+    return page(this.listFilter(all, q).map(rowToRelation), q.limit);
+  }
+
+  /** latest version → ns/type/status/cursor filter → ascending id. Shared so both listings agree. */
+  private listFilter<T extends { id: string; version: number } & EntityRow>(
+    all: T[],
+    q: ListQuery,
+  ): T[] {
+    const wantNs = normalizeNs(q.ns);
+    return latestByVersion(all)
+      .filter(
+        (r) =>
+          // "" sentinel normalizes to null so the default ns sees only default rows (10.1).
+          (r.ns || null) === wantNs &&
+          (q.type === undefined || r.type === q.type) &&
+          (q.status === undefined || r.status === q.status) &&
+          (q.after === undefined || r.id > q.after),
+      )
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, q.limit === undefined ? undefined : q.limit + 1);
   }
 
   // --- Adapter extensions outside StoragePort: ontology seed save/load (mirrors sqlite) ---

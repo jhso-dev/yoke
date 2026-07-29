@@ -51,6 +51,7 @@ export function makeRelation(
       origin: "cli",
       occurred_at: "2026-01-01T00:00:00Z",
     },
+    ...(over.ns != null ? { ns: over.ns } : {}),
   };
 }
 
@@ -230,6 +231,187 @@ export const conformanceCases: ConformanceCase[] = [
     async run(port) {
       const cap = port.similar;
       assert.equal(cap === undefined || typeof cap === "function", true);
+    },
+  },
+  // (9) Enumeration (v5.0). Enumeration is the one method that can return the whole database, so
+  // every clause of its contract is pinned here. Note each case scopes its assertions to a
+  // case-unique type and/or ns: the kuzu runner shares ONE database across all cases, so a case
+  // that asserted on an unfiltered listing would pass under vitest and fail there.
+  {
+    // (9a) latest version only, and the type/status filters compose.
+    name: "listEntities returns latest versions only, filtered by type and status",
+    async run(port) {
+      const a = makeEntity({ type: "listE1", status: "draft" });
+      await port.putEntity(a);
+      await port.putEntity({ ...a, version: 2, status: "verified" });
+      const b = makeEntity({ type: "listE1", status: "draft" });
+      await port.putEntity(b);
+      await port.putEntity(makeEntity({ type: "listE1-other" }));
+
+      const all = await port.listEntities({ type: "listE1" });
+      eq(all.items.map((e) => e.id).sort(), [a.id, b.id].sort());
+      eq(
+        all.items.map((e) => e.version),
+        all.items.map((e) => (e.id === a.id ? 2 : 1)),
+        "only the max-version row of each id is enumerated",
+      );
+      eq(all.next, null, "a complete listing has no next cursor");
+
+      const verified = await port.listEntities({
+        type: "listE1",
+        status: "verified",
+      });
+      eq(
+        verified.items.map((e) => e.id),
+        [a.id],
+      );
+    },
+  },
+  {
+    // (9b) namespace isolation for entities.
+    name: "listEntities isolates by namespace",
+    async run(port) {
+      const inA = makeEntity({ type: "listE2", ns: "leak-e-a" });
+      const inB = makeEntity({ type: "listE2", ns: "leak-e-b" });
+      const inDefault = makeEntity({ type: "listE2" });
+      for (const e of [inA, inB, inDefault]) await port.putEntity(e);
+
+      const a = await port.listEntities({ type: "listE2", ns: "leak-e-a" });
+      eq(
+        a.items.map((e) => e.id),
+        [inA.id],
+        "a tenant listing must not include another tenant's rows",
+      );
+      const def = await port.listEntities({ type: "listE2" });
+      eq(
+        def.items.map((e) => e.id),
+        [inDefault.id],
+        "the default namespace is not a wildcard over tenants",
+      );
+    },
+  },
+  {
+    // (9c) keyset paging: no gaps, no duplicates, and `next` tells the truth.
+    name: "listEntities paginates by keyset cursor without gaps or duplicates",
+    async run(port) {
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const e = makeEntity({ type: "listE3" });
+        await port.putEntity(e);
+        ids.push(e.id);
+      }
+      ids.sort();
+
+      const first = await port.listEntities({ type: "listE3", limit: 2 });
+      eq(
+        first.items.map((e) => e.id),
+        ids.slice(0, 2),
+      );
+      assert.equal(first.next, ids[1], "next is the last id of this page");
+
+      const second = await port.listEntities({
+        type: "listE3",
+        limit: 2,
+        after: first.next ?? undefined,
+      });
+      eq(
+        second.items.map((e) => e.id),
+        ids.slice(2),
+      );
+      eq(second.next, null, "next is null once the rows run out");
+
+      // Exactly-at-limit must NOT claim a next page (the over-read-by-one contract).
+      const exact = await port.listEntities({ type: "listE3", limit: 3 });
+      eq(exact.items.length, 3);
+      eq(exact.next, null, "next is null when limit exactly consumes the rows");
+    },
+  },
+  {
+    // (9d) relations: latest version only, filtered by relation type.
+    name: "listRelations returns latest versions only, filtered by type",
+    async run(port) {
+      const from = makeEntity();
+      const to = makeEntity();
+      await port.putEntity(from);
+      await port.putEntity(to);
+      const r = makeRelation(from.id, to.id, { type: "listR1" });
+      await port.putRelation(r);
+      await port.putRelation({ ...r, version: 2, status: "verified" });
+      await port.putRelation(
+        makeRelation(from.id, to.id, { type: "listR1-other" }),
+      );
+
+      const got = await port.listRelations({ type: "listR1" });
+      eq(
+        got.items.map((x) => x.id),
+        [r.id],
+      );
+      eq(got.items[0].version, 2);
+      eq(got.items[0].from, from.id);
+      eq(got.items[0].to, to.id);
+    },
+  },
+  {
+    // (9e) namespace isolation for relations — the case that would have caught the shipped
+    // cross-tenant leak in the conflicts view (listRelationsByType had no ns parameter).
+    name: "listRelations isolates by namespace",
+    async run(port) {
+      const from = makeEntity();
+      const to = makeEntity();
+      await port.putEntity(from);
+      await port.putEntity(to);
+      const inA = makeRelation(from.id, to.id, {
+        type: "listR2",
+        ns: "leak-r-a",
+      });
+      const inB = makeRelation(from.id, to.id, {
+        type: "listR2",
+        ns: "leak-r-b",
+      });
+      await port.putRelation(inA);
+      await port.putRelation(inB);
+
+      const a = await port.listRelations({ type: "listR2", ns: "leak-r-a" });
+      eq(
+        a.items.map((x) => x.id),
+        [inA.id],
+      );
+      const def = await port.listRelations({ type: "listR2" });
+      eq(def.items, [], "no tenant relation leaks into the default namespace");
+    },
+  },
+  {
+    // (9f) relations page by the same cursor rules as entities.
+    name: "listRelations paginates by keyset cursor",
+    async run(port) {
+      const from = makeEntity();
+      const to = makeEntity();
+      await port.putEntity(from);
+      await port.putEntity(to);
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const r = makeRelation(from.id, to.id, { type: "listR3" });
+        await port.putRelation(r);
+        ids.push(r.id);
+      }
+      ids.sort();
+
+      const first = await port.listRelations({ type: "listR3", limit: 2 });
+      eq(
+        first.items.map((x) => x.id),
+        ids.slice(0, 2),
+      );
+      assert.equal(first.next, ids[1]);
+      const second = await port.listRelations({
+        type: "listR3",
+        limit: 2,
+        after: first.next ?? undefined,
+      });
+      eq(
+        second.items.map((x) => x.id),
+        ids.slice(2),
+      );
+      eq(second.next, null);
     },
   },
 ];

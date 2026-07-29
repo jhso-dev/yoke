@@ -116,6 +116,45 @@ describe("sharded routing (2 sqlite members)", () => {
     expect(await store.search({ text: "merge", limit: 1 })).toHaveLength(1);
   });
 
+  // The cross-shard merge is what conformance cannot reach (it runs a single-member store), and it
+  // is where a per-shard cursor map would have been needed if `after` were not a global predicate.
+  it("un-scoped enumeration yields exact global id order across shards, and its cursor has no gap", async () => {
+    // Interleaved ids placed directly in both members, so neither shard's local order is the
+    // global order: a merge that just concatenated pages would fail this.
+    for (const id of ["k1", "k3", "k5"])
+      await a.putEntity(makeEntity({ id, type: "kpage" }));
+    for (const id of ["k2", "k4"])
+      await d.putEntity(makeEntity({ id, type: "kpage" }));
+
+    const all = await store.listEntities({ type: "kpage" });
+    expect(all.items.map((e) => e.id)).toEqual(["k1", "k2", "k3", "k4", "k5"]);
+    expect(all.next).toBeNull();
+
+    const p1 = await store.listEntities({ type: "kpage", limit: 2 });
+    expect(p1.items.map((e) => e.id)).toEqual(["k1", "k2"]);
+    expect(p1.next).toBe("k2");
+    const p2 = await store.listEntities({
+      type: "kpage",
+      limit: 2,
+      after: p1.next ?? undefined,
+    });
+    expect(p2.items.map((e) => e.id)).toEqual(["k3", "k4"]);
+    const p3 = await store.listEntities({
+      type: "kpage",
+      limit: 2,
+      after: p2.next ?? undefined,
+    });
+    expect(p3.items.map((e) => e.id)).toEqual(["k5"]);
+    expect(p3.next).toBeNull();
+  });
+
+  it("scoped enumeration hits only the owner shard", async () => {
+    await store.putEntity(makeEntity({ id: "n1", ns: "tenant-a" }));
+    await d.putEntity(makeEntity({ id: "n2" })); // default ns, other shard
+    const scoped = await store.listEntities({ ns: "tenant-a" });
+    expect(scoped.items.map((e) => e.id)).toEqual(["n1"]);
+  });
+
   it("keeps ontology per shard (owner overlay), default separate", () => {
     store.saveOntology([{ name: "note", kind: "entity", attrs: {} }]); // → default
     store.saveOntology(
