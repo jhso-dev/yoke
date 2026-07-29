@@ -176,10 +176,12 @@ describe("ui API namespace isolation", () => {
   let tenantServer: Server;
   let tenantBase: string;
   let acmeDecision: string;
+  let tenantStore: SqliteStorage;
 
   beforeAll(async () => {
     const ont = seedOntology();
     const s = new SqliteStorage(join(dir, "ns.sqlite"));
+    tenantStore = s;
     await s.init();
     for (const ns of ["acme", "globex"]) {
       s.saveOntology(ont, ns);
@@ -229,7 +231,13 @@ describe("ui API namespace isolation", () => {
     await new Promise<void>((r) => tenantServer.listen(0, r));
     tenantBase = `http://localhost:${(tenantServer.address() as AddressInfo).port}`;
   });
-  afterAll(() => tenantServer.close());
+  // The store must be closed, not just the server: on win32 an open sqlite handle keeps the file
+  // locked, so the outer rmSync fails with EBUSY (POSIX happily unlinks open files, which is why
+  // this only ever shows up on the windows CI job).
+  afterAll(() => {
+    tenantServer.close();
+    tenantStore.close();
+  });
 
   it("conflicts shows only this namespace's pairs, resolved within it", async () => {
     const pairs = await fetch(`${tenantBase}/api/conflicts`).then((r) =>
