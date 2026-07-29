@@ -3,12 +3,14 @@
 // so every action stays CLI-achievable (WEB-UI.md rule). Time is obtained in this front tier and
 // passed into core; mutations are audit-logged via logAudit (same pattern as the CLI inject path).
 
+import { existsSync } from "node:fs";
 import {
   createServer,
   type IncomingMessage,
   type Server,
   type ServerResponse,
 } from "node:http";
+import { fileURLToPath } from "node:url";
 import { citation, inject } from "../../core/inject.js";
 import { deprecate, effectiveStatus, verify } from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
@@ -17,6 +19,7 @@ import { personaQuery } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { openStore, type YokeStore } from "../store.js";
 import { html } from "./static/index.html.js";
+import { createStaticHandler } from "./static.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -30,6 +33,30 @@ export interface UiDeps {
   /** RBAC hook (PLAN-V2 10.4) — checked per API endpoint. Default allow-all (local single-user
    * `yoke ui` stays ungated); serve mode injects a per-request scope check. */
   authorize?: (action: "read" | "write" | "verify", type?: string) => boolean;
+  /** Directory holding the built web bundle. Injectable so tests point at a fixture and never
+   * depend on a build existing (CI runs tests before build). Defaults to the resolved location. */
+  webRoot?: string | null;
+}
+
+/** Where the built bundle lives: the published layout first, then the source checkout, so
+ * `tsx src/front/cli/index.ts ui` works in development. Memoized because serve mode constructs a
+ * handler per request — an un-memoized probe would be filesystem I/O on every one. */
+let cachedWebRoot: string | null | undefined;
+function defaultWebRoot(): string | null {
+  if (cachedWebRoot !== undefined) return cachedWebRoot;
+  const candidates = [
+    new URL("./app/", import.meta.url), // dist/front/ui/app
+    new URL("../../../web/out/", import.meta.url), // repo checkout
+  ];
+  cachedWebRoot = null;
+  for (const c of candidates) {
+    const p = fileURLToPath(c).replace(/[/\\]$/, "");
+    if (existsSync(p)) {
+      cachedWebRoot = p;
+      break;
+    }
+  }
+  return cachedWebRoot;
 }
 
 /** First string value in attributes, truncated — same compact summary the CLI uses. */
@@ -122,6 +149,9 @@ export function createUiHandler(
     sendJson(res, 403, { error: "forbidden" });
     return true;
   };
+  const serveStatic = createStaticHandler(
+    deps.webRoot === undefined ? defaultWebRoot() : deps.webRoot,
+  );
   /** A row serializer bound to this request's ontology and clock — so effectiveStatus is computed
    * once per request rather than per row, and every route reports freshness the same way. */
   const asRow = () => {
@@ -424,6 +454,10 @@ export function createUiHandler(
       return;
     }
 
+    // Anything that is not an API route may be a bundle asset. /api/* JSON-404s without touching
+    // the filesystem, so an API typo never reads a file and never leaves the JSON contract.
+    if (!path.startsWith("/api/") && (await serveStatic(req, res, path)))
+      return;
     sendJson(res, 404, { error: "not found" });
   };
 }

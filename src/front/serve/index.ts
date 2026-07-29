@@ -60,6 +60,8 @@ export interface ServeDeps {
   /** Interval-pull snapshot config (11.2). When set, the store is periodically re-copied from the
    * primary via `.backup()` and exposes refreshNow() on the returned server for manual/test pulls. */
   replica?: { primaryPath: string; snapshotPath: string; refreshSec?: number };
+  /** Built web bundle directory, passed through to the UI handler (injectable for tests). */
+  webRoot?: string | null;
 }
 
 /** Server augmented with refreshNow() when running as a replica (11.2). */
@@ -243,7 +245,14 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       return;
     }
     // Everything else (UI shell + JSON API) goes through the exact same routes as `yoke ui`.
-    await createUiHandler({ store, actor, ns, now, authorize })(req, res);
+    await createUiHandler({
+      store,
+      actor,
+      ns,
+      now,
+      authorize,
+      webRoot: deps.webRoot,
+    })(req, res);
   }
 
   const server: ServeServer = createServer((req, res) => {
