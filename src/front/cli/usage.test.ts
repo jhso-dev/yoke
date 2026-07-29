@@ -32,7 +32,8 @@ function commandsIn(text: string): Set<string> {
 
 describe("CLI surface", () => {
   it("SPEC.md and usage() name the same commands", async () => {
-    const spec = readFileSync("docs/SPEC.md", "utf8");
+    // Normalize line endings: git checks out CRLF on win32, and \r\n does not match \n.
+    const spec = readFileSync("docs/SPEC.md", "utf8").replace(/\r\n/g, "\n");
     const block = /## CLI commands\n+```\n([\s\S]*?)```/.exec(spec);
     expect(block, "SPEC.md must have a fenced CLI commands block").toBeTruthy();
     const documented = commandsIn(block?.[1] ?? "");
