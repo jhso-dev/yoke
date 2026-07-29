@@ -15,9 +15,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { conformanceCases } from "../dist/ports/conformance-cases.js";
 import { KuzuStorage } from "../dist/adapters/storage-kuzu/index.js";
 import { seedOntology } from "../dist/core/ontology.js";
+import { conformanceCases } from "../dist/ports/conformance-cases.js";
 
 const scratch = mkdtempSync(join(tmpdir(), "yoke-kuzu-conf-"));
 const port = new KuzuStorage(join(scratch, "db"));
