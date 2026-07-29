@@ -22,13 +22,19 @@ export function citation(e: Entity): string {
 /**
  * Returns the verified knowledge matching a query, each with its citation.
  * @param includeDraft also include drafts (the label is carried by effectiveStatus). stale/deprecated are always excluded.
- * @param scope an entity id — the shared-working-context mechanism (persona is the person-shaped
- *   instance). Scope PRIORITIZES, it does not imprison:
+ * @param scope an entity id to anchor the injection on — one mechanism with two named entry points:
+ *   a workstream anchor is the shared working context, a person anchor is a persona.
  *   - scope + query: the full query results, with knowledge one relation hop from the scope entity
- *     ordered first — the working context leads, org-wide knowledge still flows in.
- *   - scope, no query: only the one-hop set (a briefing of that working context).
+ *     ordered first — the working context leads, org-wide knowledge still flows in (scope
+ *     PRIORITIZES, it does not imprison).
+ *   - scope, no query: only the one-hop set (a briefing of that anchor).
  *   The scope entity itself is never returned. The same verified/draft/ns filters apply, and
  *   `limit` is applied after ordering/filtering.
+ * @param scopeRel @param scopeDir narrow the anchor walk, passed straight to port.neighbors.
+ *   Default: every relation type, both directions — right for a workstream, whose whole point is
+ *   everything attached to the work. A persona passes authored_by/'in' instead: presenting knowledge
+ *   a person merely touched as their own judgment would be impersonation, so the strict anchor is
+ *   part of that entry point, not a different mechanism.
  */
 export async function inject(
   port: StoragePort,
@@ -40,15 +46,21 @@ export async function inject(
     limit?: number;
     ns?: string | null;
     scope?: string;
+    scopeRel?: string;
+    scopeDir?: "in" | "out";
   },
 ): Promise<{ items: InjectItem[] }> {
   const scope = opts?.scope;
   const ns = normalizeNs(opts?.ns);
   let candidates: Entity[];
   if (scope) {
-    // One relation hop, both directions → the other-end entity ids (never the scope itself).
+    // One relation hop → the other-end entity ids (never the scope itself).
     const hopIds = new Set<string>();
-    for (const r of await port.neighbors(scope)) {
+    for (const r of await port.neighbors(
+      scope,
+      opts?.scopeRel,
+      opts?.scopeDir,
+    )) {
       const other: string = r.from === scope ? r.to : r.from;
       if (other !== scope) hopIds.add(other);
     }

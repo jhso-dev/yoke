@@ -376,28 +376,6 @@ export class SqliteStorage implements StoragePort {
     return rows.map(rowToEntity);
   }
 
-  /** Filter entities by provenance.actor (outside StoragePort — for persona 6.1).
-   * search is text-based and can't filter provenance, so it doesn't fit; same pattern as listByStatus.
-   * The actor match spans the entire history (all versions) — even if verify updates the latest
-   * version's provenance to the promoter, the original author's contribution is not lost (the
-   * append-only history preserves the original author).
-   * Returns the latest-version row of each matching id. */
-  listByActor(actor: string, ns?: string | null): Entity[] {
-    const rows = this.db
-      .prepare(
-        `SELECT e.* FROM entities e
-         WHERE e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)
-           AND e.ns IS ?
-           AND e.id IN (
-             SELECT id FROM entities
-             WHERE json_extract(provenance, '$.actor') = ?
-           )
-         ORDER BY e.created_at`,
-      )
-      .all(normalizeNs(ns), actor) as EntityRow[];
-    return rows.map(rowToEntity);
-  }
-
   /** Latest-version relations of a given type (outside StoragePort — for CLI conflicts).
    * neighbors is scoped to a specific id and doesn't fit a global listing, so this is an adapter extension. */
   listRelationsByType(type: string): Relation[] {

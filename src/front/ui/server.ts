@@ -142,7 +142,9 @@ export function createUiHandler(
         store.loadOntology(ns),
         id,
         now(),
-        ns,
+        {
+          ns,
+        },
       );
       sendJson(res, 200, {
         decisions: result.decisions.map(row),

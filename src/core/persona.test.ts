@@ -1,5 +1,6 @@
 // persona tests — data is prepared through the real SqliteStorage(:memory:) + commit gate.
-// Collection: actor match / authored_by / draft & stale exclusion / decision vs fact classification.
+// personaQuery is a person-anchored inject, so these cases pin what that anchor must and must not
+// pull in: authored knowledge yes, knowledge that merely touches the person no.
 // renderPersonaSkill is snapshotted with a fixed fixture and a fixed now.
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -39,14 +40,13 @@ async function add(
 }
 
 describe("personaQuery", () => {
-  it("collects verified entities authored by actor and splits decision vs fact", async () => {
+  it("collects verified knowledge the person authored and splits decision vs fact", async () => {
     const d = await add(
       "decision",
       { conclusion: "use SQLite", rationale: "zero-config" },
       "alex",
     );
     const f = await add("fact", { note: "ships fridays" }, "alex");
-    // Verify with the same actor → keeps the provenance.actor match.
     await verify(port, [d, f], "alex", now);
 
     const res = await personaQuery(port, ont, "alex", now);
@@ -54,7 +54,7 @@ describe("personaQuery", () => {
     expect(res.facts.map((e) => e.id)).toEqual([f]);
   });
 
-  it("collects via authored_by relation even when verify actor differs", async () => {
+  it("collects via a hand-written authored_by relation (connector-ingested knowledge)", async () => {
     const f = await add("fact", { note: "connector fact" }, "connector");
     // authored_by: from=entity → to=person (the entity was authored by the person).
     await commit(
@@ -64,22 +64,66 @@ describe("personaQuery", () => {
       prov("connector"),
       now,
     );
-    await verify(port, [f], "admin", now); // promoted by a different actor — irrelevant to path (b).
+    await verify(port, [f], "admin", now); // promoted by a different actor — irrelevant to the anchor.
 
     const res = await personaQuery(port, ont, "alex", now);
     expect(res.facts.map((e) => e.id)).toEqual([f]);
   });
 
-  it("keeps original author's entities even when someone else verifies (history-wide actor match)", async () => {
+  it("keeps the original author's knowledge when someone else verifies it", async () => {
     const d = await add(
       "decision",
       { conclusion: "use FTS prefix", rationale: "korean suffix" },
       "alex",
     );
-    await verify(port, [d], "admin", now); // promoted by someone else — must still match the original author in the v1 history.
+    await verify(port, [d], "admin", now); // promoted by someone else — authorship edge is unaffected.
 
+    expect((await personaQuery(port, ont, "alex", now)).decisions).toHaveLength(
+      1,
+    );
+    // ...and promoting is not authoring: it must not show up as the promoter's own judgment.
+    expect((await personaQuery(port, ont, "admin", now)).decisions).toEqual([]);
+  });
+
+  it("excludes knowledge that merely touches the person (works_on, their own person record)", async () => {
+    // The person record itself, filed by someone else → an authored_by OUT edge from alex.
+    await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Alex" } },
+      prov("admin"),
+      now,
+      { existingId: "alex" },
+    );
+    const ws = await add("workstream", { title: "PAY-42" }, "admin");
+    await commit(
+      port,
+      ont,
+      { type: "works_on", attributes: {}, from: "alex", to: ws },
+      prov("admin"),
+      now,
+    );
+    await verify(port, ["alex", ws], "admin", now);
+
+    // Anchored on authored_by/'in' only — neither the workstream nor admin leaks in as Alex's own.
     const res = await personaQuery(port, ont, "alex", now);
-    expect(res.decisions.map((e) => e.id)).toEqual([d]);
+    expect([...res.decisions, ...res.facts]).toEqual([]);
+  });
+
+  it("filters the person's own records by query, without pulling org-wide matches in", async () => {
+    const mine = await add("fact", { note: "we cache with redis" }, "alex");
+    const theirs = await add(
+      "fact",
+      { note: "redis runs on port 6379" },
+      "kim",
+    );
+    await verify(port, [mine, theirs], "alex", now);
+
+    const res = await personaQuery(port, ont, "alex", now, { query: "redis" });
+    expect(res.facts.map((e) => e.id)).toEqual([mine]);
+    expect(
+      (await personaQuery(port, ont, "alex", now, { query: "postgres" })).facts,
+    ).toEqual([]);
   });
 
   it("excludes drafts (unverified)", async () => {

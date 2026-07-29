@@ -14,7 +14,7 @@ import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { citation, inject } from "../../core/inject.js";
 import { resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { type PersonaPort, personaQuery } from "../../core/persona.js";
+import { personaQuery } from "../../core/persona.js";
 import type { Entity, EntityInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
 import { openStore } from "../store.js";
@@ -22,10 +22,10 @@ import { openStore } from "../store.js";
 const ORIGIN = "mcp";
 
 export interface YokeMcpDeps {
-  /** The persona tool needs provenance.actor lookups (listByActor), which requires the adapter extension.
-   * logAudit (PLAN 8.4) is optional: adapters without it simply skip injection auditing. */
-  store: StoragePort &
-    Pick<PersonaPort, "listByActor"> & { logAudit?(event: AuditEvent): void };
+  /** logAudit (PLAN 8.4) is optional: adapters without it simply skip injection auditing.
+   * Everything else the tools need is the plain port — persona included, since authorship is a
+   * graph edge rather than a provenance lookup outside the contract. */
+  store: StoragePort & { logAudit?(event: AuditEvent): void };
   ontology: TypeDef[];
   /** Default actor when a tool call omits one (resolved from env at server startup). */
   defaultActor: string;
@@ -44,9 +44,12 @@ export interface YokeMcpDeps {
   defaultScope?: string | null;
 }
 
-/** Resolve a work-item key (or entity id) to a scope entity. Exact entity id wins (getEntity);
- * otherwise search for a `workstream` whose `key` OR `title` attribute equals the key. Front-tier
- * only. Returns null when nothing matches. Shared by startup (YOKE_SCOPE) and the yoke_use_scope tool.
+/** Resolve a work-item key (or entity id) to an anchor entity. Exact entity id wins (getEntity);
+ * otherwise search for an entity whose `key` OR `title` attribute equals the key, preferring a
+ * `workstream` since that is what a work-item key names. Any entity type may anchor an injection —
+ * a workstream is the shared working context, a person is a persona — so the fallback is not
+ * restricted to one type. Front-tier only. Returns null when nothing matches. Shared by startup
+ * (YOKE_SCOPE) and the yoke_use_scope tool.
  */
 export async function resolveScope(
   store: Pick<StoragePort, "getEntity" | "search">,
@@ -60,12 +63,11 @@ export async function resolveScope(
   const byId = await store.getEntity(key);
   if (byId) return asEntity(byId);
   const hits = await store.search({ text: key, ns });
-  const ws = hits.find(
-    (e) =>
-      e.type === "workstream" &&
-      (e.attributes.key === key || e.attributes.title === key),
+  const named = hits.filter(
+    (e) => e.attributes.key === key || e.attributes.title === key,
   );
-  return ws ? asEntity(ws) : null;
+  const found = named.find((e) => e.type === "workstream") ?? named[0];
+  return found ? asEntity(found) : null;
 }
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
@@ -295,14 +297,13 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         ontology,
         person,
         ts,
-        ns,
+        {
+          query,
+          ns,
+        },
       );
-      const q = query?.toLowerCase();
-      const hit = (e: Entity) =>
-        q === undefined ||
-        JSON.stringify(e.attributes).toLowerCase().includes(q);
       // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.
-      const injected = [...decisions.filter(hit), ...facts.filter(hit)];
+      const injected = [...decisions, ...facts];
       store.logAudit?.({
         actor: defaultActor,
         action: "persona",
@@ -310,11 +311,11 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         at: ts,
       });
       const blocks: string[] = [];
-      for (const d of decisions.filter(hit))
+      for (const d of decisions)
         blocks.push(
           `[decision] ${String(d.attributes.conclusion)}\nRationale: ${String(d.attributes.rationale)}\n${citation(d)}`,
         );
-      for (const f of facts.filter(hit))
+      for (const f of facts)
         blocks.push(
           `[knowledge] ${JSON.stringify(f.attributes)}\n${citation(f)}`,
         );

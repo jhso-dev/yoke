@@ -1,30 +1,19 @@
-// persona — person-scoped query + SKILL.md generation (PLAN 6.1–6.2).
+// persona — the person-anchored reading of an injection, rendered as a SKILL.md (PLAN 6.1–6.2).
 // A persona is not stored but derived (VISION): regenerated each time from the current verified knowledge.
 // Citation, not impersonation — the output must be citation-based to be auditable.
+//
+// Collection is deliberately NOT here: it is inject() anchored on the person entity, the same
+// one-hop walk a workstream anchor uses (authorship is a graph edge — the commit gate mirrors
+// provenance into authored_by). One mechanism, two named entry points. What persona adds is how
+// that anchor is read: strictly. A workstream anchor prioritizes and lets org-wide knowledge in;
+// a persona anchors on authored_by/'in' with no query and filters locally, because presenting
+// knowledge a person did not author as their judgment would be impersonation.
 // Time is injected (never call new Date() in core).
 
-import { citation } from "./inject.js";
-import { effectiveStatus } from "./lifecycle.js";
+import type { StoragePort } from "../ports/storage.js";
+import { citation, inject } from "./inject.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity } from "./types.js";
-
-/**
- * A local structural type holding only the storage capabilities a persona query needs.
- * The intersection of StoragePort (getEntity/neighbors) and an adapter extension (listByActor) —
- * since core importing the adapter would violate the dependency direction, we accept it here by
- * structural typing only (no adapter import).
- */
-export interface PersonaPort {
-  getEntity(id: string, version?: number): Promise<Entity | null>;
-  neighbors(
-    id: string,
-    relType?: string,
-    dir?: "in" | "out",
-  ): Promise<{ from: string; to: string }[]>;
-  /** Latest-version entities whose provenance.actor === actor (an adapter extension method).
-   * ns scopes to a tenant namespace (PLAN-V2 10.1); omitted = the default shared namespace. */
-  listByActor(actor: string, ns?: string | null): Entity[];
-}
 
 export interface PersonaResult {
   decisions: Entity[];
@@ -32,35 +21,45 @@ export interface PersonaResult {
 }
 
 /**
- * Collects the verified knowledge originating from a given person.
- * Collection: (a) entities where provenance.actor === personId (listByActor, matching the actor
- *             across history) plus (b) entities connected via an authored_by relation.
- * authored_by means "entity authored by person" → from:entity → to:person.
- * So the target entities are the `from` of person's dir:'in' (to_id=personId) neighbors.
- * Filter: effectiveStatus === 'verified' only (same as inject — no new filter logic).
- * Classification: type==='decision' → decisions, everything else → facts.
+ * The persona entry point: an injection anchored on a person, read strictly.
+ * authored_by means "entity authored by person" → from:entity → to:person, so the person's dir:'in'
+ * neighbors are exactly the knowledge they authored — never what merely touches them (the workstream
+ * they work on, the colleague who filed their person record).
+ * @param query filters the person's OWN records (substring over attributes). It deliberately does
+ *   not go through inject's query path: that unions in org-wide matches, which is right for a
+ *   workstream and wrong for a persona.
  */
 export async function personaQuery(
-  port: PersonaPort,
+  port: StoragePort,
   ontology: TypeDef[],
   personId: string,
   now: string,
-  ns?: string | null,
+  opts?: { query?: string; ns?: string | null },
 ): Promise<PersonaResult> {
-  const collected = new Map<string, Entity>();
-  for (const e of port.listByActor(personId, ns)) collected.set(e.id, e);
-  for (const r of await port.neighbors(personId, "authored_by", "in")) {
-    if (collected.has(r.from)) continue;
-    const e = await port.getEntity(r.from);
-    if (e) collected.set(e.id, e);
-  }
+  const { items } = await inject(port, ontology, "", now, {
+    scope: personId,
+    scopeRel: "authored_by",
+    scopeDir: "in",
+    ns: opts?.ns,
+  });
+  const q = opts?.query?.toLowerCase();
+  return classifyPersona(
+    items
+      .map((i) => i.entity)
+      .filter(
+        (e) =>
+          q === undefined ||
+          JSON.stringify(e.attributes).toLowerCase().includes(q),
+      ),
+  );
+}
 
+/** Splits injected knowledge into the persona shape. type==='decision' → decisions, rest → facts.
+ * The verified/stale/draft filtering already happened in inject — no second filter lives here. */
+export function classifyPersona(entities: Entity[]): PersonaResult {
   const decisions: Entity[] = [];
   const facts: Entity[] = [];
-  for (const e of collected.values()) {
-    if (effectiveStatus(e, ontology, now) !== "verified") continue;
-    (e.type === "decision" ? decisions : facts).push(e);
-  }
+  for (const e of entities) (e.type === "decision" ? decisions : facts).push(e);
   return { decisions, facts };
 }
 

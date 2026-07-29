@@ -11,7 +11,7 @@
 //   - similar: fan out to members that have the capability, concat, re-rank the merged hits by cosine
 //     to the query embedding, slice k. Exposed ONLY if at least one member implements it.
 //
-// The extension surface (listByStatus/listByActor/listHistory/listRelationsByType/ontology/audit/
+// The extension surface (listByStatus/listHistory/listRelationsByType/ontology/audit/
 // tokens) is the sqlite-shaped surface used by CLI/UI/serve. ns-scoped calls go to the owner shard;
 // un-scoped listing calls fan out (feature-detected via typeof — kuzu/qdrant members simply skip).
 // Audit + tokens live on the default shard (a single audit/token stream).
@@ -45,7 +45,6 @@ export interface YokeStore extends StoragePort {
   saveOntology(defs: TypeDef[], ns?: string | null): void;
   loadOntology(ns?: string | null): TypeDef[];
   listByStatus(status: string, ns?: string | null): Entity[];
-  listByActor(actor: string, ns?: string | null): Entity[];
   listRelationsByType(type: string): Relation[];
   listHistory(id: string): Entity[];
   logAudit(event: AuditEvent): void;
@@ -198,16 +197,6 @@ export class ShardedStorage implements YokeStore {
       );
     return this.members.flatMap(
       (m) => (m.store as ExtStore).listByStatus?.(status, ns) ?? [],
-    );
-  }
-
-  listByActor(actor: string, ns?: string | null): Entity[] {
-    if (normalizeNs(ns) !== null)
-      return (
-        (this.ownerOf(ns).store as ExtStore).listByActor?.(actor, ns) ?? []
-      );
-    return this.members.flatMap(
-      (m) => (m.store as ExtStore).listByActor?.(actor, ns) ?? [],
     );
   }
 

@@ -758,7 +758,7 @@ async function cmdPersona(
       return 1;
     }
     const ts = now();
-    const result = await personaQuery(store, ontology, id, ts, ns);
+    const result = await personaQuery(store, ontology, id, ts, { ns });
     const md = renderPersonaSkill(person, result, ts);
     // fs lives only in the CLI tier (core produces only a string).
     const outDir = join(v.out ?? ".", `persona-${safeName(id)}`);
