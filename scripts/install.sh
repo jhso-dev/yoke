@@ -141,10 +141,22 @@ build_yoke() {
     ( cd "$INSTALL_DIR" && npm ci )
     log_success "dependencies installed"
 
+    # The CLI and the web bundle build separately, and only the CLI build is allowed to abort the
+    # install. A web toolchain failure (node version, native rebuild, offline) must not leave
+    # someone with no yoke at all because of a browser feature they may never open.
     CURRENT_STEP="building"
-    log_info "building (npm run build)"
-    ( cd "$INSTALL_DIR" && npm run build )
-    log_success "build complete"
+    log_info "building the CLI (npm run build:cli)"
+    ( cd "$INSTALL_DIR" && npm run build:cli )
+    log_success "CLI build complete"
+
+    CURRENT_STEP="building the web bundle"
+    log_info "building the web bundle (first run downloads its toolchain, ~1 min)"
+    if ( cd "$INSTALL_DIR" && npm run build:web ); then
+        log_success "web bundle built"
+    else
+        log_warn "web bundle build failed — the CLI, MCP server and JSON API all work;"
+        log_warn "  'yoke ui' will say the bundle is missing. Retry with: npm run build:web"
+    fi
 }
 
 link_yoke() {

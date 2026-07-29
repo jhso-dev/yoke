@@ -1,0 +1,16 @@
+{
+  "name": "yoke-web",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Next.js source for the yoke governance workbench. Built to a static export and served by the CLI's node:http server \u2014 never its own server. Deps live here, not in the root manifest, so the CLI install path does not pull a web toolchain.",
+  "devDependencies": {
+    "next": "16.2.12",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "d3-force": "3.0.0",
+    "@types/d3-force": "3.0.10",
+    "@types/react": "19.1.13",
+    "@types/react-dom": "19.1.9",
+    "typescript": "^5.9.2"
+  }
+}

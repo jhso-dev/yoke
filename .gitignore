@@ -4,3 +4,8 @@ dist/
 *.db-wal
 *.db-shm
 *.tgz
+
+# Next.js (web/) build output
+web/.next/
+web/out/
+*.tsbuildinfo

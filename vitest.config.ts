@@ -16,6 +16,9 @@ export default defineConfig({
       "**/node_modules/**",
       "**/dist/**",
       "src/adapters/storage-kuzu/**",
+      // Next's build output would otherwise match the default test glob.
+      "web/.next/**",
+      "web/out/**",
     ],
   },
 });

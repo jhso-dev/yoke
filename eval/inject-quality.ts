@@ -54,11 +54,31 @@ const FACT_TOPICS = [
 
 // 5 opposing-conclusion decision pairs. Same topic keyword, different conclusions.
 const DECISION_PAIRS: Array<{ topic: string; a: string; b: string }> = [
-  { topic: "caching", a: "Use Redis for caching", b: "Avoid Redis; keep caching in-process" },
-  { topic: "deployment", a: "Adopt blue-green deployment", b: "Reject blue-green deployment; roll forward only" },
-  { topic: "authentication", a: "Standardize on JWT authentication", b: "Drop JWT; use opaque session authentication" },
-  { topic: "pricing", a: "Move to seat-based pricing", b: "Keep usage-based pricing, no seats" },
-  { topic: "scaling", a: "Scale vertically first", b: "Scale horizontally, never vertically" },
+  {
+    topic: "caching",
+    a: "Use Redis for caching",
+    b: "Avoid Redis; keep caching in-process",
+  },
+  {
+    topic: "deployment",
+    a: "Adopt blue-green deployment",
+    b: "Reject blue-green deployment; roll forward only",
+  },
+  {
+    topic: "authentication",
+    a: "Standardize on JWT authentication",
+    b: "Drop JWT; use opaque session authentication",
+  },
+  {
+    topic: "pricing",
+    a: "Move to seat-based pricing",
+    b: "Keep usage-based pricing, no seats",
+  },
+  {
+    topic: "scaling",
+    a: "Scale vertically first",
+    b: "Scale horizontally, never vertically",
+  },
 ];
 
 const DECISION_TOPICS = DECISION_PAIRS.map((p) => p.topic);
@@ -106,7 +126,10 @@ async function run(): Promise<Report> {
     const verified = await commit(
       store,
       ontology,
-      { type: "fact", attributes: { topic, statement: `Established finding about ${topic}.` } },
+      {
+        type: "fact",
+        attributes: { topic, statement: `Established finding about ${topic}.` },
+      },
       prov(),
       NOW,
     );
@@ -115,7 +138,13 @@ async function run(): Promise<Report> {
     await commit(
       store,
       ontology,
-      { type: "fact", attributes: { topic, statement: `Unverified rumor contradicting ${topic}.` } },
+      {
+        type: "fact",
+        attributes: {
+          topic,
+          statement: `Unverified rumor contradicting ${topic}.`,
+        },
+      },
       prov(),
       NOW,
     );
@@ -129,7 +158,13 @@ async function run(): Promise<Report> {
     const first = await commit(
       store,
       ontology,
-      { type: "decision", attributes: { conclusion: `${a} (${topic})`, rationale: `context for ${topic}` } },
+      {
+        type: "decision",
+        attributes: {
+          conclusion: `${a} (${topic})`,
+          rationale: `context for ${topic}`,
+        },
+      },
       prov(),
       NOW,
       { embedder },
@@ -137,7 +172,13 @@ async function run(): Promise<Report> {
     const second = await commit(
       store,
       ontology,
-      { type: "decision", attributes: { conclusion: `${b} (${topic})`, rationale: `revised context for ${topic}` } },
+      {
+        type: "decision",
+        attributes: {
+          conclusion: `${b} (${topic})`,
+          rationale: `revised context for ${topic}`,
+        },
+      },
       prov(),
       NOW,
       { embedder },
@@ -195,9 +236,13 @@ const r = await run();
 // Human-readable table.
 console.log("yoke — inject quality eval");
 console.log("========================================");
-console.log(`FTS candidates (verified+draft)   ${r.contamination.ftsCandidates}`);
+console.log(
+  `FTS candidates (verified+draft)   ${r.contamination.ftsCandidates}`,
+);
 console.log(`injected (passed gate)            ${r.contamination.injected}`);
-console.log(`  of which draft (contamination)  ${r.contamination.injectedDraft}`);
+console.log(
+  `  of which draft (contamination)  ${r.contamination.injectedDraft}`,
+);
 console.log(`contamination rate (target 0%)    ${pct(r.contamination.rate)}`);
 console.log("----------------------------------------");
 console.log(`decision pairs (planted)          ${r.conflict.plantedPairs}`);

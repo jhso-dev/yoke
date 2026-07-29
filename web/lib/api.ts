@@ -1,0 +1,125 @@
+// The only place web/ calls fetch.
+//
+// One call site means credential attachment and 401 handling cannot be forgotten by a screen, and
+// `fetchImpl` is injectable so both are unit-testable without a browser — the convention the qdrant
+// adapter and the slack connector already use in this repo.
+
+import { clearCredential, getCredential } from "./credential";
+import type {
+  AuditEntry,
+  ConflictPair,
+  EntityDetail,
+  GraphData,
+  InjectPreview,
+  Knowledge,
+  Meta,
+  Page,
+  Persona,
+  TypeDef,
+} from "./types";
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+  /** True when the credential is missing, wrong, or revoked — the caller should send us to login. */
+  get unauthenticated(): boolean {
+    return this.status === 401;
+  }
+  /** True when authenticated but the token's scopes do not cover this action. */
+  get forbidden(): boolean {
+    return this.status === 403;
+  }
+}
+
+type Fetch = typeof fetch;
+
+let fetchImpl: Fetch = (...args) => fetch(...args);
+let onUnauthorized: (() => void) | null = null;
+
+/** Test seam + the app's 401 hook (set once by the shell so every screen inherits it). */
+export function configureApi(opts: {
+  fetchImpl?: Fetch;
+  onUnauthorized?: () => void;
+}): void {
+  if (opts.fetchImpl) fetchImpl = opts.fetchImpl;
+  if (opts.onUnauthorized) onUnauthorized = opts.onUnauthorized;
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const cred = getCredential();
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    ...(init.headers as Record<string, string> | undefined),
+  };
+  if (cred) headers.authorization = `Bearer ${cred}`;
+  const res = await fetchImpl(path, { ...init, headers });
+  if (res.status === 401) {
+    // A revoked or expired credential must not linger and keep failing silently.
+    clearCredential();
+    onUnauthorized?.();
+    throw new ApiError(401, "not authenticated");
+  }
+  if (!res.ok) {
+    let message = `request failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) message = body.error;
+    } catch {
+      // non-JSON error body — keep the status-based message
+    }
+    throw new ApiError(res.status, message);
+  }
+  return (await res.json()) as T;
+}
+
+const qs = (params: Record<string, string | number | boolean | undefined>) => {
+  const u = new URLSearchParams();
+  for (const [k, v] of Object.entries(params))
+    if (v !== undefined && v !== "") u.set(k, String(v));
+  const s = u.toString();
+  return s ? `?${s}` : "";
+};
+
+export const api = {
+  meta: () => request<Meta>("/api/meta"),
+  review: () => request<Knowledge[]>("/api/review"),
+  conflicts: () => request<ConflictPair[]>("/api/conflicts"),
+  ontology: () => request<TypeDef[]>("/api/ontology"),
+  persona: (id: string) =>
+    request<Persona>(`/api/persona/${encodeURIComponent(id)}`),
+  entities: (p: {
+    type?: string;
+    status?: string;
+    limit?: number;
+    after?: string;
+  }) => request<Page<Knowledge>>(`/api/entities${qs(p)}`),
+  entity: (id: string) =>
+    request<EntityDetail>(`/api/entity/${encodeURIComponent(id)}`),
+  inject: (p: {
+    q?: string;
+    scope?: string;
+    includeDraft?: boolean;
+    limit?: number;
+  }) => request<InjectPreview>(`/api/inject${qs(p)}`),
+  graph: (p: { limit?: number; scope?: string; depth?: number }) =>
+    request<GraphData>(`/api/graph${qs(p)}`),
+  audit: (p: { since?: string; limit?: number }) =>
+    request<{ items: AuditEntry[]; limit: number }>(`/api/audit${qs(p)}`),
+  verify: (ids: string[]) =>
+    request<Knowledge[]>("/api/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }),
+  deprecate: (ids: string[]) =>
+    request<Knowledge[]>("/api/deprecate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }),
+};

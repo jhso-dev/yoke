@@ -48,4 +48,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:main
-      - run: npm run build
+      # build:cli only. This job exists to validate the better-sqlite3/sqlite-vec prebuilds on
+      # win32, not to run webpack a second time; the matrix job above covers the full build.
+      - run: npm run build:cli
