@@ -1,0 +1,23 @@
+README.ko.md
+  h_9aabb7d8448c0a 64,156,175-179
+README.md
+  h_9aabb7d8448c0a 65,157,176-181
+docs/SPEC.md
+  h_9aabb7d8448c0a 66-70,84,86-87,90,99-101,109-111,130,144,149,151-172
+docs/VISION.md
+  h_9aabb7d8448c0a 37-38
+src/front/cli/cli.test.ts
+  h_9aabb7d8448c0a 327-382
+src/front/cli/index.ts
+  h_9aabb7d8448c0a 176,574-621,1072-1073
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "bd90d1c69d8c78018d3fa5097699655630848681",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
