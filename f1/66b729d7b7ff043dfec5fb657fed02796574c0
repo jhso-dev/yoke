@@ -1,0 +1,13 @@
+package.json
+  h_9aabb7d8448c0a 33,40-41
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "f166b729d7b7ff043dfec5fb657fed02796574c0",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
