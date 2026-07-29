@@ -30,7 +30,7 @@ import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { inject } from "../../core/inject.js";
 import { deprecate, verify } from "../../core/lifecycle.js";
-import { resolveNs } from "../../core/namespace.js";
+import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import { seedOntology, type TypeDef } from "../../core/ontology.js";
 import {
   personaQuery,
@@ -547,17 +547,21 @@ async function cmdAudit(v: Values, env: Env): Promise<number> {
 }
 
 async function cmdConflicts(v: Values, env: Env): Promise<number> {
+  const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const rels = store.listRelationsByType("conflicts_with");
+    const rels = store.listRelationsByType("conflicts_with", ns);
     if (rels.length === 0) {
       emit(v, "no conflicts", []);
       return 0;
     }
     // Join each pair's two entity summaries onto one line (resolution is via verify/deprecate — no dedicated command).
+    // getEntity is id-based and not ns-filtered, so each resolved side is re-checked against ns.
+    const inNs = (e: Entity | null) =>
+      e && normalizeNs(e.ns) === normalizeNs(ns) ? e : null;
     const items = await Promise.all(
       rels.map(async (r) => {
-        const from = await store.getEntity(r.from);
-        const to = await store.getEntity(r.to);
+        const from = inNs(await store.getEntity(r.from));
+        const to = inNs(await store.getEntity(r.to));
         return { relation: r, from, to };
       }),
     );

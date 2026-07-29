@@ -11,6 +11,7 @@ import {
 } from "node:http";
 import { citation } from "../../core/inject.js";
 import { deprecate, verify } from "../../core/lifecycle.js";
+import { normalizeNs } from "../../core/namespace.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity } from "../../core/types.js";
 import { openStore, type YokeStore } from "../store.js";
@@ -112,10 +113,14 @@ export function createUiHandler(
 
     if (method === "GET" && path === "/api/conflicts") {
       if (!authorize("read") && deny(res)) return;
-      const rels = store.listRelationsByType("conflicts_with");
+      const rels = store.listRelationsByType("conflicts_with", ns);
+      // getEntity is id-based and deliberately not ns-filtered (ids are globally unique), so the
+      // resolved side is checked here — the same guard core applies for the same reason (inject.ts).
       const side = async (id: string) => {
         const e = await store.getEntity(id);
-        return e ? row(e) : { id, missing: true };
+        return e && normalizeNs(e.ns) === normalizeNs(ns)
+          ? row(e)
+          : { id, missing: true };
       };
       const pairs = await Promise.all(
         rels.map(async (r) => ({

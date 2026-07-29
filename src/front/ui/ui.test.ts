@@ -162,3 +162,78 @@ describe("ui API", () => {
     expect(res.status).toBe(404);
   });
 });
+
+// A tenant must never see another tenant's knowledge through a global listing. Before this was
+// pinned, /api/conflicts listed every namespace's pairs (listRelationsByType had no ns), which is
+// the kind of bug a single-namespace fixture cannot see.
+describe("ui API namespace isolation", () => {
+  let tenantServer: Server;
+  let tenantBase: string;
+  let acmeDecision: string;
+
+  beforeAll(async () => {
+    const ont = seedOntology();
+    const s = new SqliteStorage(join(dir, "ns.sqlite"));
+    await s.init();
+    for (const ns of ["acme", "globex"]) {
+      s.saveOntology(ont, ns);
+      const a = await commit(
+        s,
+        ont,
+        {
+          type: "decision",
+          attributes: { conclusion: `${ns} picks redis`, rationale: "r" },
+        },
+        prov,
+        now,
+        { ns },
+      );
+      const b = await commit(
+        s,
+        ont,
+        {
+          type: "decision",
+          attributes: { conclusion: `${ns} picks memcached`, rationale: "r" },
+        },
+        prov,
+        now,
+        { ns },
+      );
+      await commit(
+        s,
+        ont,
+        {
+          type: "conflicts_with",
+          attributes: {},
+          from: b.entity.id,
+          to: a.entity.id,
+        },
+        prov,
+        now,
+        { ns },
+      );
+      if (ns === "acme") acmeDecision = a.entity.id;
+    }
+    tenantServer = createUiServer({
+      store: s,
+      actor: "reviewer",
+      ns: "acme",
+      now: () => now,
+    });
+    await new Promise<void>((r) => tenantServer.listen(0, r));
+    tenantBase = `http://localhost:${(tenantServer.address() as AddressInfo).port}`;
+  });
+  afterAll(() => tenantServer.close());
+
+  it("conflicts shows only this namespace's pairs, resolved within it", async () => {
+    const pairs = await fetch(`${tenantBase}/api/conflicts`).then((r) =>
+      r.json(),
+    );
+    expect(pairs).toHaveLength(1);
+    const summaries = [pairs[0].from.summary, pairs[0].to.summary];
+    expect(summaries.every((s: string) => s.startsWith("acme"))).toBe(true);
+    expect(summaries.some((s: string) => s.includes("globex"))).toBe(false);
+    // The resolved side is a real row, not a "missing" stub — the ns check must not over-reject.
+    expect([pairs[0].from.id, pairs[0].to.id]).toContain(acmeDecision);
+  });
+});

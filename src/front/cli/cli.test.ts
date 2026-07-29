@@ -275,6 +275,13 @@ describe("runCli", () => {
     expect(await runCli(["init", "--db", db2])).toBe(0);
     expect(await runCli(["conflicts", "--db", db2])).toBe(0);
     expect(logs.at(-1)).toBe("no conflicts");
+
+    // The pair above lives in the default namespace, so a tenant must not see it — a global
+    // listing that ignores ns hands one tenant another's decisions.
+    expect(
+      await runCli(["conflicts", "--db", db, "--ns", "acme", "--json"]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toEqual([]);
   });
 
   it("persona writes SKILL.md for a person to --out dir", async () => {

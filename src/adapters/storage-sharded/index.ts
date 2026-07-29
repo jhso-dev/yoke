@@ -45,7 +45,7 @@ export interface YokeStore extends StoragePort {
   saveOntology(defs: TypeDef[], ns?: string | null): void;
   loadOntology(ns?: string | null): TypeDef[];
   listByStatus(status: string, ns?: string | null): Entity[];
-  listRelationsByType(type: string): Relation[];
+  listRelationsByType(type: string, ns?: string | null): Relation[];
   listHistory(id: string): Entity[];
   logAudit(event: AuditEvent): void;
   listAudit(since?: string): AuditEvent[];
@@ -200,9 +200,16 @@ export class ShardedStorage implements YokeStore {
     );
   }
 
-  listRelationsByType(type: string): Relation[] {
+  // ns-scoped goes to the owner shard only — fanning out would return peer tenants' relations,
+  // which is exactly the leak this parameter exists to close. Mirrors listByStatus above.
+  listRelationsByType(type: string, ns?: string | null): Relation[] {
+    if (normalizeNs(ns) !== null)
+      return (
+        (this.ownerOf(ns).store as ExtStore).listRelationsByType?.(type, ns) ??
+        []
+      );
     return this.members.flatMap(
-      (m) => (m.store as ExtStore).listRelationsByType?.(type) ?? [],
+      (m) => (m.store as ExtStore).listRelationsByType?.(type, ns) ?? [],
     );
   }
 

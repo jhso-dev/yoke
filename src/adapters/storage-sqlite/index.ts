@@ -377,16 +377,18 @@ export class SqliteStorage implements StoragePort {
   }
 
   /** Latest-version relations of a given type (outside StoragePort — for CLI conflicts).
-   * neighbors is scoped to a specific id and doesn't fit a global listing, so this is an adapter extension. */
-  listRelationsByType(type: string): Relation[] {
+   * neighbors is scoped to a specific id and doesn't fit a global listing, so this is an adapter
+   * extension. ns is filtered here for the same reason listByStatus filters it: this is a global
+   * listing, and a listing that ignores the namespace hands one tenant another tenant's rows. */
+  listRelationsByType(type: string, ns?: string | null): Relation[] {
     const rows = this.db
       .prepare(
         `SELECT r.* FROM relations r
          WHERE r.version = (SELECT MAX(version) FROM relations WHERE id = r.id)
-           AND r.type = ?
+           AND r.type = ? AND r.ns IS ?
          ORDER BY r.created_at`,
       )
-      .all(type) as RelationRow[];
+      .all(type, normalizeNs(ns)) as RelationRow[];
     return rows.map(rowToRelation);
   }
 
