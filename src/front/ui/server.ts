@@ -189,9 +189,28 @@ export function createUiServer(deps: UiDeps): Server {
   });
 }
 
+/** The default bind address. Loopback, not every interface: node's `listen(port)` binds `::`/
+ * `0.0.0.0`, so an ungated workbench on a laptop was reachable by anyone on the same network while
+ * the console said "localhost". Widening is an explicit `--host`. */
+export const DEFAULT_HOST = "127.0.0.1";
+
+/** Whether an address reaches only this machine (so serving it ungated is safe). */
+export function isLoopback(host: string): boolean {
+  return (
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host === "localhost" ||
+    host.startsWith("127.")
+  );
+}
+
 /** listen() that rejects on bind failure — EADDRINUSE becomes a one-line actionable message
  * (runCli's catch prints it and exits 1; no stack trace). Shared with serve mode. */
-export function listen(server: Server, port: number): Promise<void> {
+export function listen(
+  server: Server,
+  port: number,
+  host: string = DEFAULT_HOST,
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     server.once("error", (e: NodeJS.ErrnoException) => {
       reject(
@@ -200,7 +219,7 @@ export function listen(server: Server, port: number): Promise<void> {
           : e,
       );
     });
-    server.listen(port, resolve);
+    server.listen(port, host, resolve);
   });
 }
 
@@ -211,15 +230,23 @@ export async function runUi(
   env: Env,
   ns?: string | null,
   shards?: string,
+  host: string = DEFAULT_HOST,
 ): Promise<Server> {
   const store = await openStore({ db, shards }, env);
   await store.init();
   const actor = env.YOKE_ACTOR ?? "yoke:system";
   const server = createUiServer({ store, actor, ns: ns ?? null });
   server.on("close", () => store.close());
-  await listen(server, port);
+  await listen(server, port, host);
   const addr = server.address();
   const bound = typeof addr === "object" && addr ? addr.port : port;
-  console.log(`yoke ui listening: http://localhost:${bound}`);
+  // `yoke ui` has no authentication at all, so a non-loopback bind is a decision, not a detail.
+  // It is allowed (a container cannot port-forward to a loopback-bound process) but never quiet.
+  if (!isLoopback(host))
+    process.stderr.write(
+      `yoke ui: bound to ${host} with NO authentication — anyone who can reach this port can read\n` +
+        `  and deprecate knowledge. Use 'yoke serve --auth --host ${host}' to expose it safely.\n`,
+    );
+  console.log(`yoke ui listening: http://${host}:${bound}`);
   return server;
 }

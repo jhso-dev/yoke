@@ -151,7 +151,7 @@ yoke inject <query> [--include-draft] [--scope <id>]
 yoke conflicts | ontology <list|add-type> | persona <person-id>
 yoke history <id> | audit [--since ts]
 yoke connect github-pr|slack|notes|rdb ...
-yoke mcp | ui | serve [--auth] | token <create|list|revoke>
+yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup | restore | export [--until ts]   # --shards <file> 로 백엔드 연합
 yoke backfill                                 # 누락된 저작 엣지 생성 (업그레이드 경로)
 ```

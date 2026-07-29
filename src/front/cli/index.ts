@@ -50,6 +50,7 @@ type Values = {
   actor?: string;
   ns?: string;
   port?: string;
+  host?: string;
   attr?: string[];
   version?: string;
   type?: string;
@@ -81,6 +82,7 @@ const OPTIONS = {
   actor: { type: "string" },
   ns: { type: "string" },
   port: { type: "string" },
+  host: { type: "string" },
   attr: { type: "string", multiple: true },
   version: { type: "string" },
   type: { type: "string" },
@@ -172,7 +174,7 @@ getting started:
 
 knowledge:  get, search, history, conflicts, deprecate, ontology, persona
 capture:    connect github-pr|slack|notes|rdb
-serving:    mcp, ui, serve, token
+serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
 data:       backup, restore, export, audit, backfill
 
 common options: --db <path> --ns <namespace> --actor <id> --json
@@ -831,6 +833,7 @@ async function cmdUi(v: Values, env: Env): Promise<number> {
     env,
     resolveNs(v.ns, env),
     resolveShards(v, env),
+    v.host ?? env.YOKE_HOST,
   );
   await new Promise<void>((resolve) => {
     process.on("SIGINT", () => server.close(() => resolve()));
@@ -848,6 +851,7 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
     refreshSec:
       v["refresh-sec"] === undefined ? undefined : Number(v["refresh-sec"]),
     shards: resolveShards(v, env),
+    host: v.host ?? env.YOKE_HOST,
   });
   await new Promise<void>((resolve) => {
     process.on("SIGINT", () => server.close(() => resolve()));

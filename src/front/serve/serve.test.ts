@@ -24,7 +24,8 @@ import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { verify } from "../../core/lifecycle.js";
 import { runCli } from "../cli/index.js";
-import { createServeServer } from "./index.js";
+import { isLoopback } from "../ui/server.js";
+import { createServeServer, runServe } from "./index.js";
 import { makeOidcVerifier, type OidcConfig } from "./oidc.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-serve-"));
@@ -444,6 +445,30 @@ describe("read replica (PLAN-V2 11.2)", () => {
     await client2.close();
 
     run.close();
+  });
+});
+
+describe("bind address", () => {
+  it("classifies loopback addresses", () => {
+    for (const h of ["127.0.0.1", "127.0.1.5", "::1", "localhost"])
+      expect(isLoopback(h)).toBe(true);
+    for (const h of ["0.0.0.0", "::", "192.168.1.10", "example.test"])
+      expect(isLoopback(h)).toBe(false);
+  });
+
+  it("refuses to bind a non-loopback address without auth", async () => {
+    const db = await freshDb("bind");
+    await expect(
+      runServe(db, 0, {}, { host: "0.0.0.0", auth: false }),
+    ).rejects.toThrow(/refusing to bind 0\.0\.0\.0 without authentication/);
+  });
+
+  it("binds loopback by default — not every interface", async () => {
+    const db = await freshDb("bind-default");
+    const server = await runServe(db, 0, {}, {});
+    const addr = server.address();
+    expect(typeof addr === "object" && addr?.address).toBe("127.0.0.1");
+    await new Promise<void>((r) => server.close(() => r()));
   });
 });
 

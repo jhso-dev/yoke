@@ -152,7 +152,7 @@ yoke inject <query> [--include-draft] [--scope <id>]
 yoke conflicts | ontology <list|add-type> | persona <person-id>
 yoke history <id> | audit [--since ts]
 yoke connect github-pr|slack|notes|rdb ...
-yoke mcp | ui | serve [--auth] | token <create|list|revoke>
+yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup | restore | export [--until ts]   # --shards <file> federates backends
 yoke backfill                                 # derive missing authorship edges (upgrade path)
 ```

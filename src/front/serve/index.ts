@@ -27,7 +27,12 @@ import { verify } from "../../core/lifecycle.js";
 import { resolveNs } from "../../core/namespace.js";
 import { createYokeMcpServer } from "../mcp/index.js";
 import { openStore, type YokeStore } from "../store.js";
-import { createUiHandler, listen } from "../ui/server.js";
+import {
+  createUiHandler,
+  DEFAULT_HOST,
+  isLoopback,
+  listen,
+} from "../ui/server.js";
 import {
   makeOidcVerifier,
   type OidcConfig,
@@ -285,9 +290,19 @@ export async function runServe(
     refreshSec?: number;
     /** Sharded composite storage (PLAN-V2 12.2). Ignored in replica mode (per-file snapshot). */
     shards?: string;
+    /** Bind address. Defaults to loopback — widening is explicit, and requires auth. */
+    host?: string;
   } = {},
 ): Promise<Server> {
   const auth = opts.auth || env.YOKE_AUTH === "on";
+  const host = opts.host ?? DEFAULT_HOST;
+  // serve CAN authenticate, so there is no reason to ever expose it unauthenticated. Refuse rather
+  // than warn: the whole point of binding wide is that other people can reach it.
+  if (!isLoopback(host) && !auth)
+    throw new Error(
+      `refusing to bind ${host} without authentication — add --auth (or YOKE_AUTH=on), ` +
+        `then mint a credential with 'yoke token create --scopes read'`,
+    );
   const common = {
     defaultActor: env.YOKE_ACTOR ?? "yoke:system",
     ns: opts.ns ?? resolveNs(undefined, env),
@@ -324,11 +339,11 @@ export async function runServe(
   const server = createServeServer({ ...common, store, readOnly, replica });
   // Replica owns its own store lifecycle (it swaps stores on refresh) — see createServeServer.
   if (!replica) server.on("close", () => store.close());
-  await listen(server, port);
+  await listen(server, port, host);
   const addr = server.address();
   const bound = typeof addr === "object" && addr ? addr.port : port;
   console.log(
-    `yoke serve listening: http://localhost:${bound}  (auth ${auth ? "on" : "off"}, MCP at POST /mcp${replica ? `, read-only replica of ${opts.replicaOf}` : ""})`,
+    `yoke serve listening: http://${host}:${bound}  (auth ${auth ? "on" : "off"}, MCP at POST /mcp${replica ? `, read-only replica of ${opts.replicaOf}` : ""})`,
   );
   return server;
 }

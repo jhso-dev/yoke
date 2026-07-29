@@ -8,7 +8,7 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 1. **The core imports no adapter.** Dependencies always point one way: adapter → core.
 2. **Every storage backend implements the same storage port interface and passes a shared conformance test suite.** Backend-specific behavior must never leak into the core.
 3. **There are exactly two front adapters: the MCP server and a thin CLI.** We do not build a separate adapter per AI tool (one for Claude, one for Codex, and so on) — they are all MCP clients.
-4. **v1 is single-user and local-first.** Multi-tenancy, auth, and distribution are out of scope — see the exclusion list in docs/VISION.md and do not add them early.
+4. **Local-first by default, and the local path never asks for a credential.** `yoke`, `yoke mcp` and `yoke ui` are single-user and ungated. Multi-tenancy, auth and RBAC exist (v3.0) but activate only under `yoke serve --auth`. Servers bind loopback by default: exposing a non-loopback interface is an explicit `--host`, and `serve` refuses it without auth.
 5. **Knowledge enters only through the core's single commit path, and context injection injects only verified knowledge by default.** For the detailed rules see docs/KNOWLEDGE-POLICY.md — lenient on write, strict on injection.
 
 ## Terminology
