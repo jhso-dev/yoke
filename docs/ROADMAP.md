@@ -69,6 +69,15 @@ port capabilities, etc. See SPEC).
 - [x] ontology browser (visualize types and relations)
 - [x] persona preview
 
+> Note (2026-07-29): the JSON API behind these four screens shipped and is covered by
+> tests, but **the shipped client script never parsed** — an unterminated string literal
+> in `src/front/ui/static/index.html.ts` made the whole `<script>` block a SyntaxError, so
+> no tab switched and no row loaded in a browser. `ui.test.ts` asserted HTML substrings
+> only, so CI stayed green. The boxes stay checked for the API surface they name; the
+> browser half is carried into v5.0 as an explicit deliverable rather than quietly
+> rewritten here. Lesson recorded in the v5.0 DoD: a substring assertion is never
+> evidence that a UI works.
+
 ## v3.0 — enterprise (multi-tenancy, auth)
 
 - [x] Server mode (remote access: HTTP + MCP remote)
@@ -83,12 +92,6 @@ port capabilities, etc. See SPEC).
 - [x] Replication (read replicas — injection is read-dominated)
 - [x] Backup/restore, PITR (built on the append-only history)
 - [x] Sharding — tenant-boundary shards + multi-backend federation (--shards, v3.6)
-
-## Version-promotion rule
-
-Don't start a higher version before the lower one is shipped and verified.
-When market signals arrive (the first enterprise customer, the second org), the
-ordering within v2/v3 can be adjusted.
 
 ## v4.0 — shared working context
 
@@ -106,3 +109,38 @@ ordering within v2/v3 can be adjusted.
       ABC-12345 work"), which resolves the key to a workstream and pins it as the
       session's default injection/capture scope. No branch-regex guessing — branch
       names carry the child task key, not the parent workstream everyone shares.
+
+## v5.0 — knowledge viewing (the web tier)
+
+- [ ] StoragePort enumeration: bounded, namespace-scoped entity + relation listing
+      added to the port, with conformance cases. sqlite, kuzu, qdrant and sharded all
+      pass — the suite is the contract, not any one engine's features (invariant 2)
+- [ ] Entity detail screen — one record: attributes, every version, its relations,
+      its authorship edge, computed freshness, citation
+- [ ] Injection preview screen — exactly what `inject()` would return for a query
+      (optionally scope-anchored), cited, and audit-logged per preview: a preview is
+      an injection, so it leaves the same trail as one
+- [ ] Graph explorer — force-directed view of the entity/relation graph, navigable
+      from any node, bounded by the enumeration page limit and honest about truncation
+- [ ] Audit log viewer — the append-only trail, filterable by actor, action and time.
+      The screen that makes "who was told what, when" answerable without shell access
+- [ ] Team access: `yoke serve --auth` browser login over the credentials we already
+      mint, a viewer that does NOT carry `verify` (done in v5.0 groundwork), and a
+      CSP / body-limit / static-asset baseline
+- [ ] Frontend rebuild: Next.js `output: 'export'` + React + d3-force → one static
+      bundle, still served by the existing node:http server on one port
+- [ ] Install UX holds: `npm ci` size and wall time measured before and after, and a
+      failed web build still leaves a working CLI
+- [ ] Regression closed: a check that *executes* the shipped client bundle, not one
+      that greps the HTML for markers (see the v2.5 note)
+
+Human-verification list (the docs/BACKENDS.md pattern): all eight screens loaded in a
+real browser against a real DB; one `--auth` login with a read-only token, confirming
+verify is refused; one graph-explorer open against a ≥100k-row DB while `POST /mcp`
+keeps answering.
+
+## Version-promotion rule
+
+Don't start a higher version before the lower one is shipped and verified.
+When market signals arrive (the first enterprise customer, the second org), the
+ordering within v2/v3 can be adjusted.
