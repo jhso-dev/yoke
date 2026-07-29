@@ -36,6 +36,13 @@ directional decisions.
 - MCP connection: the token scope carries the three axes above. An agent is
   write-only by default (can only stage drafts, cannot verify) — enforcing the policy
   that a human owns the gate.
+- A human is **read-only by default too**. Authenticating through SSO proves identity,
+  not authority: a verified OIDC subject is granted `read` on its namespace and nothing
+  more. `write` and `verify` come only from an explicit grant carried by the token — a
+  `scope`/`scopes` claim holding yoke scopes, validated against the scope grammar and
+  confined to the token's `ns` claim (a claim naming another namespace is dropped).
+  Otherwise enabling auth so a team can *browse* would hand everyone with a company
+  account the power to promote drafts into every agent's context.
 
 ## Audit log (staged early, in v2.0)
 

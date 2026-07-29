@@ -25,7 +25,7 @@ import { commit } from "../../core/commit.js";
 import { verify } from "../../core/lifecycle.js";
 import { runCli } from "../cli/index.js";
 import { createServeServer } from "./index.js";
-import type { OidcConfig } from "./oidc.js";
+import { makeOidcVerifier, type OidcConfig } from "./oidc.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-serve-"));
 const now = () => "2026-07-13T00:00:00Z";
@@ -216,6 +216,7 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
   let store: SqliteStorage;
   let run: Running;
   let sign: (claims: Record<string, unknown>, exp: string) => Promise<string>;
+  let oidc: OidcConfig;
   const issuer = "https://idp.test/";
   const audience = "yoke";
 
@@ -228,7 +229,7 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
     jwk.kid = "test-key";
     jwk.alg = "RS256";
     const jwks = createLocalJWKSet({ keys: [jwk] });
-    const oidc: OidcConfig = { issuer, audience, jwks };
+    oidc = { issuer, audience, jwks };
     sign = (claims, exp) =>
       new SignJWT(claims)
         .setProtectedHeader({ alg: "RS256", kid: "test-key" })
@@ -264,6 +265,66 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
     const person = await store.getEntity("oidc:alice@test");
     expect(person?.type).toBe("person");
     expect(person?.status).toBe("verified");
+  });
+
+  it("a bare login can read but cannot verify — an SSO account is not a governance grant", async () => {
+    const jwt = await sign({ sub: "user-viewer", email: "viewer@test" }, "2h");
+    expect((await get(jwt)).status).toBe(200);
+    const res = await fetch(`${run.base}/api/verify`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${jwt}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ ids: ["oidc:viewer@test"] }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("honours a verify grant carried by the token's scope claim", async () => {
+    const jwt = await sign(
+      { sub: "user-gov", email: "gov@test", scope: "read verify" },
+      "2h",
+    );
+    expect((await get(jwt)).status).toBe(200);
+    const res = await fetch(`${run.base}/api/verify`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${jwt}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ ids: ["oidc:gov@test"] }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  // Asserted on the verifier rather than over HTTP: the grant confinement rules are what matter,
+  // and a 403 through the API would also pass for the wrong reason (the server's own ns not
+  // matching), so it would not isolate the cross-tenant drop.
+  it("confines granted scopes to the ns claim and ignores non-yoke scopes", async () => {
+    const verify = makeOidcVerifier(oidc);
+    // A real IdP sends openid/profile/email — none of it is a grant. `read` is unqualified so it is
+    // narrowed to the token's tenant. `globex:verify` names another tenant and is dropped outright.
+    const scoped = await sign(
+      {
+        sub: "cross",
+        ns: "acme",
+        scope: "openid profile email read acme:decision:verify globex:verify",
+      },
+      "2h",
+    );
+    expect((await verify(scoped))?.scopes).toEqual([
+      "acme:read",
+      "acme:decision:verify",
+    ]);
+    // No ns claim = an all-namespace identity (pre-existing design), so grants pass through as-is.
+    const global = await sign({ sub: "glob", scope: "read verify" }, "2h");
+    expect((await verify(global))?.scopes).toEqual(["read", "verify"]);
+    // A `scopes` array works too, and a token carrying nothing grants nothing.
+    const arr = await sign({ sub: "arr", scopes: ["write"] }, "2h");
+    expect((await verify(arr))?.scopes).toEqual(["write"]);
+    const bare = await sign({ sub: "bare" }, "2h");
+    expect((await verify(bare))?.scopes).toEqual([]);
   });
 
   it("expired JWT is rejected (401)", async () => {

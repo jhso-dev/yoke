@@ -145,12 +145,16 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       if (sub) {
         const id = `oidc:${sub.subject}`;
         await provisionPerson(id, sub.subject);
-        // OIDC humans get read+write+verify on their ns claim (or all-ns when unclaimed).
-        // ponytail: coarse — the JWT grants the full governance triple, not per-type scopes.
-        // Upgrade to claim-driven fine-grained scopes when an IdP actually carries them.
-        const scopes = sub.ns
-          ? [`${sub.ns}:read`, `${sub.ns}:write`, `${sub.ns}:verify`]
-          : ["read", "write", "verify"];
+        // A verified identity is a VIEWER by default. write and verify are the governance
+        // permissions — ENTERPRISE.md: "the verify permission IS the knowledge-governance
+        // permission" — so they come only from an explicit grant, never from the mere fact of
+        // holding an SSO account. Otherwise turning on --auth so the team can browse would hand
+        // every new hire the power to promote drafts into every agent's context.
+        // The IdP already owns identity, so it owns role too: a `scope`/`scopes` claim carrying
+        // yoke scopes is honoured (validated and confined to the ns claim, see claimedScopes).
+        const scopes = sub.scopes.length
+          ? sub.scopes
+          : [sub.ns ? `${sub.ns}:read` : "read"];
         return { actor: id, scopes };
       }
     }
