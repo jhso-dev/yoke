@@ -402,9 +402,9 @@ async function cmdSearch(
 async function cmdReview(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const drafts = store
-      .listByStatus("draft", ns)
-      .filter((e) => v.type === undefined || e.type === v.type);
+    const drafts = (
+      await store.listEntities({ status: "draft", ns, type: v.type })
+    ).items;
     if (drafts.length === 0) {
       emit(v, "no drafts", []);
       return 0;
@@ -427,7 +427,9 @@ async function cmdVerify(
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     const ids = v["all-drafts"]
-      ? store.listByStatus("draft", ns).map((e) => e.id)
+      ? (await store.listEntities({ status: "draft", ns })).items.map(
+          (e) => e.id,
+        )
       : positionals;
     if (ids.length === 0) {
       console.error("usage: yoke verify <id...> [--all-drafts] [--actor a]");
@@ -549,7 +551,8 @@ async function cmdAudit(v: Values, env: Env): Promise<number> {
 async function cmdConflicts(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const rels = store.listRelationsByType("conflicts_with", ns);
+    const rels = (await store.listRelations({ type: "conflicts_with", ns }))
+      .items;
     if (rels.length === 0) {
       emit(v, "no conflicts", []);
       return 0;
@@ -589,11 +592,9 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
     const ts = now();
     let scanned = 0;
     let created = 0;
-    const ids = new Set(
-      ["draft", "verified", "deprecated"].flatMap((s) =>
-        store.listByStatus(s, ns).map((e) => e.id),
-      ),
-    );
+    // One unfiltered enumeration, not a union over the three statuses — it cannot miss a status
+    // someone adds later, which the union quietly would.
+    const ids = (await store.listEntities({ ns })).items.map((e) => e.id);
     for (const id of ids) {
       scanned++;
       const authored = await store.neighbors(id, "authored_by", "out");

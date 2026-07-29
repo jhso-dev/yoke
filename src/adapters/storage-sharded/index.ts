@@ -11,14 +11,17 @@
 //   - similar: fan out to members that have the capability, concat, re-rank the merged hits by cosine
 //     to the query embedding, slice k. Exposed ONLY if at least one member implements it.
 //
-// The extension surface (listByStatus/listHistory/listRelationsByType/ontology/audit/
-// tokens) is the sqlite-shaped surface used by CLI/UI/serve. ns-scoped calls go to the owner shard;
-// un-scoped listing calls fan out (feature-detected via typeof — kuzu/qdrant members simply skip).
-// Audit + tokens live on the default shard (a single audit/token stream).
-// ponytail: the extension surface assumes the default shard (and any ns owner it targets) is a
-// sqlite backend. A kuzu/qdrant member participates in the core port but not in the sqlite-only
-// extensions (it has no listByStatus/tokens, and its ontology methods are async). Give a tenant on a
-// non-sqlite backend its own serve process if it needs review/audit/token features.
+//   - enumeration (listEntities/listRelations): ns-scoped → owner shard; un-scoped → fan out and
+//     merge by id. `after` is a global predicate over globally unique ULIDs, so no per-shard cursor
+//     map is needed (see listMerged).
+//
+// The remaining extension surface (listHistory/ontology/audit/tokens) is the sqlite-shaped surface
+// used by CLI/UI/serve. Audit + tokens live on the default shard (a single audit/token stream).
+// ponytail: that surface assumes the default shard (and any ns owner it targets) is a sqlite
+// backend. A kuzu/qdrant member participates in the core port — which since v5.0 includes
+// enumeration, so the review queue and conflicts view work there too — but not in the sqlite-only
+// extensions (no tokens, and its ontology methods are async). Give a tenant on a non-sqlite backend
+// its own serve process if it needs audit/token features.
 //
 // Duplicate/contradiction detection stays intra-shard automatically: commit() calls this.similar,
 // which here fans out across ALL capable shards — so a duplicate WARNING can cross shard boundaries
@@ -49,8 +52,6 @@ export type { AuditEvent, TokenInfo };
 export interface YokeStore extends StoragePort {
   saveOntology(defs: TypeDef[], ns?: string | null): void;
   loadOntology(ns?: string | null): TypeDef[];
-  listByStatus(status: string, ns?: string | null): Entity[];
-  listRelationsByType(type: string, ns?: string | null): Relation[];
   listHistory(id: string): Entity[];
   logAudit(event: AuditEvent): void;
   listAudit(since?: string): AuditEvent[];
@@ -230,29 +231,6 @@ export class ShardedStorage implements YokeStore {
     const target =
       normalizeNs(ns) !== null ? this.ownerOf(ns) : this.defaultShard;
     return (target.store as ExtStore).loadOntology?.(ns) ?? [];
-  }
-
-  listByStatus(status: string, ns?: string | null): Entity[] {
-    if (normalizeNs(ns) !== null)
-      return (
-        (this.ownerOf(ns).store as ExtStore).listByStatus?.(status, ns) ?? []
-      );
-    return this.members.flatMap(
-      (m) => (m.store as ExtStore).listByStatus?.(status, ns) ?? [],
-    );
-  }
-
-  // ns-scoped goes to the owner shard only — fanning out would return peer tenants' relations,
-  // which is exactly the leak this parameter exists to close. Mirrors listByStatus above.
-  listRelationsByType(type: string, ns?: string | null): Relation[] {
-    if (normalizeNs(ns) !== null)
-      return (
-        (this.ownerOf(ns).store as ExtStore).listRelationsByType?.(type, ns) ??
-        []
-      );
-    return this.members.flatMap(
-      (m) => (m.store as ExtStore).listRelationsByType?.(type, ns) ?? [],
-    );
   }
 
   listHistory(id: string): Entity[] {

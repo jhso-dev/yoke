@@ -414,37 +414,6 @@ export class SqliteStorage implements StoragePort {
     tx(defs);
   }
 
-  /** Filter latest-version entities by status (outside StoragePort — for CLI review / verify --all-drafts).
-   * search requires text so it doesn't fit, and adding list(filter) to StoragePort would change the
-   * contract, so this is an adapter extension method like saveOntology. */
-  listByStatus(status: string, ns?: string | null): Entity[] {
-    const rows = this.db
-      .prepare(
-        `SELECT e.* FROM entities e
-         WHERE e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)
-           AND e.status = ? AND e.ns IS ?
-         ORDER BY e.created_at`,
-      )
-      .all(status, normalizeNs(ns)) as EntityRow[];
-    return rows.map(rowToEntity);
-  }
-
-  /** Latest-version relations of a given type (outside StoragePort — for CLI conflicts).
-   * neighbors is scoped to a specific id and doesn't fit a global listing, so this is an adapter
-   * extension. ns is filtered here for the same reason listByStatus filters it: this is a global
-   * listing, and a listing that ignores the namespace hands one tenant another tenant's rows. */
-  listRelationsByType(type: string, ns?: string | null): Relation[] {
-    const rows = this.db
-      .prepare(
-        `SELECT r.* FROM relations r
-         WHERE r.version = (SELECT MAX(version) FROM relations WHERE id = r.id)
-           AND r.type = ? AND r.ns IS ?
-         ORDER BY r.created_at`,
-      )
-      .all(type, normalizeNs(ns)) as RelationRow[];
-    return rows.map(rowToRelation);
-  }
-
   /** All versions of an id, ascending (outside StoragePort — for CLI history, PLAN 8.4).
    * getEntity returns one version; the append-only rows ARE the change audit, this just exposes them. */
   listHistory(id: string): Entity[] {

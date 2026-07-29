@@ -158,7 +158,8 @@ async function run(): Promise<Report> {
   }
 
   // Measurement 2: conflict miss rate. Check in the DB whether each planted pair got a conflicts_with relation.
-  const conflictRels = store.listRelationsByType("conflicts_with");
+  const conflictRels = (await store.listRelations({ type: "conflicts_with" }))
+    .items;
   const hasEdge = (x: string, y: string): boolean =>
     conflictRels.some(
       (r) => (r.from === x && r.to === y) || (r.from === y && r.to === x),

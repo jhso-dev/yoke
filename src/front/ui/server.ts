@@ -107,13 +107,15 @@ export function createUiHandler(
       if (!authorize("read") && deny(res)) return;
       // Only this reviewer's raw draft list — no peers' pending approvals (Delphi independence
       // guard, see the note in index.html). Hook for v3 multi-reviewer aggregation.
-      sendJson(res, 200, store.listByStatus("draft", ns).map(row));
+      const drafts = await store.listEntities({ status: "draft", ns });
+      sendJson(res, 200, drafts.items.map(row));
       return;
     }
 
     if (method === "GET" && path === "/api/conflicts") {
       if (!authorize("read") && deny(res)) return;
-      const rels = store.listRelationsByType("conflicts_with", ns);
+      const rels = (await store.listRelations({ type: "conflicts_with", ns }))
+        .items;
       // getEntity is id-based and deliberately not ns-filtered (ids are globally unique), so the
       // resolved side is checked here — the same guard core applies for the same reason (inject.ts).
       const side = async (id: string) => {
