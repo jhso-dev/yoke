@@ -127,6 +127,32 @@ describe("inject scoped (v4.0)", () => {
     );
   });
 
+  it("excludes whoever filed the anchor (the anchor's own authorship is not its context)", async () => {
+    // The gate records authorship on every entity, so the anchor has an authored_by edge pointing at
+    // its author. That person is metadata about the anchor, not knowledge in the working context.
+    await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Alice" } },
+      prov,
+      now,
+      { existingId: "alice" },
+    );
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "workstream", attributes: { title: "payments" } },
+      { ...prov, actor: "alice" },
+      now,
+    );
+    const fact = await addFact("delta linked verified");
+    await link(fact, ws.id);
+    await verify(port, [ws.id, fact, "alice"], "alice", now);
+
+    const { items } = await inject(port, ont, "", now, { scope: ws.id });
+    expect(items.map((i) => i.entity.id)).toEqual([fact]);
+  });
+
   it("with a query, returns all query hits with scope-linked ones first (scope prioritizes, not imprisons)", async () => {
     const s = await scene();
     const { items } = await inject(port, ont, "alpha", now, { scope: s.ws });

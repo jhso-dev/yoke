@@ -61,6 +61,10 @@ export async function inject(
       opts?.scopeRel,
       opts?.scopeDir,
     )) {
+      // The anchor's own author is metadata about the anchor, not knowledge in its context. Without
+      // this, every anchored injection would carry whoever filed the anchor (since the gate records
+      // authorship on every entity). Authorship pointing AT the anchor is the persona hop and stays.
+      if (r.type === "authored_by" && r.from === scope) continue;
       const other: string = r.from === scope ? r.to : r.from;
       if (other !== scope) hopIds.add(other);
     }
