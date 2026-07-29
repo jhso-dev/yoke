@@ -216,14 +216,20 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       return;
     }
 
-    const gated = auth && (path === "/mcp" || path.startsWith("/api/"));
+    // /api/meta is the one API route that must answer without a credential: it is how the browser
+    // learns a credential is needed, and a static export has no middleware to tell it. It is
+    // authenticated OPTIONALLY — a valid Bearer gets the real principal, none gets deny-all — so it
+    // still cannot be used to read actor or namespace anonymously.
+    const optional = path === "/api/meta";
+    const gated =
+      auth && (path === "/mcp" || path.startsWith("/api/")) && !optional;
 
     let actor = defaultActor;
     let authorize: Authorize = ALLOW_ALL;
-    if (gated) {
+    if (gated || (auth && optional)) {
       const cred = bearer(req);
       const principal = cred ? await authenticate(cred) : null;
-      if (!principal) {
+      if (!principal && !optional) {
         res.writeHead(401, {
           "content-type": "application/json; charset=utf-8",
           "www-authenticate": "Bearer",
@@ -231,8 +237,13 @@ export function createServeServer(deps: ServeDeps): ServeServer {
         res.end(JSON.stringify({ error: "unauthorized" }));
         return;
       }
-      actor = principal.actor;
-      authorize = (action, type) => allowed(principal.scopes, ns, type, action);
+      if (principal) {
+        actor = principal.actor;
+        authorize = (action, type) =>
+          allowed(principal.scopes, ns, type, action);
+      } else {
+        authorize = () => false; // optional route, no credential — reveal nothing
+      }
     }
     // Replica: deny write/verify regardless of scopes (wraps whatever base authorize resolved above).
     if (readOnly) {
@@ -252,6 +263,8 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       now,
       authorize,
       webRoot: deps.webRoot,
+      authRequired: auth,
+      readOnly,
     })(req, res);
   }
 

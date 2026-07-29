@@ -36,6 +36,12 @@ export interface UiDeps {
   /** Directory holding the built web bundle. Injectable so tests point at a fixture and never
    * depend on a build existing (CI runs tests before build). Defaults to the resolved location. */
   webRoot?: string | null;
+  /** Whether this deployment requires a credential — reported by /api/meta so the shell knows to
+   * show a login. Set by serve mode; `yoke ui` leaves it false (local single-user). */
+  authRequired?: boolean;
+  /** Read replica: the client disables mutation controls up front rather than letting people
+   * discover replica mode by clicking and getting a 409. */
+  readOnly?: boolean;
 }
 
 /** Where the built bundle lives: the published layout first, then the source checkout, so
@@ -171,6 +177,20 @@ export function createUiHandler(
     if (method === "GET" && path === "/") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(html);
+      return;
+    }
+
+    // Ungated on purpose: the shell must learn whether a credential is needed BEFORE it has one,
+    // and a static export has no middleware to tell it. Carries no knowledge — and when the caller
+    // is unauthenticated it withholds actor and ns too, so it cannot be used to enumerate tenants.
+    if (method === "GET" && path === "/api/meta") {
+      const authenticated = authorize("read");
+      sendJson(res, 200, {
+        auth: deps.authRequired ?? false,
+        readOnly: deps.readOnly ?? false,
+        ns: authenticated ? ns : null,
+        actor: authenticated ? actor : null,
+      });
       return;
     }
 

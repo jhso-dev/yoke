@@ -448,6 +448,56 @@ describe("read replica (PLAN-V2 11.2)", () => {
   });
 });
 
+describe("meta under auth", () => {
+  it("answers without a credential but reveals nothing, and identifies a real one", async () => {
+    const db = await freshDb("meta");
+    const store = new SqliteStorage(db);
+    await store.init();
+    const { token } = store.createToken({
+      name: "reader",
+      scopes: ["read"],
+      created_at: now(),
+    });
+    const run = await listen(
+      createServeServer({
+        store,
+        defaultActor: "yoke:system",
+        auth: true,
+        ns: "acme",
+        now,
+      }),
+    );
+
+    // Unauthenticated: says a credential is required, and withholds actor and ns — otherwise this
+    // route would be an anonymous way to enumerate tenants.
+    const anon = await fetch(`${run.base}/api/meta`);
+    expect(anon.status).toBe(200);
+    expect(await anon.json()).toEqual({
+      auth: true,
+      readOnly: false,
+      ns: null,
+      actor: null,
+    });
+
+    // With a credential it identifies the principal.
+    const known = await fetch(`${run.base}/api/meta`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(await known.json()).toEqual({
+      auth: true,
+      readOnly: false,
+      ns: "acme",
+      actor: "token:reader",
+    });
+
+    // Every OTHER api route still requires one.
+    expect((await fetch(`${run.base}/api/review`)).status).toBe(401);
+
+    run.close();
+    store.close();
+  });
+});
+
 describe("bind address", () => {
   it("classifies loopback addresses", () => {
     for (const h of ["127.0.0.1", "127.0.1.5", "::1", "localhost"])

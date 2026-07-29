@@ -304,6 +304,17 @@ describe("ui API", () => {
     expect(wrongType.status).toBe(400);
   });
 
+  it("meta reports the deployment shape so the shell knows whether to ask for a credential", async () => {
+    const meta = await get("/api/meta");
+    // Local `yoke ui`: ungated, writable, default namespace.
+    expect(meta).toEqual({
+      auth: false,
+      readOnly: false,
+      ns: null,
+      actor: "reviewer",
+    });
+  });
+
   it("audit viewer returns the trail, newest-N oldest-first", async () => {
     const all = await get("/api/audit");
     expect(all.items.length).toBeGreaterThan(1);
