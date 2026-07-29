@@ -173,7 +173,7 @@ getting started:
 knowledge:  get, search, history, conflicts, deprecate, ontology, persona
 capture:    connect github-pr|slack|notes|rdb
 serving:    mcp, ui, serve, token
-data:       backup, restore, export, audit
+data:       backup, restore, export, audit, backfill
 
 common options: --db <path> --ns <namespace> --actor <id> --json
 run 'yoke <command>' with missing args to see its usage`;
@@ -567,6 +567,54 @@ async function cmdConflicts(v: Values, env: Env): Promise<number> {
       return `${relation.id}\n  ${side(from, relation.from)}\n  <-> ${side(to, relation.to)}`;
     });
     emit(v, lines.join("\n"), items);
+    return 0;
+  });
+}
+
+// backfill — the upgrade path for databases written before authorship became a graph edge.
+// Those entities carry provenance only in their stored field, so a person anchor (persona) cannot
+// see them. Re-derives the missing authored_by edges through the gate, attributed to the recorded
+// author rather than whoever runs the backfill. Idempotent: a second run creates nothing.
+async function cmdBackfill(v: Values, env: Env): Promise<number> {
+  const ns = resolveNs(v.ns, env);
+  return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
+    const ts = now();
+    let scanned = 0;
+    let created = 0;
+    const ids = new Set(
+      ["draft", "verified", "deprecated"].flatMap((s) =>
+        store.listByStatus(s, ns).map((e) => e.id),
+      ),
+    );
+    for (const id of ids) {
+      scanned++;
+      const authored = await store.neighbors(id, "authored_by", "out");
+      const linked = new Set(authored.map((r) => r.to));
+      // Every version that passed the commit gate is an authorship; verify/deprecate are not
+      // (they carry origin 'lifecycle' and overwrite the latest version's provenance actor, which
+      // is exactly why reading only the latest row would credit the promoter).
+      for (const ver of store.listHistory(id)) {
+        const prov = ver.provenance;
+        if (prov.origin === "lifecycle" || prov.actor === id) continue;
+        if (linked.has(prov.actor)) continue;
+        await commit(
+          store,
+          ontology,
+          { type: "authored_by", attributes: {}, from: id, to: prov.actor },
+          prov,
+          ts,
+          { ns },
+        );
+        linked.add(prov.actor);
+        created++;
+      }
+    }
+    emit(v, `scanned ${scanned} entities, added ${created} authorship edges`, {
+      scanned,
+      created,
+    });
     return 0;
   });
 }
@@ -1021,6 +1069,8 @@ export async function runCli(
         return await cmdConnect(rest, values, env);
       case "persona":
         return await cmdPersona(rest, values, env);
+      case "backfill":
+        return await cmdBackfill(values, env);
       case "ui":
         return await cmdUi(values, env);
       case "serve":

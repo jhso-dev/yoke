@@ -324,6 +324,62 @@ describe("runCli", () => {
     expect(await runCli(["persona", "nobody", "--db", db])).toBe(1);
   });
 
+  it("backfill derives authorship edges for pre-upgrade knowledge, idempotently", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+
+    // A database written before authorship was a graph edge: same gate, but no authored_by type to
+    // derive an edge from. The person anchor cannot see this knowledge yet.
+    const store = new SqliteStorage(db);
+    await store.init();
+    const legacy = seedOntology().filter((t) => t.name !== "authored_by");
+    const prov: Provenance = {
+      actor: "alex",
+      origin: "cli",
+      occurred_at: "2026-07-01T00:00:00Z",
+    };
+    const { entity } = await commit(
+      store,
+      legacy,
+      {
+        type: "decision",
+        attributes: { conclusion: "use kuzu", rationale: "graph" },
+      },
+      prov,
+      "2026-07-01T00:00:00Z",
+    );
+    // The person record itself is current (committed with authored_by available), so it is already
+    // linked and must not be counted again — it isolates the count to the one legacy entity.
+    await commit(
+      store,
+      seedOntology(),
+      { type: "person", attributes: { name: "Alex" } },
+      { actor: "yoke:system", origin: "cli", occurred_at: prov.occurred_at },
+      prov.occurred_at,
+      { existingId: "alex" },
+    );
+    store.close();
+    // Promoted by someone else — the latest row's provenance actor is now the promoter.
+    expect(
+      await runCli(["verify", entity.id, "--db", db, "--actor", "admin"]),
+    ).toBe(0);
+
+    expect(await runCli(["backfill", "--db", db, "--json"])).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string).created).toBe(1);
+
+    // Credited to the author in the history, not to the promoter of the latest version.
+    expect(
+      await runCli(["persona", "alex", "--db", db, "--out", dir, "--json"]),
+    ).toBe(0);
+    expect(
+      readFileSync(join(dir, "persona-alex", "SKILL.md"), "utf8"),
+    ).toContain("use kuzu");
+
+    // Idempotent: nothing left to derive.
+    expect(await runCli(["backfill", "--db", db, "--json"])).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string).created).toBe(0);
+  });
+
   it("ontology list + add-type (migration = new version)", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

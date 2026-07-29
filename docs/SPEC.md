@@ -63,6 +63,11 @@ The `commit(input, provenance)` pipeline — fixed order:
 3. Similar-entity lookup (embedding if `similar` exists, otherwise FTS)
    → return duplicate candidates (no auto-merge; propose to the caller)
 4. On contradiction, create a `conflicts_with` relation (keep both sides)
+4b. Record authorship as an `authored_by` relation (entity → `provenance.actor`), so provenance is
+   reachable by graph traversal and not only as a stored field. Idempotent per (entity, actor), no
+   self-edge, and skipped when the ontology in force does not declare `authored_by` — a derived edge
+   must never fail the caller's own commit. `verify`/`deprecate` do not pass through the gate, so
+   promoting is not authoring.
 5. Set status='draft', assign a version, and store
 
 ## Injection (context injection)
@@ -76,12 +81,13 @@ The `commit(input, provenance)` pipeline — fixed order:
   we don't inject a decay signal. Viewing stale is the job of review/CLI)
 - Returns: a list of entities, each with its provenance (an auditable citation format)
 
-### Scoped injection (v4.0 — shared working context)
+### Anchored injection (v4.0 — shared working context, and persona)
 
-`inject(query, { scope })` where `scope` is an entity id (e.g. a `workstream`):
+`inject(query, { scope })` where `scope` is an entity id to anchor on. **One mechanism, two named
+entry points**: a `workstream` anchor is the shared working context, a `person` anchor is a persona.
 
 - **Scope prioritizes, it does not imprison.** A pinned working context must never hide
-  org-wide knowledge (or personas — `yoke_persona` is a separate tool and unaffected by scope).
+  org-wide knowledge (or personas — `yoke_persona` is a separate entry point, unaffected by scope).
 - With a non-empty `query`: the **full query results** are returned, with knowledge one relation
   hop from the scope entity (both directions via `neighbors(scope)`) **ordered first** — the
   working context leads, org-wide matches still flow in. `limit` applies after ordering.
@@ -90,7 +96,9 @@ The `commit(input, provenance)` pipeline — fixed order:
 - The **same filters** apply as unscoped injection: verified-only by default (`includeDraft` still
   works), stale/deprecated always excluded, and the namespace filter is enforced on fetched
   entities (`getEntity` is id-based, so the ns check happens in `inject`, not the port).
-- Persona is the person-shaped instance of the same mechanism.
+- `opts.scopeRel` / `opts.scopeDir` narrow the anchor walk (passed straight to `port.neighbors`).
+  Default is every relation type, both directions — right for a workstream, whose point is
+  everything attached to the work.
 
 **Capture-side linking**: `yoke add --scope <id>`, and the `scope` argument on `yoke_commit` /
 `yoke_record_decision`, link new knowledge to a scope entity via a `relates_to` relation created
@@ -98,8 +106,9 @@ through a second gate-passing commit at the front tier (core `commit` is untouch
 
 **Declared scope (MCP server)**: scope is stated, not guessed. The agent declares which work item the
 current work belongs to — when the user says so or the agent infers it ("this is `ABC-12345` work") —
-by calling `yoke_use_scope { key }`. The key is resolved to a scope entity: an exact entity id
-(`getEntity`), else a `workstream` whose `key` OR `title` attribute equals the key. On a match it is
+by calling `yoke_use_scope { key }`. The key is resolved to an anchor entity: an exact entity id
+(`getEntity`), else an entity whose `key` OR `title` attribute equals the key, preferring a
+`workstream` since that is what a work-item key names — any entity type may anchor a session. On a match it is
 pinned as the session default for subsequent injections and recordings, and the resolved `{ id, title }`
 is returned; on no match the tool returns a non-error hint to create one via `yoke_commit` (type
 `workstream`, attributes `{ title, key }`) and call again. Precedence: a per-call `scope` argument >
@@ -118,7 +127,7 @@ picks the wrong scope.
 | `yoke_inject` | contextual query → inject verified knowledge (with citations) |
 | `yoke_commit` | load knowledge (through the gate) |
 | `yoke_record_decision` | a commit shortcut dedicated to decision entities |
-| `yoke_persona` | person-scoped injection ("what would Alex do") |
+| `yoke_persona` | person-anchored injection ("what would Alex do") |
 | `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
 
 ## CLI commands
@@ -132,13 +141,35 @@ yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction)
 yoke conflicts             # list conflicts_with
 yoke ontology <subcmd>     # inspect types / migrate
 yoke persona <person>      # generate/export a persona skill (SKILL.md)
+yoke backfill              # derive missing authored_by edges (upgrade path, idempotent)
 yoke connect github-pr     # PR review comments → load as draft decisions
 yoke mcp                   # start the MCP server (stdio)
 ```
 
-## persona consumption paths
+## persona
 
-**Primary path — real-time MCP injection**: the `yoke_persona` tool. At call time it runs a person-scoped query over the verified knowledge and returns text with citations — the same flow as ordinary knowledge injection. Since every call is a regeneration, the derivative principle is satisfied automatically.
+A persona is the person-anchored reading of an anchored injection — not a second query path.
+`personaQuery` is a composition over `inject`:
+
+- Anchor: the person entity, walked with `scopeRel: 'authored_by'`, `scopeDir: 'in'`. Since the gate
+  mirrors provenance into `authored_by`, that hop is exactly the knowledge the person authored —
+  never what merely touches them (the workstream they work on, whoever filed their person record).
+- Read **strictly**, and this is the one place the two entry points differ: a workstream anchor
+  unions in org-wide query matches, while a persona's `query` filters the person's *own* records.
+  Presenting knowledge someone did not author as their judgment would be impersonation.
+- Output: decisions vs facts (`classifyPersona`), the rendering shape only. Filtering already
+  happened in `inject`.
+
+Because authorship is a graph edge rather than a provenance lookup outside the storage contract,
+persona works on every conformant backend (sqlite, kuzu, qdrant, sharded).
+
+**Upgrade path**: databases written before stage 4b have no authorship edges. `yoke backfill`
+re-derives them through the gate from each version's recorded provenance, skipping `origin:
+'lifecycle'` rows so the author is credited rather than the promoter. Idempotent.
+
+### consumption paths
+
+**Primary path — real-time MCP injection**: the `yoke_persona` tool. At call time it runs a person-anchored injection over the verified knowledge and returns text with citations — the same flow as ordinary knowledge injection. Since every call is a regeneration, the derivative principle is satisfied automatically.
 
 **Fallback path — SKILL.md export** (`yoke persona <person> --out`): an offline snapshot for environments with no MCP connection. frontmatter (name/description) + a citation list + a "no answers without a citation" instruction. The file records its generation time and the source knowledge versions so a stale snapshot can be identified.
 

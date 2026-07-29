@@ -61,6 +61,7 @@ MIT · v4.0까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 | **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
 | **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `kuzu`(임베디드 그래프) · `qdrant`(벡터 검색) · `sharded`(테넌트별 멀티 백엔드 연합). 모두 하나의 conformance 스위트를 통과. |
 | **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `rdb`(Postgres/MySQL read-mapping) — 외부 소스 → draft 지식. |
+| **앵커 기반 주입** | 하나의 메커니즘, 두 개의 진입점: `workstream`에 앵커하면 팀의 공유 작업 컨텍스트, `person`에 앵커하면 persona. |
 | **persona** | "이 동료라면 어떻게 판단할까?" → 그 사람의 기록된 검증 판단을 인용과 함께, 실시간 생성으로. 흉내가 아니라 인용. |
 | **공유 작업 컨텍스트** | `workstream`을 고정하면 팀이 하나의 컨텍스트를 공유 — 스코프는 전사 지식을 가리지 않고 우선순위만 부여. |
 | **엔터프라이즈** | 네임스페이스 멀티테넌시 · OIDC/SSO + API 토큰 · RBAC(`verify` 권한이 곧 거버넌스 권한) · 읽기 레플리카 · 온라인 백업 + 시점 복원. |
@@ -152,6 +153,7 @@ yoke history <id> | audit [--since ts]
 yoke connect github-pr|slack|notes|rdb ...
 yoke mcp | ui | serve [--auth] | token <create|list|revoke>
 yoke backup | restore | export [--until ts]   # --shards <file> 로 백엔드 연합
+yoke backfill                                 # 누락된 저작 엣지 생성 (업그레이드 경로)
 ```
 
 공통 옵션: `--db`(> `YOKE_DB` env > `./yoke.db`), `--actor`(> `YOKE_ACTOR` env
@@ -169,6 +171,11 @@ yoke backup | restore | export [--until ts]   # --shards <file> 로 백엔드 �
 전사 지식과 persona도 함께 흘러듭니다. 그리고 컨텍스트는 작업보다 오래 남습니다 —
 workstream이 끝나도 그 지식은 닫힌 티켓 속으로 사라지지 않고 그래프에 조직의 기억으로
 남습니다.
+
+persona는 앵커를 workstream 대신 사람에 둔 **같은 메커니즘**입니다 — 저작 정보가 그래프
+엣지라서, "이 사람이 아는 것"과 "이 작업에 대해 아는 것"은 이름만 다른 하나의 순회입니다.
+차이는 하나뿐이고 의도된 것입니다: persona는 엄격합니다. 그 사람이 쓰지 않은 지식을 그
+사람의 판단으로 제시하는 건 흉내이기 때문입니다.
 
 ## 품질 측정
 
