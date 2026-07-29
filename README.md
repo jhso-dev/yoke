@@ -12,7 +12,7 @@
 
 ontology-based knowledge database · governed context injection for AI agents · MCP-native
 
-MIT · feature-complete through v4.0 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
+MIT · feature-complete through v5.0 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
 
 **English** | [한국어](README.ko.md)
 
@@ -216,7 +216,7 @@ Instead of a recall benchmark, yoke measures **injection quality** (`npm run eva
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
 | [WEB-UI](docs/WEB-UI.md) | The governance workbench — the eight screens and the line we don't cross |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v4.0 shipped, v5.0 in progress |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.0 built; v5.0 awaits its browser walkthrough |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
 | [MARKET](docs/MARKET.md) | Competitive landscape and positioning |

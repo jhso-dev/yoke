@@ -112,32 +112,46 @@ port capabilities, etc. See SPEC).
 
 ## v5.0 — knowledge viewing (the web tier)
 
-- [ ] StoragePort enumeration: bounded, namespace-scoped entity + relation listing
+- [x] StoragePort enumeration: bounded, namespace-scoped entity + relation listing
       added to the port, with conformance cases. sqlite, kuzu, qdrant and sharded all
       pass — the suite is the contract, not any one engine's features (invariant 2)
-- [ ] Entity detail screen — one record: attributes, every version, its relations,
+- [x] Entity detail screen — one record: attributes, every version, its relations,
       its authorship edge, computed freshness, citation
-- [ ] Injection preview screen — exactly what `inject()` would return for a query
+- [x] Injection preview screen — exactly what `inject()` would return for a query
       (optionally scope-anchored), cited, and audit-logged per preview: a preview is
       an injection, so it leaves the same trail as one
-- [ ] Graph explorer — force-directed view of the entity/relation graph, navigable
+- [x] Graph explorer — force-directed view of the entity/relation graph, navigable
       from any node, bounded by the enumeration page limit and honest about truncation
-- [ ] Audit log viewer — the append-only trail, filterable by actor, action and time.
+- [x] Audit log viewer — the append-only trail, filterable by actor, action and time.
       The screen that makes "who was told what, when" answerable without shell access
-- [ ] Team access: `yoke serve --auth` browser login over the credentials we already
+- [x] Team access: `yoke serve --auth` browser login over the credentials we already
       mint, a viewer that does NOT carry `verify` (done in v5.0 groundwork), and a
       CSP / body-limit / static-asset baseline
-- [ ] Frontend rebuild: Next.js `output: 'export'` + React + d3-force → one static
+- [x] Frontend rebuild: Next.js `output: 'export'` + React + d3-force → one static
       bundle, still served by the existing node:http server on one port
 - [ ] Install UX holds: `npm ci` size and wall time measured before and after, and a
       failed web build still leaves a working CLI
-- [ ] Regression closed: a check that *executes* the shipped client bundle, not one
+      (code done — install.sh degrades gracefully; the before/after measurement on a
+      clean machine is on the human-verification list below)
+- [x] Regression closed: a check that *executes* the shipped client bundle, not one
       that greps the HTML for markers (see the v2.5 note)
 
-Human-verification list (the docs/BACKENDS.md pattern): all eight screens loaded in a
-real browser against a real DB; one `--auth` login with a read-only token, confirming
-verify is refused; one graph-explorer open against a ≥100k-row DB while `POST /mcp`
-keeps answering.
+Human-verification list (the docs/BACKENDS.md pattern) — **not yet done**, and the
+boxes above are checked for what automation proves, not for this:
+
+- all nine screens opened in a real browser against a real DB, clicking through a
+  verify and watching the row leave the queue
+- one `--auth` login with a read-only token, confirming verify is refused with a
+  message naming the scope
+- one graph-explorer open against a ≥100k-row DB, confirming the truncation banner and
+  that `POST /mcp` keeps answering while it is open
+- `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
+  after, and a forced web-build failure still leaving a working CLI
+
+What automation does prove today: every route and endpoint answers against a real
+server, the shipped bundle's scripts parse, all nine screens exist as exported pages,
+enumeration passes conformance on four backends, and the injection-quality eval still
+reports 0% contamination / 0% missed contradictions.
 
 ## Version-promotion rule
 

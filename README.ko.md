@@ -12,7 +12,7 @@
 
 온톨로지 기반 지식 데이터베이스 · AI 에이전트를 위한 거버넌스 컨텍스트 주입 · MCP 네이티브
 
-MIT · v4.0까지 기능 완성 · [비주얼 소개](https://claude.ai/code/artifact/09d92d76-5eee-453d-ae79-ec40616f6396)
+MIT · v5.0까지 기능 완성 · [비주얼 소개](https://claude.ai/code/artifact/09d92d76-5eee-453d-ae79-ec40616f6396)
 
 [English](README.md) | **한국어**
 
@@ -214,7 +214,7 @@ recall 벤치마크 대신, yoke는 **주입 품질**을 측정합니다(`npm ru
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | 게이트, 라이프사이클, 주입 필터 규칙 |
 | [SPEC](docs/SPEC.md) | 구현 계약 — 스키마, port, 게이트, MCP 도구, CLI |
 | [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 8개 화면과 넘지 않는 선 |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v4.0 완료, v5.0 진행 중 |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.0 구현 완료; v5.0은 브라우저 실사용 검증 대기 |
 | [BACKENDS](docs/BACKENDS.md) | 어댑터 확장 + RDB read-mapping (실사용 검증 노트 포함) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 복제, 샤딩 |
 | [MARKET](docs/MARKET.md) | 경쟁 지형과 포지셔닝 |
