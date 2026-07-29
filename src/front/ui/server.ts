@@ -84,9 +84,21 @@ function sendJson(res: ServerResponse, code: number, data: unknown): void {
   res.end(body);
 }
 
+/** 256 KiB — a bulk verify of thousands of ULIDs still fits, and an unbounded stream cannot pin
+ * memory. ponytail: one cap for the one POST shape we accept; make it per-route if that changes. */
+const MAX_BODY = 256 * 1024;
+
 async function readIds(req: IncomingMessage): Promise<string[]> {
+  const ct = req.headers["content-type"] ?? "";
+  if (!ct.includes("application/json"))
+    throw new Error("content-type must be application/json");
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
+  let size = 0;
+  for await (const c of req) {
+    size += (c as Buffer).length;
+    if (size > MAX_BODY) throw new Error("request body too large");
+    chunks.push(c as Buffer);
+  }
   const raw = Buffer.concat(chunks).toString("utf8");
   const body = raw ? JSON.parse(raw) : {};
   const ids = (body as { ids?: unknown }).ids;
@@ -262,6 +274,83 @@ export function createUiHandler(
         scope: scope ?? null,
         includeDraft,
         items: items.map((it) => asR(it.entity)),
+      });
+      return;
+    }
+
+    // Graph: bounded, and explicit about it. Two modes — a whole-namespace page (each side carries
+    // its own cursor), or an anchored neighbourhood for click-to-expand. `truncated` is reported so
+    // the client can say "showing N of more" instead of silently drawing a partial graph.
+    // When truncated, an edge may reference a node outside `nodes`; that is documented, and only
+    // possible in the case the banner already flags.
+    if (method === "GET" && path === "/api/graph") {
+      if (!authorize("read") && deny(res)) return;
+      const limit = intParam(url, "limit", 300, 2000);
+      const scope = url.searchParams.get("scope");
+      const asR = asRow();
+      const ont = store.loadOntology(ns);
+      const ts = now();
+      const inNs = (x: { ns?: string | null }) =>
+        normalizeNs(x.ns) === normalizeNs(ns);
+
+      if (scope) {
+        const depth = intParam(url, "depth", 1, 3);
+        const nodes = new Map<string, Entity>();
+        const edges = new Map<string, Relation>();
+        let frontier = [scope];
+        for (let d = 0; d < depth && nodes.size < limit; d++) {
+          const next: string[] = [];
+          for (const id of frontier) {
+            for (const r of await store.neighbors(id)) {
+              if (!inNs(r) || edges.has(r.id)) continue;
+              edges.set(r.id, r);
+              const other = r.from === id ? r.to : r.from;
+              if (nodes.has(other) || other === id) continue;
+              const e = await store.getEntity(other);
+              if (e && inNs(e)) {
+                nodes.set(other, e);
+                next.push(other);
+              }
+            }
+          }
+          frontier = next;
+        }
+        const anchor = await store.getEntity(scope);
+        if (anchor && inNs(anchor)) nodes.set(scope, anchor);
+        const kept = [...nodes.values()].slice(0, limit);
+        const keptIds = new Set(kept.map((e) => e.id));
+        sendJson(res, 200, {
+          anchor: scope,
+          nodes: kept.map(asR),
+          edges: [...edges.values()]
+            .filter((r) => keptIds.has(r.from) || keptIds.has(r.to))
+            .map((r) => relRow(r, ont, ts)),
+          next: { nodes: null, edges: null },
+          truncated: nodes.size > kept.length,
+          limit,
+        });
+        return;
+      }
+
+      const [ents, rels] = await Promise.all([
+        store.listEntities({
+          ns,
+          limit,
+          after: url.searchParams.get("afterNode") ?? undefined,
+        }),
+        store.listRelations({
+          ns,
+          limit,
+          after: url.searchParams.get("afterEdge") ?? undefined,
+        }),
+      ]);
+      sendJson(res, 200, {
+        anchor: null,
+        nodes: ents.items.map(asR),
+        edges: rels.items.map((r) => relRow(r, ont, ts)),
+        next: { nodes: ents.next, edges: rels.next },
+        truncated: ents.next !== null || rels.next !== null,
+        limit,
       });
       return;
     }

@@ -387,6 +387,101 @@ describe("runCli", () => {
     expect(JSON.parse(logs.at(-1) as string).created).toBe(0);
   });
 
+  it("list / graph / get --relations / inject --scope give the web tier its CLI parity", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "workstream",
+        "--db",
+        db,
+        "--attr",
+        "title=PAY-42",
+        "--json",
+      ]),
+    ).toBe(0);
+    const ws = JSON.parse(logs.at(-1) as string).id as string;
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "note=tokenizer swap",
+        "--scope",
+        ws,
+        "--json",
+      ]),
+    ).toBe(0);
+    const fact = JSON.parse(logs.at(-1) as string).id as string;
+    expect(await runCli(["verify", "--all-drafts", "--db", db])).toBe(0);
+
+    // list: enumerate, filter, and page.
+    expect(await runCli(["list", "--db", db, "--json"])).toBe(0);
+    const listed = JSON.parse(logs.at(-1) as string);
+    expect(listed.items.length).toBeGreaterThan(1);
+    expect(listed.next).toBeNull();
+    expect(await runCli(["list", "--db", db, "--type", "fact", "--json"])).toBe(
+      0,
+    );
+    expect(
+      JSON.parse(logs.at(-1) as string).items.every(
+        (e: { type: string }) => e.type === "fact",
+      ),
+    ).toBe(true);
+    expect(await runCli(["list", "--db", db, "--limit", "1", "--json"])).toBe(
+      0,
+    );
+    const page1 = JSON.parse(logs.at(-1) as string);
+    expect(page1.items).toHaveLength(1);
+    expect(page1.next).toBe(page1.items[0].id);
+
+    // graph: nodes + edges + honest truncation.
+    expect(await runCli(["graph", "--db", db, "--json"])).toBe(0);
+    const graph = JSON.parse(logs.at(-1) as string);
+    expect(graph.nodes.length).toBeGreaterThan(1);
+    expect(graph.edges.some((r: { to: string }) => r.to === ws)).toBe(true);
+    expect(graph.truncated).toBe(false);
+    expect(await runCli(["graph", "--db", db, "--limit", "1", "--json"])).toBe(
+      0,
+    );
+    expect(JSON.parse(logs.at(-1) as string).truncated).toBe(true);
+
+    // get --relations: the only way to see an entity's edges from a terminal.
+    expect(
+      await runCli(["get", fact, "--db", db, "--relations", "--json"]),
+    ).toBe(0);
+    const got = JSON.parse(logs.at(-1) as string);
+    expect(got.id).toBe(fact);
+    expect(
+      got.relations.some(
+        (r: { type: string; other: string }) =>
+          r.type === "relates_to" && r.other === ws,
+      ),
+    ).toBe(true);
+
+    // inject --scope: the CLI could not pass a scope before, so it could not reproduce what MCP
+    // returns for the same session.
+    expect(
+      await runCli([
+        "inject",
+        "tokenizer",
+        "--db",
+        db,
+        "--scope",
+        ws,
+        "--json",
+      ]),
+    ).toBe(0);
+    expect(
+      JSON.parse(logs.at(-1) as string).some(
+        (it: { entity: { id: string } }) => it.entity.id === fact,
+      ),
+    ).toBe(true);
+  });
+
   it("ontology list + add-type (migration = new version)", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

@@ -260,6 +260,50 @@ describe("ui API", () => {
     expect(bad.status).toBe(400);
   });
 
+  it("graph is bounded and says so, and an anchor walks outward from one node", async () => {
+    const whole = await get("/api/graph");
+    expect(whole.anchor).toBeNull();
+    expect(whole.nodes.length).toBeGreaterThan(1);
+    expect(whole.edges.length).toBeGreaterThan(0);
+    expect(whole.truncated).toBe(false);
+    expect(whole.edges[0].from).toBeTruthy();
+
+    // A limit smaller than the graph reports truncation rather than drawing a partial graph
+    // silently, and hands back cursors to continue with.
+    const cut = await get("/api/graph?limit=1");
+    expect(cut.nodes).toHaveLength(1);
+    expect(cut.truncated).toBe(true);
+    expect(cut.next.nodes).toBe(cut.nodes[0].id);
+    // Over-max is an error, like every other limit.
+    expect((await fetch(base + "/api/graph?limit=5000")).status).toBe(400);
+
+    // Anchored: one hop from decision B reaches A (conflicts_with) and its author.
+    const around = await get(`/api/graph?scope=${decisionBId}`);
+    expect(around.anchor).toBe(decisionBId);
+    const ids = around.nodes.map((n: { id: string }) => n.id);
+    expect(ids).toContain(decisionBId);
+    expect(ids).toContain(decisionAId);
+    expect(
+      around.edges.some((e: { type: string }) => e.type === "conflicts_with"),
+    ).toBe(true);
+  });
+
+  it("rejects an oversized or wrong-typed POST body", async () => {
+    const big = await fetch(base + "/api/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids: [`${"x".repeat(300 * 1024)}`] }),
+    });
+    expect(big.status).toBe(400);
+    expect((await big.json()).error).toContain("too large");
+    const wrongType = await fetch(base + "/api/verify", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ ids: [] }),
+    });
+    expect(wrongType.status).toBe(400);
+  });
+
   it("audit viewer returns the trail, newest-N oldest-first", async () => {
     const all = await get("/api/audit");
     expect(all.items.length).toBeGreaterThan(1);

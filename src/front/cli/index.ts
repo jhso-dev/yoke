@@ -74,6 +74,9 @@ type Values = {
   "refresh-sec"?: string;
   "all-drafts"?: boolean;
   "include-draft"?: boolean;
+  relations?: boolean;
+  after?: string;
+  status?: string;
 };
 
 const OPTIONS = {
@@ -106,6 +109,9 @@ const OPTIONS = {
   "refresh-sec": { type: "string" },
   "all-drafts": { type: "boolean" },
   "include-draft": { type: "boolean" },
+  relations: { type: "boolean" },
+  after: { type: "string" },
+  status: { type: "string" },
 } as const;
 
 type Env = Record<string, string | undefined>;
@@ -172,7 +178,7 @@ getting started:
   review / verify <id...>   inspect and promote drafts
   inject <query>            retrieve verified knowledge with citations
 
-knowledge:  get, search, history, conflicts, deprecate, ontology, persona
+knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
 capture:    connect github-pr|slack|notes|rdb
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
 data:       backup, restore, export, audit, backfill
@@ -360,7 +366,7 @@ async function cmdGet(
 ): Promise<number> {
   const id = positionals[0];
   if (!id) {
-    console.error("usage: yoke get <id> [--version n]");
+    console.error("usage: yoke get <id> [--version n] [--relations]");
     return 1;
   }
   const version = v.version === undefined ? undefined : Number(v.version);
@@ -370,7 +376,85 @@ async function cmdGet(
       console.error(`not found: ${id}`);
       return 1;
     }
-    emit(v, formatEntity(e), e);
+    if (!v.relations) {
+      emit(v, formatEntity(e), e);
+      return 0;
+    }
+    // Relations are reachable from no other command — the entity-detail screen needs them, so the
+    // CLI must be able to show them too.
+    const ns = resolveNs(v.ns, env);
+    const rels = (await store.neighbors(id)).filter(
+      (r) => normalizeNs(r.ns) === normalizeNs(ns),
+    );
+    const edges = rels.map((r) => ({
+      ...r,
+      dir: r.from === id ? ("out" as const) : ("in" as const),
+      other: r.from === id ? r.to : r.from,
+    }));
+    const lines = edges.map(
+      (r) => `  ${r.dir === "out" ? "->" : "<-"} ${r.type}  ${r.other}`,
+    );
+    emit(
+      v,
+      [
+        formatEntity(e),
+        lines.length ? lines.join("\n") : "  (no relations)",
+      ].join("\n"),
+      { ...e, relations: edges },
+    );
+    return 0;
+  });
+}
+
+// list / graph — the CLI half of the browse and graph screens. WEB-UI's rule is that every action
+// the web tier performs stays achievable here, so these exist for parity, and --json emits the same
+// shape the endpoints do (byte-for-byte, so parity is checkable and not just claimed).
+async function cmdList(v: Values, env: Env): Promise<number> {
+  const ns = resolveNs(v.ns, env);
+  return withStore(v, env, async (store) => {
+    const p = await store.listEntities({
+      ns,
+      type: v.type,
+      status: v.status,
+      after: v.after,
+      limit: v.limit === undefined ? undefined : Number(v.limit),
+    });
+    if (p.items.length === 0) {
+      emit(v, "nothing to list", p);
+      return 0;
+    }
+    const lines = p.items.map(
+      (e) =>
+        `${e.id}  ${e.type}  ${e.status}  ${summarize(e.attributes)}  ${e.provenance.actor}`,
+    );
+    if (p.next) lines.push(`-- more: yoke list --after ${p.next}`);
+    emit(v, lines.join("\n"), p);
+    return 0;
+  });
+}
+
+async function cmdGraph(v: Values, env: Env): Promise<number> {
+  const ns = resolveNs(v.ns, env);
+  const limit = v.limit === undefined ? 300 : Number(v.limit);
+  return withStore(v, env, async (store) => {
+    const [nodes, edges] = await Promise.all([
+      store.listEntities({ ns, limit }),
+      store.listRelations({ ns, limit }),
+    ]);
+    const truncated = nodes.next !== null || edges.next !== null;
+    const lines = [
+      `${nodes.items.length} nodes, ${edges.items.length} edges`,
+      ...edges.items.map((r) => `  ${r.from} -${r.type}-> ${r.to}`),
+    ];
+    if (truncated) lines.push(`-- truncated at ${limit} (raise --limit)`);
+    emit(v, lines.join("\n"), {
+      anchor: null,
+      nodes: nodes.items,
+      edges: edges.items,
+      next: { nodes: nodes.next, edges: edges.next },
+      truncated,
+      limit,
+    });
     return 0;
   });
 }
@@ -473,7 +557,9 @@ async function cmdInject(
 ): Promise<number> {
   const query = positionals[0];
   if (!query) {
-    console.error("usage: yoke inject <query> [--include-draft] [--limit n]");
+    console.error(
+      "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id]",
+    );
     return 1;
   }
   const limit = v.limit === undefined ? undefined : Number(v.limit);
@@ -486,6 +572,9 @@ async function cmdInject(
       includeDraft: v["include-draft"],
       limit,
       ns,
+      // The MCP tool has always passed a scope; the CLI never did, so the two front ends could not
+      // reproduce each other's results (WEB-UI's CLI-achievable rule).
+      scope: v.scope,
     });
     // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core stays pure.
     store.logAudit({
@@ -1062,6 +1151,10 @@ export async function runCli(
         return await cmdAdd(rest, values, env);
       case "get":
         return await cmdGet(rest, values, env);
+      case "list":
+        return await cmdList(values, env);
+      case "graph":
+        return await cmdGraph(values, env);
       case "search":
         return await cmdSearch(rest, values, env);
       case "review":
