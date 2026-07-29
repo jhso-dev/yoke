@@ -30,14 +30,15 @@
     "test": "npm run test:main && npm run test:kuzu",
     "test:main": "vitest run",
     "test:kuzu": "npm run build:cli && node scripts/test-kuzu.mjs",
-    "typecheck": "tsc --noEmit && npm --prefix web exec tsc -- -p web --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck:web",
     "lint": "biome check .",
     "eval": "tsx eval/inject-quality.ts",
     "prepublishOnly": "npm run typecheck && npm run test && npm run build",
     "build:cli": "tsc",
     "build:web": "npm --prefix web install --no-audit --no-fund && npm --prefix web exec next build web && node scripts/copy-web.mjs",
     "dev:web": "npm --prefix web exec next dev web -p 4801",
-    "test:bundle": "vitest run src/front/ui/bundle.smoke.test.ts"
+    "test:bundle": "vitest run src/front/ui/bundle.smoke.test.ts",
+    "typecheck:web": "npm --prefix web install --no-audit --no-fund --silent && npm --prefix web exec tsc -- -p web --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
