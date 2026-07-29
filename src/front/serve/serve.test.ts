@@ -4,7 +4,7 @@
 // yoke_inject is forbidden; unauthenticated 401), OIDC (local JWKS fixture: valid JWT passes +
 // person auto-provisioned; expired / wrong-audience rejected), and a UI+MCP smoke.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -41,6 +41,17 @@ async function listen(server: Server): Promise<Running> {
   await new Promise<void>((r) => server.listen(0, r));
   const base = `http://localhost:${(server.address() as AddressInfo).port}`;
   return { server, base, close: () => server.close() };
+}
+
+/** A one-file stand-in for the built web bundle, so shell tests never depend on `npm run build`. */
+function fixtureBundle(): string {
+  const root = join(dir, "fixture-bundle");
+  mkdirSync(root, { recursive: true });
+  writeFileSync(
+    join(root, "index.html"),
+    "<!doctype html><p>fixture shell</p>",
+  );
+  return root;
 }
 
 async function freshDb(name: string): Promise<string> {
@@ -123,6 +134,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
         defaultActor: "yoke:system",
         auth: true,
         now,
+        webRoot: fixtureBundle(),
       }),
     );
   });
@@ -170,7 +182,9 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
   it("UI shell (GET /) stays ungated even under auth", async () => {
     const res = await fetch(run.base + "/");
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain('data-tab="review"');
+    // Asserted against a fixture bundle: this test is about the shell staying UNGATED, and must not
+    // also depend on whether dist/ happens to hold a real build.
+    expect(await res.text()).toContain("fixture shell");
   });
 
   it("MCP endpoint: write-only token can commit, but yoke_inject is forbidden", async () => {
@@ -533,11 +547,12 @@ describe("serve smoke (auth off)", () => {
         defaultActor: "yoke:system",
         auth: false,
         now,
+        webRoot: fixtureBundle(),
       }),
     );
 
     const htmlRes = await fetch(run.base + "/");
-    expect(await htmlRes.text()).toContain('data-tab="review"');
+    expect(await htmlRes.text()).toContain("fixture shell");
 
     const client = new Client({ name: "smoke", version: "0" });
     await client.connect(

@@ -18,7 +18,6 @@ import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { openStore, type YokeStore } from "../store.js";
-import { html } from "./static/index.html.js";
 import { createStaticHandler } from "./static.js";
 
 type Env = Record<string, string | undefined>;
@@ -174,9 +173,16 @@ export function createUiHandler(
     const path = url.pathname;
     const method = req.method ?? "GET";
 
-    if (method === "GET" && path === "/") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(html);
+    // The shell. Served from the built bundle; when it is absent the answer is an honest 503 with
+    // the command that fixes it, not a fallback UI — a second, less-tested UI is worse than a
+    // message, and the v2.5 inline template proved it (its client script never parsed).
+    if ((method === "GET" || method === "HEAD") && path === "/") {
+      if (!(await serveStatic(req, res, path))) {
+        sendJson(res, 503, {
+          error:
+            "web bundle not built — run 'npm run build:web' (the CLI, MCP and JSON API work without it)",
+        });
+      }
       return;
     }
 
@@ -197,7 +203,7 @@ export function createUiHandler(
     if (method === "GET" && path === "/api/review") {
       if (!authorize("read") && deny(res)) return;
       // Only this reviewer's raw draft list — no peers' pending approvals (Delphi independence
-      // guard, see the note in index.html). Hook for v3 multi-reviewer aggregation.
+      // guard — see web/app/review/page.tsx). Hook for v3 multi-reviewer aggregation.
       const drafts = await store.listEntities({ status: "draft", ns });
       sendJson(res, 200, drafts.items.map(asRow()));
       return;

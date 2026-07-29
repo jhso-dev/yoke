@@ -24,6 +24,10 @@ jobs:
       # standalone in-process runner (scripts/test-kuzu.mjs).
       - run: npm run test:main
       - run: npm run build
+      # AFTER the build, on purpose: this is the check that executes the shipped client bundle, and
+      # it skips when there is no build. Running it in test:main (before build) would skip forever —
+      # which is exactly how v2.5 shipped a UI whose script never parsed.
+      - run: npm run test:bundle
 
   kuzu-adapter:
     runs-on: ubuntu-latest

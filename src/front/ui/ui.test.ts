@@ -2,7 +2,7 @@
 // fetch. No browser automation. Exercises review→verify→review-empty, conflicts/ontology/persona
 // shapes, the verify audit row, and GET / serving the four-tab HTML.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -75,7 +75,14 @@ beforeAll(async () => {
     now,
   );
 
-  server = createUiServer({ store, actor: "reviewer", now: () => now });
+  // webRoot: null on purpose — this suite tests the JSON API, and letting it fall back to the
+  // default probe would make every run depend on whether dist/ happens to hold a build.
+  server = createUiServer({
+    store,
+    actor: "reviewer",
+    now: () => now,
+    webRoot: null,
+  });
   await new Promise<void>((r) => server.listen(0, r));
   base = `http://localhost:${(server.address() as AddressInfo).port}`;
 });
@@ -154,13 +161,31 @@ describe("ui API", () => {
     expect(entry?.detail).toContain(factId);
   });
 
-  it("GET / serves the HTML with all four tab markers", async () => {
-    const res = await fetch(base + "/");
+  it("GET / says the bundle is missing, with the command that fixes it", async () => {
+    // No bundle configured → an honest 503 naming the build step, rather than a fallback UI. A
+    // second, less-tested UI is what shipped in v2.5 and never ran in a browser.
+    const res = await fetch(`${base}/`);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toContain("npm run build:web");
+  });
+
+  it("GET / serves the built shell when a bundle is present", async () => {
+    const bundle = join(dir, "fixture-app");
+    mkdirSync(bundle, { recursive: true });
+    writeFileSync(join(bundle, "index.html"), "<!doctype html><p>shell</p>");
+    const withBundle = createUiServer({
+      store,
+      actor: "reviewer",
+      now: () => now,
+      webRoot: bundle,
+    });
+    await new Promise<void>((r) => withBundle.listen(0, r));
+    const at = `http://localhost:${(withBundle.address() as AddressInfo).port}`;
+    const res = await fetch(`${at}/`);
+    expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
-    const body = await res.text();
-    for (const tab of ["review", "conflicts", "ontology", "persona"]) {
-      expect(body).toContain(`data-tab="${tab}"`);
-    }
+    expect(await res.text()).toContain("shell");
+    withBundle.close();
   });
 
   it("unknown route → 404", async () => {
