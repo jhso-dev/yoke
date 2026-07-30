@@ -1,0 +1,53 @@
+src/front/ui/server.ts
+  d735c99471326cb3 20,67-131,133,135,138-152,172-185,216-241,262-274,276,278,280,282,284,286-290,295-310,316,320-322,324-325,327-329,332-336,339-341,343,345,347,349,353,360,364,366,368,372,394-408,410,416,419-421,423,425,431,435-436,451-473,478-479,482-485,490-491,494-560
+web/components/KnowledgeTable.tsx
+  d735c99471326cb3 5,61-64
+web/app/entity/page.tsx
+  d735c99471326cb3 6,11,67-70,74-90,120-122,124-129,141-149,162-164,168,175-182,184-185,199-201,204,220-221,227,239-240
+web/app/conflicts/page.tsx
+  d735c99471326cb3 9,42-44,56,59
+web/app/audit/page.tsx
+  d735c99471326cb3 5,8-9,25-67,126-129,141-143
+web/lib/graph.ts
+  d735c99471326cb3 22-27,121-128
+web/app/graph/page.tsx
+  d735c99471326cb3 6,144-147
+src/front/ui/ui.test.ts
+  d735c99471326cb3 27-30,80-133,378-406,410-440
+src/front/cli/index.ts
+  d735c99471326cb3 31,41,403-404,417-418,478-479,488-489,549-553,555-556,562-569,571,578,582,584-594,606,610,614,617-618,621,625,629,640,644,651,655,660-661,665,672,676
+web/components/Nav.tsx
+  d735c99471326cb3 12
+src/front/ui/bundle.smoke.test.ts
+  d735c99471326cb3 82
+src/core/ontology.ts
+  d735c99471326cb3 18-29
+src/core/inject.ts
+  d735c99471326cb3 17-35,44-49,57-70,75-83,95
+src/core/inject.test.ts
+  d735c99471326cb3 198
+docs/SPEC.md
+  d735c99471326cb3 129-152
+src/front/mcp/index.ts
+  d735c99471326cb3 14,168-172,182-191,193,195,207-219
+web/app/inject/page.tsx
+  d735c99471326cb3 127-136
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "d75f06511dc280ac698ecc513bdacc2d9496a99c",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [],
+      "tool_counts": {},
+      "total_additions": 0,
+      "total_deletions": 0,
+      "overriden_lines": 23
+    }
+  }
+}
