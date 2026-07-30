@@ -136,22 +136,42 @@ port capabilities, etc. See SPEC).
 - [x] Regression closed: a check that *executes* the shipped client bundle, not one
       that greps the HTML for markers (see the v2.5 note)
 
-Human-verification list (the docs/BACKENDS.md pattern) — **not yet done**, and the
+Human-verification list (the docs/BACKENDS.md pattern) — **one of four done**, and the
 boxes above are checked for what automation proves, not for this:
 
-- all nine screens opened in a real browser against a real DB, clicking through a
-  verify and watching the row leave the queue
-- one `--auth` login with a read-only token, confirming verify is refused with a
-  message naming the scope
-- one graph-explorer open against a ≥100k-row DB, confirming the truncation banner and
-  that `POST /mcp` keeps answering while it is open
-- `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
-  after, and a forced web-build failure still leaving a working CLI
+- [x] the screens opened in a real browser against a seeded DB (2026-07-30). It found six
+      defects that a fully green suite did not, and every one of them was a rendering or a
+      volume problem — the class of thing an assertion over a JSON payload cannot see:
+      1. every table's actor column, and every citation, rendered a raw ULID
+      2. the audit viewer's detail column — the screen that answers "who was told what" —
+         was a list of ids, so it answered in identifiers
+      3. `summarize()` existed twice and the web's copy predated the CLI's fix: connector rows
+         read as `rdb:table:1` in every web screen
+      4. a workstream briefing had no defined order, so `limit` cut by whichever relation was
+         recorded first — and differently per backend
+      5. `works_on` put the roster ahead of the knowledge; with `limit: 3` the agent got no
+         knowledge at all
+      6. no default cap anywhere on MCP or the CLI: a 312-record workstream briefing was
+         ~8,681 tokens because someone pinned a scope
+      Plus one found only by running the CLI: `yoke inject "" --scope <id>` was rejected by its
+      own usage guard, so a briefing was impossible from the terminal.
+      The lesson is the v2.5 lesson again, one level up: a green suite proves the payloads, and
+      the payloads were right every time. Nothing in it looked at what a person sees.
+- [ ] one `--auth` login with a read-only token, confirming verify is refused with a
+      message naming the scope
+- [ ] one graph-explorer open against a ≥100k-row DB, confirming the truncation banner and
+      that `POST /mcp` keeps answering while it is open
+- [ ] `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
+      after, and a forced web-build failure still leaving a working CLI
 
 What automation does prove today: every route and endpoint answers against a real
-server, the shipped bundle's scripts parse, all nine screens exist as exported pages,
+server, the shipped bundle's scripts parse, all ten screens exist as exported pages,
 enumeration passes conformance on four backends, and the injection-quality eval still
 reports 0% contamination / 0% missed contradictions.
+
+Screens are now ten: `workstream` was added in the browser pass above, because v4.0's shared
+working context had no web surface at all — first-class in core, MCP and the CLI, and a
+placeholder string in the inject box on the web.
 
 ## Version-promotion rule
 

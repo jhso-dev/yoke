@@ -190,8 +190,14 @@ test harnesses, WebSockets, GraphQL, password auth, per-field encryption.
 >
 > - **Shipped bundle ≤ 250 KB gzipped** (JS + CSS, whole static export),
 >   asserted by a test that stats the build output.
-> - **Hand-written web source ≤ 1,500 lines** under `web/` (eight screens, was
->   four in one file).
+> - **Hand-written web source ≤ 3,600 lines** under `web/`, excluding tests (ten screens, was
+>   four in one file). Corrected 2026-07-30: the original figure here was 1,500 and the code
+>   was already at 2,893 when it was written — measured at 3,386 after the workstream screen.
+>   The number was invented rather than measured, and nothing checked it, so it sat in this
+>   document being wrong. It is raised to the truth plus headroom rather than quietly deleted:
+>   a budget you have already blown is data about the estimate, not licence to stop counting.
+>   The two budgets above it, which a build step actually measures (bundle size, dependency
+>   count), have held — which is the difference.
 > - **Dependency budget: exactly `next`, `react`, `react-dom`, `d3-force`.** A
 >   fifth requires a note here first.
 > - **Zero new runtime deps in `src/front/ui/` and `src/front/serve/`**

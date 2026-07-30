@@ -213,8 +213,8 @@ recall 벤치마크 대신, yoke는 **주입 품질**을 측정합니다(`npm ru
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | 포트/어댑터 경계 |
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | 게이트, 라이프사이클, 주입 필터 규칙 |
 | [SPEC](docs/SPEC.md) | 구현 계약 — 스키마, port, 게이트, MCP 도구, CLI |
-| [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 8개 화면과 넘지 않는 선 |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.0 구현 완료; v5.0은 브라우저 실사용 검증 대기 |
+| [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 10개 화면과 넘지 않는 선 |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.0 구현 완료; 브라우저 실사용 검증 완료·기록됨 (결함 6건 발견) |
 | [BACKENDS](docs/BACKENDS.md) | 어댑터 확장 + RDB read-mapping (실사용 검증 노트 포함) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 복제, 샤딩 |
 | [MARKET](docs/MARKET.md) | 경쟁 지형과 포지셔닝 |

@@ -215,8 +215,8 @@ Instead of a recall benchmark, yoke measures **injection quality** (`npm run eva
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | The ports-and-adapters boundary |
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
-| [WEB-UI](docs/WEB-UI.md) | The governance workbench — the eight screens and the line we don't cross |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.0 built; v5.0 awaits its browser walkthrough |
+| [WEB-UI](docs/WEB-UI.md) | The governance workbench — the ten screens and the line we don't cross |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.0 built; the browser pass is done and recorded (it found six defects) |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
 | [MARKET](docs/MARKET.md) | Competitive landscape and positioning |
