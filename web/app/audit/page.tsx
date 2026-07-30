@@ -29,32 +29,41 @@ const MEANING: Record<string, string> = {
 const SHOW_REFS = 12;
 
 function Detail({ event }: { event: AuditEntry }) {
-  const [subject, right] = event.detail.split(" -> ");
-  if (right === undefined) return <span>{event.detail}</span>;
-  const all = right.split(" ").filter(Boolean);
+  // Two shapes: `<subject> -> <id> …` for a read, a bare id list for verify/deprecate. Returning the
+  // raw text when there is no arrow is what made a verify row a column of ULIDs.
+  const [head, right] = event.detail.split(" -> ");
+  // With an arrow the head is the query or person that was read; without one the whole string is the
+  // id list, and printing it as a subject would put the ULIDs back beside their resolved form.
+  const subject = right === undefined ? "" : head;
+  const all = (right ?? head ?? "").split(" ").filter(Boolean);
+  if (all.length === 0) return <span className="muted">nothing</span>;
   const ids = all.slice(0, SHOW_REFS);
   const more = all.length - ids.length;
   const byId = new Map((event.refs ?? []).map((r) => [r.id, r]));
   return (
     <>
-      {subject && <span>{subject}</span>}
-      <span className="muted"> → </span>
-      {all.length === 0 ? (
-        <span className="muted">nothing</span>
-      ) : (
-        ids.map((id, i) => {
-          const ref = byId.get(id);
-          return (
-            <span key={id}>
-              {i > 0 && <span className="muted">, </span>}
-              <Link href={`/entity/?id=${encodeURIComponent(id)}`}>
-                {ref ? recordLabel(ref) : shortId(id)}
-              </Link>
-              {ref && <span className="muted mono"> {ref.type}</span>}
-            </span>
-          );
-        })
+      {subject && (
+        <>
+          {/* A persona row's subject is a person id, and the server resolves it into refs — render
+              the name when it is there rather than the ULID it was stored as. */}
+          <span>
+            {byId.has(subject) ? recordLabel(byId.get(subject)!) : subject}
+          </span>
+          <span className="muted"> → </span>
+        </>
       )}
+      {ids.map((id, i) => {
+        const ref = byId.get(id);
+        return (
+          <span key={id}>
+            {i > 0 && <span className="muted">, </span>}
+            <Link href={`/entity/?id=${encodeURIComponent(id)}`}>
+              {ref ? recordLabel(ref) : shortId(id)}
+            </Link>
+            {ref && <span className="muted mono"> {ref.type}</span>}
+          </span>
+        );
+      })}
       {/* Never a silent truncation: the row says how many it left off. */}
       {more > 0 && <span className="muted"> · {more} more</span>}
     </>
@@ -64,15 +73,30 @@ function Detail({ event }: { event: AuditEntry }) {
 export default function Audit() {
   const [since, setSince] = useState("");
   const [action, setAction] = useState("");
+  // "Filterable by actor, action and time" is what ROADMAP claims this screen does; actor was
+  // missing. It is the axis that answers the question the trail exists for — which agent received
+  // what, and which person changed the trust state — and with one actor per local run its absence
+  // was invisible.
+  const [actor, setActor] = useState("");
   const trail = useAsync(
     () => api.audit({ since: since || undefined, limit: 500 }),
     [since],
   );
 
-  const rows = (trail.data?.items ?? []).filter(
-    (e) => !action || e.action === action,
+  const loaded = trail.data?.items ?? [];
+  const rows = loaded.filter(
+    (e) =>
+      (!action || e.action === action) &&
+      // Match on the id, never the display name: two people can share a name, and the id is what
+      // the trail actually recorded.
+      (!actor || e.actor === actor),
   );
-  const actions = [...new Set((trail.data?.items ?? []).map((e) => e.action))];
+  const actions = [...new Set(loaded.map((e) => e.action))];
+  const actors = [
+    ...new Map(
+      loaded.map((e) => [e.actor, e.actorName ?? e.actor] as const),
+    ).entries(),
+  ].sort((a, b) => a[1].localeCompare(b[1]));
 
   return (
     <>
@@ -107,8 +131,20 @@ export default function Audit() {
             </option>
           ))}
         </select>
+        <select
+          value={actor}
+          onChange={(e) => setActor(e.target.value)}
+          aria-label="actor"
+        >
+          <option value="">all actors</option>
+          {actors.map(([id, label]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </select>
         <span className="muted">
-          {rows.length} of {trail.data?.items.length ?? 0} loaded
+          {rows.length} of {loaded.length} loaded
         </span>
       </div>
       <div className="panel">

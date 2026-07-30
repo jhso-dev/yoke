@@ -551,12 +551,17 @@ describe("runCli", () => {
       await runCli(["inject", "audittoken", "--db", db, "--actor", "alice"]),
     ).toBe(0);
     expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
-    const events = JSON.parse(logs.at(-1) as string);
-    expect(events).toHaveLength(1);
-    expect(events[0].actor).toBe("alice");
-    expect(events[0].action).toBe("inject");
-    expect(events[0].detail).toContain("audittoken");
-    expect(events[0].detail).toContain(id);
+    const events = JSON.parse(logs.at(-1) as string) as Array<{
+      actor: string;
+      action: string;
+      detail: string;
+    }>;
+    // Asserted on the inject row rather than on the total: the `verify` above now writes one too,
+    // and a count assertion would have to be revisited every time a path starts being audited.
+    const injected = events.find((e) => e.action === "inject");
+    expect(injected?.actor).toBe("alice");
+    expect(injected?.detail).toContain("audittoken");
+    expect(injected?.detail).toContain(id);
 
     // --since in the future filters it out
     expect(
@@ -793,5 +798,110 @@ describe("runCli", () => {
     // A genuinely absent topic still reads "no results".
     expect(await runCli(["inject", "nonexistent-topic", "--db", db])).toBe(0);
     expect(logs.at(-1)).toBe("no results");
+  });
+
+  it("audits every governance act and knowledge read, not just inject", async () => {
+    // The web tier audited verify/deprecate/persona and the CLI audited only inject — so the trail
+    // could not answer "who promoted this" for any promotion done the normal way (ROADMAP v0.2 makes
+    // the CLI the primary interface for review/verify). Found by generating traffic and watching the
+    // rows fail to appear, not by a test.
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "person",
+        "--db",
+        db,
+        "--attr",
+        "name=Dana",
+        "--json",
+      ]),
+    ).toBe(0);
+    const person = JSON.parse(logs.at(-1) as string).id as string;
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "statement=governed knowledge",
+        "--actor",
+        person,
+        "--json",
+      ]),
+    ).toBe(0);
+    const fact = JSON.parse(logs.at(-1) as string).id as string;
+
+    expect(
+      await runCli(["verify", fact, person, "--db", db, "--actor", "reviewer"]),
+    ).toBe(0);
+    expect(
+      await runCli([
+        "persona",
+        person,
+        "--db",
+        db,
+        "--out",
+        dir,
+        "--actor",
+        "reader",
+      ]),
+    ).toBe(0);
+    expect(
+      await runCli(["deprecate", fact, "--db", db, "--actor", "retirer"]),
+    ).toBe(0);
+
+    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    const events = JSON.parse(logs.at(-1) as string) as Array<{
+      actor: string;
+      action: string;
+      detail: string;
+    }>;
+    const byAction = new Map(events.map((e) => [e.action, e]));
+
+    // Each act names its own actor — that is the column the trail exists for.
+    expect(byAction.get("verify")?.actor).toBe("reviewer");
+    expect(byAction.get("verify")?.detail).toContain(fact);
+    expect(byAction.get("deprecate")?.actor).toBe("retirer");
+    expect(byAction.get("deprecate")?.detail).toContain(fact);
+    // A persona read is an injection, and this one also writes a SKILL.md into someone's prompt.
+    expect(byAction.get("persona")?.actor).toBe("reader");
+    expect(byAction.get("persona")?.detail).toContain(person);
+  });
+
+  it("audits the same action names in the CLI as the web tier does", async () => {
+    // Parity guard. The two front adapters drifted once: the web audited three actions the CLI did
+    // not, and nothing compared them. Any new governance path must name an action already understood
+    // by the audit viewer, whose MEANING map is keyed on exactly these.
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "statement=parity",
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+    expect(await runCli(["verify", id, "--db", db])).toBe(0);
+    expect(await runCli(["inject", "parity", "--db", db])).toBe(0);
+    expect(await runCli(["deprecate", id, "--db", db])).toBe(0);
+    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    const seen = new Set(
+      (JSON.parse(logs.at(-1) as string) as Array<{ action: string }>).map(
+        (e) => e.action,
+      ),
+    );
+    for (const a of ["verify", "inject", "deprecate"])
+      expect(seen, `${a} must be audited`).toContain(a);
+    // inject_preview is the web tier's alone on purpose: it records that a HUMAN looked, without
+    // polluting "what the AI actually saw". The CLI has no preview, so it must never write one.
+    expect(seen).not.toContain("inject_preview");
   });
 });

@@ -510,7 +510,19 @@ async function cmdVerify(
       console.error("usage: yoke verify <id...> [--all-drafts] [--actor a]");
       return 1;
     }
-    const promoted = await verify(store, ids, actor, now());
+    const ts = now();
+    const promoted = await verify(store, ids, actor, ts);
+    // Verify is THE governance act — ENTERPRISE.md calls it the most important axis in this
+    // product's permission model — and the CLI is its primary interface (ROADMAP v0.2). Auditing it
+    // in the web tier and not here meant the trail could not answer "who promoted this" for any
+    // promotion done the normal way.
+    store.logAudit({
+      actor,
+      action: "verify",
+      detail: promoted.map((e) => e.id).join(" "),
+      at: ts,
+      ns,
+    });
     emit(
       v,
       `verified ${promoted.length}: ${promoted.map((e) => e.id).join(" ")}`,
@@ -530,8 +542,19 @@ async function cmdDeprecate(
     return 1;
   }
   const actor = resolveActor(v, env);
+  const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const done = await deprecate(store, positionals, actor, now());
+    const ts = now();
+    const done = await deprecate(store, positionals, actor, ts);
+    // Retiring knowledge changes what every future injection returns, so it belongs in the trail
+    // for the same reason verify does.
+    store.logAudit({
+      actor,
+      action: "deprecate",
+      detail: done.map((e) => e.id).join(" "),
+      at: ts,
+      ns,
+    });
     emit(
       v,
       `deprecated ${done.length}: ${done.map((e) => e.id).join(" ")}`,
@@ -922,7 +945,18 @@ async function cmdPersona(
     mkdirSync(outDir, { recursive: true });
     const file = join(outDir, "SKILL.md");
     writeFileSync(file, md);
-    const sources = result.decisions.length + result.facts.length;
+    const injected = [...result.decisions, ...result.facts];
+    // A persona read IS an injection — same knowledge, same citations — and this one also writes a
+    // SKILL.md that goes into someone's prompt. Its MCP and web twins both audit it; this path was
+    // the hole left when that was fixed in the web tier and the CLI was never checked.
+    store.logAudit({
+      actor: resolveActor(v, env),
+      action: "persona",
+      detail: `${id} -> ${injected.map((e) => e.id).join(" ")}`,
+      at: ts,
+      ns,
+    });
+    const sources = injected.length;
     emit(v, `saved: ${file}\nsource knowledge: ${sources}`, {
       path: file,
       sources,

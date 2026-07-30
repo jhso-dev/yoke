@@ -224,6 +224,23 @@ Rules that hold for every route:
   filters — byte-for-byte what an agent would receive, so the screen cannot drift from
   the behaviour it claims to show. Its audit action is `inject_preview`, distinct from
   `inject`, so a human looking does not pollute the record of what an agent was told.
+- **The audit rule is per front ADAPTER, not per route.** The same five actions are written
+  wherever the act happens, so the trail does not depend on which interface someone used:
+
+  | action | meaning | written by |
+  |---|---|---|
+  | `inject` | a model received knowledge | MCP, CLI |
+  | `inject_preview` | a human saw what a model *would* receive | web only — there is no CLI preview |
+  | `persona` | someone's recorded judgment was read | MCP, CLI, web |
+  | `verify` | records were promoted | CLI, web |
+  | `deprecate` | records were retired | CLI, web |
+
+  This is written down because the two adapters drifted: the web audited `verify`, `deprecate` and
+  `persona` and the CLI audited only `inject`, so "who promoted this" was unanswerable for every
+  promotion done through the CLI — the interface ROADMAP v0.2 makes primary for review and verify.
+  `detail` uses the same shape in both (`<subject> -> <id> <id> …`, or a bare id list for a
+  lifecycle transition) so rows from different adapters are comparable. A parity test in
+  `cli.test.ts` asserts the CLI writes the four actions it owns and never writes `inject_preview`.
 - **Every row carries a citation**, source and version, on every screen (since v2.5).
 - **Namespace isolation holds on every route**, including the global listings. `getEntity`
   is id-based and deliberately not ns-filtered, so a route that resolves an id re-checks

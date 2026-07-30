@@ -536,11 +536,20 @@ export function createUiHandler(
       const items = await Promise.all(
         events.map(async (e) => {
           const actorName = await nameOf(e.actor);
-          // `detail` is `<subject> -> <id> <id> …` for the read/governance actions that name rows.
-          const ids = (e.detail.split(" -> ")[1] ?? "")
+          // `detail` has two shapes: `<subject> -> <id> <id> …` for a read, and a bare id list for a
+          // lifecycle transition (verify/deprecate). Reading only the post-arrow half meant a verify
+          // row rendered as raw ULIDs — the exact defect this pass exists to remove, in the rows the
+          // audit screen most needs to be legible.
+          const after = e.detail.split(" -> ");
+          const ids = (after[1] ?? after[0] ?? "")
             .split(" ")
             .filter(Boolean)
             .slice(0, AUDIT_REFS);
+          // A `persona` row's subject is the person whose judgment was read, so it is an id too and
+          // was rendering as one. An `inject` row's subject is a query string; only try the ones
+          // shaped like a ULID, so a query never costs a pointless point read.
+          const head = after.length > 1 ? (after[0] ?? "") : "";
+          if (/^[0-9A-HJKMNP-TV-Z]{26}$/.test(head)) ids.unshift(head);
           const refs = (
             await Promise.all(
               ids.map(async (id) => {

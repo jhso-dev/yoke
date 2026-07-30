@@ -562,3 +562,35 @@ describe("scope-anchored injection over HTTP", () => {
     expect(entry?.detail).toContain(scopedFactId);
   });
 });
+
+// The audit viewer's whole job is legibility, so its two detail shapes must both resolve. A verify
+// row stores a bare id list (no " -> "), and reading only the post-arrow half rendered it as ULIDs.
+describe("audit detail resolves both of its shapes", () => {
+  it("resolves a lifecycle transition's bare id list, not just a read's arrow form", async () => {
+    await post("/api/verify", { ids: [scopedFactId] });
+    const trail = await get("/api/audit");
+    const items = trail.items as Array<{
+      action: string;
+      detail: string;
+      refs?: { id: string; type: string; summary: string }[];
+    }>;
+
+    const verified = items.filter((e) => e.action === "verify").at(-1);
+    // The stored detail is unchanged — it is the audit fact — and carries no arrow.
+    expect(verified?.detail).not.toContain(" -> ");
+    expect(verified?.detail).toContain(scopedFactId);
+    // ...and it still resolves, so the screen can name the record instead of printing its id.
+    expect(verified?.refs?.map((r) => r.id)).toContain(scopedFactId);
+    expect(verified?.refs?.find((r) => r.id === scopedFactId)?.summary).toBe(
+      "tokens rotate hourly",
+    );
+
+    // The arrow form keeps working: a read names its subject before the ids.
+    await get(`/api/inject?q=${encodeURIComponent("tokens")}`);
+    const read = (await get("/api/audit")).items
+      .filter((e: { action: string }) => e.action === "inject_preview")
+      .at(-1);
+    expect(read.detail).toContain(" -> ");
+    expect(read.refs?.length).toBeGreaterThan(0);
+  });
+});
