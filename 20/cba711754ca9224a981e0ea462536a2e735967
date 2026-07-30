@@ -1,0 +1,93 @@
+src/front/cli/index.ts
+  d735c99471326cb3 513-525,545,547-557,948-959
+web/app/audit/page.tsx
+  d735c99471326cb3 32-39,45-99,125-145,147
+src/front/cli/cli.test.ts
+  d735c99471326cb3 554-564,802-906
+docs/SPEC.md
+  d735c99471326cb3 227-243
+src/front/ui/server.ts
+  d735c99471326cb3 539-544,548-552
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "20cba711754ca9224a981e0ea462536a2e735967",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:23:54.194Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:29:05.116Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-16T02:12:32.680Z"
+        },
+        {
+          "id": "artifact-design",
+          "ts": "2026-07-16T02:13:10.089Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-07-29T05:37:35.435Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-29T05:55:17.664Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-07-29T12:00:51.115Z"
+        },
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-29T12:08:08.801Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 830,
+        "mcp__openviking__find": 1,
+        "Write": 68,
+        "Edit": 393,
+        "ToolSearch": 9,
+        "WebSearch": 14,
+        "Agent": 37,
+        "Read": 85,
+        "WebFetch": 1,
+        "SendMessage": 2,
+        "ScheduleWakeup": 4,
+        "PushNotification": 1,
+        "mcp__yoke__yoke_inject": 4,
+        "mcp__yoke__yoke_record_decision": 1,
+        "Skill": 1,
+        "Artifact": 4,
+        "AskUserQuestion": 4,
+        "ExitPlanMode": 1,
+        "TaskCreate": 14,
+        "TaskUpdate": 26,
+        "Monitor": 3,
+        "TaskStop": 2
+      },
+      "total_additions": 426,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
