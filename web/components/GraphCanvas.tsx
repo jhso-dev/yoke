@@ -24,15 +24,59 @@ import {
  * does not idle armed in the background waiting to be re-heated. A workbench left open in a
  * background tab must not keep a core busy.
  */
+/**
+ * A filled head at the target end of an edge.
+ *
+ * Direction is knowledge here, not decoration. `works_on` and `relates_to` both point AT an anchor,
+ * which is what makes a workstream something knowledge is attached to rather than a container holding
+ * it — undirected lines drew a hub, and a hub reads as a box. Nothing on this screen said which way
+ * an edge went; the entity screen's relations table already did (`→`/`←`).
+ *
+ * ponytail: constant screen size (every length over k), tip placed just outside the target node. At a
+ * few hundred nodes heads crowd where edges converge; if that becomes noise the upgrade is drawing
+ * them only for the selected node's edges, not shrinking them into invisibility.
+ */
+function drawArrow(
+  ctx: CanvasRenderingContext2D,
+  s: GraphNode,
+  t: GraphNode,
+  color: string,
+  k: number,
+) {
+  const dx = (t.x ?? 0) - (s.x ?? 0);
+  const dy = (t.y ?? 0) - (s.y ?? 0);
+  const len = Math.hypot(dx, dy);
+  // Two nodes on top of each other have no direction to draw, and normalizing would divide by ~0.
+  if (len < 1) return;
+  const ux = dx / len;
+  const uy = dy / len;
+  // On the target's rim, not its centre, or the node paints over the head.
+  const back = nodeRadius(t.degree) + 1 / k;
+  const tipX = (t.x ?? 0) - ux * back;
+  const tipY = (t.y ?? 0) - uy * back;
+  const a = 6 / k;
+  const w = 2.6 / k;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - ux * a - uy * w, tipY - uy * a + ux * w);
+  ctx.lineTo(tipX - ux * a + uy * w, tipY - uy * a - ux * w);
+  ctx.closePath();
+  ctx.fill();
+}
+
 export function GraphCanvas({
   graph,
   colorOf,
+  membership,
   selected,
   onSelect,
   onExpand,
 }: {
   graph: Graph;
   colorOf: (type: string) => string;
+  /** Relation types the ontology marks `membership` — drawn as not-knowledge. */
+  membership: Set<string>;
   selected: string | null;
   onSelect: (id: string | null) => void;
   onExpand: (id: string) => void;
@@ -48,6 +92,8 @@ export function GraphCanvas({
   // reheats it (sim.alpha(0.9)) and burns a core for seconds per click.
   const colorOfRef = useRef(colorOf);
   colorOfRef.current = colorOf;
+  const membershipRef = useRef(membership);
+  membershipRef.current = membership;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const onSelectRef = useRef(onSelect);
@@ -126,15 +172,24 @@ export function GraphCanvas({
         const s = l.source as GraphNode;
         const t = l.target as GraphNode;
         if (typeof s === "string" || typeof t === "string") continue;
-        ctx.strokeStyle =
+        const stroke =
           l.type === "conflicts_with"
             ? "rgba(220,60,60,0.75)"
             : "rgba(130,138,150,0.45)";
-        ctx.setLineDash(l.type === "authored_by" ? [3 / k, 3 / k] : []);
+        ctx.strokeStyle = stroke;
+        // Dashed = this edge is not knowledge. Authorship metadata, or a roster edge the ontology
+        // marks `membership` — exactly the two an anchored briefing skips (core/inject.ts), so the
+        // picture and the briefing agree about what counts.
+        ctx.setLineDash(
+          l.type === "authored_by" || membershipRef.current.has(l.type)
+            ? [3 / k, 3 / k]
+            : [],
+        );
         ctx.beginPath();
         ctx.moveTo(s.x ?? 0, s.y ?? 0);
         ctx.lineTo(t.x ?? 0, t.y ?? 0);
         ctx.stroke();
+        drawArrow(ctx, s, t, stroke, k);
       }
       ctx.setLineDash([]);
 
@@ -314,6 +369,14 @@ export function GraphCanvas({
   useEffect(() => {
     drawRef.current?.();
   }, [selected]);
+
+  // The ontology arrives on its own request, so `membership` is usually empty for the first paint —
+  // one repaint when it lands. Kept as its own effect rather than a second dep above, because the
+  // regression guard's rule is that `selected` never shares a dependency array.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read through membershipRef, above.
+  useEffect(() => {
+    drawRef.current?.();
+  }, [membership]);
 
   return (
     <canvas

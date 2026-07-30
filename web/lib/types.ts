@@ -68,6 +68,9 @@ export interface TypeDef {
   kind: "entity" | "relation";
   attrs: Record<string, { type: string; required?: boolean }>;
   ttl_days?: number;
+  /** A roster edge, not knowledge. Core skips these when it builds an anchored briefing; the graph
+   * draws them as not-knowledge for the same reason. */
+  membership?: boolean;
 }
 
 export interface AuditEntry {

@@ -5,7 +5,7 @@
 // truncation are ours, and those are where the bugs would be.
 
 import { recordLabel } from "./citation";
-import type { Edge, GraphData, Knowledge, Status } from "./types";
+import type { Edge, GraphData, Knowledge, Status, TypeDef } from "./types";
 
 /**
  * ponytail: hard client-side ceiling on drawn nodes. d3-force uses a quadtree so it scales further,
@@ -172,6 +172,21 @@ export function makeTypeColors(types: string[]): (type: string) => string {
     sorted.map((t, i) => [t, `hsl(${Math.round(i * step)} 62% 48%)`]),
   );
   return (t) => map.get(t) ?? "hsl(0 0% 55%)";
+}
+
+/**
+ * The relation types this ontology declares to be membership.
+ *
+ * Read from the ontology, never a hardcoded `works_on`: `membership: true` is stored as data exactly
+ * so an org can call it `assigned_to` or `member_of`, and a name baked in here would silently drop
+ * the distinction for every one of them — the same shape of bug as the duplicated `summarize()`.
+ */
+export function membershipTypes(ontology: TypeDef[]): Set<string> {
+  return new Set(
+    ontology
+      .filter((t) => t.kind === "relation" && t.membership)
+      .map((t) => t.name),
+  );
 }
 
 /** Node radius from degree — hubs read as hubs. Clamped so nothing dominates or disappears. */

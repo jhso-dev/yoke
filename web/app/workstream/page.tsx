@@ -120,6 +120,9 @@ function WorkstreamBody() {
   const members = d.relations.in
     .filter((e) => e.type === "works_on")
     .map((e) => e.other);
+  // Both directions, and each row keeps its `dir` for the table to render. It is rendered because
+  // these edges point INWARD — that is the whole reason a briefing gathers knowledge rather than a
+  // workstream holding it, and the panel that shows the edges was the one place not saying so.
   const attached = [...d.relations.in, ...d.relations.out].filter(
     (e) => e.type !== "works_on" && e.type !== "authored_by",
   );
@@ -235,7 +238,11 @@ function WorkstreamBody() {
       <div className="panel">
         <div className="panel-head">
           attached records
-          <span className="muted">{attached.length}</span>
+          <span className="muted">
+            {attached.length} · <code>←</code> points here: the record carries
+            the link, this work does not contain it. Deprecating this work
+            leaves every one of them untouched
+          </span>
         </div>
         {attached.length === 0 ? (
           <div className="empty">
@@ -247,6 +254,7 @@ function WorkstreamBody() {
             <table>
               <thead>
                 <tr>
+                  <th>direction</th>
                   <th>relation</th>
                   <th>record</th>
                 </tr>
@@ -254,6 +262,7 @@ function WorkstreamBody() {
               <tbody>
                 {attached.map((e) => (
                   <tr key={e.id}>
+                    <td className="mono">{e.dir === "out" ? "→" : "←"}</td>
                     <td className="mono">{e.type}</td>
                     <td>
                       {isMissing(e.other) ? (

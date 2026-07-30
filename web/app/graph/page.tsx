@@ -13,10 +13,12 @@ import {
   type Graph,
   MAX_NODES,
   makeTypeColors,
+  membershipTypes,
   mergeGraph,
   toGraph,
   truncationNotice,
 } from "../../lib/graph";
+import { useAsync } from "../../lib/useAsync";
 
 /**
  * The knowledge graph, navigable.
@@ -70,6 +72,14 @@ function GraphBody() {
     [graph],
   );
   const colorOf = useMemo(() => makeTypeColors(types), [types]);
+  // Fetched only for what `membership: true` means to the drawing — a roster edge is not knowledge.
+  // Its failure is cosmetic, so it deliberately has no ErrorBanner: an unreachable ontology must not
+  // blank a graph that loaded fine.
+  const ontology = useAsync(() => api.ontology(), []);
+  const membership = useMemo(
+    () => membershipTypes(ontology.data ?? []),
+    [ontology.data],
+  );
   const notice = graph ? truncationNotice(graph) : null;
   const chosen = graph?.nodes.find((n) => n.id === selected) ?? null;
 
@@ -113,6 +123,12 @@ function GraphBody() {
             {t}
           </span>
         ))}
+        {/* Without this the two edge marks are decoration. The direction is the point: knowledge and
+            people point AT the work, which is why an anchor gathers knowledge instead of holding it. */}
+        <span className="muted">
+          arrows point at an edge's target · dashed = not knowledge (authorship,
+          membership)
+        </span>
       </div>
 
       <div className="panel">
@@ -125,6 +141,7 @@ function GraphBody() {
             <GraphCanvas
               graph={graph}
               colorOf={colorOf}
+              membership={membership}
               selected={selected}
               onSelect={setSelected}
               onExpand={expand}
