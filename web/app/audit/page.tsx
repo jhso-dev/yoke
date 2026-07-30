@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Actor } from "../../components/Actor";
 import { ErrorBanner } from "../../components/ErrorBanner";
+import { Instant } from "../../components/Instant";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
 import type { AuditEntry } from "../../lib/types";
@@ -170,7 +171,9 @@ export default function Audit() {
                   // rule guards against reordering, and this list is append-only and never reordered.
                   // biome-ignore lint/suspicious/noArrayIndexKey: no id exists to key on.
                   <tr key={`${e.at}-${e.actor}-${e.action}-${i}`}>
-                    <td className="mono">{e.at}</td>
+                    <td className="mono">
+                      <Instant iso={e.at} />
+                    </td>
                     <td>
                       <Actor actor={e.actor} actorName={e.actorName} />
                     </td>

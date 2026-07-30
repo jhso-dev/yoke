@@ -139,7 +139,7 @@ port capabilities, etc. See SPEC).
 Human-verification list (the docs/BACKENDS.md pattern) — **one of four done**, and the
 boxes above are checked for what automation proves, not for this:
 
-- [x] the screens opened in a real browser against a seeded DB (2026-07-30). It found nine
+- [x] the screens opened in a real browser against a seeded DB (2026-07-30). It found ten
       defects that a fully green suite did not, and every one of them was a rendering, a
       volume or a runtime-cost problem — the class of thing an assertion over a JSON payload
       cannot see:
@@ -164,6 +164,9 @@ boxes above are checked for what automation proves, not for this:
          hub reads as a container. A scope anchor contains nothing: knowledge and people point
          AT it. The workstream screen flattened `in` and `out` together for the same reason, and
          showed less about its own edges than the entity screen did about any record's
+     10. every timestamp rendered as stored — `2026-07-30T07:43:58.846Z`. Correct as an audit
+         fact and unreadable as an answer to "when": a different hour than the reader's, with
+         milliseconds of noise. The same rule as an opaque id, one field over
       Plus one found only by running the CLI: `yoke inject "" --scope <id>` was rejected by its
       own usage guard, so a briefing was impossible from the terminal.
       The lesson is the v2.5 lesson again, one level up: a green suite proves the payloads, and

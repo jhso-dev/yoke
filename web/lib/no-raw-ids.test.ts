@@ -39,17 +39,24 @@ const files = [join(webRoot, "app"), join(webRoot, "components")]
 const OWNERS = {
   actor: ["components/Actor.tsx"],
   citation: ["components/Citation.tsx"],
+  instant: ["components/Instant.tsx"],
 };
+
+/** The timestamp fields, all of which arrive as `2026-07-30T07:43:58.846Z`. */
+const INSTANTS = ["occurred_at", "last_confirmed", "at"];
 
 /**
  * `{x.field}` sitting in a JSX text position — i.e. what a person actually reads.
  *
- * Two contexts are NOT that and must not match: a prop value (`actor={row.actor}`, which is how you
- * hand the raw value to the component whose job is rendering it) and a template interpolation
- * (`${e.actor}` in a React key or a title). Both are legitimate uses of the raw id.
+ * Two contexts are NOT that and must not match: any prop value (`actor={row.actor}`, `iso={e.at}`,
+ * `title={row.citation}` — all of them hand the raw value to whatever is responsible for rendering or
+ * preserving it) and a template interpolation (`${e.actor}` in a React key). Both are legitimate.
+ *
+ * The prop test is `=` immediately before the brace, not the field's own name: `iso={e.at}` is a prop
+ * position too, and a per-field name list would have flagged the fix as the defect.
  */
 const renderedInText = (field: string) =>
-  new RegExp(`(?<!${field}=)(?<!\\$)\\{[\\w.]*\\.${field}\\}`);
+  new RegExp(`(?<![=$])\\{[\\w.]*\\.${field}\\}`);
 
 describe("no raw ids in human-facing renders", () => {
   it("scans a non-trivial number of screens", () => {
@@ -87,6 +94,9 @@ describe("no raw ids in human-facing renders", () => {
     expect("<Actor actor={r.actor} actorName={r.actorName} />").not.toMatch(
       renderedInText("actor"),
     );
+    // A prop position whose name is not the field's — the exact shape every one of these fixes takes.
+    expect("<Instant iso={e.at} />").not.toMatch(renderedInText("at"));
+    expect("title={row.citation}").not.toMatch(renderedInText("citation"));
     // The literal `${` is the fixture: this asserts the guard ignores a template interpolation, so
     // the placeholder must survive as source text rather than being evaluated.
     // biome-ignore lint/suspicious/noTemplateCurlyInString: source text under test, not a template.
@@ -112,5 +122,24 @@ describe("no raw ids in human-facing renders", () => {
         `${f.path}: render the source with <Citation row={…} />`,
       ).not.toMatch(renderedInText("citation"));
     }
+  });
+
+  it("renders an instant only through <Instant>", () => {
+    // Same defect class as a raw id, one field over: an ISO UTC string with milliseconds is the right
+    // thing to store and unreadable to the person asking when something happened. `.at(-1)` on an array
+    // is not a match — the pattern requires the closing brace straight after the field.
+    for (const field of INSTANTS) {
+      expect(`<td className="mono">{e.${field}}</td>`).toMatch(
+        renderedInText(field),
+      );
+      for (const f of files) {
+        if (OWNERS.instant.includes(f.path)) continue;
+        expect(
+          f.text,
+          `${f.path}: render ${field} with <Instant iso={…} /> — the viewer's zone, ISO kept on hover`,
+        ).not.toMatch(renderedInText(field));
+      }
+    }
+    expect("const after = cursors.at(-1);").not.toMatch(renderedInText("at"));
   });
 });

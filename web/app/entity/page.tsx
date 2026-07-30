@@ -6,6 +6,7 @@ import { Suspense, useState } from "react";
 import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
+import { Instant } from "../../components/Instant";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
@@ -153,11 +154,15 @@ function EntityBody() {
               </tr>
               <tr>
                 <th>occurred at</th>
-                <td className="mono">{d.entity.occurred_at}</td>
+                <td className="mono">
+                  <Instant iso={d.entity.occurred_at} />
+                </td>
               </tr>
               <tr>
                 <th>last confirmed</th>
-                <td className="mono">{d.entity.last_confirmed}</td>
+                <td className="mono">
+                  <Instant iso={d.entity.last_confirmed} />
+                </td>
               </tr>
               {/* Compact, like everywhere else. Every field the raw string contains is already a row
                   in this table (id in the header, version, recorded by, occurred at) — its only
@@ -199,7 +204,9 @@ function EntityBody() {
                   <td>
                     <Actor actor={h.actor} actorName={h.actorName} />
                   </td>
-                  <td className="mono">{h.occurred_at}</td>
+                  <td className="mono">
+                    <Instant iso={h.occurred_at} />
+                  </td>
                   <td>
                     <Citation row={h} />
                   </td>
