@@ -192,7 +192,7 @@ test harnesses, WebSockets, GraphQL, password auth, per-field encryption.
 >   asserted by a test that stats the build output.
 > - **Hand-written web source ≤ 3,600 lines** under `web/`, excluding tests (ten screens, was
 >   four in one file). Corrected 2026-07-30: the original figure here was 1,500 and the code
->   was already at 2,893 when it was written — measured at 3,386 after the workstream screen.
+>   was already at 2,893 when it was written — measured at 3,386 after the collaboration screen.
 >   The number was invented rather than measured, and nothing checked it, so it sat in this
 >   document being wrong. It is raised to the truth plus headroom rather than quietly deleted:
 >   a budget you have already blown is data about the estimate, not licence to stop counting.

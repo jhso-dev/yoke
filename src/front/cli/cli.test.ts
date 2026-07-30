@@ -90,11 +90,11 @@ describe("runCli", () => {
   it("add --scope creates a relates_to link to the scope entity (v4.0)", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
-    // a workstream to scope to
+    // a collaboration to scope to
     expect(
       await runCli([
         "add",
-        "workstream",
+        "collaboration",
         "--db",
         db,
         "--attr",
@@ -393,7 +393,7 @@ describe("runCli", () => {
     expect(
       await runCli([
         "add",
-        "workstream",
+        "collaboration",
         "--db",
         db,
         "--attr",

@@ -28,7 +28,7 @@ import {
  * A filled head at the target end of an edge.
  *
  * Direction is knowledge here, not decoration. `works_on` and `relates_to` both point AT an anchor,
- * which is what makes a workstream something knowledge is attached to rather than a container holding
+ * which is what makes a collaboration something knowledge is attached to rather than a container holding
  * it — undirected lines drew a hub, and a hub reads as a box. Nothing on this screen said which way
  * an edge went; the entity screen's relations table already did (`→`/`←`).
  *

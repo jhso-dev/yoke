@@ -161,7 +161,7 @@ describe("presentation", () => {
       "decision",
       "term",
       "resource",
-      "workstream",
+      "collaboration",
       "authored_by",
       "relates_to",
       "conflicts_with",
@@ -201,7 +201,7 @@ describe("presentation", () => {
       { name: "assigned_to", kind: "relation", attrs: {}, membership: true },
       { name: "relates_to", kind: "relation", attrs: {} },
       // A flag on an entity type is not a relation and must not leak into the edge set.
-      { name: "workstream", kind: "entity", attrs: {}, membership: true },
+      { name: "collaboration", kind: "entity", attrs: {}, membership: true },
     ]);
     expect([...m]).toEqual(["assigned_to"]);
     // No ontology yet (it loads on its own request) → nothing dashed, never a crash.

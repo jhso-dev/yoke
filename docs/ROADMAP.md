@@ -98,7 +98,7 @@ port capabilities, etc. See SPEC).
 - [x] Entity-scoped injection: `inject(scope: <entity-id>)` — verified knowledge
       within one relation hop of any entity (the generic mechanism; persona is
       the person-shaped instance of the same idea)
-- [x] `workstream` seed entity type + `works_on` relation — a unit of
+- [x] `collaboration` seed entity type + `works_on` relation — a unit of
       collaborative work that groups people and knowledge for its duration
       (orgs can define their own equivalents in their ontology: epic,
       initiative, experiment, …)
@@ -106,9 +106,21 @@ port capabilities, etc. See SPEC).
       scope entity to attach the new knowledge to (relates_to)
 - [x] Declaration-based scope: the agent declares the current work item via the
       `yoke_use_scope` tool (the user states or implies it, e.g. "this is
-      ABC-12345 work"), which resolves the key to a workstream and pins it as the
+      ABC-12345 work"), which resolves the key to a collaboration and pins it as the
       session's default injection/capture scope. No branch-regex guessing — branch
-      names carry the child task key, not the parent workstream everyone shares.
+      names carry the child task key, not the parent collaboration everyone shares.
+
+> Note (2026-07-30): this type shipped as `workstream` and was renamed to `collaboration`.
+> Neutral is not the same as recognizable — `workstream` is vendor-free, which is why it was
+> chosen, but a first-time reader does not know it, and the definition right above it has always
+> read "a unit of **collaborative** work". A type name that is a different word from its own
+> definition is a name nobody can guess. `shared context` and `shared memory` were considered and
+> rejected: `context` and `memory` are yoke's two most loaded words (context injection; "we sell
+> knowledge, competitors sell memory" — MARKET.md), and both imply containment, which this entity
+> does not do — knowledge and people point AT it. Nothing else changed: same attributes, same
+> `works_on`, same anchor semantics. A pre-rename database keeps its `workstream` rows; there is no
+> type-rename migration, and the ontology is per-database data, so an org that prefers the old name
+> simply declares it.
 
 ## v5.0 — knowledge viewing (the web tier)
 
@@ -148,11 +160,11 @@ boxes above are checked for what automation proves, not for this:
          was a list of ids, so it answered in identifiers
       3. `summarize()` existed twice and the web's copy predated the CLI's fix: connector rows
          read as `rdb:table:1` in every web screen
-      4. a workstream briefing had no defined order, so `limit` cut by whichever relation was
+      4. a collaboration briefing had no defined order, so `limit` cut by whichever relation was
          recorded first — and differently per backend
       5. `works_on` put the roster ahead of the knowledge; with `limit: 3` the agent got no
          knowledge at all
-      6. no default cap anywhere on MCP or the CLI: a 312-record workstream briefing was
+      6. no default cap anywhere on MCP or the CLI: a 312-record collaboration briefing was
          ~8,681 tokens because someone pinned a scope
       7. three of the four governance acts left no audit row when done from the CLI — including
          `verify` — while the web tier audited all of them, and the actor filter this list claims
@@ -160,9 +172,9 @@ boxes above are checked for what automation proves, not for this:
       8. the graph canvas could pin a core indefinitely: a drag ended by `pointercancel` never
          cleared the drag flag, so the rAF loop ran at 60 fps for the tab's life; every node
          click rebuilt and reheated the whole simulation; hiding the tab reheated it too
-      9. the graph drew every edge as an undirected line, so a workstream read as a hub — and a
+      9. the graph drew every edge as an undirected line, so a collaboration read as a hub — and a
          hub reads as a container. A scope anchor contains nothing: knowledge and people point
-         AT it. The workstream screen flattened `in` and `out` together for the same reason, and
+         AT it. The collaboration screen flattened `in` and `out` together for the same reason, and
          showed less about its own edges than the entity screen did about any record's
      10. every timestamp rendered as stored — `2026-07-30T07:43:58.846Z`. Correct as an audit
          fact and unreadable as an answer to "when": a different hour than the reader's, with
@@ -183,7 +195,7 @@ server, the shipped bundle's scripts parse, all ten screens exist as exported pa
 enumeration passes conformance on four backends, and the injection-quality eval still
 reports 0% contamination / 0% missed contradictions.
 
-Screens are now ten: `workstream` was added in the browser pass above, because v4.0's shared
+Screens are now ten: `collaboration` was added in the browser pass above, because v4.0's shared
 working context had no web surface at all — first-class in core, MCP and the CLI, and a
 placeholder string in the inject box on the web.
 

@@ -169,7 +169,10 @@ describe("yoke MCP server", () => {
       text(
         await s.client.callTool({
           name: "yoke_commit",
-          arguments: { type: "workstream", attributes: { title: "scope ws" } },
+          arguments: {
+            type: "collaboration",
+            attributes: { title: "scope ws" },
+          },
         }),
       ),
     );
@@ -216,13 +219,13 @@ describe("yoke MCP server", () => {
         await s.client.callTool({
           name: "yoke_commit",
           arguments: {
-            type: "workstream",
+            type: "collaboration",
             attributes: { title: "pin ws", key: "PIN-1" },
           },
         }),
       ),
     );
-    // Pin by key — resolves to the workstream and returns its id/title.
+    // Pin by key — resolves to the collaboration and returns its id/title.
     const use = await s.client.callTool({
       name: "yoke_use_scope",
       arguments: { key: "PIN-1" },
@@ -270,7 +273,7 @@ describe("yoke MCP server", () => {
     });
     expect(res.isError).toBeFalsy();
     const out = text(res);
-    expect(out).toContain("no workstream matches");
+    expect(out).toContain("no collaboration matches");
     expect(out).toContain("yoke_commit");
     await s.close();
   });
@@ -282,7 +285,7 @@ describe("yoke MCP server", () => {
         await s.client.callTool({
           name: "yoke_commit",
           arguments: {
-            type: "workstream",
+            type: "collaboration",
             attributes: { title: "override A", key: "OVR-A" },
           },
         }),
@@ -293,7 +296,7 @@ describe("yoke MCP server", () => {
         await s.client.callTool({
           name: "yoke_commit",
           arguments: {
-            type: "workstream",
+            type: "collaboration",
             attributes: { title: "override B", key: "OVR-B" },
           },
         }),
@@ -357,7 +360,7 @@ describe("yoke MCP server", () => {
         await s.client.callTool({
           name: "yoke_commit",
           arguments: {
-            type: "workstream",
+            type: "collaboration",
             attributes: { title: "capped work", key: "CAP-1" },
           },
         }),
@@ -423,7 +426,7 @@ describe("yoke MCP server", () => {
   });
 });
 
-describe("resolveScope (key/id → workstream lookup)", () => {
+describe("resolveScope (key/id → collaboration lookup)", () => {
   const now = "2026-07-14T00:00:00Z";
   const prov: Provenance = { actor: "t", origin: "cli", occurred_at: now };
 
@@ -433,7 +436,7 @@ describe("resolveScope (key/id → workstream lookup)", () => {
     const { entity } = await commit(
       port,
       seedOntology(),
-      { type: "workstream", attributes: { title: "auth", key: "ABC-123" } },
+      { type: "collaboration", attributes: { title: "auth", key: "ABC-123" } },
       prov,
       now,
     );

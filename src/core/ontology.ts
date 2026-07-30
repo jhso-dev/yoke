@@ -18,12 +18,12 @@ export type TypeDef = {
   /**
    * Relation types only: this edge records WHO IS INVOLVED in something, not knowledge attached to it.
    *
-   * An anchored briefing walks every relation on the anchor, so without this a workstream briefing
+   * An anchored briefing walks every relation on the anchor, so without this a collaboration briefing
    * hands an agent the roster (`works_on` → three person records) as though it were knowledge — and
    * under a limit the roster can crowd the knowledge out entirely.
    *
    * It is ontology DATA, not a name hardcoded in core, because orgs define their own equivalents
-   * (assigned_to, member_of, reviews) — see the workstream note below. A tenant that adds a
+   * (assigned_to, member_of, reviews) — see the collaboration note below. A tenant that adds a
    * membership relation marks it here and gets the same behaviour, with no core change.
    */
   membership?: boolean;
@@ -88,10 +88,13 @@ export function seedOntology(): TypeDef[] {
     },
     { name: "term", kind: "entity", attrs: {} },
     { name: "resource", kind: "entity", attrs: {} },
-    // A unit of collaborative work that groups people and knowledge for its duration (v4.0 shared
-    // working context). Orgs define their own equivalents in their ontology (initiative, experiment, …).
+    // One thing being worked on together, for as long as it lasts (v4.0 shared working context). Named
+    // for what the definition always said — "a unit of collaborative work" — because a type name that
+    // is a different word from its own definition is a name nobody can guess. It groups nothing in the
+    // containment sense: people and records point AT it, so deprecating one leaves them all intact.
+    // Orgs define their own equivalents in their ontology (initiative, experiment, …).
     {
-      name: "workstream",
+      name: "collaboration",
       kind: "entity",
       attrs: {
         title: { type: "string", required: true },
@@ -102,8 +105,8 @@ export function seedOntology(): TypeDef[] {
     { name: "relates_to", kind: "relation", attrs: {} },
     { name: "supersedes", kind: "relation", attrs: {} },
     { name: "conflicts_with", kind: "relation", attrs: {} },
-    // Links a person to a workstream they participate in (v4.0). Membership, not knowledge: the
-    // roster belongs on the workstream screen, not in the briefing an agent is handed.
+    // Links a person to a collaboration they participate in (v4.0). Membership, not knowledge: the
+    // roster belongs on the collaboration screen, not in the briefing an agent is handed.
     { name: "works_on", kind: "relation", attrs: {}, membership: true },
   ];
 }

@@ -37,7 +37,7 @@ export function citation(e: Entity): string {
  * Returns the verified knowledge matching a query, each with its citation.
  * @param includeDraft also include drafts (the label is carried by effectiveStatus). stale/deprecated are always excluded.
  * @param scope an entity id to anchor the injection on — one mechanism with two named entry points:
- *   a workstream anchor is the shared working context, a person anchor is a persona.
+ *   a collaboration anchor is the shared working context, a person anchor is a persona.
  *   - scope + query: the full query results, with knowledge one relation hop from the scope entity
  *     ordered first — the working context leads, org-wide knowledge still flows in (scope
  *     PRIORITIZES, it does not imprison).
@@ -49,7 +49,7 @@ export function citation(e: Entity): string {
  *   `scopeRel` to ask for it on purpose). The same verified/draft/ns filters apply, and
  *   `limit` is applied after ordering/filtering.
  * @param scopeRel @param scopeDir narrow the anchor walk, passed straight to port.neighbors.
- *   Default: every relation type, both directions — right for a workstream, whose whole point is
+ *   Default: every relation type, both directions — right for a collaboration, whose whole point is
  *   everything attached to the work. A persona passes authored_by/'in' instead: presenting knowledge
  *   a person merely touched as their own judgment would be impersonation, so the strict anchor is
  *   part of that entry point, not a different mechanism.

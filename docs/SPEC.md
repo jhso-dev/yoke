@@ -31,8 +31,8 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 
 ## Default ontology (seed)
 
-- entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`, `workstream` (attributes: title (required), status) — a unit of collaborative work grouping people and knowledge (v4.0)
-- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → workstream, v4.0)
+- entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`, `collaboration` (attributes: title (required), status) — a unit of collaborative work grouping people and knowledge (v4.0)
+- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → collaboration, v4.0)
 - **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
 - **Bootstrap**: `yoke init` seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself). All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
@@ -117,7 +117,7 @@ The `commit(input, provenance)` pipeline — fixed order:
 ### Anchored injection (v4.0 — shared working context, and persona)
 
 `inject(query, { scope })` where `scope` is an entity id to anchor on. **One mechanism, two named
-entry points**: a `workstream` anchor is the shared working context, a `person` anchor is a persona.
+entry points**: a `collaboration` anchor is the shared working context, a `person` anchor is a persona.
 
 - **Scope prioritizes, it does not imprison.** A pinned working context must never hide
   org-wide knowledge (or personas — `yoke_persona` is a separate entry point, unaffected by scope).
@@ -144,7 +144,7 @@ entry points**: a `workstream` anchor is the shared working context, a `person` 
   truncated briefing as the complete record answers from part of the knowledge without knowing it.
   A `truncated` boolean would not have carried that.
 - **A roster is not knowledge.** Anything reached only through a relation type the ontology marks
-  `membership: true` is excluded from a briefing — a workstream's `works_on` edges name who is
+  `membership: true` is excluded from a briefing — a collaboration's `works_on` edges name who is
   involved in the work, not what is known about it, and under a `limit` they otherwise crowd the
   knowledge out entirely. Naming that type in `scopeRel` asks for members on purpose and still
   returns them. The flag is ontology **data**, not a relation name in core, because orgs define their
@@ -154,7 +154,7 @@ entry points**: a `workstream` anchor is the shared working context, a `person` 
   works), stale/deprecated always excluded, and the namespace filter is enforced on fetched
   entities (`getEntity` is id-based, so the ns check happens in `inject`, not the port).
 - `opts.scopeRel` / `opts.scopeDir` narrow the anchor walk (passed straight to `port.neighbors`).
-  Default is every relation type, both directions — right for a workstream, whose point is
+  Default is every relation type, both directions — right for a collaboration, whose point is
   everything attached to the work.
 
 **Capture-side linking**: `yoke add --scope <id>`, and the `scope` argument on `yoke_commit` /
@@ -165,16 +165,16 @@ through a second gate-passing commit at the front tier (core `commit` is untouch
 current work belongs to — when the user says so or the agent infers it ("this is `ABC-12345` work") —
 by calling `yoke_use_scope { key }`. The key is resolved to an anchor entity: an exact entity id
 (`getEntity`), else an entity whose `key` OR `title` attribute equals the key, preferring a
-`workstream` since that is what a work-item key names — any entity type may anchor a session. On a match it is
+`collaboration` since that is what a work-item key names — any entity type may anchor a session. On a match it is
 pinned as the session default for subsequent injections and recordings, and the resolved `{ id, title }`
 is returned; on no match the tool returns a non-error hint to create one via `yoke_commit` (type
-`workstream`, attributes `{ title, key }`) and call again. Precedence: a per-call `scope` argument >
-the session pin (`yoke_use_scope`) > `YOKE_SCOPE` (an entity id or workstream key resolved at startup,
+`collaboration`, attributes `{ title, key }`) and call again. Precedence: a per-call `scope` argument >
+the session pin (`yoke_use_scope`) > `YOKE_SCOPE` (an entity id or collaboration key resolved at startup,
 for fixed setups). In stateless (serve) deployments the session pin does not persist, so the agent
 passes `scope` per call — `yoke_use_scope` still returns the resolved id for reuse.
 
 We deliberately do **not** infer scope from the git branch: branch names usually carry a *child* task
-key while the shared context lives on the *parent* workstream, so regex-from-branch systematically
+key while the shared context lives on the *parent* collaboration, so regex-from-branch systematically
 picks the wrong scope.
 
 ## MCP tools
@@ -293,8 +293,8 @@ A persona is the person-anchored reading of an anchored injection — not a seco
 
 - Anchor: the person entity, walked with `scopeRel: 'authored_by'`, `scopeDir: 'in'`. Since the gate
   mirrors provenance into `authored_by`, that hop is exactly the knowledge the person authored —
-  never what merely touches them (the workstream they work on, whoever filed their person record).
-- Read **strictly**, and this is the one place the two entry points differ: a workstream anchor
+  never what merely touches them (the collaboration they work on, whoever filed their person record).
+- Read **strictly**, and this is the one place the two entry points differ: a collaboration anchor
   unions in org-wide query matches, while a persona's `query` filters the person's *own* records.
   Presenting knowledge someone did not author as their judgment would be impersonation.
 - Output: decisions vs facts (`classifyPersona`), the rendering shape only. Filtering already

@@ -27,7 +27,7 @@ let decisionAId: string;
 let decisionBId: string;
 let personId: string;
 let byPersonId: string;
-let workstreamId: string;
+let collaborationId: string;
 let scopedFactId: string;
 
 beforeAll(async () => {
@@ -100,16 +100,19 @@ beforeAll(async () => {
   );
   byPersonId = byPerson.entity.id;
 
-  // A workstream with one fact attached to it. The scope-anchored inject route had no test at all —
+  // A collaboration with one fact attached to it. The scope-anchored inject route had no test at all —
   // v4.0's shared working context reached the web tier as an untested query parameter.
   const ws = await commit(
     store,
     ont,
-    { type: "workstream", attributes: { title: "auth revamp", key: "AUTH-1" } },
+    {
+      type: "collaboration",
+      attributes: { title: "auth revamp", key: "AUTH-1" },
+    },
     prov,
     now,
   );
-  workstreamId = ws.entity.id;
+  collaborationId = ws.entity.id;
   const scoped = await commit(
     store,
     ont,
@@ -126,7 +129,7 @@ beforeAll(async () => {
       type: "relates_to",
       attributes: {},
       from: scopedFactId,
-      to: workstreamId,
+      to: collaborationId,
     },
     prov,
     now,
@@ -525,23 +528,23 @@ describe("ui API namespace isolation", () => {
 });
 
 // v4.0's shared working context, over HTTP. The route shipped in v5.0 with no test — `scope` was a
-// query parameter nobody exercised, which is how the workstream screen came to be missing too.
+// query parameter nobody exercised, which is how the collaboration screen came to be missing too.
 describe("scope-anchored injection over HTTP", () => {
-  it("anchors a briefing on a workstream and reports the anchor back", async () => {
+  it("anchors a briefing on a collaboration and reports the anchor back", async () => {
     const out = await get(
-      `/api/inject?scope=${encodeURIComponent(workstreamId)}`,
+      `/api/inject?scope=${encodeURIComponent(collaborationId)}`,
     );
-    expect(out.scope).toBe(workstreamId);
+    expect(out.scope).toBe(collaborationId);
     // The attached, verified fact is in the briefing; the anchor itself never is.
     expect(out.items.map((i: { id: string }) => i.id)).toContain(scopedFactId);
     expect(out.items.map((i: { id: string }) => i.id)).not.toContain(
-      workstreamId,
+      collaborationId,
     );
   });
 
   it("injects only verified knowledge, anchored or not", async () => {
     const out = await get(
-      `/api/inject?scope=${encodeURIComponent(workstreamId)}`,
+      `/api/inject?scope=${encodeURIComponent(collaborationId)}`,
     );
     // The hard rule (KNOWLEDGE-POLICY): an anchor prioritises, it never lowers the gate.
     for (const i of out.items)
@@ -554,7 +557,9 @@ describe("scope-anchored injection over HTTP", () => {
   });
 
   it("audits a scoped preview like any other read", async () => {
-    await get(`/api/inject?scope=${encodeURIComponent(workstreamId)}&q=tokens`);
+    await get(
+      `/api/inject?scope=${encodeURIComponent(collaborationId)}&q=tokens`,
+    );
     const entry = store
       .listAudit()
       .filter((a) => a.action === "inject_preview")

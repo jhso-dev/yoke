@@ -59,17 +59,17 @@ The viewing set (v5.0) — reading what is already stored, never adding to it:
 
 Added after the browser pass (2026-07-30):
 
-9. **Workstream** — pick a unit of work → see who is on it, what is attached to it, and the
+9. **Collaboration** — pick a unit of work → see who is on it, what is attached to it, and the
    briefing an agent receives when it anchors there.
 
    Passing the three tests, as this document requires before the code exists:
 
    1. **Governance purpose.** It makes an injection auditable *before* it happens. v4.0 made a
-      workstream anchor first-class in core, MCP and the CLI, and there was no way to see what
+      collaboration anchor first-class in core, MCP and the CLI, and there was no way to see what
       anchoring on one would hand an agent — the id was something you had to already know. The
       act it supports is "decide whether this working context is fit to brief an agent from",
       which is the same act the injection preview supports for a query.
-   2. **No synthesis.** It composes three existing routes (`/api/entities?type=workstream`,
+   2. **No synthesis.** It composes three existing routes (`/api/entities?type=collaboration`,
       `/api/entity/:id`, `/api/inject?scope=`) and adds no endpoint. The briefing panel is the
       real `inject()`, so its ranking is the injection ranker and nothing else. No model call,
       no generated text.
@@ -77,7 +77,7 @@ Added after the browser pass (2026-07-30):
       reachable from it are the lifecycle transitions its rows already offer via the shared table.
 
    **Why this is not a search UI.** You do not arrive by querying: you pick from the list of
-   workstreams that exist, then read what is attached. That is the browsing argument above —
+   collaborations that exist, then read what is attached. That is the browsing argument above —
    reachability-for-governing — and the briefing panel is the injection-preview argument, applied
    to a scope instead of a query. It carries the same audit row (`inject_preview`) for the same
    reason.

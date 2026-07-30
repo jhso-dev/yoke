@@ -74,7 +74,7 @@ function InjectBody() {
           style={{ minWidth: 260 }}
         />
         <input
-          placeholder="scope (workstream or person id, optional)"
+          placeholder="scope (collaboration or person id, optional)"
           value={draftScope}
           onChange={(e) => setDraftScope(e.target.value)}
           aria-label="scope"

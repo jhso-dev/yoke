@@ -94,12 +94,12 @@ describe("inject", () => {
 });
 
 describe("inject scoped (v4.0)", () => {
-  // A workstream scope with linked/unlinked, verified/draft facts around it.
+  // A collaboration scope with linked/unlinked, verified/draft facts around it.
   async function scene() {
     const { entity: ws } = await commit(
       port,
       ont,
-      { type: "workstream", attributes: { title: "auth revamp" } },
+      { type: "collaboration", attributes: { title: "auth revamp" } },
       prov,
       now,
     );
@@ -141,7 +141,7 @@ describe("inject scoped (v4.0)", () => {
     const { entity: ws } = await commit(
       port,
       ont,
-      { type: "workstream", attributes: { title: "payments" } },
+      { type: "collaboration", attributes: { title: "payments" } },
       { ...prov, actor: "alice" },
       now,
     );
@@ -197,7 +197,7 @@ describe("inject scoped (v4.0)", () => {
 });
 
 describe("inject scoped: a briefing is knowledge, in a defined order", () => {
-  /** works_on points person → workstream, the shape the seed ontology documents. */
+  /** works_on points person → collaboration, the shape the seed ontology documents. */
   async function member(name: string, ws: string) {
     const { entity } = await commit(
       port,
@@ -221,7 +221,7 @@ describe("inject scoped: a briefing is knowledge, in a defined order", () => {
     const { entity: ws } = await commit(
       port,
       ont,
-      { type: "workstream", attributes: { title: "search relevance" } },
+      { type: "collaboration", attributes: { title: "search relevance" } },
       prov,
       now,
     );
@@ -280,7 +280,7 @@ describe("inject scoped: a briefing is knowledge, in a defined order", () => {
     const { entity: ws } = await commit(
       port,
       ont,
-      { type: "workstream", attributes: { title: "ordering" } },
+      { type: "collaboration", attributes: { title: "ordering" } },
       prov,
       now,
     );
@@ -323,7 +323,7 @@ describe("inject reports what its limit dropped", () => {
     const { entity: ws } = await commit(
       port,
       ont,
-      { type: "workstream", attributes: { title: "long running" } },
+      { type: "collaboration", attributes: { title: "long running" } },
       prov,
       now,
     );

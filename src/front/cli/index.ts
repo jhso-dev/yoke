@@ -587,7 +587,7 @@ async function cmdInject(
     if (!ontology) return 1;
     const ts = now();
     // Same default as the MCP tool and the web route: an anchored briefing is capped, a query is not.
-    // Without it, `yoke inject --scope <workstream>` dumps every record ever attached to that work.
+    // Without it, `yoke inject --scope <collaboration>` dumps every record ever attached to that work.
     const briefing = v.scope !== undefined && !query;
     const { items, omitted } = await inject(store, ontology, query, ts, {
       includeDraft: v["include-draft"],

@@ -95,7 +95,7 @@ describe("personaQuery", () => {
       now,
       { existingId: "alex" },
     );
-    const ws = await add("workstream", { title: "PAY-42" }, "admin");
+    const ws = await add("collaboration", { title: "PAY-42" }, "admin");
     await commit(
       port,
       ont,
@@ -105,7 +105,7 @@ describe("personaQuery", () => {
     );
     await verify(port, ["alex", ws], "admin", now);
 
-    // Anchored on authored_by/'in' only — neither the workstream nor admin leaks in as Alex's own.
+    // Anchored on authored_by/'in' only — neither the collaboration nor admin leaks in as Alex's own.
     const res = await personaQuery(port, ont, "alex", now);
     expect([...res.decisions, ...res.facts]).toEqual([]);
   });

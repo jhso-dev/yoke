@@ -14,20 +14,20 @@ import { useAsync } from "../../lib/useAsync";
 /**
  * The shared working context, made visible.
  *
- * v4.0 made a workstream anchor a first-class thing in core, MCP and the CLI, and the web tier shipped
- * without it — the only trace was a placeholder in the inject box, so a workstream id was something you
+ * v4.0 made a collaboration anchor a first-class thing in core, MCP and the CLI, and the web tier shipped
+ * without it — the only trace was a placeholder in the inject box, so a collaboration id was something you
  * had to already know. This screen is the missing half: pick the work, see who is on it, and see the
  * briefing an agent actually receives when it anchors there.
  *
- * It adds no endpoint. A workstream is an entity, its members are relations, and its briefing is
+ * It adds no endpoint. A collaboration is an entity, its members are relations, and its briefing is
  * `inject(scope)` — so this composes three routes that already exist, which is also why every action
- * here stays CLI-achievable (`yoke list --type workstream`, `yoke get --relations`, `yoke inject
+ * here stays CLI-achievable (`yoke list --type collaboration`, `yoke get --relations`, `yoke inject
  * --scope`).
  */
-function WorkstreamBody() {
+function CollaborationBody() {
   const id = useSearchParams().get("id") ?? "";
   const list = useAsync(
-    () => api.entities({ type: "workstream", limit: 200 }),
+    () => api.entities({ type: "collaboration", limit: 200 }),
     [],
   );
   const detail = useAsync(
@@ -45,11 +45,14 @@ function WorkstreamBody() {
     const rows = list.data?.items ?? [];
     return (
       <>
-        <h1>Workstreams</h1>
+        <h1>Collaborations</h1>
+        {/* Says what the thing IS in the first clause, because the type name alone never did. And
+            "attached to" rather than "in": a collaboration holds nothing — people and records point at
+            it, which is what the arrows on the graph screen draw. */}
         <p className="lede">
-          A unit of collaborative work that groups people and knowledge for its
-          duration. Anchoring an injection here is what makes an agent answer
-          from <em>this</em> work's context first.
+          One thing being worked on together, and the people and knowledge
+          attached to it. Anchoring an injection here is what makes an agent
+          answer from <em>this</em> work's context first.
         </p>
         <ErrorBanner error={list.error} />
         <div className="panel">
@@ -58,8 +61,8 @@ function WorkstreamBody() {
           ) : rows.length === 0 ? (
             <div className="empty">
               none recorded — create one with{" "}
-              <code>yoke add workstream --attr title=… --attr key=…</code>, or
-              let an agent do it via <code>yoke_use_scope</code>
+              <code>yoke add collaboration --attr title=… --attr key=…</code>,
+              or let an agent do it via <code>yoke_use_scope</code>
             </div>
           ) : (
             <div className="scroll-x">
@@ -79,7 +82,7 @@ function WorkstreamBody() {
                     <tr key={w.id}>
                       <td>
                         <Link
-                          href={`/workstream/?id=${encodeURIComponent(w.id)}`}
+                          href={`/collaboration/?id=${encodeURIComponent(w.id)}`}
                         >
                           {recordLabel(w)}
                         </Link>
@@ -110,19 +113,19 @@ function WorkstreamBody() {
   if (detail.error)
     return (
       <>
-        <h1>Workstream</h1>
+        <h1>Collaboration</h1>
         <ErrorBanner error={detail.error} />
       </>
     );
   if (!d) return <div className="empty">not found in this namespace</div>;
 
-  // works_on points person → workstream, so the members are this record's incoming edges on that type.
+  // works_on points person → collaboration, so the members are this record's incoming edges on that type.
   const members = d.relations.in
     .filter((e) => e.type === "works_on")
     .map((e) => e.other);
   // Both directions, and each row keeps its `dir` for the table to render. It is rendered because
   // these edges point INWARD — that is the whole reason a briefing gathers knowledge rather than a
-  // workstream holding it, and the panel that shows the edges was the one place not saying so.
+  // collaboration holding it, and the panel that shows the edges was the one place not saying so.
   const attached = [...d.relations.in, ...d.relations.out].filter(
     (e) => e.type !== "works_on" && e.type !== "authored_by",
   );
@@ -132,7 +135,7 @@ function WorkstreamBody() {
       <h1>{recordLabel(d.entity)}</h1>
       <p className="lede">
         <StatusBadge status={d.entity.effectiveStatus} />{" "}
-        <Link href="/workstream/">all workstreams</Link>
+        <Link href="/collaboration/">all collaborations</Link>
       </p>
       <ErrorBanner error={briefing.error} />
 
@@ -286,10 +289,10 @@ function WorkstreamBody() {
   );
 }
 
-export default function WorkstreamPage() {
+export default function CollaborationPage() {
   return (
     <Suspense fallback={<p className="muted">loading…</p>}>
-      <WorkstreamBody />
+      <CollaborationBody />
     </Suspense>
   );
 }

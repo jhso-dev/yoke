@@ -62,9 +62,9 @@ Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server requir
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `kuzu` (embedded graph) · `qdrant` (vector search) · `sharded` (multi-backend federation by tenant). All pass one conformance suite. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
-| **Anchored injection** | One mechanism, two entry points: anchor on a `workstream` for the team's shared working context, or on a `person` for a persona. |
+| **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
-| **Shared working context** | Pin a `workstream` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
+| **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
 | **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens · RBAC (the `verify` permission is the governance permission) · read replicas · online backup + point-in-time export. |
 | **License** | MIT |
 
@@ -124,7 +124,7 @@ Tools exposed:
 - `yoke_commit` — stage knowledge (enters as `draft`)
 - `yoke_record_decision` — decision shortcut (conclusion + rationale + rejected alternatives)
 - `yoke_persona` — person-scoped injection ("how would a teammate decide?")
-- `yoke_use_scope` — pin the current workstream so the whole session shares one working context
+- `yoke_use_scope` — pin the current collaboration so the whole session shares one working context
 
 Configure the embedding provider (which enables duplicate/contradiction detection)
 through environment variables. If unset, yoke falls back to FTS:
@@ -183,16 +183,16 @@ Common options: `--db` (> `YOKE_DB` env > `./yoke.db`), `--actor`
 
 A team builds one knowledge space together, in real time. When the user says
 "this is PAY-42 work", the agent declares it once with `yoke_use_scope`, and the
-whole session defaults to that `workstream` — injections lead with its knowledge,
+whole session defaults to that `collaboration` — injections lead with its knowledge,
 and anything recorded links to it automatically. A decision one person records
 (and a human verifies) is in every other session's context the next time they ask.
 
-Scope **prioritizes, it doesn't imprison**: a pinned workstream leads, but
+Scope **prioritizes, it doesn't imprison**: a pinned collaboration leads, but
 org-wide facts and personas still flow in on a query. And the context outlives
-the work — when the workstream wraps, its knowledge stays in the graph as org
+the work — when the collaboration wraps, its knowledge stays in the graph as org
 memory rather than vanishing into a closed ticket.
 
-A persona is the same mechanism anchored on a person instead of a workstream —
+A persona is the same mechanism anchored on a person instead of a collaboration —
 authorship is a graph edge, so "what does this person know" and "what do we know
 about this work" are one walk with two names. The one difference is deliberate: a
 persona is strict, because presenting knowledge someone didn't author as their
