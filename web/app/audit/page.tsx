@@ -24,6 +24,7 @@ const MEANING: Record<string, string> = {
   persona: "a person's recorded judgment was read",
   verify: "records were promoted",
   deprecate: "records were retired",
+  rename_type: "an ontology type was renamed in every stored row",
 };
 
 /** A bulk verify names every id it promoted, which can be thousands. Render a readable prefix and

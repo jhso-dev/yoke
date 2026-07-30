@@ -170,7 +170,7 @@ getting started:
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
 capture:    connect github-pr|slack|notes|rdb
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
-data:       backup, restore, export, audit, backfill
+data:       backup, restore, export, audit, backfill, rename-type
 
 common options: --db <path> --ns <namespace> --actor <id> --json
 run 'yoke <command>' with missing args to see its usage`;
@@ -705,6 +705,58 @@ async function cmdConflicts(v: Values, env: Env): Promise<number> {
   });
 }
 
+// rename-type — the upgrade path for a database written before an ontology type was renamed.
+// Without it a rename is only half a rename: the code says one thing and every stored row says the
+// other, and `yoke list --type <new>` answers nothing on a database that is full of the old name.
+async function cmdRenameType(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const [from, to] = positionals;
+  if (!from || !to) {
+    console.error(
+      "usage: yoke rename-type <from> <to>\n" +
+        "  renames an ontology type in the declaration and in every stored row",
+    );
+    return 1;
+  }
+  if (from === to) {
+    console.error("rename-type: from and to are the same name");
+    return 1;
+  }
+  const ns = resolveNs(v.ns, env);
+  return withStore(v, env, async (store) => {
+    if (!requireOntology(store, ns, v, env)) return 1;
+    const rows = store.renameType(from, to, ns);
+    if (rows === 0) {
+      // Not an error: nothing carried that name, so the database is already where the caller wants
+      // it. Saying so beats an exit code that reads like a failure.
+      emit(v, `no rows carried type "${from}" — nothing to rename`, {
+        from,
+        to,
+        rows: 0,
+      });
+      return 0;
+    }
+    // The one mutation the append-only version history cannot record, because it rewrites those
+    // very rows (see SqliteStorage.renameType). This row is the only trace it leaves.
+    store.logAudit({
+      actor: resolveActor(v, env),
+      action: "rename_type",
+      detail: `${from} -> ${to}`,
+      at: now(),
+      ns,
+    });
+    emit(v, `renamed type "${from}" to "${to}" — ${rows} rows rewritten`, {
+      from,
+      to,
+      rows,
+    });
+    return 0;
+  });
+}
+
 // backfill — the upgrade path for databases written before authorship became a graph edge.
 // Those entities carry provenance only in their stored field, so a person anchor (persona) cannot
 // see them. Re-derives the missing authored_by edges through the gate, attributed to the recorded
@@ -1220,6 +1272,8 @@ export async function runCli(
         return await cmdPersona(rest, values, env);
       case "backfill":
         return await cmdBackfill(values, env);
+      case "rename-type":
+        return await cmdRenameType(rest, values, env);
       case "ui":
         return await cmdUi(values, env);
       case "serve":

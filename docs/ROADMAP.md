@@ -118,9 +118,17 @@ port capabilities, etc. See SPEC).
 > rejected: `context` and `memory` are yoke's two most loaded words (context injection; "we sell
 > knowledge, competitors sell memory" — MARKET.md), and both imply containment, which this entity
 > does not do — knowledge and people point AT it. Nothing else changed: same attributes, same
-> `works_on`, same anchor semantics. A pre-rename database keeps its `workstream` rows; there is no
-> type-rename migration, and the ontology is per-database data, so an org that prefers the old name
-> simply declares it.
+> `works_on`, same anchor semantics.
+>
+> A rename that only moves the code is half a rename: every stored row still says the old name, and
+> `yoke list --type <new>` answers nothing on a database full of the old one. So `yoke rename-type
+> <from> <to>` ships with it — the declaration, every entity and relation version, and the FTS text
+> (which embeds the type name) in one transaction. It rewrites existing rows rather than appending,
+> which is the only shape that answers the question: appending would leave the old name in every
+> historical row. Nothing about the knowledge changes, so no version is invented and no promotion is
+> implied. It is the one mutation the append-only history cannot record — it rewrites those very rows
+> — so it writes the `rename_type` audit row that is its only trace. An org that prefers a different
+> name for this concept runs the same command; the ontology is per-database data.
 
 ## v5.0 — knowledge viewing (the web tier)
 

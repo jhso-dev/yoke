@@ -234,13 +234,17 @@ Rules that hold for every route:
   | `persona` | someone's recorded judgment was read | MCP, CLI, web |
   | `verify` | records were promoted | CLI, web |
   | `deprecate` | records were retired | CLI, web |
+  | `rename_type` | an ontology type was renamed in the declaration and in every stored row | CLI only |
+
+  `rename_type` is the exception to "entity mutations need no audit row, the version history records
+  them": it rewrites those very rows, so the history cannot record it and this row is the only trace.
 
   This is written down because the two adapters drifted: the web audited `verify`, `deprecate` and
   `persona` and the CLI audited only `inject`, so "who promoted this" was unanswerable for every
   promotion done through the CLI — the interface ROADMAP v0.2 makes primary for review and verify.
   `detail` uses the same shape in both (`<subject> -> <id> <id> …`, or a bare id list for a
   lifecycle transition) so rows from different adapters are comparable. A parity test in
-  `cli.test.ts` asserts the CLI writes the four actions it owns and never writes `inject_preview`.
+  `cli.test.ts` asserts the CLI writes the five actions it owns and never writes `inject_preview`.
 - **Every row carries a citation**, source and version, on every screen (since v2.5).
 - **Namespace isolation holds on every route**, including the global listings. `getEntity`
   is id-based and deliberately not ns-filtered, so a route that resolves an id re-checks
@@ -274,6 +278,7 @@ yoke audit [--since ts] [--limit n]   # the injection / governance audit trail
 yoke ontology <subcmd>     # inspect types / migrate
 yoke persona <person>      # generate/export a persona skill (SKILL.md)
 yoke backfill              # derive missing authored_by edges (upgrade path, idempotent)
+yoke rename-type <from> <to>   # rename an ontology type in the declaration AND every stored row
 yoke connect <github-pr|slack|notes|rdb>   # external sources → draft knowledge
 yoke mcp                   # start the MCP server (stdio)
 yoke ui [--port] [--host]  # local governance workbench (loopback, ungated, single-user)

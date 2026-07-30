@@ -892,13 +892,17 @@ describe("runCli", () => {
     expect(await runCli(["verify", id, "--db", db])).toBe(0);
     expect(await runCli(["inject", "parity", "--db", db])).toBe(0);
     expect(await runCli(["deprecate", id, "--db", db])).toBe(0);
+    // The one mutation the version history cannot record, because it rewrites those very rows.
+    expect(await runCli(["rename-type", "term", "glossary", "--db", db])).toBe(
+      0,
+    );
     expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
     const seen = new Set(
       (JSON.parse(logs.at(-1) as string) as Array<{ action: string }>).map(
         (e) => e.action,
       ),
     );
-    for (const a of ["verify", "inject", "deprecate"])
+    for (const a of ["verify", "inject", "deprecate", "rename_type"])
       expect(seen, `${a} must be audited`).toContain(a);
     // inject_preview is the web tier's alone on purpose: it records that a HUMAN looked, without
     // polluting "what the AI actually saw". The CLI has no preview, so it must never write one.

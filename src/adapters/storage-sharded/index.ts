@@ -57,6 +57,7 @@ export interface YokeStore extends StoragePort {
   saveOntology(defs: TypeDef[], ns?: string | null): void;
   loadOntology(ns?: string | null): TypeDef[];
   listHistory(id: string): Entity[];
+  renameType(from: string, to: string, ns?: string | null): number;
   logAudit(event: AuditEvent): void;
   listAudit(q?: AuditQuery): AuditEvent[];
   createToken(spec: { name: string; scopes: string[]; created_at: string }): {
@@ -240,6 +241,15 @@ export class ShardedStorage implements YokeStore {
   listHistory(id: string): Entity[] {
     return this.members.flatMap(
       (m) => (m.store as ExtStore).listHistory?.(id) ?? [],
+    );
+  }
+
+  /** Every member renames its own rows — a vocabulary change is not per-shard the way a backup file
+   * is, and leaving one shard on the old name is exactly the split a rename exists to prevent. */
+  renameType(from: string, to: string, ns?: string | null): number {
+    return this.members.reduce(
+      (n, m) => n + ((m.store as ExtStore).renameType?.(from, to, ns) ?? 0),
+      0,
     );
   }
 

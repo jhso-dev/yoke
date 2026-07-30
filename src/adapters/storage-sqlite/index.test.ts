@@ -188,6 +188,108 @@ describe("audit extensions (PLAN 8.4)", () => {
   });
 });
 
+describe("renameType", () => {
+  const prov = {
+    actor: "yoke:system",
+    origin: "cli",
+    occurred_at: "2026-01-01T00:00:00Z",
+  };
+  const ent = (id: string, type: string, version = 1, ns?: string) => ({
+    id,
+    version,
+    type,
+    status: "verified" as const,
+    attributes: { title: `${id} v${version}` },
+    provenance: prov,
+    last_confirmed: "2026-01-01T00:00:00Z",
+    ...(ns ? { ns } : {}),
+  });
+
+  it("leaves the old name nowhere — declaration, every version, and the search index", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    store.saveOntology([
+      { name: "old", kind: "entity", attrs: {} },
+      { name: "fact", kind: "entity", attrs: {} },
+    ]);
+    await store.putEntity(ent("e1", "old"));
+    await store.putEntity(ent("e1", "old", 2));
+    await store.putEntity(ent("keep", "fact"));
+
+    expect(store.renameType("old", "new")).toBe(3); // 2 versions + 1 declaration
+
+    // Every version, not just the latest: a rename that only fixes the head leaves `yoke history`
+    // reading in the old vocabulary, which is the half-rename this command exists to prevent.
+    expect(store.listHistory("e1").map((e) => e.type)).toEqual(["new", "new"]);
+    expect(
+      store
+        .loadOntology()
+        .map((d) => d.name)
+        .sort(),
+    ).toEqual(["fact", "new"]);
+    // The FTS text is built from type + attributes, so it goes stale silently on a bare UPDATE —
+    // the old name would stay findable by search while appearing nowhere on screen.
+    expect((await store.search({ text: "old" })).map((e) => e.id)).toEqual([]);
+    expect((await store.search({ text: "new" })).map((e) => e.id)).toEqual([
+      "e1",
+    ]);
+    // Untouched types keep their rows and their index entry.
+    expect((await store.getEntity("keep"))?.type).toBe("fact");
+    store.close();
+  });
+
+  it("renames a relation type, and scopes to one namespace", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    await store.putEntity(ent("a", "fact"));
+    await store.putEntity(ent("b", "fact"));
+    await store.putRelation({
+      id: "r1",
+      version: 1,
+      type: "works_on",
+      status: "verified",
+      attributes: {},
+      provenance: prov,
+      last_confirmed: "2026-01-01T00:00:00Z",
+      from: "a",
+      to: "b",
+    });
+    expect(store.renameType("works_on", "assigned_to")).toBe(1);
+    expect((await store.neighbors("a")).map((r) => r.type)).toEqual([
+      "assigned_to",
+    ]);
+
+    // One tenant renaming does not touch another's rows — the same guarantee every other query has.
+    await store.putEntity(ent("t1", "shared", 1, "acme"));
+    await store.putEntity(ent("t2", "shared", 1, "globex"));
+    expect(store.renameType("shared", "common", "acme")).toBe(1);
+    expect((await store.getEntity("t1"))?.type).toBe("common");
+    expect((await store.getEntity("t2"))?.type).toBe("shared");
+    store.close();
+  });
+
+  it("drops the stale declaration when the new name is already declared", async () => {
+    // The ordinary case: the code was renamed first, so a later `yoke init` seeded the new type
+    // beside the old one. Rewriting the old row's name would collide with the live one.
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    store.saveOntology([{ name: "old", kind: "entity", attrs: {} }]);
+    store.saveOntology([{ name: "new", kind: "entity", attrs: {} }]);
+    await store.putEntity(ent("e", "old"));
+    expect(store.renameType("old", "new")).toBe(2); // 1 version + 1 dropped declaration
+    expect(store.loadOntology().map((d) => d.name)).toEqual(["new"]);
+    expect((await store.getEntity("e"))?.type).toBe("new");
+    store.close();
+  });
+
+  it("reports zero rather than failing when nothing carries the name", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    expect(store.renameType("absent", "whatever")).toBe(0);
+    store.close();
+  });
+});
+
 describe("durability (PLAN-V2 11.1)", () => {
   const prov = {
     actor: "yoke:system",
