@@ -139,9 +139,10 @@ port capabilities, etc. See SPEC).
 Human-verification list (the docs/BACKENDS.md pattern) — **one of four done**, and the
 boxes above are checked for what automation proves, not for this:
 
-- [x] the screens opened in a real browser against a seeded DB (2026-07-30). It found six
-      defects that a fully green suite did not, and every one of them was a rendering or a
-      volume problem — the class of thing an assertion over a JSON payload cannot see:
+- [x] the screens opened in a real browser against a seeded DB (2026-07-30). It found eight
+      defects that a fully green suite did not, and every one of them was a rendering, a
+      volume or a runtime-cost problem — the class of thing an assertion over a JSON payload
+      cannot see:
       1. every table's actor column, and every citation, rendered a raw ULID
       2. the audit viewer's detail column — the screen that answers "who was told what" —
          was a list of ids, so it answered in identifiers
@@ -153,6 +154,12 @@ boxes above are checked for what automation proves, not for this:
          knowledge at all
       6. no default cap anywhere on MCP or the CLI: a 312-record workstream briefing was
          ~8,681 tokens because someone pinned a scope
+      7. three of the four governance acts left no audit row when done from the CLI — including
+         `verify` — while the web tier audited all of them, and the actor filter this list claims
+         did not exist. The audit screen could not answer the question it exists for
+      8. the graph canvas could pin a core indefinitely: a drag ended by `pointercancel` never
+         cleared the drag flag, so the rAF loop ran at 60 fps for the tab's life; every node
+         click rebuilt and reheated the whole simulation; hiding the tab reheated it too
       Plus one found only by running the CLI: `yoke inject "" --scope <id>` was rejected by its
       own usage guard, so a briefing was impossible from the terminal.
       The lesson is the v2.5 lesson again, one level up: a green suite proves the payloads, and
