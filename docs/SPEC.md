@@ -126,6 +126,30 @@ entry points**: a `workstream` anchor is the shared working context, a `person` 
   working context leads, org-wide matches still flow in. `limit` applies after ordering.
 - With no `query`: only the one-hop set is returned — a briefing of that working context.
   The scope entity itself is never returned.
+- **A briefing has a defined order**, and it is part of this contract: verified before draft, then
+  most-recently-confirmed first, then `id` ascending as the tiebreak. Without it `limit` cuts by
+  whatever order a backend returns relations in — creation order on SQLite, something else on kuzu
+  and qdrant — so the same question would answer differently per backend, which is backend behaviour
+  leaking into the core (invariant 2). The `id` tiebreak is what makes the four agree and is not
+  optional. The query paths keep search-relevance order; this ordering applies only to a briefing.
+- **A briefing is capped, and says so in words.** Core applies no default (that would silently cap
+  `personaQuery` too); it exports `BRIEFING_LIMIT = 50` and returns `omitted` — how many its limit
+  dropped, knowable only on the scope path, which fetches the whole hop set before filtering. The
+  three front adapters apply the default to a briefing (anchor + empty query) and never to a query.
+  An explicit `limit` always wins.
+  A cap is honest **only because the briefing is not the only way in**: the query path searches the
+  whole namespace and scope merely re-orders it, so a record past the cap is reached by asking about
+  it. That fact must be stated in the output, not implied — for `yoke_inject` the notice is an
+  instruction ("the other N are NOT lost: ask a specific question"), because an agent that reads a
+  truncated briefing as the complete record answers from part of the knowledge without knowing it.
+  A `truncated` boolean would not have carried that.
+- **A roster is not knowledge.** Anything reached only through a relation type the ontology marks
+  `membership: true` is excluded from a briefing — a workstream's `works_on` edges name who is
+  involved in the work, not what is known about it, and under a `limit` they otherwise crowd the
+  knowledge out entirely. Naming that type in `scopeRel` asks for members on purpose and still
+  returns them. The flag is ontology **data**, not a relation name in core, because orgs define their
+  own equivalents (`assigned_to`, `member_of`); a tenant marks theirs and gets the same behaviour with
+  no core change.
 - The **same filters** apply as unscoped injection: verified-only by default (`includeDraft` still
   works), stale/deprecated always excluded, and the namespace filter is enforced on fetched
   entities (`getEntity` is id-based, so the ns check happens in `inject`, not the port).

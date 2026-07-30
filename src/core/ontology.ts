@@ -15,6 +15,18 @@ export type TypeDef = {
   attrs: Record<string, AttrSpec>;
   /** TTL (in days) for freshness. Omit = unlimited. Used by the 2.1 lifecycle. */
   ttl_days?: number;
+  /**
+   * Relation types only: this edge records WHO IS INVOLVED in something, not knowledge attached to it.
+   *
+   * An anchored briefing walks every relation on the anchor, so without this a workstream briefing
+   * hands an agent the roster (`works_on` → three person records) as though it were knowledge — and
+   * under a limit the roster can crowd the knowledge out entirely.
+   *
+   * It is ontology DATA, not a name hardcoded in core, because orgs define their own equivalents
+   * (assigned_to, member_of, reviews) — see the workstream note below. A tenant that adds a
+   * membership relation marks it here and gets the same behaviour, with no core change.
+   */
+  membership?: boolean;
 };
 
 /** Whether the actual value matches AttrSpec.type. */
@@ -90,7 +102,8 @@ export function seedOntology(): TypeDef[] {
     { name: "relates_to", kind: "relation", attrs: {} },
     { name: "supersedes", kind: "relation", attrs: {} },
     { name: "conflicts_with", kind: "relation", attrs: {} },
-    // Links a person to a workstream they participate in (v4.0).
-    { name: "works_on", kind: "relation", attrs: {} },
+    // Links a person to a workstream they participate in (v4.0). Membership, not knowledge: the
+    // roster belongs on the workstream screen, not in the briefing an agent is handed.
+    { name: "works_on", kind: "relation", attrs: {}, membership: true },
   ];
 }
