@@ -11,7 +11,7 @@ import { z } from "zod";
 import type { AuditEvent } from "../../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
-import { citation, inject } from "../../core/inject.js";
+import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
 import { resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
@@ -165,7 +165,11 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .int()
           .positive()
           .optional()
-          .describe("Maximum number of results"),
+          .describe(
+            `Maximum number of results. A scope briefing (scope set, empty query) defaults to ` +
+              `${BRIEFING_LIMIT}, most recently confirmed first; raise it to see more of the briefing. ` +
+              `A query is never capped by default.`,
+          ),
         scope: z
           .string()
           .optional()
@@ -179,11 +183,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     async ({ query, includeDraft, limit, scope }) => {
       if (!authorize("read")) return forbidden();
       const ts = now();
-      const { items } = await inject(store, ontology, query, ts, {
+      const anchor = effectiveScope(scope);
+      // A briefing (anchored, no query) had no cap at all: a workstream with 300 records attached
+      // returned all 300 in full, ~15k tokens, because someone pinned a scope. Default it, and let an
+      // explicit limit override. Only the briefing — a query is already narrowed by its own terms.
+      const briefing = anchor !== undefined && !query;
+      const { items, omitted } = await inject(store, ontology, query, ts, {
         includeDraft,
-        limit,
+        limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
         ns,
-        scope: effectiveScope(scope),
+        scope: anchor,
       });
       // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
       store.logAudit?.({
@@ -199,6 +208,15 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         (it) =>
           `${it.citation} [${it.effectiveStatus}]\n${JSON.stringify(it.entity.attributes)}`,
       );
+      // Never a silent slice — and for a model the notice has to be an INSTRUCTION, not a flag. An
+      // agent that reads a truncated briefing as the complete record answers from part of the
+      // knowledge without knowing it. Saying where the rest is turns the cap from loss into paging.
+      if (omitted > 0)
+        blocks.push(
+          `[${items.length} of ${items.length + omitted} records on this scope, most recently confirmed first. ` +
+            `The other ${omitted} are NOT lost: ask yoke_inject a specific question and it searches ` +
+            `everything, scope-linked results first. Raise "limit" to see more of the briefing.]`,
+        );
       return ok(blocks.join("\n\n"));
     },
   );

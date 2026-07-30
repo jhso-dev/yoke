@@ -15,7 +15,12 @@ export interface Knowledge {
   /** Read-time status: 'stale' is computed by core and never stored, so this is the one to render. */
   effectiveStatus: Status;
   summary: string;
+  /** The actor id as recorded — a person entity id or an agent identifier. */
   actor: string;
+  /** The actor rendered for a human, resolved server-side. Absent for machine actors
+   * ('yoke:system') and for person ids that no longer resolve, so render `actorName ?? actor`
+   * and keep the id reachable — it is what the citation points at. */
+  actorName?: string;
   occurred_at: string;
   /** `[type:id@vN] actor, occurred_at` — built by core, never reassembled here. */
   citation: string;
@@ -67,8 +72,14 @@ export interface TypeDef {
 
 export interface AuditEntry {
   actor: string;
+  /** Resolved for reading; the trail itself records only the id. */
+  actorName?: string;
   action: string;
+  /** As recorded: `<subject> -> <id> <id> …`. Never rewritten — it is the audit fact. */
   detail: string;
+  /** The records `detail` names, resolved so the row can be read. Capped server-side; absent when
+   * nothing resolved (every id deleted, or in another namespace). */
+  refs?: { id: string; type: string; summary: string }[];
   at: string;
   ns?: string;
 }
@@ -86,6 +97,8 @@ export interface InjectPreview {
   query: string;
   scope: string | null;
   includeDraft: boolean;
+  /** How many records the limit dropped. >0 means this is a page, not the whole context. */
+  omitted: number;
   items: Knowledge[];
 }
 
@@ -100,6 +113,8 @@ export interface Meta {
   readOnly: boolean;
   ns: string | null;
   actor: string | null;
+  /** The actor rendered for a human; absent for machine actors and unresolvable ids. */
+  actorName?: string;
 }
 
 /** True when the other side of a relation could not be resolved in this namespace. */

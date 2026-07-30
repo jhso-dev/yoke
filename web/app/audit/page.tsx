@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Actor } from "../../components/Actor";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { api } from "../../lib/api";
+import { recordLabel, shortId } from "../../lib/citation";
+import type { AuditEntry } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -21,30 +24,39 @@ const MEANING: Record<string, string> = {
   deprecate: "records were retired",
 };
 
-/** Detail is `query -> id id id`; the ids are worth linking. */
-function Detail({ text }: { text: string }) {
-  const [left, right] = text.split(" -> ");
-  if (right === undefined) return <span>{text}</span>;
-  const ids = right.split(" ").filter(Boolean);
+/** A bulk verify names every id it promoted, which can be thousands. Render a readable prefix and
+ * say how many were left off — the count is the honesty, the full list is in `yoke audit`. */
+const SHOW_REFS = 12;
+
+function Detail({ event }: { event: AuditEntry }) {
+  const [subject, right] = event.detail.split(" -> ");
+  if (right === undefined) return <span>{event.detail}</span>;
+  const all = right.split(" ").filter(Boolean);
+  const ids = all.slice(0, SHOW_REFS);
+  const more = all.length - ids.length;
+  const byId = new Map((event.refs ?? []).map((r) => [r.id, r]));
   return (
     <>
-      <span>{left}</span>
+      {subject && <span>{subject}</span>}
       <span className="muted"> → </span>
-      {ids.length === 0 ? (
+      {all.length === 0 ? (
         <span className="muted">nothing</span>
       ) : (
-        ids.map((id, i) => (
-          <span key={id}>
-            {i > 0 && " "}
-            <Link
-              className="mono"
-              href={`/entity/?id=${encodeURIComponent(id)}`}
-            >
-              {id.slice(0, 8)}…
-            </Link>
-          </span>
-        ))
+        ids.map((id, i) => {
+          const ref = byId.get(id);
+          return (
+            <span key={id}>
+              {i > 0 && <span className="muted">, </span>}
+              <Link href={`/entity/?id=${encodeURIComponent(id)}`}>
+                {ref ? recordLabel(ref) : shortId(id)}
+              </Link>
+              {ref && <span className="muted mono"> {ref.type}</span>}
+            </span>
+          );
+        })
       )}
+      {/* Never a silent truncation: the row says how many it left off. */}
+      {more > 0 && <span className="muted"> · {more} more</span>}
     </>
   );
 }
@@ -123,12 +135,14 @@ export default function Audit() {
                   // biome-ignore lint/suspicious/noArrayIndexKey: no id exists to key on.
                   <tr key={`${e.at}-${e.actor}-${e.action}-${i}`}>
                     <td className="mono">{e.at}</td>
-                    <td className="mono">{e.actor}</td>
+                    <td>
+                      <Actor actor={e.actor} actorName={e.actorName} />
+                    </td>
                     <td className="mono" title={MEANING[e.action] ?? e.action}>
                       {e.action}
                     </td>
                     <td>
-                      <Detail text={e.detail} />
+                      <Detail event={e} />
                     </td>
                   </tr>
                 ))}

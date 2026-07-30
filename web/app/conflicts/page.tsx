@@ -6,6 +6,7 @@ import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
+import { recordLabel, shortId } from "../../lib/citation";
 import { type ConflictPair, isMissing, type Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
@@ -38,7 +39,10 @@ export default function Conflicts() {
     if (isMissing(s))
       return (
         <div className="panel" style={{ padding: 12 }}>
-          <span className="mono muted">{s.id} — not in this namespace</span>
+          <span className="muted">
+            <span className="mono">{shortId(s.id)}</span> — not in this
+            namespace
+          </span>
         </div>
       );
     const k = s as Knowledge;
@@ -50,10 +54,10 @@ export default function Conflicts() {
         </div>
         <p style={{ margin: "8px 0" }}>
           <Link href={`/entity/?id=${encodeURIComponent(k.id)}`}>
-            {k.summary || k.id}
+            {recordLabel(k)}
           </Link>
         </p>
-        <Citation value={k.citation} />
+        <Citation row={k} />
         <div style={{ marginTop: 10 }}>
           <button
             type="button"
@@ -93,7 +97,6 @@ export default function Conflicts() {
           <div key={p.id} className="panel" style={{ marginBottom: 14 }}>
             <div className="panel-head">
               <span className="mono">conflicts_with</span>
-              <span className="muted mono">{p.id}</span>
             </div>
             <div
               style={{

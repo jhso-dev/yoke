@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
+import { recordLabel, shortId } from "../../lib/citation";
 import { isMissing } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
@@ -62,11 +64,30 @@ function EntityBody() {
   return (
     <>
       <h1>
-        <span className="mono">{d.entity.type}</span> {d.entity.summary}
+        <span className="mono">{d.entity.type}</span>{" "}
+        {recordLabel(d.entity) === d.entity.summary
+          ? d.entity.summary
+          : "(no text attributes)"}
       </h1>
       <p className="lede">
         <StatusBadge status={d.entity.effectiveStatus} />{" "}
-        <span className="mono muted">{d.entity.id}</span>
+        {/* This record's own id, shortened like every other id a person reads. Click to copy the
+            whole thing — a ULID is for machines and for pasting into a command, not for reading. */}
+        <button
+          type="button"
+          className="mono muted"
+          title={`${d.entity.id}\n\nclick to copy`}
+          style={{
+            border: "none",
+            background: "none",
+            padding: 0,
+            cursor: "copy",
+            font: "inherit",
+          }}
+          onClick={() => navigator.clipboard?.writeText(d.entity.id)}
+        >
+          {shortId(d.entity.id)}
+        </button>
       </p>
       <ErrorBanner error={actionError} />
 
@@ -119,7 +140,12 @@ function EntityBody() {
             <tbody>
               <tr>
                 <th style={{ width: "22%" }}>recorded by</th>
-                <td className="mono">{d.entity.actor}</td>
+                <td>
+                  <Actor
+                    actor={d.entity.actor}
+                    actorName={d.entity.actorName}
+                  />
+                </td>
               </tr>
               <tr>
                 <th>origin</th>
@@ -133,10 +159,13 @@ function EntityBody() {
                 <th>last confirmed</th>
                 <td className="mono">{d.entity.last_confirmed}</td>
               </tr>
+              {/* Compact, like everywhere else. Every field the raw string contains is already a row
+                  in this table (id in the header, version, recorded by, occurred at) — its only
+                  unique value is being copyable exactly, which the click gives. */}
               <tr>
                 <th>citation</th>
                 <td>
-                  <Citation value={d.entity.citation} />
+                  <Citation row={d.entity} />
                 </td>
               </tr>
             </tbody>
@@ -167,10 +196,12 @@ function EntityBody() {
                   <td>
                     <StatusBadge status={h.status} />
                   </td>
-                  <td className="mono">{h.actor}</td>
+                  <td>
+                    <Actor actor={h.actor} actorName={h.actorName} />
+                  </td>
                   <td className="mono">{h.occurred_at}</td>
                   <td>
-                    <Citation value={h.citation} />
+                    <Citation row={h} />
                   </td>
                 </tr>
               ))}
@@ -205,13 +236,14 @@ function EntityBody() {
                     <td>
                       {isMissing(e.other) ? (
                         <span className="mono muted">
-                          {e.other.id} — not in this namespace
+                          <span className="mono">{shortId(e.other.id)}</span> —
+                          not in this namespace
                         </span>
                       ) : (
                         <Link
                           href={`/entity/?id=${encodeURIComponent(e.other.id)}`}
                         >
-                          {e.other.summary || e.other.id}
+                          {recordLabel(e.other)}
                         </Link>
                       )}
                     </td>

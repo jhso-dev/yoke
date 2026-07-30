@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
+import { verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
 import { createUiServer } from "./server.js";
@@ -24,6 +25,10 @@ let base: string;
 let factId: string;
 let decisionAId: string;
 let decisionBId: string;
+let personId: string;
+let byPersonId: string;
+let workstreamId: string;
+let scopedFactId: string;
 
 beforeAll(async () => {
   const ont = seedOntology();
@@ -70,6 +75,58 @@ beforeAll(async () => {
       attributes: {},
       from: b.entity.id,
       to: a.entity.id,
+    },
+    prov,
+    now,
+  );
+
+  // A person, and knowledge whose provenance.actor IS that person's id — the real shape once the
+  // gate mirrors authorship (commit stage 4b). Without this the suite only ever saw a bare string
+  // actor, which is why an unreadable ULID reached a browser unnoticed.
+  const person = await commit(
+    store,
+    ont,
+    { type: "person", attributes: { name: "Bora", role: "engineer" } },
+    prov,
+    now,
+  );
+  personId = person.entity.id;
+  const byPerson = await commit(
+    store,
+    ont,
+    { type: "fact", attributes: { title: "index rebuilds nightly" } },
+    { actor: personId, origin: "cli", occurred_at: now },
+    now,
+  );
+  byPersonId = byPerson.entity.id;
+
+  // A workstream with one fact attached to it. The scope-anchored inject route had no test at all —
+  // v4.0's shared working context reached the web tier as an untested query parameter.
+  const ws = await commit(
+    store,
+    ont,
+    { type: "workstream", attributes: { title: "auth revamp", key: "AUTH-1" } },
+    prov,
+    now,
+  );
+  workstreamId = ws.entity.id;
+  const scoped = await commit(
+    store,
+    ont,
+    { type: "fact", attributes: { statement: "tokens rotate hourly" } },
+    prov,
+    now,
+  );
+  scopedFactId = scoped.entity.id;
+  await verify(store, [scopedFactId], "reviewer", now);
+  await commit(
+    store,
+    ont,
+    {
+      type: "relates_to",
+      attributes: {},
+      from: scopedFactId,
+      to: workstreamId,
     },
     prov,
     now,
@@ -353,6 +410,35 @@ describe("ui API", () => {
     expect(one.items).toHaveLength(1);
     expect(one.items[0].at).toBe(times[times.length - 1]);
   });
+
+  // provenance.actor is a person entity id (core/types.ts), so every row and every citation carried a
+  // raw ULID into the browser. The name is resolved for reading; the id stays, because the id is what
+  // the citation points at and names are neither unique nor stable.
+  it("resolves a person actor to a name without dropping the id, and leaves the citation alone", async () => {
+    const rows = await get("/api/entities?type=fact");
+    const mine = rows.items.find((r: { id: string }) => r.id === byPersonId);
+    expect(mine.actorName).toBe("Bora");
+    expect(mine.actor).toBe(personId);
+    // The audit pointer is unchanged: it carries the id, never the name.
+    expect(mine.citation).toContain(personId);
+    expect(mine.citation).not.toContain("Bora");
+
+    // A machine actor has no person record, so there is nothing to resolve and the id stands alone.
+    // Asserted on the person record itself, which no test verifies — verify appends a version whose
+    // actor is the verifier, so asserting on a promoted row would depend on test order.
+    const people = await get("/api/entities?type=person");
+    const bare = people.items.find((r: { id: string }) => r.id === personId);
+    expect(bare.actor).toBe("tester");
+    expect(bare.actorName).toBeUndefined();
+
+    // Every read path that shows a row shows the same resolution — one serializer, not per-route.
+    const detail = await get(`/api/entity/${byPersonId}`);
+    expect(detail.entity.actorName).toBe("Bora");
+    const graph = await get("/api/graph");
+    expect(
+      graph.nodes.find((n: { id: string }) => n.id === byPersonId).actorName,
+    ).toBe("Bora");
+  });
 });
 
 // A tenant must never see another tenant's knowledge through a global listing. Before this was
@@ -435,5 +521,44 @@ describe("ui API namespace isolation", () => {
     expect(summaries.some((s: string) => s.includes("globex"))).toBe(false);
     // The resolved side is a real row, not a "missing" stub — the ns check must not over-reject.
     expect([pairs[0].from.id, pairs[0].to.id]).toContain(acmeDecision);
+  });
+});
+
+// v4.0's shared working context, over HTTP. The route shipped in v5.0 with no test — `scope` was a
+// query parameter nobody exercised, which is how the workstream screen came to be missing too.
+describe("scope-anchored injection over HTTP", () => {
+  it("anchors a briefing on a workstream and reports the anchor back", async () => {
+    const out = await get(
+      `/api/inject?scope=${encodeURIComponent(workstreamId)}`,
+    );
+    expect(out.scope).toBe(workstreamId);
+    // The attached, verified fact is in the briefing; the anchor itself never is.
+    expect(out.items.map((i: { id: string }) => i.id)).toContain(scopedFactId);
+    expect(out.items.map((i: { id: string }) => i.id)).not.toContain(
+      workstreamId,
+    );
+  });
+
+  it("injects only verified knowledge, anchored or not", async () => {
+    const out = await get(
+      `/api/inject?scope=${encodeURIComponent(workstreamId)}`,
+    );
+    // The hard rule (KNOWLEDGE-POLICY): an anchor prioritises, it never lowers the gate.
+    for (const i of out.items)
+      expect(["verified", "stale"]).toContain(i.effectiveStatus);
+    expect(
+      out.items.every(
+        (i: { effectiveStatus: string }) => i.effectiveStatus !== "draft",
+      ),
+    ).toBe(true);
+  });
+
+  it("audits a scoped preview like any other read", async () => {
+    await get(`/api/inject?scope=${encodeURIComponent(workstreamId)}&q=tokens`);
+    const entry = store
+      .listAudit()
+      .filter((a) => a.action === "inject_preview")
+      .at(-1);
+    expect(entry?.detail).toContain(scopedFactId);
   });
 });

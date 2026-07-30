@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, configureApi } from "../lib/api";
+import { shortId } from "../lib/citation";
 import { clearCredential, getCredential } from "../lib/credential";
 import type { Meta } from "../lib/types";
 
@@ -55,7 +56,11 @@ export function AuthGate() {
         <span title="read replica: writes go to the primary">read-only</span>
       )}
       {meta.ns && <span title="tenant namespace">ns:{meta.ns}</span>}
-      {meta.actor && <span title="authenticated as">{meta.actor}</span>}
+      {meta.actor && (
+        <span title={`authenticated as ${meta.actor}`}>
+          {meta.actorName ?? shortId(meta.actor)}
+        </span>
+      )}
       {meta.auth ? (
         getCredential() ? (
           <button

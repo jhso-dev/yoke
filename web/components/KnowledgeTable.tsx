@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { recordLabel } from "../lib/citation";
 import type { Knowledge } from "../lib/types";
+import { Actor } from "./Actor";
 import { Citation } from "./Citation";
 import { StatusBadge } from "./StatusBadge";
 
@@ -50,15 +52,17 @@ export function KnowledgeTable({
               <td className="mono">{r.type}</td>
               <td>
                 <Link href={`/entity/?id=${encodeURIComponent(r.id)}`}>
-                  {r.summary || r.id}
+                  {recordLabel(r)}
                 </Link>
               </td>
               <td>
                 <StatusBadge status={r.effectiveStatus} />
               </td>
-              <td className="mono">{r.actor}</td>
               <td>
-                <Citation value={r.citation} />
+                <Actor actor={r.actor} actorName={r.actorName} />
+              </td>
+              <td>
+                <Citation row={r} />
               </td>
             </tr>
           ))}

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Actor } from "../../components/Actor";
+import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { GraphCanvas } from "../../components/GraphCanvas";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -141,7 +143,8 @@ function GraphBody() {
                 <StatusBadge status={chosen.status} />
                 <span className="mono">{chosen.type}</span>
                 <strong>{chosen.label}</strong>
-                <span className="cite">{chosen.citation}</span>
+                <Actor actor={chosen.actor} actorName={chosen.actorName} />
+                <Citation row={chosen} />
                 <Link href={`/entity/?id=${encodeURIComponent(chosen.id)}`}>
                   open record
                 </Link>

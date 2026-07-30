@@ -4,6 +4,7 @@
 // layout is d3-force's job, but merging expansions, capping size, colouring by type and describing
 // truncation are ours, and those are where the bugs would be.
 
+import { recordLabel } from "./citation";
 import type { Edge, GraphData, Knowledge, Status } from "./types";
 
 /**
@@ -19,7 +20,12 @@ export interface GraphNode {
   type: string;
   status: Status;
   label: string;
+  /** Everything a citation label needs, so a selected node renders its source like any other row. */
   citation: string;
+  version: number;
+  occurred_at: string;
+  actor: string;
+  actorName?: string;
   /** Simulation state, mutated by d3-force. */
   x?: number;
   y?: number;
@@ -114,8 +120,13 @@ function nodeOf(k: Knowledge, degree: number): GraphNode {
     id: k.id,
     type: k.type,
     status: k.effectiveStatus,
-    label: k.summary || k.id,
+    // recordLabel, not `summary || id`: a record with no text attributes must not render as a ULID.
+    label: recordLabel(k),
     citation: k.citation,
+    version: k.version,
+    occurred_at: k.occurred_at,
+    actor: k.actor,
+    ...(k.actorName === undefined ? {} : { actorName: k.actorName }),
     degree,
     ...seed(k.id),
   };

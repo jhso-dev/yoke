@@ -28,7 +28,7 @@ import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
-import { inject } from "../../core/inject.js";
+import { BRIEFING_LIMIT, inject } from "../../core/inject.js";
 import { deprecate, verify } from "../../core/lifecycle.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import { seedOntology, type TypeDef } from "../../core/ontology.js";
@@ -38,6 +38,7 @@ import {
   safeName,
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
+import { summarize } from "../display.js";
 import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
 import { openStore, type YokeStore } from "../store.js";
@@ -150,18 +151,6 @@ function emit(v: Values, human: string, data: unknown): void {
 
 function formatEntity(e: Entity | Relation): string {
   return `${e.id}  ${e.type}  ${e.status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
-}
-
-/** The first string value in attributes, truncated to 60 chars (for compact review/inject output). */
-function summarize(attributes: Record<string, unknown>): string {
-  for (const [key, val] of Object.entries(attributes)) {
-    // external_id is an idempotency key, not content — connector-ingested rows
-    // put it first, which made every summary read "rdb:table:1" instead of the
-    // actual knowledge. Same for author (metadata, not the statement).
-    if (key === "external_id" || key === "author") continue;
-    if (typeof val === "string") return val.slice(0, 60);
-  }
-  return "";
 }
 
 /** --shards <file> (or YOKE_SHARDS) if set, else undefined — the single-sqlite fast path. */
@@ -412,6 +401,7 @@ async function cmdGet(
 async function cmdList(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
+    const ontology = store.loadOntology(ns);
     const p = await store.listEntities({
       ns,
       type: v.type,
@@ -425,7 +415,7 @@ async function cmdList(v: Values, env: Env): Promise<number> {
     }
     const lines = p.items.map(
       (e) =>
-        `${e.id}  ${e.type}  ${e.status}  ${summarize(e.attributes)}  ${e.provenance.actor}`,
+        `${e.id}  ${e.type}  ${e.status}  ${summarize(e, ontology)}  ${e.provenance.actor}`,
     );
     if (p.next) lines.push(`-- more: yoke list --after ${p.next}`);
     emit(v, lines.join("\n"), p);
@@ -486,6 +476,7 @@ async function cmdSearch(
 async function cmdReview(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
+    const ontology = store.loadOntology(ns);
     const drafts = (
       await store.listEntities({ status: "draft", ns, type: v.type })
     ).items;
@@ -495,7 +486,7 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
     }
     const lines = drafts.map(
       (e) =>
-        `${e.id}  ${e.type}  ${summarize(e.attributes)}  ${e.provenance.actor}  ${e.provenance.occurred_at}`,
+        `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${e.provenance.actor}  ${e.provenance.occurred_at}`,
     );
     emit(v, lines.join("\n"), drafts);
     return 0;
@@ -555,10 +546,14 @@ async function cmdInject(
   v: Values,
   env: Env,
 ): Promise<number> {
-  const query = positionals[0];
-  if (!query) {
+  const query = positionals[0] ?? "";
+  // `--scope <id>` with no query is a briefing of that working context — the MCP tool and the web
+  // route have always allowed it, and the CLI's require-a-query guard silently made the one front
+  // adapter a human uses unable to reproduce what an agent receives (the CLI-achievable rule).
+  if (!query && v.scope === undefined) {
     console.error(
-      "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id]",
+      "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id]\n" +
+        "       yoke inject --scope <id>            briefing of that working context",
     );
     return 1;
   }
@@ -568,9 +563,12 @@ async function cmdInject(
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
     const ts = now();
-    const { items } = await inject(store, ontology, query, ts, {
+    // Same default as the MCP tool and the web route: an anchored briefing is capped, a query is not.
+    // Without it, `yoke inject --scope <workstream>` dumps every record ever attached to that work.
+    const briefing = v.scope !== undefined && !query;
+    const { items, omitted } = await inject(store, ontology, query, ts, {
       includeDraft: v["include-draft"],
-      limit,
+      limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
       ns,
       // The MCP tool has always passed a scope; the CLI never did, so the two front ends could not
       // reproduce each other's results (WEB-UI's CLI-achievable rule).
@@ -585,8 +583,15 @@ async function cmdInject(
       ns,
     });
     const lines = items.map(
-      (it) => `${it.citation}  ${summarize(it.entity.attributes)}`,
+      (it) => `${it.citation}  ${summarize(it.entity, ontology)}`,
     );
+    // Never a silent slice. --json keeps the raw items array (contract unchanged), so the count goes
+    // in the human output only; a script wanting everything raises --limit.
+    if (omitted > 0)
+      lines.push(
+        `-- ${items.length} of ${items.length + omitted} on this scope (freshest first); ` +
+          `the rest are reachable by querying, or raise --limit`,
+      );
     // Draft-invisibility fix: zero verified hits, but drafts match → say so, don't imply the
     // knowledge simply isn't there. --json output stays the raw items array (contract unchanged).
     let human = items.length ? lines.join("\n") : "no results";
@@ -613,6 +618,7 @@ async function cmdHistory(
     return 1;
   }
   return withStore(v, env, async (store) => {
+    const ontology = store.loadOntology(resolveNs(v.ns, env));
     const versions = store.listHistory(id);
     if (versions.length === 0) {
       console.error(`not found: ${id}`);
@@ -620,7 +626,7 @@ async function cmdHistory(
     }
     const lines = versions.map(
       (e) =>
-        `v${e.version}  ${e.status}  ${e.provenance.actor}  ${e.last_confirmed}  ${summarize(e.attributes)}`,
+        `v${e.version}  ${e.status}  ${e.provenance.actor}  ${e.last_confirmed}  ${summarize(e, ontology)}`,
     );
     emit(v, lines.join("\n"), versions);
     return 0;
@@ -646,6 +652,7 @@ async function cmdAudit(v: Values, env: Env): Promise<number> {
 async function cmdConflicts(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
+    const ontology = store.loadOntology(ns);
     const rels = (await store.listRelations({ type: "conflicts_with", ns }))
       .items;
     if (rels.length === 0) {
@@ -666,7 +673,7 @@ async function cmdConflicts(v: Values, env: Env): Promise<number> {
     const lines = items.map(({ relation, from, to }) => {
       const side = (e: Entity | null, id: string) =>
         e
-          ? `${e.id} [${e.status}] ${summarize(e.attributes)}`
+          ? `${e.id} [${e.status}] ${summarize(e, ontology)}`
           : `${id} (missing)`;
       return `${relation.id}\n  ${side(from, relation.from)}\n  <-> ${side(to, relation.to)}`;
     });

@@ -124,6 +124,16 @@ function InjectBody() {
                 </span>
               )}
             </div>
+            {/* A preview that silently showed 50 of 312 would misrepresent what an agent receives —
+                which is this screen's whole job. */}
+            {(result.data?.omitted ?? 0) > 0 && (
+              <div className="banner" data-kind="warn">
+                showing {items.length} of{" "}
+                {items.length + (result.data?.omitted ?? 0)} — an agent gets the
+                same page, plus a note telling it to ask a specific question for
+                the rest. Raise the limit to preview more.
+              </div>
+            )}
             <KnowledgeTable
               rows={items}
               empty="nothing verified matches — an agent would get nothing for this query"

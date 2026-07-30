@@ -5,6 +5,7 @@ import { Suspense, useState } from "react";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
+import { recordLabel } from "../../lib/citation";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -60,7 +61,7 @@ function PersonaBody() {
           <option value="">choose a person…</option>
           {(people.data?.items ?? []).map((p) => (
             <option key={p.id} value={p.id}>
-              {p.summary || p.id}
+              {recordLabel(p)}
             </option>
           ))}
         </select>
