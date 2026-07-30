@@ -7,6 +7,7 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
+import { isoFromLocalInput } from "../../lib/time";
 import type { AuditEntry } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
@@ -72,7 +73,11 @@ function Detail({ event }: { event: AuditEntry }) {
 }
 
 export default function Audit() {
+  // The control's own vocabulary — local wall time, no zone, no seconds. Round-tripping an ISO string
+  // through `value` is what made the field clear itself on every pick; the conversion happens once, at
+  // the request, and `since` stays the only thing `<input type="datetime-local">` will accept.
   const [since, setSince] = useState("");
+  const sinceIso = isoFromLocalInput(since);
   const [action, setAction] = useState("");
   // "Filterable by actor, action and time" is what ROADMAP claims this screen does; actor was
   // missing. It is the axis that answers the question the trail exists for — which agent received
@@ -80,8 +85,8 @@ export default function Audit() {
   // was invisible.
   const [actor, setActor] = useState("");
   const trail = useAsync(
-    () => api.audit({ since: since || undefined, limit: 500 }),
-    [since],
+    () => api.audit({ since: sinceIso || undefined, limit: 500 }),
+    [sinceIso],
   );
 
   const loaded = trail.data?.items ?? [];
@@ -114,10 +119,10 @@ export default function Audit() {
           <input
             type="datetime-local"
             value={since}
-            onChange={(e) =>
-              setSince(e.target.value ? `${e.target.value}:00Z` : "")
-            }
+            onChange={(e) => setSince(e.target.value)}
             aria-label="since"
+            // Every timestamp on this screen reads in the viewer's zone, so the filter takes one too.
+            title="your local time"
           />
         </label>
         <select

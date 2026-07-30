@@ -34,6 +34,25 @@ const shape = new Intl.DateTimeFormat("en-CA", {
  * the same moment. Milliseconds are dropped: noise in every column that showed them, and still one
  * hover away on the element.
  */
+/**
+ * `<input type="datetime-local">`'s value → the ISO UTC instant the API wants.
+ *
+ * The control's vocabulary is local wall time with no zone and no seconds (`2026-07-30T16:43`), and
+ * that string is the ONLY thing it will accept back as its own `value`. Two bugs came out of ignoring
+ * that: storing an ISO string in the control's state made the field blank itself the moment anyone
+ * picked a date, and appending `Z` to a local wall time declared 16:43 KST to be 16:43 UTC, so the
+ * window queried was nine hours off — silently, since a wrong window still returns rows.
+ *
+ * `new Date("…T16:43")` (no offset) is parsed as LOCAL time by spec, which is exactly the reading the
+ * control intends. Full ISO with milliseconds out, because the server compares `at >= since` as text:
+ * a `since` without milliseconds sorts AFTER a stored `…:58.846Z` in the same second and drops it.
+ */
+export function isoFromLocalInput(value: string): string {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
 export function localTime(iso: string): string {
   const d = new Date(iso);
   // Never swallow a value we cannot parse: the raw string is more use to a reader than "Invalid Date",
