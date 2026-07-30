@@ -151,7 +151,7 @@ port capabilities, etc. See SPEC).
 Human-verification list (the docs/BACKENDS.md pattern) — **one of four done**, and the
 boxes above are checked for what automation proves, not for this:
 
-- [x] the screens opened in a real browser against a seeded DB (2026-07-30). It found ten
+- [x] the screens opened in a real browser against a seeded DB (2026-07-30). It found eleven
       defects that a fully green suite did not, and every one of them was a rendering, a
       volume or a runtime-cost problem — the class of thing an assertion over a JSON payload
       cannot see:
@@ -179,6 +179,10 @@ boxes above are checked for what automation proves, not for this:
      10. every timestamp rendered as stored — `2026-07-30T07:43:58.846Z`. Correct as an audit
          fact and unreadable as an answer to "when": a different hour than the reader's, with
          milliseconds of noise. The same rule as an opaque id, one field over
+     11. the audit screen's date filter could not take a date. Its `datetime-local` value was
+         written back as `${value}:00Z`, which the control rejects, so it blanked itself on every
+         pick — and the same two lines called local wall time UTC, so a working field would have
+         queried a window off by the reader's whole offset
       Plus one found only by running the CLI: `yoke inject "" --scope <id>` was rejected by its
       own usage guard, so a briefing was impossible from the terminal.
       The lesson is the v2.5 lesson again, one level up: a green suite proves the payloads, and
