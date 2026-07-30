@@ -9,7 +9,7 @@
 // If a screen legitimately needs one of these, the exemption belongs here, named, with a reason.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -27,7 +27,13 @@ function sources(dir: string): string[] {
 
 const files = [join(webRoot, "app"), join(webRoot, "components")]
   .flatMap(sources)
-  .map((p) => ({ path: relative(webRoot, p), text: readFileSync(p, "utf8") }));
+  .map((p) => ({
+    // Posix separators, always: node:path returns `components\Actor.tsx` on win32, so every path
+    // literal in this file — the OWNERS exemptions included — would silently stop matching there.
+    // A guard whose exemption list misses is a guard that fails on the files it is meant to excuse.
+    path: relative(webRoot, p).split(sep).join("/"),
+    text: readFileSync(p, "utf8"),
+  }));
 
 /** Files allowed to touch a raw value, because turning it into something readable IS their job. */
 const OWNERS = {
@@ -50,6 +56,10 @@ describe("no raw ids in human-facing renders", () => {
     // Guards the guard: a broken path glob would make every assertion below vacuously pass.
     expect(files.length).toBeGreaterThan(10);
     expect(files.map((f) => f.path)).toContain("components/KnowledgeTable.tsx");
+    // And asserts the normalization on every platform, not just the one that needs it: a win32 path
+    // would keep its backslashes, the OWNERS exemptions would stop matching, and the failure would be
+    // in a job most local runs never execute. This line fails everywhere if the normalization goes.
+    for (const f of files) expect(f.path).not.toContain("\\");
   });
 
   it("never falls back to a bare id when a summary is missing", () => {
