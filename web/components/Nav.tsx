@@ -9,6 +9,7 @@ const LINKS = [
   { href: "/conflicts/", label: "conflicts" },
   { href: "/ontology/", label: "ontology" },
   { href: "/persona/", label: "persona" },
+  { href: "/workstream/", label: "workstream" },
   { href: "/browse/", label: "browse" },
   { href: "/inject/", label: "inject" },
   { href: "/graph/", label: "graph" },

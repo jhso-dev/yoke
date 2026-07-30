@@ -79,6 +79,7 @@ describe.skipIf(!built)("shipped web bundle", () => {
       "conflicts",
       "ontology",
       "persona",
+      "workstream",
       "browse",
       "entity",
       "inject",
