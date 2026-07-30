@@ -1,0 +1,55 @@
+src/front/cli/index.ts
+  h_9aabb7d8448c0a 31,41,404,418,479,489,549-553,555-556,566-569,571,586,588-594,621,629,655,676
+src/front/display.test.ts
+  h_9aabb7d8448c0a 1-66
+src/front/display.ts
+  h_9aabb7d8448c0a 1-52
+src/front/mcp/index.ts
+  h_9aabb7d8448c0a 14,168-172,186-191,193,195,211-219
+src/front/mcp/mcp.test.ts
+  h_9aabb7d8448c0a 13,353-423
+src/front/ui/server.ts
+  h_9aabb7d8448c0a 14,20,68-101,107-126,133,135,142-148,176-181,220-222,226-237,266-270,276,286,303-306,324,329,336,343,349,368,394-407,420-421,436,468-473,495-496,514-559,589-590,614
+src/front/ui/ui.test.ts
+  h_9aabb7d8448c0a 13,28-31,83-134,413-441,526-564
+web/app/audit/page.tsx
+  h_9aabb7d8448c0a 5,8-9,27-37,40,42,45-56,58-59,138-140,145
+web/app/conflicts/page.tsx
+  h_9aabb7d8448c0a 9,42-45,57,60
+web/app/entity/page.tsx
+  h_9aabb7d8448c0a 6,11,67-70,74-90,143-148,162-164,168,199-201,204,239-240,246
+web/app/graph/page.tsx
+  h_9aabb7d8448c0a 6-7,146-147
+web/app/inject/page.tsx
+  h_9aabb7d8448c0a 127-136
+web/app/persona/page.tsx
+  h_9aabb7d8448c0a 8,64
+web/components/Actor.tsx
+  h_9aabb7d8448c0a 1-29
+web/components/AuthGate.tsx
+  h_9aabb7d8448c0a 7,59-63
+web/components/Citation.tsx
+  h_9aabb7d8448c0a 3-10,12-17,19,23,29-30,32,34
+web/components/KnowledgeTable.tsx
+  h_9aabb7d8448c0a 4,6,55,62-65
+web/lib/citation.test.ts
+  h_9aabb7d8448c0a 1-50
+web/lib/citation.ts
+  h_9aabb7d8448c0a 1-56
+web/lib/graph.ts
+  h_9aabb7d8448c0a 7,23,25-28,123-124,126-129
+web/lib/no-raw-ids.test.ts
+  h_9aabb7d8448c0a 1-106
+web/lib/types.ts
+  h_9aabb7d8448c0a 18,20-23,75-76,78,80-82,100-101,116-117
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "0d2000b106e106d1295bea4e4e3876535e30a746",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
