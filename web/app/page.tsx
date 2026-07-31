@@ -2,6 +2,7 @@
 
 import {
   GitBranchIcon,
+  HandshakeIcon,
   KeyRoundIcon,
   SearchIcon,
   ShieldCheckIcon,
@@ -35,6 +36,11 @@ export default function Home() {
         </span>
       </section>
       <div className="home-grid">
+        <Link className="home-tile home-tile-primary" href="/collaboration/">
+          <HandshakeIcon />
+          <strong>{t.home.cards.collaboration.title}</strong>
+          <span>{t.home.cards.collaboration.body}</span>
+        </Link>
         <Link className="home-tile" href="/review/">
           <ShieldCheckIcon />
           <strong>{t.home.cards.govern.title}</strong>

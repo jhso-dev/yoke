@@ -235,6 +235,14 @@ h1 {
   color: var(--muted-foreground);
   font-size: 13px;
 }
+.home-tile-primary {
+  grid-column: span 2;
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+.home-tile-primary svg {
+  width: 22px;
+  height: 22px;
+}
 
 @media (max-width: 760px) {
   .home-hero {
@@ -243,6 +251,10 @@ h1 {
 
   .home-grid {
     grid-template-columns: 1fr;
+  }
+
+  .home-tile-primary {
+    grid-column: auto;
   }
 }
 

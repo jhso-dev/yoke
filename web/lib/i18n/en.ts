@@ -77,10 +77,14 @@ export const en = {
     dark: "dark",
   },
   home: {
-    eyebrow: "governed knowledge for agents",
-    heading: "YOKE keeps AI context reviewable, cited, and shareable.",
-    lede: "Capture company knowledge as records, keep drafts out of agent context until a human verifies them, then inject only trusted knowledge with citations, audit history, collaboration scope, personas, and graph navigation.",
+    eyebrow: "collaboration-scoped knowledge for agents",
+    heading: "YOKE gives every collaboration a trusted AI context.",
+    lede: "Anchor people, decisions, facts, resources, and terms to the work they belong to. Agents receive the collaboration's verified context first, with citations and audit history, while drafts stay out until a human promotes them.",
     cards: {
+      collaboration: {
+        title: "Collaborate",
+        body: "Use a collaboration as the shared working scope: people, attached knowledge, and the briefing an agent receives for that work.",
+      },
       govern: {
         title: "Govern",
         body: "Review, verify, reconfirm, or retire records before agents can rely on them.",
