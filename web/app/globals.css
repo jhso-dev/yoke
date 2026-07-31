@@ -1,3 +1,12 @@
+/* Tailwind + the shadcn token layer. Must be first: CSS @import may not follow other rules. */
+@import "./theme.css";
+
+/* Below is the hand-written layer this workbench shipped with, kept while the screens migrate.
+   Interactive primitives (button, input, select, label, dialog) now come from components/ui and are
+   styled by Tailwind; the structural classes here — .panel, tables, .pill, .banner, the shell — are
+   still in use and are removed as each screen moves over. Anything still referenced is live CSS, not
+   dead weight: `git grep` the class name before deleting a block. */
+
 /* One stylesheet for the workbench. Terminal-adjacent: this is an operator's tool, so it borrows
    the CLI's vocabulary (monospace ids and citations, teal accent) rather than looking like a SaaS
    dashboard. Tokens first so both themes are one place. */
@@ -288,40 +297,28 @@ td.num {
 
 /* --- controls --- */
 
-button,
+/* button / .btn / input / select used to be styled here as bare element selectors. They are gone:
+   those primitives now come from components/ui, and an UNLAYERED element rule beats a Tailwind
+   utility no matter the specificity — Tailwind's output sits in @layer utilities, and unlayered CSS
+   always wins over layered CSS. So `button { background: var(--panel-2) }` silently overrode every
+   shadcn variant, which is how a teal primary button rendered grey. Anything still on the old
+   classes is listed in the migration note at the top of this file.
+
+   `.btn` survives for <Link> elements that look like buttons — Button's `asChild` is the eventual
+   home for those, and they move with their screens. */
 .btn {
   font: inherit;
   padding: 5px 11px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--panel-2);
-  color: var(--text);
+  background: var(--secondary);
+  color: var(--foreground);
   cursor: pointer;
+  display: inline-block;
 }
-button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-button.danger {
-  color: var(--tone-deprecated);
-}
-
-input,
-select {
-  font: inherit;
-  padding: 5px 8px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--text);
+.btn:hover {
+  border-color: var(--primary);
+  text-decoration: none;
 }
 
 .controls {

@@ -1,6 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api } from "../lib/api";
 import { recordLabel } from "../lib/citation";
 import type { Knowledge, TypeDef } from "../lib/types";
@@ -57,37 +66,42 @@ export function LinkRecord({
 
   if (relations.length === 0) return null;
   return (
-    <form onSubmit={submit} className="controls">
-      <span className="muted">{recordLabel(record)}</span>
-      <button
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-2 p-3">
+      <span className="text-muted-foreground text-sm">
+        {recordLabel(record)}
+      </span>
+      <Button
         type="button"
+        variant="secondary"
         onClick={() => setOutgoing((v) => !v)}
         title="swap which end this record is"
         aria-label={outgoing ? "points at the other record" : "is pointed at"}
       >
         {outgoing ? "→" : "←"}
-      </button>
-      <select
-        value={type}
-        onChange={(e) => setType(e.target.value)}
-        aria-label="relation"
-      >
-        {relations.map((r) => (
-          <option key={r.name} value={r.name}>
-            {r.name}
-          </option>
-        ))}
-      </select>
-      <input
+      </Button>
+      <Select value={type} onValueChange={setType}>
+        <SelectTrigger aria-label="relation" className="w-48">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {relations.map((r) => (
+            <SelectItem key={r.name} value={r.name}>
+              {r.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Input
         value={other}
         onChange={(e) => setOther(e.target.value)}
         placeholder="other record id"
         aria-label="other record id"
-        style={{ minWidth: 260 }}
+        className="w-72"
+        required
       />
-      <button type="submit" disabled={busy || !other.trim() || !type}>
+      <Button type="submit" disabled={busy || !other.trim() || !type}>
         {busy ? "linking…" : "link"}
-      </button>
+      </Button>
       <ErrorBanner error={error} />
     </form>
   );

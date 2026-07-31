@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import type { Knowledge, TypeDef } from "../lib/types";
 import { CreateRecord } from "./CreateRecord";
 import { Modal } from "./Modal";
@@ -34,10 +35,15 @@ export function CreateButton({
   const text = label ?? `new ${type ?? "record"}`;
   return (
     <>
-      <button type="button" className="primary" onClick={() => setOpen(true)}>
+      <Button type="button" onClick={() => setOpen(true)}>
         {text}
-      </button>
-      <Modal open={open} title={text} onClose={() => setOpen(false)}>
+      </Button>
+      <Modal
+        open={open}
+        title={text}
+        description="Enters as a draft and needs a verify, exactly like one an agent commits."
+        onClose={() => setOpen(false)}
+      >
         <CreateRecord
           ontology={ontology}
           type={type}

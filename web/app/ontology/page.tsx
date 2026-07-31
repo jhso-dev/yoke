@@ -2,6 +2,17 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Modal } from "../../components/Modal";
 import { api } from "../../lib/api";
@@ -97,10 +108,15 @@ function AddTypeButton({ onSaved }: { onSaved: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className="primary" onClick={() => setOpen(true)}>
+      <Button type="button" onClick={() => setOpen(true)}>
         declare a type
-      </button>
-      <Modal open={open} title="declare a type" onClose={() => setOpen(false)}>
+      </Button>
+      <Modal
+        open={open}
+        title="declare a type"
+        description="An existing name saves a new version — the same append-only migration yoke ontology add-type performs."
+        onClose={() => setOpen(false)}
+      >
         <AddType onSaved={onSaved} />
       </Modal>
     </>
@@ -119,6 +135,7 @@ function AddType({ onSaved }: { onSaved: () => void }) {
 
   return (
     <form
+      className="grid gap-4"
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
@@ -152,62 +169,64 @@ function AddType({ onSaved }: { onSaved: () => void }) {
         }
       }}
     >
-      <p className="muted" style={{ margin: "0 0 12px" }}>
-        An existing name saves a new version — the same append-only migration{" "}
-        <code>yoke ontology add-type</code> performs.
-      </p>
-      <div className="stack">
-        <label className="field">
-          <span>name</span>
-          <input
+      <div className="grid gap-4">
+        <div className="grid gap-2">
+          <Label htmlFor="type-name">name</Label>
+          <Input
+            id="type-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            aria-label="type name"
+            required
           />
-        </label>
-        <label className="field">
-          <span>kind</span>
-          <select
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="type-kind">kind</Label>
+          <Select
             value={kind}
-            onChange={(e) => setKind(e.target.value as "entity" | "relation")}
-            aria-label="kind"
+            onValueChange={(v) => setKind(v as "entity" | "relation")}
           >
-            <option value="entity">entity</option>
-            <option value="relation">relation</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>
+            <SelectTrigger id="type-kind" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="entity">entity</SelectItem>
+              <SelectItem value="relation">relation</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="type-attrs">
             attributes{" "}
-            <span className="muted">— comma separated, * = required</span>
-          </span>
-          <input
+            <span className="text-muted-foreground font-normal">
+              — comma separated, * = required
+            </span>
+          </Label>
+          <Input
+            id="type-attrs"
             value={attrs}
             onChange={(e) => setAttrs(e.target.value)}
             placeholder="title*, owner"
-            aria-label="attributes"
           />
-        </label>
-        <label className="field">
-          <span>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="type-ttl">
             freshness{" "}
-            <span className="muted">— days, blank = never goes stale</span>
-          </span>
-          <input
+            <span className="text-muted-foreground font-normal">
+              — days, blank = never goes stale
+            </span>
+          </Label>
+          <Input
+            id="type-ttl"
             value={ttl}
             onChange={(e) => setTtl(e.target.value)}
-            aria-label="ttl days"
+            inputMode="numeric"
           />
-        </label>
-      </div>
-      <div className="controls" style={{ margin: "14px 0 0" }}>
-        <button
-          type="submit"
-          className="primary"
-          disabled={busy || !name.trim()}
-        >
-          {busy ? "saving…" : "save type"}
-        </button>
+        </div>
+        <div>
+          <Button type="submit" disabled={busy || !name.trim()}>
+            {busy ? "saving…" : "save type"}
+          </Button>
+        </div>
       </div>
       <ErrorBanner error={error} />
     </form>
@@ -258,8 +277,9 @@ function Maintenance({
         </span>
       </div>
       <div className="controls">
-        <button
+        <Button
           type="button"
+          variant="secondary"
           disabled={busy}
           title="re-derive authored_by edges for records committed before the gate made them"
           onClick={() =>
@@ -270,31 +290,32 @@ function Maintenance({
           }
         >
           backfill authorship
-        </button>
+        </Button>
       </div>
       <div className="controls">
-        <select
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          aria-label="rename from"
-        >
-          <option value="">rename a type…</option>
-          {names.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-        <span className="muted">→</span>
-        <input
+        <Select value={from} onValueChange={setFrom}>
+          <SelectTrigger aria-label="rename from" className="w-56">
+            <SelectValue placeholder="rename a type…" />
+          </SelectTrigger>
+          <SelectContent>
+            {names.map((n) => (
+              <SelectItem key={n} value={n}>
+                {n}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-muted-foreground">→</span>
+        <Input
           value={to}
           onChange={(e) => setTo(e.target.value)}
           placeholder="new name"
           aria-label="rename to"
+          className="w-56"
         />
-        <button
+        <Button
           type="button"
-          className="danger"
+          variant="destructive"
           disabled={busy || !from || !to.trim() || from === to.trim()}
           title="rewrites the declaration and every stored row, history included"
           onClick={() =>
@@ -307,12 +328,12 @@ function Maintenance({
           }
         >
           rename
-        </button>
+        </Button>
       </div>
       {result && (
-        <div className="banner" data-kind="ok">
-          {result}
-        </div>
+        <Alert>
+          <AlertDescription>{result}</AlertDescription>
+        </Alert>
       )}
       <ErrorBanner error={error} />
     </div>

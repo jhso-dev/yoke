@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
@@ -81,9 +82,7 @@ function InjectBody() {
           className="mono"
           style={{ minWidth: 220 }}
         />
-        <button type="submit" className="primary">
-          preview
-        </button>
+        <Button type="submit">preview</Button>
         <label style={{ display: "flex", gap: 5, alignItems: "center" }}>
           <input
             type="checkbox"

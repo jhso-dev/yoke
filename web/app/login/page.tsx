@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { ApiError, api } from "../../lib/api";
 import { setCredential } from "../../lib/credential";
@@ -62,13 +63,9 @@ export default function Login() {
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
-        <button
-          type="submit"
-          className="primary"
-          disabled={busy || !value.trim()}
-        >
+        <Button type="submit" disabled={busy || !value.trim()}>
           {busy ? "checking…" : "sign in"}
-        </button>
+        </Button>
       </form>
       <ErrorBanner error={error} />
       <div className="banner" data-kind="info">

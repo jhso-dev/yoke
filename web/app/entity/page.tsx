@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -97,23 +98,22 @@ function EntityBody() {
       <ErrorBanner error={actionError} />
 
       <div className="controls">
-        <button
+        <Button
           type="button"
-          className="primary"
           disabled={busy || d.entity.effectiveStatus === "verified"}
           onClick={() => act("verify")}
           title="promote, or re-confirm a stale record"
         >
           {d.entity.effectiveStatus === "stale" ? "re-confirm" : "verify"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="danger"
+          variant="destructive"
           disabled={busy || d.entity.effectiveStatus === "deprecated"}
           onClick={() => act("deprecate")}
         >
           deprecate
-        </button>
+        </Button>
         <Link
           className="btn"
           href={`/graph/?scope=${encodeURIComponent(d.entity.id)}`}

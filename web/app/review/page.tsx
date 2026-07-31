@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
@@ -53,29 +54,28 @@ export default function Review() {
       </p>
       <ErrorBanner error={drafts.error ?? actionError} />
       <div className="controls">
-        <button
+        <Button
           type="button"
-          className="primary"
           disabled={busy || chosen.size === 0}
           onClick={() => act("verify")}
         >
           verify {chosen.size || ""}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="danger"
+          variant="destructive"
           disabled={busy || chosen.size === 0}
           onClick={() => act("deprecate")}
         >
           deprecate {chosen.size || ""}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={rows.length === 0}
           onClick={() => setChosen(new Set(rows.map((r) => r.id)))}
         >
           select all
-        </button>
+        </Button>
         <span className="muted">{rows.length} draft(s)</span>
       </div>
       <div className="panel">

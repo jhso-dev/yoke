@@ -1,6 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api } from "../lib/api";
 import { recordLabel } from "../lib/citation";
 import type { Knowledge, TypeDef } from "../lib/types";
@@ -10,13 +21,13 @@ import { ErrorBanner } from "./ErrorBanner";
  * Create a record, from the ontology rather than from hand-written fields per type.
  *
  * Allowed since the 2026-07-31 WEB-UI amendment. The form asserts nothing the gate does not: it
- * marks the ontology's `required` attributes and stops there, because duplicating validation in the
- * client is how a client and a server come to disagree about what is valid. A rejection comes back
- * as the gate's own words and is shown as such.
+ * passes the ontology's own `required` flag to the field and stops there. Duplicating validation in
+ * the client is how a client and a server come to disagree about what is valid, so a rejection comes
+ * back as the gate's own words and is shown as such.
  *
  * The record enters as a draft with `origin: "web"`, so a reviewer can tell what was typed at a
- * screen from what an agent or a connector captured. That labelling is what the amendment traded the
- * old outright ban for — see WEB-UI.md.
+ * screen from what an agent or a connector captured — the labelling the amendment traded the old
+ * outright ban for.
  */
 export function CreateRecord({
   ontology,
@@ -63,82 +74,86 @@ export function CreateRecord({
 
   const attrs = Object.entries(def?.attrs ?? {});
   return (
-    <form onSubmit={submit}>
-      <p className="muted" style={{ margin: "0 0 12px" }}>
-        Enters as a draft and needs a verify, exactly like one an agent commits.
-      </p>
-      <div className="stack">
-        {!type && (
-          <label className="field">
-            <span>type</span>
-            <select
-              value={chosen}
-              onChange={(e) => {
-                setChosen(e.target.value);
-                // Attributes belong to a type; carrying them across a type change would submit fields
-                // the new type never declared.
-                setValues({});
-              }}
-              aria-label="type"
-            >
+    <form onSubmit={submit} className="grid gap-4">
+      {!type && (
+        <div className="grid gap-2">
+          <Label htmlFor="create-type">type</Label>
+          <Select
+            value={chosen}
+            onValueChange={(v) => {
+              setChosen(v);
+              // Attributes belong to a type; carrying them across a type change would submit fields
+              // the new type never declared.
+              setValues({});
+            }}
+          >
+            <SelectTrigger id="create-type" className="w-full">
+              <SelectValue placeholder="pick a type" />
+            </SelectTrigger>
+            <SelectContent>
               {entityTypes.map((t) => (
-                <option key={t.name} value={t.name}>
+                <SelectItem key={t.name} value={t.name}>
                   {t.name}
-                </option>
+                </SelectItem>
               ))}
-            </select>
-          </label>
-        )}
-        {attrs.length === 0 && (
-          <span className="muted">
-            this type declares no attributes — it will be created with none
-          </span>
-        )}
-        {attrs.map(([name, spec], i) => (
-          <label key={name} className="field">
-            <span>
-              {name}
-              {spec.required && (
-                <span className="muted" title="required by the ontology">
-                  {" "}
-                  *
-                </span>
-              )}
-            </span>
-            <input
-              value={values[name] ?? ""}
-              onChange={(e) =>
-                setValues((v) => ({ ...v, [name]: e.target.value }))
-              }
-              aria-label={name}
-              // The ontology's own `required` flag, handed to the browser. It is not a second copy
-              // of the rule — the gate remains the only thing that decides — it is the same rule
-              // spending a round trip less to say so, in the reader's own language, at the field
-              // that is wrong rather than in a banner at the bottom.
-              required={spec.required}
-              // First field focused when the dialog opens: <dialog> focuses its first tabbable
-              // element, which would otherwise be the close button.
-              // biome-ignore lint/a11y/noAutofocus: scoped to a modal the reader just asked to open.
-              autoFocus={i === 0}
-            />
-          </label>
-        ))}
-      </div>
-      <div className="controls" style={{ margin: "14px 0 0" }}>
-        <button type="submit" className="primary" disabled={busy || !active}>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      {attrs.length === 0 && (
+        <p className="text-muted-foreground text-sm">
+          This type declares no attributes — it will be created with none.
+        </p>
+      )}
+      {attrs.map(([name, spec], i) => (
+        <div key={name} className="grid gap-2">
+          <Label htmlFor={`attr-${name}`}>
+            {name}
+            {spec.required && (
+              <span
+                className="text-muted-foreground"
+                title="required by the ontology"
+              >
+                *
+              </span>
+            )}
+          </Label>
+          <Input
+            id={`attr-${name}`}
+            value={values[name] ?? ""}
+            onChange={(e) =>
+              setValues((v) => ({ ...v, [name]: e.target.value }))
+            }
+            // The ontology's own flag handed to the browser. Not a second copy of the rule — the
+            // gate still decides — the same rule spending one less round trip to state it, at the
+            // field that is wrong rather than in a banner underneath.
+            required={spec.required}
+            // Focus the first field when the modal opens — <DialogContent> otherwise focuses its
+            // own close button, which is a step backwards for someone who came here to type.
+            autoFocus={i === 0}
+          />
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <Button type="submit" disabled={busy || !active}>
           {busy ? "creating…" : "create"}
-        </button>
+        </Button>
+        <span className="text-muted-foreground text-xs">
+          enters as a draft and needs a verify
+        </span>
       </div>
       <ErrorBanner error={error} />
       {duplicates.length > 0 && (
         // The gate found these; a form that discarded them would help someone create the very thing
         // it warned about. Shown after the fact because the record is already staged as a draft —
         // the reviewer decides, which is the whole shape of this product.
-        <div className="banner" data-kind="warn">
-          created, but {duplicates.length} similar record
-          {duplicates.length > 1 ? "s" : ""} already exist:{" "}
-          {duplicates.map((d) => recordLabel(d)).join(" · ")}
-        </div>
+        <Alert>
+          <AlertDescription>
+            Created, but {duplicates.length} similar record
+            {duplicates.length > 1 ? "s" : ""} already exist:{" "}
+            {duplicates.map((d) => recordLabel(d)).join(" · ")}
+          </AlertDescription>
+        </Alert>
       )}
     </form>
   );

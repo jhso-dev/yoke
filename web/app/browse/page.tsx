@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { CreateButton } from "../../components/CreateButton";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
@@ -97,14 +98,14 @@ function BrowseBody() {
         )}
       </div>
       <div className="controls" style={{ marginTop: 12 }}>
-        <button
+        <Button
           type="button"
           disabled={cursors.length === 0}
           onClick={() => setCursors((c) => c.slice(0, -1))}
         >
           ← previous
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={!page.data?.next}
           onClick={() =>
@@ -112,7 +113,7 @@ function BrowseBody() {
           }
         >
           next →
-        </button>
+        </Button>
       </div>
     </>
   );

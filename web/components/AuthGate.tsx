@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { api, configureApi } from "../lib/api";
 import { shortId } from "../lib/citation";
 import { clearCredential, getCredential } from "../lib/credential";
@@ -63,7 +64,7 @@ export function AuthGate() {
       )}
       {meta.auth ? (
         getCredential() ? (
-          <button
+          <Button
             type="button"
             onClick={() => {
               clearCredential();
@@ -72,7 +73,7 @@ export function AuthGate() {
             title="clears this browser's credential; revoke the token itself with `yoke token revoke`"
           >
             sign out
-          </button>
+          </Button>
         ) : (
           <Link href="/login/">sign in</Link>
         )

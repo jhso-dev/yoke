@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -59,16 +60,16 @@ export default function Conflicts() {
         </p>
         <Citation row={k} />
         <div style={{ marginTop: 10 }}>
-          <button
+          <Button
             type="button"
-            className="danger"
+            variant="destructive"
             disabled={busy === k.id || k.effectiveStatus === "deprecated"}
             onClick={() => retire(k.id)}
           >
             {k.effectiveStatus === "deprecated"
               ? "already retired"
               : "deprecate this side"}
-          </button>
+          </Button>
         </div>
       </div>
     );

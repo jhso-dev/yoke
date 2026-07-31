@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -165,9 +166,9 @@ function GraphBody() {
                 <Link href={`/entity/?id=${encodeURIComponent(chosen.id)}`}>
                   open record
                 </Link>
-                <button type="button" onClick={() => expand(chosen.id)}>
+                <Button type="button" onClick={() => expand(chosen.id)}>
                   expand
-                </button>
+                </Button>
               </div>
             )}
           </>
@@ -210,9 +211,9 @@ function GraphBody() {
                       </td>
                       <td className="num">{n.degree}</td>
                       <td>
-                        <button type="button" onClick={() => expand(n.id)}>
+                        <Button type="button" onClick={() => expand(n.id)}>
                           expand
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   ))}

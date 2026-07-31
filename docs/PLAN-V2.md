@@ -188,8 +188,20 @@ test harnesses, WebSockets, GraphQL, password auth, per-field encryption.
 > Budgets replacing the 9.2 "<600 lines" target, because what matters is what
 > the user downloads and what we maintain:
 >
-> - **Shipped bundle ≤ 250 KB gzipped** (JS + CSS, whole static export),
->   asserted by a test that stats the build output.
+> - **Shipped bundle ≤ 380 KB gzipped** (JS + CSS, whole static export), asserted by
+>   `src/front/ui/bundle.size.test.ts`, which stats the build output and skips when there is none.
+>   Raised from 250 on 2026-07-31 by the shadcn adoption below, and the cost was measured rather
+>   than estimated — the previous commit built in a worktree and both measured the same way:
+>
+>   | | gzipped JS + CSS |
+>   |---|---|
+>   | before, hand-written CSS | 225 KB |
+>   | after, shadcn + Tailwind + Radix | 342 KB |
+>
+>   +117 KB, +52%. The old budget held at 225 and would have failed at 342 — except that the test
+>   it named had never been written, so nothing would have said so. It exists now. Raised to the
+>   measured truth plus headroom, on the same principle the line-count budget above was corrected
+>   with: a budget you have blown is data about the estimate, not licence to stop counting.
 > - **Hand-written web source ≤ 3,600 lines** under `web/`, excluding tests (ten screens, was
 >   four in one file). Corrected 2026-07-30: the original figure here was 1,500 and the code
 >   was already at 2,893 when it was written — measured at 3,386 after the collaboration screen.
@@ -200,6 +212,24 @@ test harnesses, WebSockets, GraphQL, password auth, per-field encryption.
 >   count), have held — which is the difference.
 > - **Dependency budget: exactly `next`, `react`, `react-dom`, `d3-force`.** A
 >   fifth requires a note here first.
+>
+>   Amended 2026-07-31, and this is that note. The web tier adopts **shadcn/ui**, which is not
+>   itself a dependency — it copies component source into `web/components/ui/` — but its
+>   prerequisites are: `tailwindcss` + `@tailwindcss/postcss`, `radix-ui`, `class-variance-authority`,
+>   `clsx`, `tailwind-merge`, `lucide-react`, `tw-animate-css`. Seven, all but `radix-ui` and
+>   `lucide-react` being build-time only.
+>
+>   The trade, stated plainly because the budget existed to make it visible: the hand-written CSS
+>   layer shrinks and the accessibility work in dialogs, selects and focus management stops being
+>   ours to get right, at the cost of the bundle. The palette is unchanged — `theme.css` maps this
+>   product's own tokens onto shadcn's names rather than taking the generated defaults, because the
+>   terminal-adjacent look is a decision this workbench made on purpose and not a placeholder.
+>
+>   One thing genuinely lost: the create modal was the native `<dialog>`, which supplies focus
+>   trapping, Esc, an inert background and a `::backdrop` for free. shadcn's Dialog is Radix, which
+>   reimplements those in JS. That is a straight cost here and would not be worth paying alone — it
+>   is paid for the components not yet needed (combobox, date picker, toast) whose accessibility is
+>   genuinely hard to hand-roll.
 > - **Zero new runtime deps in `src/front/ui/` and `src/front/serve/`**
 >   (`node:http` only), and **zero new listening ports**.
 > - **Zero web toolchain in the CLI install path** — a failed web build must

@@ -3,6 +3,14 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CreateButton } from "../../components/CreateButton";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
@@ -31,20 +39,20 @@ function AddMember({
   if (candidates.length === 0 && people.length > 0)
     return <div className="empty">everyone recorded is already on this</div>;
   return (
-    <div className="controls">
-      <select
-        value={who}
-        onChange={(e) => setWho(e.target.value)}
-        aria-label="person"
-      >
-        <option value="">add someone…</option>
-        {candidates.map((p) => (
-          <option key={p.id} value={p.id}>
-            {recordLabel(p)}
-          </option>
-        ))}
-      </select>
-      <button
+    <div className="flex flex-wrap items-center gap-2 p-3">
+      <Select value={who} onValueChange={setWho}>
+        <SelectTrigger aria-label="person" className="w-64">
+          <SelectValue placeholder="add someone…" />
+        </SelectTrigger>
+        <SelectContent>
+          {candidates.map((p) => (
+            <SelectItem key={p.id} value={p.id}>
+              {recordLabel(p)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
         type="button"
         disabled={!who || busy}
         onClick={async () => {
@@ -62,7 +70,7 @@ function AddMember({
         }}
       >
         {busy ? "linking…" : "add to this work"}
-      </button>
+      </Button>
       <ErrorBanner error={error} />
     </div>
   );
