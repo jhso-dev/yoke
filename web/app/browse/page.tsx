@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -103,6 +104,7 @@ function BrowseBody() {
           disabled={cursors.length === 0}
           onClick={() => setCursors((c) => c.slice(0, -1))}
         >
+          <ChevronLeftIcon />
           {t.common.prev}
         </Button>
         <Button
@@ -114,6 +116,7 @@ function BrowseBody() {
           }
         >
           {t.common.next}
+          <ChevronRightIcon />
         </Button>
       </div>
     </>

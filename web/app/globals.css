@@ -247,6 +247,17 @@ h1 {
   height: 22px;
 }
 
+.direction-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted-foreground);
+  vertical-align: middle;
+}
+.direction-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 @media (max-width: 760px) {
   .home-hero {
     grid-template-columns: 1fr;
@@ -678,6 +689,7 @@ dialog::backdrop {
 
 .token-form {
   align-items: end;
+  padding: 12px;
 }
 .token-form .field {
   flex: 1 1 220px;

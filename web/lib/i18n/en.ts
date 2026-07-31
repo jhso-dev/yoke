@@ -5,9 +5,8 @@
 // `typeof en` would then demand that ko say "loading…" too — the check would be on the values
 // instead of the keys, which is the opposite of what a translation file needs.
 //
-// Keys are grouped by screen, and the values are the sentences the screens already shipped — this
-// file is an extraction, not a rewrite. Where a sentence carries an argument (why a cap is not
-// knowledge loss, why a roster is not knowledge) the argument is the string; shortening it for
+// Keys are grouped by screen. Where a sentence carries an argument (why a cap is not knowledge
+// loss, why a roster is not knowledge), the argument stays in the string; shortening it for
 // translation convenience would delete the reason a reader trusts the screen.
 
 export const en = {
@@ -20,7 +19,7 @@ export const en = {
     saving: "saving…",
     verify: "Verify",
     reconfirm: "Re-confirm",
-    verifyHint: "promote, or re-confirm a stale record",
+    verifyHint: "promote a record or re-confirm a stale one",
     deprecate: "Deprecate",
     link: "Link",
     linking: "Linking…",
@@ -33,7 +32,7 @@ export const en = {
     notInNamespace: "not in this namespace",
     notFound: "not found in this namespace",
     required: "required by the ontology",
-    draftNotice: "enters as a draft and needs a verify",
+    draftNotice: "saved as a draft and must be verified",
     copyFull: "click to copy",
     copy: "Copy",
     copied: "Copied",
@@ -52,8 +51,8 @@ export const en = {
     action: "action",
     detail: "detail",
     otherEnd: "other end",
-    prev: "← Previous",
-    next: "Next →",
+    prev: "Previous",
+    next: "Next",
     page: (page: number, pages: number, total: number) =>
       `Page ${page} of ${pages} · ${total} total`,
   },
@@ -77,9 +76,9 @@ export const en = {
     dark: "dark",
   },
   home: {
-    eyebrow: "collaboration-scoped knowledge for agents",
+    eyebrow: "collaboration knowledge shared by people and agents",
     heading: "All the knowledge a collaboration needs, in one place",
-    lede: "YOKE gathers trusted information in one place so people and agents can collaborate from the same context.\nSee who is working on what, which decisions were made, what facts matter, and which resources to reference.\nAgents receive only human-verified information, while unreviewed drafts are left out.",
+    lede: "YOKE gathers trusted information in one place so people and agents can collaborate with the same context.\nSee who is working on what, which decisions were made, which facts matter, and which resources to reference.\nAgents receive only human-verified information. Unreviewed drafts are excluded.",
     cards: {
       collaboration: {
         title: "Collaborate",
@@ -87,11 +86,11 @@ export const en = {
       },
       govern: {
         title: "Govern",
-        body: "Review, verify, reconfirm, or retire records before agents can rely on them.",
+        body: "Review and verify records. Re-confirm stale records and retire those that are no longer used.",
       },
       inject: {
         title: "Inject",
-        body: "See exactly what an agent receives for a query, with source citations.",
+        body: "Enter a query to see the knowledge and source citations an agent will receive.",
       },
       graph: {
         title: "Explore",
@@ -106,44 +105,46 @@ export const en = {
   chrome: {
     connecting: "connecting…",
     readOnly: "read-only",
-    readOnlyHint: "read replica: writes go to the primary",
+    readOnlyHint:
+      "This is a read-only replica. Changes are saved to the primary",
     namespaceHint: "tenant namespace",
     signOut: "Sign out",
     signIn: "Sign in",
     ungated: "ungated",
     authedAs: (actor: string) => `authenticated as ${actor}`,
     signOutHint:
-      "clears this browser's credential; revoke the token itself with `yoke token revoke`",
-    ungatedHint: "local single-user mode — no credential required",
+      "Clears only the credential stored in this browser. Revoke the token with `yoke token revoke`",
+    ungatedHint: "Local single-user mode does not require a credential",
     summary: "summary",
   },
   create: {
     newRecord: "New record",
     draftNotice:
-      "Enters as a draft and needs a verify, exactly like one an agent commits.",
+      "Saved as a draft and must be verified, just like a record committed by an agent.",
     pickType: "pick a type",
-    noAttrs: "This type declares no attributes — it will be created with none.",
+    noAttrs:
+      "This type has no declared attributes, so the record will be created without them.",
     duplicates: (n: number, names: string) =>
       `Created, but ${n} similar record${n > 1 ? "s" : ""} already exist: ${names}`,
   },
   review: {
     heading: "Review queue",
-    lede: "Everything staged and not yet believed. Nothing here reaches an agent: drafts are withheld from injection until a human promotes them.",
+    lede: "Review drafts that have not been verified. They are not injected into an agent until a person promotes them.",
     selectAll: "Select all",
-    empty: "no drafts — the queue is clear",
+    empty: "no drafts are waiting for review",
     draftCount: (n: number) => `${n} draft(s)`,
   },
   browse: {
     heading: "Browse",
-    lede: "Every record in this namespace, newest last. Use it to see the shape of what you have — orphans, stale corners, drafts nobody reviewed.",
+    lede: "View every record in this namespace, oldest first. Find records that are unlinked, stale, or still waiting for review.",
     allTypes: "all types",
     anyStatus: "any status",
     shown: (n: number, more: boolean) =>
       `${n} shown${more ? " (more available)" : ""}`,
-    noMatch: "nothing matches that filter",
+    noMatch: "no records match this filter",
   },
   entity: {
-    noId: "no id — reach this screen from",
+    noId: "No record ID was provided. Select a record from",
     noTextAttributes: "(no text attributes)",
     provenance: "provenance",
     recordedBy: "recorded by",
@@ -153,7 +154,7 @@ export const en = {
     citation: "citation",
     versionHistory: "version history",
     storedStatus: "stored status",
-    standsAlone: "none — this record stands alone",
+    standsAlone: "this record has no links",
     otherRecordId: "other record id",
     swapDirection: "swap which end this record is",
     pointsAt: "points at the other record",
@@ -163,15 +164,15 @@ export const en = {
   collaboration: {
     heading: "Collaborations",
     headingOne: "Collaboration",
-    lede: "One thing being worked on together, and the people and knowledge attached to it. Anchoring an injection here is what makes an agent answer from this work's context first.",
+    lede: "View the people and knowledge linked to one collaboration. Set its scope to make agents prioritize this collaboration's context.",
     newOne: "New collaboration",
     all: "all collaborations",
     emptyList:
-      "none yet — create one above, or let an agent do it via yoke_use_scope",
-    people: "people on this work",
+      "No collaborations yet. Create one above or ask an agent to create one with yoke_use_scope",
+    people: "people in this collaboration",
     peopleNote:
-      "shown here and deliberately NOT in the briefing — a roster is not knowledge about the work",
-    noMembers: "nobody linked yet — pick someone above, or run",
+      "The participant list is not knowledge about the collaboration, so it is not included in the briefing",
+    noMembers: "No participants yet. Select someone above or run",
     person: "person",
     addSomeone: "add someone…",
     addToWork: "Add to this work",
@@ -179,25 +180,25 @@ export const en = {
     readJudgment: "read their recorded judgment",
     briefing: "the briefing an agent receives",
     briefingNote:
-      "exactly what inject(scope) returns — verified only, freshest first, audited as a preview",
-    briefingEmpty: "nothing in this work's context yet",
-    attached: "attached records",
+      "Shows the verified records returned by inject(scope), most recently confirmed first. This preview is recorded in the audit log",
+    briefingEmpty: "no knowledge is linked to this collaboration",
+    attached: "linked records",
     attachedNote:
-      "← points here: the record carries the link, this work does not contain it. Deprecating this work leaves every one of them untouched",
+      "The record points to this collaboration. Deprecating the collaboration does not change its linked records",
     attachedEmpty:
-      "none — knowledge attaches here when it is captured with --scope",
+      "No linked records. Records captured with --scope will appear here",
     truncated: (shown: number, total: number, rest: number) =>
-      `showing ${shown} of ${total} records on this work, most recently confirmed first. The rest are not lost — an agent reaches them by asking a specific question, which searches everything with this work's records first. (${rest} not shown)`,
+      `Showing ${shown} of ${total} records in this collaboration, most recently confirmed first. Records not shown are still available. A specific question searches all knowledge while prioritizing this collaboration's records. (${rest} not shown)`,
   },
   conflicts: {
     heading: "Conflicts",
-    lede: "Verified records that contradict each other. yoke keeps both and never picks a winner — deprecate one side, or leave them coexisting, which is a real answer when the disagreement is the knowledge.",
+    lede: "Review verified records that contradict each other. yoke keeps both and does not decide which one is correct. Deprecate one record, or keep both when the disagreement itself matters.",
     empty: "no contradictions recorded",
     alreadyRetired: "Already retired",
   },
   ontology: {
     heading: "Ontology",
-    lede: "The entity and relation types this namespace recognises. A * marks a required attribute; the TTL is how long a verified record of that type stays fresh before it is withheld again. These are schema records, not knowledge, so they carry no citation.",
+    lede: "View the entity and relation types used in this namespace. A * marks a required attribute. The TTL sets how long a verified record stays fresh before it is excluded from injection. Schema records are not knowledge, so they have no citations.",
     entityTypes: "entity types",
     relationTypes: "relation types",
     freshness: "freshness (ttl)",
@@ -205,7 +206,7 @@ export const en = {
     days: (n: number) => `${n} days`,
     declare: "Declare a type",
     declareNote:
-      "An existing name saves a new version — the same append-only migration yoke ontology add-type performs.",
+      "Saving an existing name adds a new version. This uses the same append-only process as yoke ontology add-type.",
     name: "name",
     kind: "kind",
     entity: "entity",
@@ -214,11 +215,10 @@ export const en = {
     ttlHint: "— days, blank = never goes stale",
     saveType: "Save type",
     maintenance: "maintenance",
-    maintenanceNote:
-      "namespace-wide repairs — the same two commands, same effects",
+    maintenanceNote: "Repairs apply to the entire namespace",
     backfill: "Backfill authorship",
     backfillHint:
-      "re-derive authored_by edges for records committed before the gate made them",
+      "Recreate authored_by edges for records committed before the system created them automatically",
     backfillDone: (scanned: number, created: number) =>
       `scanned ${scanned} records, added ${created} authorship edges`,
     renameFrom: "rename from",
@@ -227,65 +227,62 @@ export const en = {
     newName: "new name",
     rename: "Rename",
     renameHint:
-      "rewrites the declaration and every stored row, history included",
+      "Changes the type name in its declaration, stored rows, and history",
     renameDone: (from: string, to: string, rows: number) =>
       `renamed ${from} to ${to} — ${rows} rows rewritten`,
   },
   persona: {
     heading: "Persona",
-    lede: "The verified knowledge a person authored — what an agent receives when it asks how they would decide. Their records with their sources, never text written in their voice.",
+    lede: "View the verified knowledge authored by one person. When an agent asks how that person would decide, it receives their records and sources. It does not generate text in their voice.",
     headingOne: "Persona",
     all: "All personas",
     emptyList:
-      "nobody on record yet — a persona is a query over what a person authored, so it begins when they commit something",
+      "No one has recorded any knowledge yet. A persona becomes available after someone commits a record",
     search: "Search their records",
-    noMatch: "nothing they recorded matches that",
+    noMatch: "none of this person's records match the search",
     matched: (shown: number, total: number) => `${shown} of ${total} match`,
     exportHint: (id: string) => `yoke persona ${id} --out ./skills`,
     decisions: "guiding decisions",
-    noDecisions:
-      "no decisions on record — the bottleneck for a persona is capture, not query",
+    noDecisions: "this person has not recorded any decisions",
     otherKnowledge: "other knowledge",
   },
   inject: {
     heading: "Injection preview",
-    ledeBefore:
-      "Exactly what an agent receives for this query — same filter, same order, same citations as a real ",
+    ledeBefore: "See what an agent will receive for this query. A real ",
     ledeAfter:
-      " call. Stale and deprecated records never appear, whatever you ask for.",
+      " call uses the same filters, order, and citations. Stale and deprecated records are always excluded.",
     queryPlaceholder: "what is the agent working on?",
     scopePlaceholder: "scope (collaboration or person id, optional)",
     run: "Preview",
     includeDraft: "include drafts",
-    prompt: "enter a query, or a scope on its own for that context's briefing",
+    prompt: "Enter a query. To view a context briefing, enter only its scope",
     draftsIncluded:
-      "Drafts included. An agent would NOT receive these — they are shown labelled so you can see what is waiting for review.",
+      "Drafts are shown so you can see what is waiting for review. They are not sent to an agent.",
     wouldBeInjected: "would be injected",
-    scopeNote: (id: string) => `scope: ${id} (leads, does not imprison)`,
+    scopeNote: (id: string) => `scope: ${id} (prioritized, not isolated)`,
     truncated: (shown: number, total: number) =>
-      `showing ${shown} of ${total} — an agent gets the same page, plus a note telling it to ask a specific question for the rest. Raise the limit to preview more.`,
+      `Showing ${shown} of ${total}. An agent receives the same results and a note to ask a more specific question for the rest. Raise the limit to preview more.`,
     empty:
-      "nothing verified matches — an agent would get nothing for this query",
+      "No verified knowledge matches this query, so nothing will be sent to the agent",
   },
   graph: {
     heading: "Graph",
     ledeAnchored:
-      "Two hops out from one record. Click any node to center it and expand its neighbours.",
-    lede: "Every record and relation in this namespace. Click a node to center it and pull in its neighbours.",
+      "View connections up to two steps from the selected record. Click a node to center it and expand its neighbors.",
+    lede: "View every record and relation in this namespace. Click a node to center it and expand its neighbors.",
     wholeNamespace: "Whole namespace",
     counts: (nodes: number, links: number) =>
       `${nodes} nodes · ${links} relations`,
     legend:
-      "arrows point at an edge's target · dashed = not knowledge (authorship, membership)",
-    empty: "nothing to draw in this namespace",
+      "Arrows point to an edge's target · dashed lines are non-knowledge relations (authorship, membership)",
+    empty: "no records to display in this namespace",
     nodes: "nodes",
-    nodesNote:
-      "same data, keyboard-navigable — the canvas above is not reachable by screen readers",
+    nodesNote: "Navigate the same data with a keyboard or screen reader",
   },
   audit: {
     heading: "Audit",
-    lede: "The append-only trail of knowledge read and governance performed. Filtering here narrows the loaded window, not the whole history — use ",
-    ledeAfter: " to walk all of it.",
+    lede: "Track knowledge reads and governance actions in an append-only log. Filters apply only to the records currently loaded. To view the full history, use ",
+    ledeAfter: ".",
     since: "since",
     sinceHint: "your local time",
     allActions: "all actions",
@@ -305,7 +302,7 @@ export const en = {
   },
   tokens: {
     heading: "Tokens",
-    lede: "API tokens for browser sharing and remote access. Secrets are shown once; revoke by name when access should end.",
+    lede: "Manage API tokens for browser sharing and remote access. A secret is shown only when its token is created. Revoke the token by name to end access.",
     create: "Create token",
     name: "name",
     namePlaceholder: "friend-readonly",
@@ -320,19 +317,20 @@ export const en = {
   },
   login: {
     heading: "Sign in",
-    lede: "Paste an API token or an OIDC id_token. yoke never stores a password — this is a credential you already minted.",
+    lede: "Enter an issued API token or OIDC id_token. yoke does not store passwords.",
     token: "token",
     credential: "credential",
     checking: "Checking…",
     submit: "Sign in",
     rejected: "credential rejected",
-    noTokenBefore: "No token yet? On the server running yoke:",
+    noTokenBefore:
+      "If you do not have a token, run this command on the yoke server:",
     noTokenAfter:
-      "allows promoting drafts — verify is the governance permission, so it is granted, never assumed.",
+      "This scope allows draft promotion. verify is a governance permission that must be granted separately.",
     addPrefix: "For promoting drafts:",
   },
   errors: {
     forbiddenHint:
-      "this credential lacks the scope for that action. Mint one with: yoke token create --scopes read,verify",
+      "This credential lacks the scope required for this action. Issue one with: yoke token create --scopes read,verify",
   },
 };

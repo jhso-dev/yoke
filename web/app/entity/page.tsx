@@ -6,6 +6,7 @@ import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
+import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
 import { LinkRecord } from "../../components/LinkRecord";
@@ -254,7 +255,12 @@ function EntityBody() {
               <tbody>
                 {edges.map((e) => (
                   <tr key={e.id}>
-                    <td className="mono">{e.dir === "out" ? "→" : "←"}</td>
+                    <td className="mono">
+                      <DirectionIcon
+                        direction={e.dir === "out" ? "right" : "left"}
+                        label={e.dir}
+                      />
+                    </td>
                     <td className="mono">{e.type}</td>
                     <td>
                       {isMissing(e.other) ? (

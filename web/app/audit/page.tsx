@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Actor } from "../../components/Actor";
 import { CopyCode } from "../../components/CopyCode";
+import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
 import { Pagination, usePage } from "../../components/Pagination";
@@ -48,7 +49,10 @@ function Detail({ event }: { event: AuditEntry }) {
           {/* A persona row's subject is a person id, and the server resolves it into refs — render
               the name when it is there rather than the ULID it was stored as. */}
           <span>{subjectRef ? recordLabel(subjectRef) : subject}</span>
-          <span className="muted"> → </span>
+          <span className="muted">
+            {" "}
+            <DirectionIcon direction="right" />{" "}
+          </span>
         </>
       )}
       {ids.map((id, i) => {

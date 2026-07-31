@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
@@ -93,6 +94,7 @@ function Roster() {
           disabled={cursors.length === 0}
           onClick={() => setCursors((c) => c.slice(0, -1))}
         >
+          <ChevronLeftIcon />
           {t.common.prev}
         </Button>
         <Button
@@ -104,6 +106,7 @@ function Roster() {
           }
         >
           {t.common.next}
+          <ChevronRightIcon />
         </Button>
       </div>
     </>

@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useT } from "../lib/i18n";
@@ -42,6 +43,7 @@ export function Pagination({
         disabled={page === 0}
         onClick={() => setPage(page - 1)}
       >
+        <ChevronLeftIcon />
         {t.common.prev}
       </Button>
       <span className="muted">{t.common.page(page + 1, pages, total)}</span>
@@ -52,6 +54,7 @@ export function Pagination({
         onClick={() => setPage(page + 1)}
       >
         {t.common.next}
+        <ChevronRightIcon />
       </Button>
     </div>
   );

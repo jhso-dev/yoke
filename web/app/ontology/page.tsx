@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Modal } from "../../components/Modal";
 import { Pagination, usePage } from "../../components/Pagination";
@@ -315,7 +316,7 @@ function Maintenance({
             ))}
           </SelectContent>
         </Select>
-        <span className="text-muted-foreground">→</span>
+        <DirectionIcon direction="right" />
         <Input
           value={to}
           onChange={(e) => setTo(e.target.value)}

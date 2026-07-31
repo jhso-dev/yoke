@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { CopyCode } from "../../components/CopyCode";
 import { CreateButton } from "../../components/CreateButton";
+import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { Pagination, usePage } from "../../components/Pagination";
@@ -203,6 +205,7 @@ function CollaborationBody() {
             disabled={cursors.length === 0}
             onClick={() => setCursors((c) => c.slice(0, -1))}
           >
+            <ChevronLeftIcon />
             {t.common.prev}
           </Button>
           <Button
@@ -214,6 +217,7 @@ function CollaborationBody() {
             }
           >
             {t.common.next}
+            <ChevronRightIcon />
           </Button>
         </div>
       </>
@@ -370,7 +374,12 @@ function CollaborationBody() {
               <tbody>
                 {attachedPage.items.map((e) => (
                   <tr key={e.id}>
-                    <td className="mono">{e.dir === "out" ? "→" : "←"}</td>
+                    <td className="mono">
+                      <DirectionIcon
+                        direction={e.dir === "out" ? "right" : "left"}
+                        label={e.dir}
+                      />
+                    </td>
                     <td className="mono">{e.type}</td>
                     <td>
                       {isMissing(e.other) ? (
