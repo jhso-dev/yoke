@@ -158,7 +158,6 @@ export const en = {
     lede: "Verified records that contradict each other. yoke keeps both and never picks a winner — deprecate one side, or leave them coexisting, which is a real answer when the disagreement is the knowledge.",
     empty: "no contradictions recorded",
     alreadyRetired: "already retired",
-    deprecateSide: "deprecate this side",
   },
   ontology: {
     heading: "Ontology",

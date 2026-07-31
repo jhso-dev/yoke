@@ -296,6 +296,28 @@ td.num {
   margin-bottom: 12px;
 }
 
+/* The native `<input>`/`<select>` still used on browse, audit, inject, persona and login, given the
+   same 32px box as a `sm` Button so a control row is one height instead of three — UA defaults were
+   19-21px beside a 32px button, which is what made the button look oversized rather than the button
+   being large. Checkboxes keep their own box.
+
+   Scoped by class, and `:not([data-slot])` keeps it off shadcn's primitives: an unlayered rule beats
+   any Tailwind utility, so an unguarded `.controls input` would silently override <Input> the same
+   way the bare element rules once overrode <Button>. */
+.controls input:not([type="checkbox"]):not([data-slot]),
+.controls select:not([data-slot]),
+.field input:not([type="checkbox"]):not([data-slot]),
+.field select:not([data-slot]),
+.login input:not([data-slot]) {
+  font: inherit;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--foreground);
+}
+
 /* A panel has no padding of its own: its usual content is a full-bleed table, and the padding a
    reader sees comes from the cells. Anything else placed in one — the form rows on browse, entity,
    ontology and collaboration — therefore sits flush against the border unless it brings its own.
@@ -354,7 +376,9 @@ td.num {
   flex-direction: column;
   gap: 10px;
 }
-.login input {
+/* Same `:not([data-slot])` as the sizing rule above so this stays equal in specificity and wins on
+   order — otherwise `font: inherit` there would quietly take the mono face off a pasted token. */
+.login input:not([data-slot]) {
   font-family: var(--font-mono);
 }
 

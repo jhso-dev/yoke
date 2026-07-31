@@ -26,7 +26,8 @@ function SelectValue({
 
 function SelectTrigger({
   className,
-  size = "default",
+  // `sm` for the same reason Button defaults to it: one 32px control height across the workbench.
+  size = "sm",
   children,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {

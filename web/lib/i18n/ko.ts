@@ -155,7 +155,6 @@ export const ko: typeof en = {
     lede: "서로 모순되는 verified 레코드입니다. yoke는 양쪽을 모두 보존하고 승자를 고르지 않습니다 — 한쪽을 deprecate하거나, 공존시키세요. 불일치 자체가 지식일 때는 공존이 정답입니다.",
     empty: "기록된 모순이 없습니다",
     alreadyRetired: "이미 폐기됨",
-    deprecateSide: "이쪽을 deprecate",
   },
   ontology: {
     heading: "온톨로지",

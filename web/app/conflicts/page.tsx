@@ -69,7 +69,7 @@ export default function Conflicts() {
           >
             {k.effectiveStatus === "deprecated"
               ? t.conflicts.alreadyRetired
-              : t.conflicts.deprecateSide}
+              : t.common.deprecate}
           </Button>
         </div>
       </div>
@@ -107,9 +107,17 @@ export default function Conflicts() {
               }}
             >
               {side(p.from)}
+              {/* The glyph carries the whole "these two disagree, neither wins" reading, so it is
+                  sized to be seen rather than set in the body scale it disappeared at. */}
               <div
-                className="muted mono"
-                style={{ alignSelf: "center", padding: "0 4px" }}
+                aria-hidden="true"
+                style={{
+                  alignSelf: "center",
+                  padding: "0 4px",
+                  fontSize: 28,
+                  lineHeight: 1,
+                  color: "var(--foreground)",
+                }}
               >
                 ↔
               </div>
