@@ -211,6 +211,9 @@ endpoint shares it at `POST /mcp`.
 | `POST /api/deprecate` | `deprecate` | verify | yes |
 | `POST /api/entity` | `commit({type, attributes})` (+ a `relates_to` commit when `scope` is given) | write (typed) | no — the v1 row records it |
 | `POST /api/link` | `commit({type, attributes, from, to})` | write (typed) | no — same |
+| `POST /api/backfill` | `backfillAuthorship` | write | no — the edges it creates record it |
+| `POST /api/ontology` | `saveOntology([def], ns)` | **verify** | no |
+| `POST /api/rename-type` | `renameType(from, to, ns)` | **verify** | **yes** (`rename_type`) |
 
 Rules that hold for every route:
 
@@ -224,6 +227,18 @@ Rules that hold for every route:
   over HTTP remains absent**: correcting a record is a new version through the gate, from the
   adapter that owns the source. The lifecycle mutations are still `verify` and `deprecate`, and
   nothing here writes a record in any state but `draft`.
+- **The two schema-level writes are gated on `verify`, not `write`.** `POST /api/ontology`
+  is the one write that BYPASSES the commit gate — the gate reads the ontology, so validating
+  it against itself would be circular — and `POST /api/rename-type` rewrites every stored row
+  carrying a name, history included. Neither is a per-type permission, because neither is
+  scoped to a type: they change what types mean.
+- **Not exposed over HTTP, and why.** `init` (bootstrap: the server is already holding the
+  database it would create), `connect <source>` (needs credentials and runs long), `backup` /
+  `restore` / `export` (server-side filesystem paths — a browser form choosing where a process
+  writes is a foot-gun, not a feature), `token` (credential minting stays a terminal act), and
+  `mcp` / `ui` / `serve` (process lifecycle, not actions). Plain `search` stays absent for the
+  original reason: free-text retrieval for human reading is the search UI this document refuses,
+  and the injection preview is the sanctioned query box.
 - **Any route that returns knowledge attributes writes an audit row.** A preview is an
   injection: reading through the browser leaves the same trail as reading through MCP
   (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing

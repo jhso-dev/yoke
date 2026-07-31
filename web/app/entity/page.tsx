@@ -7,6 +7,7 @@ import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
+import { LinkRecord } from "../../components/LinkRecord";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
@@ -28,6 +29,9 @@ function EntityBody() {
     () => (id ? api.entity(id) : Promise.resolve(null)),
     [id],
   );
+  // The relation types this namespace declares — the link control is built from them, so a tenant
+  // with its own relation names gets its own list without a code change.
+  const ontology = useAsync(() => api.ontology(), []);
 
   async function act(kind: "verify" | "deprecate") {
     setBusy(true);
@@ -222,6 +226,13 @@ function EntityBody() {
           relations
           <span className="muted">{edges.length}</span>
         </div>
+        {/* `yoke link` for this record. Any declared relation, either direction — the general case
+            the collaboration screen specialises. */}
+        <LinkRecord
+          ontology={ontology.data ?? []}
+          record={d.entity}
+          onLinked={detail.reload}
+        />
         {edges.length === 0 ? (
           <div className="empty">none — this record stands alone</div>
         ) : (

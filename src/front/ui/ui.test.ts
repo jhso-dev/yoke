@@ -732,3 +732,108 @@ describe("creating from the browser (WEB-UI amendment 2026-07-31)", () => {
     ).toBe(400);
   });
 });
+
+describe("schema and maintenance from the browser", () => {
+  const postRaw = (p: string, body: unknown) =>
+    fetch(base + p, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("declares a type, and declaring it again is a migration not an error", async () => {
+    const def = {
+      name: "experiment",
+      kind: "entity",
+      attrs: { hypothesis: { type: "string", required: true } },
+      ttl_days: 30,
+    };
+    expect((await postRaw("/api/ontology", { def })).status).toBe(201);
+    // The gate reads the ontology, so a record of the new type is immediately creatable — which is
+    // the only proof that the declaration landed somewhere the gate actually looks.
+    expect(
+      (
+        await postRaw("/api/entity", {
+          type: "experiment",
+          attributes: { hypothesis: "caching helps" },
+        })
+      ).status,
+    ).toBe(201);
+    // ...and its required attribute is enforced, from the definition just posted.
+    expect(
+      (await postRaw("/api/entity", { type: "experiment", attributes: {} }))
+        .status,
+    ).toBe(400);
+
+    // Same name again = a new version, the append-only migration the CLI performs.
+    expect(
+      (
+        await postRaw("/api/ontology", {
+          def: { ...def, ttl_days: 60 },
+        })
+      ).status,
+    ).toBe(201);
+    const types = await get("/api/ontology");
+    const found = types.filter(
+      (t: { name: string }) => t.name === "experiment",
+    );
+    // loadOntology returns the latest version per name, so the migration replaced rather than duped.
+    expect(found).toHaveLength(1);
+    expect(found[0].ttl_days).toBe(60);
+
+    // A def that is not a type def never reaches the store.
+    expect(
+      (await postRaw("/api/ontology", { def: { name: "x" } })).status,
+    ).toBe(400);
+    expect((await postRaw("/api/ontology", {})).status).toBe(400);
+  });
+
+  it("backfill is idempotent — the second run creates nothing", async () => {
+    const first = await (await postRaw("/api/backfill", {})).json();
+    expect(first.scanned).toBeGreaterThan(0);
+    const second = await (await postRaw("/api/backfill", {})).json();
+    expect(second.created).toBe(0);
+  });
+
+  it("renames a type everywhere and leaves the audit row that is its only trace", async () => {
+    const created = await (
+      await postRaw("/api/entity", {
+        type: "term",
+        attributes: { title: "renameable" },
+      })
+    ).json();
+    const res = await postRaw("/api/rename-type", {
+      from: "term",
+      to: "glossary",
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rows).toBeGreaterThan(0);
+
+    // The record moved with the declaration — a rename that only touched one of them would leave
+    // the database describing itself in two vocabularies.
+    expect((await get(`/api/entity/${created.id}`)).entity.type).toBe(
+      "glossary",
+    );
+    expect(
+      (await get("/api/ontology")).some(
+        (t: { name: string }) => t.name === "glossary",
+      ),
+    ).toBe(true);
+
+    // The one mutation the version history cannot record, because it rewrites those rows.
+    const trail = await get("/api/audit?limit=500");
+    expect(
+      trail.items.some(
+        (e: { action: string; detail: string }) =>
+          e.action === "rename_type" && e.detail === "term -> glossary",
+      ),
+    ).toBe(true);
+
+    // Renaming to itself is refused rather than quietly rewriting every row for no change.
+    expect(
+      (await postRaw("/api/rename-type", { from: "a", to: "a" })).status,
+    ).toBe(400);
+    expect((await postRaw("/api/rename-type", { from: "a" })).status).toBe(400);
+  });
+});

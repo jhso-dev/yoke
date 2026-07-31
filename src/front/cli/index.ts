@@ -26,6 +26,7 @@ import {
 } from "../../connectors/rdb-mapping.js";
 import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
+import { backfillAuthorship } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, inject } from "../../core/inject.js";
@@ -815,35 +816,12 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
-    const ts = now();
-    let scanned = 0;
-    let created = 0;
-    // One unfiltered enumeration, not a union over the three statuses — it cannot miss a status
-    // someone adds later, which the union quietly would.
-    const ids = (await store.listEntities({ ns })).items.map((e) => e.id);
-    for (const id of ids) {
-      scanned++;
-      const authored = await store.neighbors(id, "authored_by", "out");
-      const linked = new Set(authored.map((r) => r.to));
-      // Every version that passed the commit gate is an authorship; verify/deprecate are not
-      // (they carry origin 'lifecycle' and overwrite the latest version's provenance actor, which
-      // is exactly why reading only the latest row would credit the promoter).
-      for (const ver of store.listHistory(id)) {
-        const prov = ver.provenance;
-        if (prov.origin === "lifecycle" || prov.actor === id) continue;
-        if (linked.has(prov.actor)) continue;
-        await commit(
-          store,
-          ontology,
-          { type: "authored_by", attributes: {}, from: id, to: prov.actor },
-          prov,
-          ts,
-          { ns },
-        );
-        linked.add(prov.actor);
-        created++;
-      }
-    }
+    const { scanned, created } = await backfillAuthorship(
+      store,
+      ontology,
+      now(),
+      { ns },
+    );
     emit(v, `scanned ${scanned} entities, added ${created} authorship edges`, {
       scanned,
       created,

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { api } from "../../lib/api";
 import { useAsync } from "../../lib/useAsync";
@@ -80,8 +81,205 @@ export default function Ontology() {
         <>
           {table("entity types", entities)}
           {table("relation types", relations)}
+          <AddType onSaved={defs.reload} />
+          <Maintenance names={rows.map((d) => d.name)} onDone={defs.reload} />
         </>
       )}
     </>
+  );
+}
+
+/** `yoke ontology add-type`. Append-only per name, so declaring an existing name is a migration. */
+function AddType({ onSaved }: { onSaved: () => void }) {
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<"entity" | "relation">("entity");
+  // `k` or `k*` — the same shorthand the table above prints, so what you read is what you type.
+  const [attrs, setAttrs] = useState("");
+  const [ttl, setTtl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  return (
+    <form
+      className="panel"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError(null);
+        try {
+          const parsed = Object.fromEntries(
+            attrs
+              .split(",")
+              .map((a) => a.trim())
+              .filter(Boolean)
+              .map((a) =>
+                a.endsWith("*")
+                  ? [a.slice(0, -1), { type: "string", required: true }]
+                  : [a, { type: "string" }],
+              ),
+          );
+          await api.addType({
+            name: name.trim(),
+            kind,
+            attrs: parsed,
+            ...(ttl.trim() ? { ttl_days: Number(ttl) } : {}),
+          });
+          setName("");
+          setAttrs("");
+          setTtl("");
+          onSaved();
+        } catch (e) {
+          setError(e);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <div className="panel-head">
+        declare a type
+        <span className="muted">
+          an existing name saves a new version — the same append-only migration{" "}
+          <code>yoke ontology add-type</code> performs
+        </span>
+      </div>
+      <div className="controls">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="name"
+          aria-label="type name"
+        />
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value as "entity" | "relation")}
+          aria-label="kind"
+        >
+          <option value="entity">entity</option>
+          <option value="relation">relation</option>
+        </select>
+        <input
+          value={attrs}
+          onChange={(e) => setAttrs(e.target.value)}
+          placeholder="attributes: title*, status"
+          aria-label="attributes"
+          style={{ minWidth: 220 }}
+        />
+        <input
+          value={ttl}
+          onChange={(e) => setTtl(e.target.value)}
+          placeholder="ttl days (blank = ∞)"
+          aria-label="ttl days"
+        />
+        <button type="submit" disabled={busy || !name.trim()}>
+          {busy ? "saving…" : "save type"}
+        </button>
+      </div>
+      <ErrorBanner error={error} />
+    </form>
+  );
+}
+
+/**
+ * The two repairs that operate on the whole namespace: `yoke backfill` and `yoke rename-type`.
+ *
+ * They live on this screen because both are about types and schema rather than about any one
+ * record. Rename shows the row count it rewrote instead of asking for confirmation first — it is
+ * reversible by running it back the other way, and a count after the fact is more informative than
+ * a dialog before it.
+ */
+function Maintenance({
+  names,
+  onDone,
+}: {
+  names: string[];
+  onDone: () => void;
+}) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  const run = async (fn: () => Promise<string>) => {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      setResult(await fn());
+      onDone();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        maintenance
+        <span className="muted">
+          namespace-wide repairs — the same two commands, same effects
+        </span>
+      </div>
+      <div className="controls">
+        <button
+          type="button"
+          disabled={busy}
+          title="re-derive authored_by edges for records committed before the gate made them"
+          onClick={() =>
+            run(async () => {
+              const r = await api.backfill();
+              return `scanned ${r.scanned} records, added ${r.created} authorship edges`;
+            })
+          }
+        >
+          backfill authorship
+        </button>
+      </div>
+      <div className="controls">
+        <select
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          aria-label="rename from"
+        >
+          <option value="">rename a type…</option>
+          {names.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+        <span className="muted">→</span>
+        <input
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          placeholder="new name"
+          aria-label="rename to"
+        />
+        <button
+          type="button"
+          className="danger"
+          disabled={busy || !from || !to.trim() || from === to.trim()}
+          title="rewrites the declaration and every stored row, history included"
+          onClick={() =>
+            run(async () => {
+              const r = await api.renameType({ from, to: to.trim() });
+              setFrom("");
+              setTo("");
+              return `renamed ${r.from} to ${r.to} — ${r.rows} rows rewritten`;
+            })
+          }
+        >
+          rename
+        </button>
+      </div>
+      {result && (
+        <div className="banner" data-kind="ok">
+          {result}
+        </div>
+      )}
+      <ErrorBanner error={error} />
+    </div>
   );
 }

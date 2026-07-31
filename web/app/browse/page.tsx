@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { CreateRecord } from "../../components/CreateRecord";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
@@ -54,6 +55,9 @@ function BrowseBody() {
         what you have — orphans, stale corners, drafts nobody reviewed.
       </p>
       <ErrorBanner error={page.error ?? defs.error} />
+      {/* Any declared entity type, not a fixed list: `yoke add <type>` takes any of them, and a
+          screen that offered fewer would be the CLI-parity rule broken in the quiet direction. */}
+      <CreateRecord ontology={defs.data ?? []} onCreated={page.reload} />
       <div className="controls">
         <select
           value={type}

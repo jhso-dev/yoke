@@ -11,6 +11,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { fileURLToPath } from "node:url";
+import { backfillAuthorship } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
@@ -742,6 +743,82 @@ export function createUiHandler(
         }
         throw e;
       }
+    }
+
+    // Ontology migration — `yoke ontology add-type`. Gated on `verify`, not `write`: this is the
+    // one write that BYPASSES the commit gate (the gate reads the ontology, so validating it against
+    // itself would be circular), which makes it the most powerful action here. Append-only per name,
+    // so an existing name is a new version — a migration, exactly as it is from the CLI.
+    if (method === "POST" && path === "/api/ontology") {
+      if (!authorize("verify") && deny(res)) return;
+      const def = (await readBody(req)).def;
+      if (
+        !def ||
+        typeof def !== "object" ||
+        typeof (def as TypeDef).name !== "string" ||
+        !(def as TypeDef).name ||
+        ((def as TypeDef).kind !== "entity" &&
+          (def as TypeDef).kind !== "relation")
+      ) {
+        sendJson(res, 400, {
+          error: 'def must be { name, kind: "entity"|"relation", attrs }',
+        });
+        return;
+      }
+      // attrs defaulted, not overridden: a type with no attributes is legitimate (the seed's `term`
+      // and `resource` both are), and the CLI's JSON-file path allows omitting the key.
+      const incoming = def as TypeDef;
+      const typeDef: TypeDef = { ...incoming, attrs: incoming.attrs ?? {} };
+      store.saveOntology([typeDef], ns);
+      sendJson(res, 201, typeDef);
+      return;
+    }
+
+    // Repair: re-derive authorship edges for records committed before the gate made them. Gated on
+    // `write` because that is what it produces — edges, through the same gate, attributed to each
+    // record's recorded author rather than to whoever pressed the button.
+    if (method === "POST" && path === "/api/backfill") {
+      if (!authorize("write") && deny(res)) return;
+      const ontology = store.loadOntology(ns);
+      if (ontology.length === 0) {
+        sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        await backfillAuthorship(store, ontology, now(), { ns }),
+      );
+      return;
+    }
+
+    // Renaming a type rewrites every row that carries it, including history. Gated on `verify` for
+    // that reason, and it writes the `rename_type` audit row for the reason the store documents:
+    // it is the one mutation the append-only history cannot record, because it rewrites those rows.
+    if (method === "POST" && path === "/api/rename-type") {
+      if (!authorize("verify") && deny(res)) return;
+      const body = await readBody(req);
+      const { from, to } = body;
+      if (typeof from !== "string" || typeof to !== "string" || !from || !to) {
+        sendJson(res, 400, { error: "from and to are required" });
+        return;
+      }
+      if (from === to) {
+        sendJson(res, 400, { error: "from and to are the same name" });
+        return;
+      }
+      const ts = now();
+      const rows = store.renameType(from, to, ns);
+      if (rows > 0)
+        store.logAudit({
+          actor,
+          action: "rename_type",
+          detail: `${from} -> ${to}`,
+          at: ts,
+          ns,
+        });
+      sendJson(res, 200, { from, to, rows });
+      return;
     }
 
     // Anything that is not an API route may be a bundle asset. /api/* JSON-404s without touching
