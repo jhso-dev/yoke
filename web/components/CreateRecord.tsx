@@ -94,7 +94,7 @@ export function CreateRecord({
             this type declares no attributes — it will be created with none
           </span>
         )}
-        {attrs.map(([name, spec]) => (
+        {attrs.map(([name, spec], i) => (
           <label key={name} className="field">
             <span>
               {name}
@@ -111,6 +111,15 @@ export function CreateRecord({
                 setValues((v) => ({ ...v, [name]: e.target.value }))
               }
               aria-label={name}
+              // The ontology's own `required` flag, handed to the browser. It is not a second copy
+              // of the rule — the gate remains the only thing that decides — it is the same rule
+              // spending a round trip less to say so, in the reader's own language, at the field
+              // that is wrong rather than in a banner at the bottom.
+              required={spec.required}
+              // First field focused when the dialog opens: <dialog> focuses its first tabbable
+              // element, which would otherwise be the close button.
+              // biome-ignore lint/a11y/noAutofocus: scoped to a modal the reader just asked to open.
+              autoFocus={i === 0}
             />
           </label>
         ))}
