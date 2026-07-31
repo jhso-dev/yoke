@@ -15,10 +15,8 @@ export const en = {
     loading: "loading…",
     none: "none",
     close: "close",
-    cancel: "cancel",
     create: "create",
     creating: "creating…",
-    save: "save",
     saving: "saving…",
     verify: "verify",
     reconfirm: "re-confirm",
@@ -41,7 +39,6 @@ export const en = {
     status: "status",
     actor: "actor",
     record: "record",
-    records: "records",
     source: "source",
     relation: "relation",
     relations: "relations",
@@ -82,6 +79,9 @@ export const en = {
     summary: "summary",
   },
   create: {
+    newRecord: "new record",
+    draftNotice:
+      "Enters as a draft and needs a verify, exactly like one an agent commits.",
     pickType: "pick a type",
     noAttrs: "This type declares no attributes — it will be created with none.",
     duplicates: (n: number, names: string) =>
@@ -97,7 +97,6 @@ export const en = {
   browse: {
     heading: "Browse",
     lede: "Every record in this namespace, newest last. Use it to see the shape of what you have — orphans, stale corners, drafts nobody reviewed.",
-    newRecord: "new record",
     allTypes: "all types",
     anyStatus: "any status",
     shown: (n: number, more: boolean) =>

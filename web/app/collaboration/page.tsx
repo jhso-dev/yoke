@@ -127,6 +127,7 @@ function CollaborationBody() {
           <CreateButton
             ontology={ontology.data ?? []}
             type="collaboration"
+            label={t.collaboration.newOne}
             onCreated={list.reload}
           />
         </div>
@@ -294,20 +295,19 @@ function CollaborationBody() {
           <span className="muted">{t.collaboration.briefingNote}</span>
         </div>
         {briefing.loading ? (
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         ) : (
           <>
             {/* The cap is honest only if it says where the rest is — the same sentence the agent
                 gets from yoke_inject, so the screen and the tool cannot disagree. */}
             {(briefing.data?.omitted ?? 0) > 0 && (
               <div className="banner" data-kind="warn">
-                showing {briefing.data?.items.length} of{" "}
-                {(briefing.data?.items.length ?? 0) +
-                  (briefing.data?.omitted ?? 0)}{" "}
-                records on this work, most recently confirmed first. The rest
-                are not lost — an agent reaches them by asking a specific
-                question, which searches everything with this work's records
-                first.
+                {t.collaboration.truncated(
+                  briefing.data?.items.length ?? 0,
+                  (briefing.data?.items.length ?? 0) +
+                    (briefing.data?.omitted ?? 0),
+                  briefing.data?.omitted ?? 0,
+                )}
               </div>
             )}
             <KnowledgeTable

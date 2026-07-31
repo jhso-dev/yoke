@@ -12,10 +12,8 @@ export const ko: typeof en = {
     loading: "불러오는 중…",
     none: "없음",
     close: "닫기",
-    cancel: "취소",
     create: "생성",
     creating: "생성 중…",
-    save: "저장",
     saving: "저장 중…",
     verify: "verify",
     reconfirm: "재확인",
@@ -38,7 +36,6 @@ export const ko: typeof en = {
     status: "상태",
     actor: "기록자",
     record: "레코드",
-    records: "레코드",
     source: "출처",
     relation: "관계",
     relations: "관계",
@@ -79,6 +76,9 @@ export const ko: typeof en = {
     summary: "요약",
   },
   create: {
+    newRecord: "새 레코드",
+    draftNotice:
+      "에이전트가 커밋한 것과 똑같이, draft로 들어가고 verify가 필요합니다.",
     pickType: "타입 고르기",
     noAttrs: "이 타입은 속성을 선언하지 않습니다 — 속성 없이 생성됩니다.",
     duplicates: (n: number, names: string) =>
@@ -94,7 +94,6 @@ export const ko: typeof en = {
   browse: {
     heading: "둘러보기",
     lede: "이 네임스페이스의 모든 레코드, 최신이 아래쪽입니다. 가진 것의 모양을 보는 용도입니다 — 고립된 것, 오래된 구석, 아무도 검토하지 않은 draft.",
-    newRecord: "새 레코드",
     allTypes: "모든 타입",
     anyStatus: "모든 상태",
     shown: (n: number, more: boolean) =>

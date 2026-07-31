@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useT } from "../lib/i18n";
 
 /**
  * The app's one modal shape, on shadcn's Dialog (Radix underneath).
@@ -29,9 +30,10 @@ export function Modal({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent>
+      <DialogContent closeLabel={t.common.close}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? (

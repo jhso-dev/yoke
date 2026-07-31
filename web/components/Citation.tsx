@@ -1,6 +1,7 @@
 "use client";
 
 import { type Cited, citationLabel } from "../lib/citation";
+import { useT } from "../lib/i18n";
 
 /**
  * A record's source: shown compactly, copied in full.
@@ -15,12 +16,13 @@ import { type Cited, citationLabel } from "../lib/citation";
  * affordance serves the auditor better than text they would have to select by hand.
  */
 export function Citation({ row }: { row: Cited }) {
+  const t = useT();
   return (
     <span className="cite">
       <button
         type="button"
         className="cite"
-        title={`${row.citation}\n\nclick to copy the full citation`}
+        title={`${row.citation}\n\n${t.common.copyFull}`}
         style={{
           border: "none",
           background: "none",

@@ -48,9 +48,13 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  // The close affordance is icon-only, so this string is the whole accessible name. It takes a prop
+  // because the primitive has no locale of its own — Modal passes the translated one.
+  closeLabel = "Close",
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  closeLabel?: string;
 }) {
   return (
     <DialogPortal data-slot="dialog-portal">
@@ -70,7 +74,7 @@ function DialogContent({
             className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{closeLabel}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>

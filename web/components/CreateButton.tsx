@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useT } from "../lib/i18n";
 import type { Knowledge, TypeDef } from "../lib/types";
 import { CreateRecord } from "./CreateRecord";
 import { Modal } from "./Modal";
@@ -31,8 +32,12 @@ export function CreateButton({
   onCreated: (created: Knowledge) => void;
   label?: string;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
-  const text = label ?? `new ${type ?? "record"}`;
+  // The fallback used to be a template literal in English, so `new record` and `new collaboration`
+  // stayed English in every locale — the dictionary had both strings and nothing read them. A
+  // caller with a type of its own passes `label`; the generic case is the record wording.
+  const text = label ?? t.create.newRecord;
   return (
     <>
       <Button type="button" onClick={() => setOpen(true)}>
@@ -41,7 +46,7 @@ export function CreateButton({
       <Modal
         open={open}
         title={text}
-        description="Enters as a draft and needs a verify, exactly like one an agent commits."
+        description={t.create.draftNotice}
         onClose={() => setOpen(false)}
       >
         <CreateRecord
