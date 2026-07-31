@@ -61,6 +61,14 @@ a:hover {
   flex-wrap: wrap;
 }
 
+.topbar-content {
+  display: contents;
+}
+
+.mobile-menu-toggle {
+  display: none;
+}
+
 .brand {
   font-family: var(--font-mono);
   font-weight: 700;
@@ -115,6 +123,57 @@ a:hover {
    `.topbar-right` so specificity and source order agree. */
 .topbar-end .topbar-right {
   margin-left: 0;
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    gap: 8px;
+    padding: 6px 12px;
+    flex-wrap: nowrap;
+  }
+
+  .mobile-menu-toggle {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .topbar[data-menu-open] {
+    flex-wrap: wrap;
+  }
+
+  .topbar-content {
+    display: none;
+    width: 100%;
+  }
+
+  .topbar[data-menu-open] .topbar-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+  }
+
+  .topbar-content .nav {
+    flex-direction: column;
+  }
+
+  .topbar-content .nav a {
+    padding: 8px 10px;
+  }
+
+  .topbar-content .topbar-end {
+    width: 100%;
+    margin-left: 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .topbar-content .topbar-right {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+  }
 }
 
 main {

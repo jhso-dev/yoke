@@ -71,6 +71,8 @@ export const ko: typeof en = {
     audit: "감사 로그",
     tokens: "토큰",
     screens: "화면",
+    openMenu: "내비게이션 열기",
+    closeMenu: "내비게이션 닫기",
   },
   theme: {
     label: "테마",

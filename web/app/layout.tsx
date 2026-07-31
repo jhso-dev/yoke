@@ -1,10 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import type { ReactNode } from "react";
-import { AuthGate } from "../components/AuthGate";
-import { LocaleSwitch } from "../components/LocaleSwitch";
-import { Nav } from "../components/Nav";
-import { ThemeSwitch } from "../components/ThemeSwitch";
+import { Header } from "../components/Header";
 import { ToastHost } from "../components/ToastHost";
 import { LocaleProvider } from "../lib/i18n";
 import "./globals.css";
@@ -25,19 +21,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <LocaleProvider>
           <div className="shell">
-            <header className="topbar">
-              <Link className="brand" href="/">
-                YOKE
-              </Link>
-              <Nav />
-              {/* Language last: it is the least-used control here and the one a reader looks for
-                  at the edge, while the credential state is what they scan on arrival. */}
-              <div className="topbar-end">
-                <AuthGate />
-                <ThemeSwitch />
-                <LocaleSwitch />
-              </div>
-            </header>
+            <Header />
             <main>{children}</main>
             <ToastHost />
           </div>

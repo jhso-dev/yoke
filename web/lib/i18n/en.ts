@@ -68,6 +68,8 @@ export const en = {
     audit: "audit",
     tokens: "tokens",
     screens: "screens",
+    openMenu: "Open navigation",
+    closeMenu: "Close navigation",
   },
   theme: {
     label: "theme",
