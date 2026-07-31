@@ -1,0 +1,129 @@
+web/components/CreateRecord.tsx
+  d735c99471326cb3 97,114-122
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "7bf53bcab618f9224dff4400fbb2a77b921a8e49",
+  "prompts": {
+    "d735c99471326cb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34e3ef6c-a8e9-4ca3-8188-261461feeb65",
+        "model": "claude-fable-5"
+      },
+      "skills": [
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-12T12:36:58.656Z"
+        },
+        {
+          "id": "effort",
+          "ts": "2026-07-13T03:27:38.076Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:23:54.194Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-13T05:29:05.116Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-16T02:12:32.680Z"
+        },
+        {
+          "id": "artifact-design",
+          "ts": "2026-07-16T02:13:10.089Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-07-29T05:37:35.435Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-29T05:55:17.664Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-07-29T12:00:51.115Z"
+        },
+        {
+          "id": "ponytail:ponytail",
+          "ts": "2026-07-29T12:08:08.801Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-30T05:59:19.226Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-30T06:01:03.643Z"
+        },
+        {
+          "id": "effort:xhigh",
+          "ts": "2026-07-30T06:01:53.579Z"
+        },
+        {
+          "id": "effort:auto",
+          "ts": "2026-07-30T06:03:37.187Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-30T06:03:46.403Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-30T06:04:37.615Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-30T06:07:48.004Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-30T06:13:32.244Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-07-30T06:13:41.652Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-30T06:39:11.487Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-07-30T07:13:32.883Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 1103,
+        "mcp__openviking__find": 1,
+        "Write": 81,
+        "Edit": 499,
+        "ToolSearch": 10,
+        "WebSearch": 14,
+        "Agent": 38,
+        "Read": 122,
+        "WebFetch": 1,
+        "SendMessage": 2,
+        "ScheduleWakeup": 4,
+        "PushNotification": 1,
+        "mcp__yoke__yoke_inject": 4,
+        "mcp__yoke__yoke_record_decision": 1,
+        "Skill": 1,
+        "Artifact": 4,
+        "AskUserQuestion": 6,
+        "ExitPlanMode": 1,
+        "TaskCreate": 14,
+        "TaskUpdate": 26,
+        "Monitor": 5,
+        "TaskStop": 2
+      },
+      "total_additions": 10,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
