@@ -322,6 +322,20 @@ select {
   margin-bottom: 12px;
 }
 
+/* A panel has no padding of its own: its usual content is a full-bleed table, and the padding a
+   reader sees comes from the cells. Anything else placed in one — the form rows on browse, entity,
+   ontology and collaboration — therefore sits flush against the border unless it brings its own.
+   Scoped to direct children so a top-level `.controls` row, which sits on the page background and
+   wants no padding, is untouched. */
+.panel > .controls {
+  padding: 12px;
+  margin: 0;
+}
+/* Stacked rows in one panel (ontology's maintenance): the gap belongs between them, not doubled. */
+.panel > .controls + .controls {
+  padding-top: 0;
+}
+
 /* --- banners --- */
 
 .banner {
@@ -347,6 +361,12 @@ select {
 .banner code {
   font-family: var(--mono);
   font-size: 12px;
+}
+/* A banner is its own bordered box, so inside a panel it takes a margin rather than padding, or its
+   border would sit on the panel's. Declared after `.banner` so the cascade reads in specificity
+   order rather than relying on the more specific rule winning from above. */
+.panel > .banner {
+  margin: 0 12px 12px;
 }
 
 /* --- login --- */
