@@ -34,21 +34,22 @@ const buttonVariants = cva(
     defaultVariants: {
       variant: "default",
       // Kept in step with the parameter default below, which is the one that actually decides.
-      size: "sm",
+      size: "xs",
     },
   },
 );
 
-// `size = "sm"` (h-8), not shadcn's `"default"` (h-9): this is a dense workbench — body text is
-// 14px, table cells 13px, and the `.btn` links a button sits beside measure ~33px, so 36px read as
-// oversized in every control bar. Pass `size="default"` at a call site that wants the larger target.
+// `size = "xs"` (h-6, 12px text), not shadcn's `"default"` (h-9): this is a dense workbench where
+// body text is 14px and table cells 13px, and a 36px button dominated every control bar. 24px is
+// below the 44px touch-target guideline, which is the deliberate trade — this is a desktop tool
+// driven by a mouse. Pass `size="sm"`/`"default"` at a call site that wants a larger target.
 //
 // The parameter default is what decides, NOT cva's `defaultVariants` — an explicit value here means
 // cva never sees `undefined` and never applies its own. Editing only the cva block does nothing.
 function Button({
   className,
   variant = "default",
-  size = "sm",
+  size = "xs",
   asChild = false,
   ...props
 }: React.ComponentProps<"button"> &
