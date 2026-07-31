@@ -292,6 +292,21 @@ export function createUiHandler(
     sendJson(res, 403, { error: "forbidden" });
     return true;
   };
+  /** One audit row for a knowledge read, in the `<subject> -> <id> …` shape every other action
+   * uses so the trail is comparable across adapters (SPEC "HTTP API"). Called with what is about
+   * to be sent, never with what was asked for, so a row cannot claim ids the response withheld. */
+  const auditRead = (
+    action: "read" | "search",
+    ids: string[],
+    subject?: string,
+  ) =>
+    store.logAudit({
+      actor,
+      action,
+      detail: subject ? `${subject} -> ${ids.join(" ")}` : ids.join(" "),
+      at: now(),
+      ns,
+    });
   const serveStatic = createStaticHandler(
     deps.webRoot === undefined ? defaultWebRoot() : deps.webRoot,
   );
@@ -393,6 +408,47 @@ export function createUiHandler(
       return;
     }
 
+    // The text query on browse. Deliberately the port's own `search()` — the one `inject` falls
+    // back to when there is no embedder — so there is no second ranker in the product and WEB-UI
+    // test 2 still holds. Same summary row shape as the listing above, through the same table, so
+    // a draft hit reads as a draft.
+    //
+    // No cursor, by design: `search` is a top-N, not a walk of the corpus. `next` is always null
+    // and `truncated` says when the cap bit, which is the honest way to cap something (the graph
+    // and briefing screens already do it this way). Getting everything is `inject`, or the CLI.
+    if (method === "GET" && path === "/api/search") {
+      const type = url.searchParams.get("type") ?? undefined;
+      if (!authorize("read", type) && deny(res)) return;
+      const text = (url.searchParams.get("q") ?? "").trim();
+      if (!text) {
+        sendJson(res, 400, { error: "q is required" });
+        return;
+      }
+      const limit = intParam(url, "limit", 50, 200);
+      // One over the limit, so `truncated` is a fact rather than a guess about whether the cap
+      // happened to land exactly on the last match.
+      const found = await store.search({
+        text,
+        type,
+        status: url.searchParams.get("status") ?? undefined,
+        limit: limit + 1,
+        ns,
+      });
+      const items = found.slice(0, limit);
+      auditRead(
+        "search",
+        items.map((e) => e.id),
+        text,
+      );
+      sendJson(res, 200, {
+        items: await Promise.all(items.map(asRow())),
+        next: null,
+        truncated: found.length > limit,
+        limit,
+      });
+      return;
+    }
+
     // Entity detail: the record as stored — full attributes (not the truncated summary), every
     // version, and the relations on both sides with the other end resolved.
     if (method === "GET" && path.startsWith("/api/entity/")) {
@@ -424,6 +480,11 @@ export function createUiHandler(
             other: await side(r.from === id ? r.to : r.from),
           })),
       );
+      // Full attributes leave the process here, which is the line SPEC draws for auditing a read:
+      // the summary rows a listing returns do not, this does. One id, not the neighbours' — the
+      // versions and the resolved ends come back as summary rows, so naming them would overstate
+      // what this response actually disclosed.
+      auditRead("read", [e.id]);
       sendJson(res, 200, {
         entity: {
           ...(await asR(e)),

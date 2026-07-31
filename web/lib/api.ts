@@ -17,6 +17,7 @@ import type {
   Meta,
   Page,
   Persona,
+  SearchResult,
   TokenInfo,
   TypeDef,
 } from "./types";
@@ -101,6 +102,8 @@ export const api = {
     limit?: number;
     after?: string;
   }) => request<Page<Knowledge>>(`/api/entities${qs(p)}`),
+  search: (p: { q: string; type?: string; status?: string; limit?: number }) =>
+    request<SearchResult>(`/api/search${qs(p)}`),
   entity: (id: string) =>
     request<EntityDetail>(`/api/entity/${encodeURIComponent(id)}`),
   inject: (p: {

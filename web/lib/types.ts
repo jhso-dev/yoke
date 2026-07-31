@@ -37,6 +37,13 @@ export interface Page<T> {
   next: string | null;
 }
 
+/** GET /api/search. `next` is always null — search is a top-N, not a paged walk of the corpus, so
+ * `truncated` is how the screen learns the cap bit rather than a cursor it cannot follow. */
+export interface SearchResult extends Page<Knowledge> {
+  truncated: boolean;
+  limit: number;
+}
+
 export interface EntityDetail {
   entity: Knowledge & {
     attributes: Record<string, unknown>;
