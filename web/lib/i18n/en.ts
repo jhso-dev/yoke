@@ -78,12 +78,12 @@ export const en = {
   },
   home: {
     eyebrow: "collaboration-scoped knowledge for agents",
-    heading: "YOKE gives every collaboration a trusted AI context.",
-    lede: "Anchor people, decisions, facts, resources, and terms to the work they belong to. Agents receive the collaboration's verified context first, with citations and audit history, while drafts stay out until a human promotes them.",
+    heading: "YOKE shares trusted context for every collaboration.",
+    lede: "Give people and agents the same collaboration context: decisions, facts, resources, terms, and who is working on what. Agents receive the collaboration's verified context first, with citations and audit history, while drafts stay out until a human promotes them.",
     cards: {
       collaboration: {
         title: "Collaborate",
-        body: "Use a collaboration as the shared working scope: people, attached knowledge, and the briefing an agent receives for that work.",
+        body: "Use a collaboration as the shared context for a team and its agents: people, attached knowledge, and the briefing for that work.",
       },
       govern: {
         title: "Govern",
