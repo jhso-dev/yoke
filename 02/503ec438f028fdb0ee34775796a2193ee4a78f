@@ -1,0 +1,29 @@
+src/front/cli/cli.test.ts
+  h_9aabb7d8448c0a 909-929,963-981
+src/front/cli/index.ts
+  h_9aabb7d8448c0a 412-413,420-430,438,521-523,528,533-535,539-547
+src/front/ui/server.ts
+  h_9aabb7d8448c0a 295-309,411-451,483-487
+src/front/ui/ui.test.ts
+  h_9aabb7d8448c0a 390-474,741-774
+web/app/browse/page.tsx
+  h_9aabb7d8448c0a 12,16,18-28,35,38-41,44-47,49-61,64-65,68-71,73,78-81,115-142,149-155,160-163,166-171
+web/lib/api.ts
+  h_9aabb7d8448c0a 20,105-106
+web/lib/i18n/en.ts
+  h_9aabb7d8448c0a 147-153,310-311
+web/lib/i18n/ko.ts
+  h_9aabb7d8448c0a 148-154,314-315
+web/lib/types.ts
+  h_9aabb7d8448c0a 40-46
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "02503ec438f028fdb0ee34775796a2193ee4a78f",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
