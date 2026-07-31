@@ -99,10 +99,6 @@ a:hover {
   align-items: center;
   gap: 10px;
 }
-.topbar-end .topbar-right {
-  margin-left: 0;
-}
-
 .topbar-right {
   margin-left: auto;
   display: flex;
@@ -111,6 +107,11 @@ a:hover {
   font-size: 12px;
   color: var(--muted-foreground);
   font-family: var(--font-mono);
+}
+/* Nested in the end cluster it is not the thing doing the pushing — the wrapper is. Declared after
+   `.topbar-right` so specificity and source order agree. */
+.topbar-end .topbar-right {
+  margin-left: 0;
 }
 
 main {

@@ -9,7 +9,6 @@ import {
 } from "d3-force";
 import { useEffect, useRef } from "react";
 import {
-  endId,
   type Graph,
   type GraphLink,
   type GraphNode,
