@@ -151,6 +151,16 @@ h1 {
   margin: 0 0 4px;
 }
 
+/* The title row: heading left, the page's one primary action right. Baseline-aligned rather than
+   centred, so a long title wrapping to two lines does not drag the button down with it. */
+.page-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .lede {
   color: var(--muted);
   margin: 0 0 18px;
@@ -382,4 +392,65 @@ select {
 }
 .login input {
   font-family: var(--mono);
+}
+
+/* --- modal (native <dialog>) --- */
+
+/* The element brings the behaviour — focus trap, Esc, inert background — so this is only its look.
+   `dialog` ships with a UA border and padding; both are reset here rather than fought later. */
+dialog {
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  width: min(560px, calc(100vw - 32px));
+  /* Tall content scrolls inside the dialog, so the page behind never becomes the scroller. */
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+}
+
+dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+  /* Sticky so a long form's close button stays reachable without scrolling back up. */
+  position: sticky;
+  top: 0;
+}
+
+.modal-body {
+  padding: 14px;
+}
+
+/* Labelled fields stacked one per row — a wrapping flex row put labels beside their inputs and, at
+   three or more fields, beside the wrong ones. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.field > span {
+  color: var(--muted);
+}
+
+.field input,
+.field select {
+  width: 100%;
 }

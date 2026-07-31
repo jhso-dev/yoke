@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { CreateRecord } from "../../components/CreateRecord";
+import { CreateButton } from "../../components/CreateButton";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -111,7 +111,14 @@ function CollaborationBody() {
     const rows = list.data?.items ?? [];
     return (
       <>
-        <h1>Collaborations</h1>
+        <div className="page-head">
+          <h1>Collaborations</h1>
+          <CreateButton
+            ontology={ontology.data ?? []}
+            type="collaboration"
+            onCreated={list.reload}
+          />
+        </div>
         {/* Says what the thing IS in the first clause, because the type name alone never did. And
             "attached to" rather than "in": a collaboration holds nothing — people and records point at
             it, which is what the arrows on the graph screen draw. */}
@@ -121,11 +128,6 @@ function CollaborationBody() {
           answer from <em>this</em> work's context first.
         </p>
         <ErrorBanner error={list.error} />
-        <CreateRecord
-          ontology={ontology.data ?? []}
-          type="collaboration"
-          onCreated={list.reload}
-        />
         <div className="panel">
           {list.loading ? (
             <div className="empty">loading…</div>

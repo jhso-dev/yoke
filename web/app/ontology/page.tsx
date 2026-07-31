@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ErrorBanner } from "../../components/ErrorBanner";
+import { Modal } from "../../components/Modal";
 import { api } from "../../lib/api";
 import { useAsync } from "../../lib/useAsync";
 
@@ -65,7 +66,10 @@ export default function Ontology() {
 
   return (
     <>
-      <h1>Ontology</h1>
+      <div className="page-head">
+        <h1>Ontology</h1>
+        <AddTypeButton onSaved={defs.reload} />
+      </div>
       <p className="lede">
         The entity and relation types this namespace recognises. A{" "}
         <code>*</code> marks a required attribute; the TTL is how long a
@@ -81,10 +85,24 @@ export default function Ontology() {
         <>
           {table("entity types", entities)}
           {table("relation types", relations)}
-          <AddType onSaved={defs.reload} />
           <Maintenance names={rows.map((d) => d.name)} onDone={defs.reload} />
         </>
       )}
+    </>
+  );
+}
+
+/** The title-row action: a button, and the declare form in a modal behind it. */
+function AddTypeButton({ onSaved }: { onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="primary" onClick={() => setOpen(true)}>
+        declare a type
+      </button>
+      <Modal open={open} title="declare a type" onClose={() => setOpen(false)}>
+        <AddType onSaved={onSaved} />
+      </Modal>
     </>
   );
 }
@@ -101,7 +119,6 @@ function AddType({ onSaved }: { onSaved: () => void }) {
 
   return (
     <form
-      className="panel"
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
@@ -135,42 +152,60 @@ function AddType({ onSaved }: { onSaved: () => void }) {
         }
       }}
     >
-      <div className="panel-head">
-        declare a type
-        <span className="muted">
-          an existing name saves a new version — the same append-only migration{" "}
-          <code>yoke ontology add-type</code> performs
-        </span>
+      <p className="muted" style={{ margin: "0 0 12px" }}>
+        An existing name saves a new version — the same append-only migration{" "}
+        <code>yoke ontology add-type</code> performs.
+      </p>
+      <div className="stack">
+        <label className="field">
+          <span>name</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label="type name"
+          />
+        </label>
+        <label className="field">
+          <span>kind</span>
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as "entity" | "relation")}
+            aria-label="kind"
+          >
+            <option value="entity">entity</option>
+            <option value="relation">relation</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>
+            attributes{" "}
+            <span className="muted">— comma separated, * = required</span>
+          </span>
+          <input
+            value={attrs}
+            onChange={(e) => setAttrs(e.target.value)}
+            placeholder="title*, owner"
+            aria-label="attributes"
+          />
+        </label>
+        <label className="field">
+          <span>
+            freshness{" "}
+            <span className="muted">— days, blank = never goes stale</span>
+          </span>
+          <input
+            value={ttl}
+            onChange={(e) => setTtl(e.target.value)}
+            aria-label="ttl days"
+          />
+        </label>
       </div>
-      <div className="controls">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="name"
-          aria-label="type name"
-        />
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value as "entity" | "relation")}
-          aria-label="kind"
+      <div className="controls" style={{ margin: "14px 0 0" }}>
+        <button
+          type="submit"
+          className="primary"
+          disabled={busy || !name.trim()}
         >
-          <option value="entity">entity</option>
-          <option value="relation">relation</option>
-        </select>
-        <input
-          value={attrs}
-          onChange={(e) => setAttrs(e.target.value)}
-          placeholder="attributes: title*, status"
-          aria-label="attributes"
-          style={{ minWidth: 220 }}
-        />
-        <input
-          value={ttl}
-          onChange={(e) => setTtl(e.target.value)}
-          placeholder="ttl days (blank = ∞)"
-          aria-label="ttl days"
-        />
-        <button type="submit" disabled={busy || !name.trim()}>
           {busy ? "saving…" : "save type"}
         </button>
       </div>

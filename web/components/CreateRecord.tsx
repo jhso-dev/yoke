@@ -63,32 +63,31 @@ export function CreateRecord({
 
   const attrs = Object.entries(def?.attrs ?? {});
   return (
-    <form onSubmit={submit} className="panel">
-      <div className="panel-head">
-        new {type ?? "record"}
-        <span className="muted">
-          enters as a draft and needs a verify, exactly like one an agent
-          commits
-        </span>
-      </div>
-      <div className="controls">
+    <form onSubmit={submit}>
+      <p className="muted" style={{ margin: "0 0 12px" }}>
+        Enters as a draft and needs a verify, exactly like one an agent commits.
+      </p>
+      <div className="stack">
         {!type && (
-          <select
-            value={chosen}
-            onChange={(e) => {
-              setChosen(e.target.value);
-              // Attributes belong to a type; carrying them across a type change would submit fields
-              // the new type never declared.
-              setValues({});
-            }}
-            aria-label="type"
-          >
-            {entityTypes.map((t) => (
-              <option key={t.name} value={t.name}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+          <label className="field">
+            <span>type</span>
+            <select
+              value={chosen}
+              onChange={(e) => {
+                setChosen(e.target.value);
+                // Attributes belong to a type; carrying them across a type change would submit fields
+                // the new type never declared.
+                setValues({});
+              }}
+              aria-label="type"
+            >
+              {entityTypes.map((t) => (
+                <option key={t.name} value={t.name}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
         {attrs.length === 0 && (
           <span className="muted">
@@ -96,16 +95,16 @@ export function CreateRecord({
           </span>
         )}
         {attrs.map(([name, spec]) => (
-          <label
-            key={name}
-            style={{ display: "flex", gap: 6, alignItems: "center" }}
-          >
-            {name}
-            {spec.required && (
-              <span className="muted" title="required by the ontology">
-                *
-              </span>
-            )}
+          <label key={name} className="field">
+            <span>
+              {name}
+              {spec.required && (
+                <span className="muted" title="required by the ontology">
+                  {" "}
+                  *
+                </span>
+              )}
+            </span>
             <input
               value={values[name] ?? ""}
               onChange={(e) =>
@@ -115,7 +114,9 @@ export function CreateRecord({
             />
           </label>
         ))}
-        <button type="submit" disabled={busy || !active}>
+      </div>
+      <div className="controls" style={{ margin: "14px 0 0" }}>
+        <button type="submit" className="primary" disabled={busy || !active}>
           {busy ? "creating…" : "create"}
         </button>
       </div>
