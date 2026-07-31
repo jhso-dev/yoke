@@ -11,58 +11,11 @@
    the CLI's vocabulary (monospace ids and citations, teal accent) rather than looking like a SaaS
    dashboard. Tokens first so both themes are one place. */
 
-:root {
-  color-scheme: light dark;
-
-  --bg: #fbfbfc;
-  --panel: #ffffff;
-  --panel-2: #f4f5f7;
-  --border: #dfe1e6;
-  --text: #17191c;
-  --muted: #63676e;
-  --accent: #0d9488;
-  --accent-weak: #ccfbf1;
-
-  /* Semantic, and separate from the accent: these encode a record's real lifecycle state. */
-  --tone-draft: #b45309;
-  --tone-draft-bg: #fef3c7;
-  --tone-verified: #15803d;
-  --tone-verified-bg: #dcfce7;
-  --tone-stale: #52525b;
-  --tone-stale-bg: #f1f1f3;
-  --tone-deprecated: #b91c1c;
-  --tone-deprecated-bg: #fee2e2;
-  --tone-unknown: #52525b;
-  --tone-unknown-bg: #f1f1f3;
-
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --radius: 6px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e1013;
-    --panel: #16191d;
-    --panel-2: #1c2025;
-    --border: #2a2f36;
-    --text: #e7e9ec;
-    --muted: #9aa0a8;
-    --accent: #2dd4bf;
-    --accent-weak: #10312e;
-
-    --tone-draft: #fbbf24;
-    --tone-draft-bg: #3a2c07;
-    --tone-verified: #4ade80;
-    --tone-verified-bg: #0d2f1a;
-    --tone-stale: #a1a1aa;
-    --tone-stale-bg: #23262b;
-    --tone-deprecated: #f87171;
-    --tone-deprecated-bg: #3a1414;
-    --tone-unknown: #a1a1aa;
-    --tone-unknown-bg: #23262b;
-  }
-}
+/* Tokens live in theme.css and ONLY there. This file used to declare its own :root block after
+   importing that one, which silently redefined the names they share — `--accent` became the teal
+   foreground instead of the pale hover background, so a hovered select item drew its text in its
+   own background colour, and `--muted` (a background in shadcn's vocabulary) became a text grey.
+   Two vocabularies, one namespace: the later declaration always won and nothing said so. */
 
 * {
   box-sizing: border-box;
@@ -70,15 +23,15 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
 }
 
 a {
-  color: var(--accent);
+  color: var(--primary);
   text-decoration: none;
 }
 a:hover {
@@ -86,7 +39,7 @@ a:hover {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
@@ -104,15 +57,15 @@ a:hover {
   gap: 16px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  background: var(--card);
   flex-wrap: wrap;
 }
 
 .brand {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .nav {
@@ -124,16 +77,16 @@ a:hover {
 .nav a {
   padding: 5px 10px;
   border-radius: var(--radius);
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: 13px;
 }
 .nav a:hover {
-  background: var(--panel-2);
+  background: var(--secondary);
   text-decoration: none;
 }
 .nav a[aria-current="page"] {
-  background: var(--accent-weak);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--primary);
   font-weight: 600;
 }
 
@@ -143,8 +96,8 @@ a:hover {
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: var(--muted);
-  font-family: var(--mono);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
 }
 
 main {
@@ -171,7 +124,7 @@ h1 {
 }
 
 .lede {
-  color: var(--muted);
+  color: var(--muted-foreground);
   margin: 0 0 18px;
   max-width: 68ch;
 }
@@ -179,7 +132,7 @@ h1 {
 /* --- panels, tables, rows --- */
 
 .panel {
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -192,7 +145,7 @@ h1 {
 .panel-head {
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--panel-2);
+  background: var(--secondary);
   font-weight: 600;
   font-size: 13px;
   display: flex;
@@ -222,7 +175,7 @@ th {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -236,24 +189,24 @@ td.num {
 }
 
 .mono {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
 .cite {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--muted);
+  color: var(--muted-foreground);
   white-space: nowrap;
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .empty {
   padding: 22px 12px;
-  color: var(--muted);
+  color: var(--muted-foreground);
   text-align: center;
 }
 
@@ -300,7 +253,7 @@ td.num {
 /* button / .btn / input / select used to be styled here as bare element selectors. They are gone:
    those primitives now come from components/ui, and an UNLAYERED element rule beats a Tailwind
    utility no matter the specificity — Tailwind's output sits in @layer utilities, and unlayered CSS
-   always wins over layered CSS. So `button { background: var(--panel-2) }` silently overrode every
+   always wins over layered CSS. So `button { background: var(--secondary) }` silently overrode every
    shadcn variant, which is how a teal primary button rendered grey. Anything still on the old
    classes is listed in the migration note at the top of this file.
 
@@ -363,10 +316,10 @@ td.num {
   border-color: var(--tone-draft);
 }
 .banner[data-kind="info"] {
-  background: var(--panel-2);
+  background: var(--secondary);
 }
 .banner code {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 /* A banner is its own bordered box, so inside a panel it takes a margin rather than padding, or its
@@ -388,7 +341,7 @@ td.num {
   gap: 10px;
 }
 .login input {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
 }
 
 /* --- modal (native <dialog>) --- */
@@ -399,8 +352,8 @@ dialog {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--panel);
-  color: var(--text);
+  background: var(--card);
+  color: var(--foreground);
   width: min(560px, calc(100vw - 32px));
   /* Tall content scrolls inside the dialog, so the page behind never becomes the scroller. */
   max-height: calc(100vh - 64px);
@@ -418,7 +371,7 @@ dialog::backdrop {
   gap: 12px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  background: var(--panel-2);
+  background: var(--secondary);
   /* Sticky so a long form's close button stays reachable without scrolling back up. */
   position: sticky;
   top: 0;
@@ -444,7 +397,7 @@ dialog::backdrop {
 }
 
 .field > span {
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .field input,
