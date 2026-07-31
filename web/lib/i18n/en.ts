@@ -1,0 +1,235 @@
+// English is the source of truth: every other locale is typed as `typeof en`, so a missing or
+// misspelled key is a compile error rather than a string that silently renders as its own key.
+//
+// Deliberately NOT `as const`. Const-asserting would make each value its own literal type and
+// `typeof en` would then demand that ko say "loading…" too — the check would be on the values
+// instead of the keys, which is the opposite of what a translation file needs.
+//
+// Keys are grouped by screen, and the values are the sentences the screens already shipped — this
+// file is an extraction, not a rewrite. Where a sentence carries an argument (why a cap is not
+// knowledge loss, why a roster is not knowledge) the argument is the string; shortening it for
+// translation convenience would delete the reason a reader trusts the screen.
+
+export const en = {
+  common: {
+    loading: "loading…",
+    none: "none",
+    close: "close",
+    cancel: "cancel",
+    create: "create",
+    creating: "creating…",
+    save: "save",
+    saving: "saving…",
+    verify: "verify",
+    reconfirm: "re-confirm",
+    deprecate: "deprecate",
+    link: "link",
+    linking: "linking…",
+    expand: "expand",
+    browse: "browse",
+    graph: "graph",
+    openRecord: "open record",
+    openInGraph: "open in graph",
+    openAsRecord: "open as record",
+    notInNamespace: "not in this namespace",
+    notFound: "not found in this namespace",
+    required: "required by the ontology",
+    draftNotice: "enters as a draft and needs a verify",
+    copyFull: "click to copy",
+    type: "type",
+    status: "status",
+    actor: "actor",
+    record: "record",
+    records: "records",
+    source: "source",
+    relation: "relation",
+    relations: "relations",
+    direction: "direction",
+    attributes: "attributes",
+    title: "title",
+    version: "v",
+    when: "when",
+    action: "action",
+    detail: "detail",
+    otherEnd: "other end",
+  },
+  nav: {
+    review: "review",
+    conflicts: "conflicts",
+    ontology: "ontology",
+    persona: "persona",
+    collaboration: "collaboration",
+    browse: "browse",
+    inject: "inject",
+    graph: "graph",
+    audit: "audit",
+    screens: "screens",
+  },
+  review: {
+    heading: "Review queue",
+    lede: "Everything staged and not yet believed. Nothing here reaches an agent: drafts are withheld from injection until a human promotes them.",
+    selectAll: "select all",
+    draftCount: (n: number) => `${n} draft(s)`,
+  },
+  browse: {
+    heading: "Browse",
+    lede: "Every record in this namespace, newest last. Use it to see the shape of what you have — orphans, stale corners, drafts nobody reviewed.",
+    newRecord: "new record",
+    allTypes: "all types",
+    allStatuses: "all statuses",
+    empty: "nothing recorded in this namespace yet",
+    more: "more",
+    back: "back",
+  },
+  entity: {
+    heading: "Entity",
+    noId: "no id — reach this screen from",
+    noTextAttributes: "(no text attributes)",
+    provenance: "provenance",
+    recordedBy: "recorded by",
+    origin: "origin",
+    occurredAt: "occurred at",
+    lastConfirmed: "last confirmed",
+    citation: "citation",
+    versionHistory: "version history",
+    storedStatus: "stored status",
+    standsAlone: "none — this record stands alone",
+    otherRecordId: "other record id",
+    swapDirection: "swap which end this record is",
+    pointsAt: "points at the other record",
+    isPointedAt: "is pointed at",
+  },
+  collaboration: {
+    heading: "Collaborations",
+    headingOne: "Collaboration",
+    lede: "One thing being worked on together, and the people and knowledge attached to it. Anchoring an injection here is what makes an agent answer from this work's context first.",
+    newOne: "new collaboration",
+    all: "all collaborations",
+    emptyList:
+      "none yet — create one above, or let an agent do it via yoke_use_scope",
+    people: "people on this work",
+    peopleNote:
+      "shown here and deliberately NOT in the briefing — a roster is not knowledge about the work",
+    noMembers: "nobody linked yet — pick someone above, or run",
+    addSomeone: "add someone…",
+    addToWork: "add to this work",
+    everyoneAdded: "everyone recorded is already on this",
+    readJudgment: "read their recorded judgment",
+    briefing: "the briefing an agent receives",
+    briefingNote:
+      "exactly what inject(scope) returns — verified only, freshest first, audited as a preview",
+    briefingEmpty: "nothing in this work's context yet",
+    attached: "attached records",
+    attachedNote:
+      "← points here: the record carries the link, this work does not contain it. Deprecating this work leaves every one of them untouched",
+    attachedEmpty:
+      "none — knowledge attaches here when it is captured with --scope",
+    truncated: (shown: number, total: number, rest: number) =>
+      `showing ${shown} of ${total} records on this work, most recently confirmed first. The rest are not lost — an agent reaches them by asking a specific question, which searches everything with this work's records first. (${rest} not shown)`,
+  },
+  conflicts: {
+    heading: "Conflicts",
+    lede: "Pairs the gate found contradictory. Both sides are kept — yoke never silently picks a winner — so resolving one is a decision someone makes and the trail records.",
+    empty: "no contradictions recorded",
+    keepBoth: "keep both",
+  },
+  ontology: {
+    heading: "Ontology",
+    lede: "The entity and relation types this namespace recognises. A * marks a required attribute; the TTL is how long a verified record of that type stays fresh before it is withheld again. These are schema records, not knowledge, so they carry no citation.",
+    entityTypes: "entity types",
+    relationTypes: "relation types",
+    freshness: "freshness (ttl)",
+    neverStale: "never goes stale",
+    days: (n: number) => `${n} days`,
+    declare: "declare a type",
+    declareNote:
+      "An existing name saves a new version — the same append-only migration yoke ontology add-type performs.",
+    name: "name",
+    kind: "kind",
+    entity: "entity",
+    relation: "relation",
+    attrsHint: "— comma separated, * = required",
+    ttlHint: "— days, blank = never goes stale",
+    saveType: "save type",
+    maintenance: "maintenance",
+    maintenanceNote:
+      "namespace-wide repairs — the same two commands, same effects",
+    backfill: "backfill authorship",
+    backfillHint:
+      "re-derive authored_by edges for records committed before the gate made them",
+    backfillDone: (scanned: number, created: number) =>
+      `scanned ${scanned} records, added ${created} authorship edges`,
+    renamePlaceholder: "rename a type…",
+    newName: "new name",
+    rename: "rename",
+    renameHint:
+      "rewrites the declaration and every stored row, history included",
+    renameDone: (from: string, to: string, rows: number) =>
+      `renamed ${from} to ${to} — ${rows} rows rewritten`,
+  },
+  persona: {
+    heading: "Persona",
+    lede: "What one person's recorded judgment would tell an agent. Verified knowledge sourced from them, nothing inferred.",
+    pick: "pick a person…",
+    decisions: "decisions",
+    facts: "facts",
+    empty: "nothing recorded from this person yet",
+    export: "export skill",
+  },
+  inject: {
+    heading: "Inject",
+    lede: "Exactly what an agent receives for this question. Same filter, same ranking, same citations as a real yoke_inject — and it leaves the same kind of audit row, marked as a preview.",
+    query: "query",
+    scope: "scope (optional collaboration or person id)",
+    includeDraft: "include drafts",
+    run: "preview",
+    empty: "nothing verified matches this question",
+    omitted: (n: number) => `${n} withheld by the injection filter`,
+  },
+  graph: {
+    heading: "Graph",
+    ledeAnchored:
+      "Two hops out from one record. Double-click any node to expand from it.",
+    lede: "Every record and relation in this namespace. Double-click a node to pull in its neighbours.",
+    wholeNamespace: "whole namespace",
+    counts: (nodes: number, links: number) =>
+      `${nodes} nodes · ${links} relations`,
+    legend:
+      "arrows point at an edge's target · dashed = not knowledge (authorship, membership)",
+    empty: "nothing to draw in this namespace",
+    nodes: "nodes",
+    nodesNote:
+      "same data, keyboard-navigable — the canvas above is not reachable by screen readers",
+  },
+  audit: {
+    heading: "Audit",
+    lede: "The append-only trail of knowledge read and governance performed. Filtering here narrows the loaded window, not the whole history — use yoke audit --json to walk all of it.",
+    since: "since",
+    sinceHint: "your local time",
+    allActions: "all actions",
+    allActors: "all actors",
+    shown: (shown: number, loaded: number) => `${shown} of ${loaded} loaded`,
+    empty: "no audit events in this window",
+    nothing: "nothing",
+    more: (n: number) => `${n} more`,
+    meaning: {
+      inject: "an agent received knowledge",
+      inject_preview: "a human previewed what an agent would receive",
+      persona: "a person's recorded judgment was read",
+      verify: "records were promoted",
+      deprecate: "records were retired",
+      rename_type: "an ontology type was renamed in every stored row",
+    } as Record<string, string>,
+  },
+  login: {
+    heading: "Sign in",
+    lede: "This deployment requires a credential. Paste an API token or an OIDC id_token.",
+    token: "token",
+    submit: "sign in",
+    signOut: "sign out",
+  },
+  errors: {
+    forbiddenHint:
+      "this credential lacks the scope for that action. Mint one with: yoke token create --scopes read,verify",
+  },
+};

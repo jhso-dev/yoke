@@ -2,31 +2,35 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useT } from "../lib/i18n";
 
 /** Two groups, matching WEB-UI.md: the governance set acts on knowledge, the viewing set reads it. */
+// href and key only. The label is looked up per render so switching language re-labels the nav
+// without the route table knowing a language exists.
 const LINKS = [
-  { href: "/review/", label: "review" },
-  { href: "/conflicts/", label: "conflicts" },
-  { href: "/ontology/", label: "ontology" },
-  { href: "/persona/", label: "persona" },
-  { href: "/collaboration/", label: "collaboration" },
-  { href: "/browse/", label: "browse" },
-  { href: "/inject/", label: "inject" },
-  { href: "/graph/", label: "graph" },
-  { href: "/audit/", label: "audit" },
-];
+  { href: "/review/", key: "review" },
+  { href: "/conflicts/", key: "conflicts" },
+  { href: "/ontology/", key: "ontology" },
+  { href: "/persona/", key: "persona" },
+  { href: "/collaboration/", key: "collaboration" },
+  { href: "/browse/", key: "browse" },
+  { href: "/inject/", key: "inject" },
+  { href: "/graph/", key: "graph" },
+  { href: "/audit/", key: "audit" },
+] as const;
 
 export function Nav() {
   const here = usePathname();
+  const t = useT();
   return (
-    <nav className="nav" aria-label="screens">
+    <nav className="nav" aria-label={t.nav.screens}>
       {LINKS.map((l) => (
         <Link
           key={l.href}
           href={l.href}
           aria-current={here?.startsWith(l.href) ? "page" : undefined}
         >
-          {l.label}
+          {t.nav[l.key]}
         </Link>
       ))}
     </nav>
