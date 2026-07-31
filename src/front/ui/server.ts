@@ -307,8 +307,11 @@ export function createUiHandler(
 
     if (method === "GET" && path === "/api/review") {
       if (!authorize("read") && deny(res)) return;
-      // Only this reviewer's raw draft list — no peers' pending approvals (Delphi independence
-      // guard — see web/app/review/page.tsx). Hook for v3 multi-reviewer aggregation.
+      // Every draft in the namespace. It carries no peer approval state — not because it is
+      // filtered out, but because none exists: verify is immediate and per-actor, so there is no
+      // pending approval to leak. The Delphi independence constraint (docs/RESEARCH.md §2–3) binds
+      // whoever adds multi-reviewer aggregation; this route is not currently enforcing it, and the
+      // comment that used to say "only this reviewer's list" described a filter that is not here.
       const drafts = await store.listEntities({ status: "draft", ns });
       sendJson(res, 200, await Promise.all(drafts.items.map(asRow())));
       return;

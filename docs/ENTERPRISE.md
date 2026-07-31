@@ -33,6 +33,13 @@ directional decisions.
   **The verify permission *is* the knowledge-governance permission** — who can
   promote knowledge is the single most important axis in this product's permission
   model. We separate admin/write/verify.
+
+  **When more than one person holds `verify`, the aggregation rule is an open design decision and
+  the default must not be majority.** Today the permission is per-actor and the first holder to act
+  decides — there is no vote. If approvals are ever accumulated, `docs/RESEARCH.md` §1 argues for
+  Surprisingly Popular (answer + meta-prediction) over majority or confidence weighting: majority
+  rule systematically discards the expert who is right and knows they are in the minority, which is
+  the exact person a knowledge-governance gate exists to hear.
 - MCP connection: the token scope carries the three axes above. An agent is
   write-only by default (can only stage drafts, cannot verify) — enforcing the policy
   that a human owns the gate.

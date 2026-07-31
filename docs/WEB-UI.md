@@ -43,6 +43,12 @@ The governance set (v2.5):
 1. **Review queue** — the draft list, with source and duplicate candidates shown, and
    bulk verify/reject. Reason for being: drive promotion friction close to zero
    (addressing MARKET risk 1). The core screen.
+
+   **Constraint, for whenever this screen serves more than one reviewer: it must not show a peer's
+   pending approval.** Seeing early approvals makes later reviewers converge on them without the
+   group getting more accurate (`docs/RESEARCH.md` §2), and the anonymity that prevents it is the
+   whole mechanism of a Delphi (§3). No such state exists yet — verify is immediate and per-actor —
+   so this constrains a future design rather than describing a present protection.
 2. **Conflicts view** — conflicts_with pairs compared side by side; deprecate one side
    or keep them coexisting.
 3. **Ontology browser** — types and relations, with migration history.
