@@ -202,9 +202,10 @@ endpoint shares it at `POST /mcp`.
 | `GET /api/conflicts` | `listRelationsByType('conflicts_with', ns)` | read | no |
 | `GET /api/ontology` | `loadOntology(ns)` | read | no |
 | `GET /api/entities` | `listEntities` | read (typed when `?type=`) | no |
-| `GET /api/entity/:id` | `getEntity` + `listHistory` + `neighbors` | read (typed) | no |
+| `GET /api/entity/:id` | `getEntity` + `listHistory` + `neighbors` | read (typed) | **yes** (`read`) |
 | `GET /api/inject` | `inject(query, {scope, ns})` | read | **yes** (`inject_preview`) |
 | `GET /api/persona/:id` | `personaQuery` | read | **yes** (`persona`) |
+| `GET /api/search` | `search({text, type, status, limit, ns})` | read (typed when `?type=`) | **yes** (`search`) |
 | `GET /api/graph` | `listEntities` + `listRelations` | read | no |
 | `GET /api/audit` | `listAudit({since, ns, limit})` | read | no |
 | `POST /api/verify` | `verify` | verify | yes |
@@ -238,17 +239,25 @@ Rules that hold for every route:
   writes is a foot-gun, not a feature), `token` (credential minting stays a terminal act), and
   `mcp` / `ui` / `serve` (process lifecycle, not actions). Plain `search` stays absent for the
   original reason: free-text retrieval for human reading is the search UI this document refuses,
-  and the injection preview is the sanctioned query box.
+  and the injection preview is the sanctioned query box. Narrowed 2026-07-31: `GET /api/search`
+  exposes the port's `search()` to `browse`, returning summary rows and writing a `search` audit
+  row. What stays refused is synthesis, a second ranker, and results framed as an answer — see the
+  second amendment in WEB-UI.md.
 - **Any route that returns knowledge attributes writes an audit row.** A preview is an
   injection: reading through the browser leaves the same trail as reading through MCP
   (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing
   routes that return only a truncated summary do not, but a route that returns full
   attributes and cannot be audited must not exist.
+
+  Corrected 2026-07-31: this was false for `GET /api/entity/:id`, which returns full
+  attributes and wrote nothing, and for `yoke get`, its CLI twin. Both now write `read`.
+  The rule had been in the document since v5.0 opened while the code disagreed with it, so
+  it was documentation of an intention rather than of a behaviour.
 - **The injection preview is the real `inject()`.** Not a re-implementation with similar
   filters — byte-for-byte what an agent would receive, so the screen cannot drift from
   the behaviour it claims to show. Its audit action is `inject_preview`, distinct from
   `inject`, so a human looking does not pollute the record of what an agent was told.
-- **The audit rule is per front ADAPTER, not per route.** The same five actions are written
+- **The audit rule is per front ADAPTER, not per route.** The same actions are written
   wherever the act happens, so the trail does not depend on which interface someone used:
 
   | action | meaning | written by |
@@ -256,6 +265,8 @@ Rules that hold for every route:
   | `inject` | a model received knowledge | MCP, CLI |
   | `inject_preview` | a human saw what a model *would* receive | web only — there is no CLI preview |
   | `persona` | someone's recorded judgment was read | MCP, CLI, web |
+  | `read` | a full record — attributes, versions, relations — was read | CLI, web |
+  | `search` | someone queried the store for text and got matching records | CLI, web |
   | `verify` | records were promoted | CLI, web |
   | `deprecate` | records were retired | CLI, web |
   | `rename_type` | an ontology type was renamed in the declaration and in every stored row | CLI only |
@@ -268,7 +279,7 @@ Rules that hold for every route:
   promotion done through the CLI — the interface ROADMAP v0.2 makes primary for review and verify.
   `detail` uses the same shape in both (`<subject> -> <id> <id> …`, or a bare id list for a
   lifecycle transition) so rows from different adapters are comparable. A parity test in
-  `cli.test.ts` asserts the CLI writes the five actions it owns and never writes `inject_preview`.
+  `cli.test.ts` asserts the CLI writes the actions it owns and never writes `inject_preview`.
 - **Every row carries a citation**, source and version, on every screen (since v2.5).
 - **Namespace isolation holds on every route**, including the global listings. `getEntity`
   is id-based and deliberately not ns-filtered, so a route that resolves an id re-checks
@@ -288,8 +299,9 @@ OIDC id_token. No cookie session, therefore no CSRF surface.
 
 ```
 yoke init                  # create the DB + seed the default ontology
-yoke add / get / search    # basic CRUD and search
+yoke add                   # commit one entity through the gate
 yoke get <id> [--relations]  # one record; --relations adds its in/out edges
+yoke search <text> [--type t] [--status s] [--limit n]   # the port's FTS; what /api/search exposes
 yoke link <from> <relation> <to>   # record a relation — the only creation path for one
 yoke list [--type t] [--status s] [--limit n] [--after id]   # enumerate (keyset paging)
 yoke graph [--limit n]     # the entity/relation graph, bounded, truncation reported

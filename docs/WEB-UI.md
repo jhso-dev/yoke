@@ -27,8 +27,11 @@ the *injection decision*, not a result set: the same filter, the same ranking, t
 citations, and the same audit row as a real `yoke_inject` call — and no answer text. A
 search UI would exist to satisfy the human's question; the injection preview exists to
 let a human check what the machine is about to be told, and to leave a record that they
-looked. If a query box ever returns knowledge `yoke_inject` would have withheld, or
-returns it without an audit row, it has become the search UI and must be removed.
+looked. If a query box ever presents its results as an answer, ranks them with anything
+but the port's own retrieval, or returns full attributes without an audit row, it has
+become the search UI and must be removed. (Reworded 2026-07-31 — the sentence used to say
+"returns knowledge `yoke_inject` would have withheld", which condemned `browse`. See the
+second amendment.)
 
 **Why browsing is not searching.** Navigation — entity → its relations → a neighbour, a
 graph node → its detail — reaches a record we already decided to store. It makes the
@@ -115,9 +118,11 @@ A tenth screen requires the three tests to be argued here first.
 
 - **A chat interface.** No conversational surface, no model call from the web tier, ever.
   Asking questions *of* the knowledge is the AI's job, over MCP.
-- **A search UI for human reading.** A query box exists only as the injection preview
-  defined above. Free-text retrieval that bypasses the injection filter, or presents
-  results as an answer rather than as records, is out.
+- ~~**A search UI for human reading.**~~ **Narrowed 2026-07-31 — see the second amendment
+  below.** A query box over stored records is allowed on `browse`, returning the same
+  status-labelled rows the list already returns. What stays out is the part that was always
+  the risk: results presented as an answer, ranking outside the port's own retrieval, and
+  any model call.
 - ~~**A knowledge-authoring editor.**~~ **Reversed 2026-07-31 — see the amendment below.**
   Creating records and relations is now allowed; *editing an existing record's attributes*
   and bulk import are still not.
@@ -166,3 +171,61 @@ write that lands as anything but `draft`.
 amendment maps to a command that already exists — `yoke add`, `yoke link`, `yoke verify`,
 `yoke deprecate`, `yoke backfill`, `yoke rename-type`. A button with no command is still a bug,
 and `yoke link` was written first for exactly that reason.
+
+## Amendment (2026-07-31, second): browse may have a query box
+
+`browse` gains a text query. The reasoning, and what replaces the ban:
+
+**What the ban was actually protecting.** yoke's value is *injection* — an agent is handed the
+relevant subset without anyone looking anything up. A good human search box competes with that:
+people search instead of capturing, the review queue stops being the way knowledge becomes
+trusted, and the store decays into a wiki that happens to have types. That risk is real and the
+ban was a reasonable way to hold it off while the injection path was being built.
+
+**Why it does not require forbidding the box.** Two things, and the second is the decisive one.
+
+First, `browse` already lists every record in the namespace — draft, stale and deprecated
+included, each with its status rendered — with type and status filters and keyset paging. A person
+can already read unverified knowledge from a screen. A query box changes how long that takes, not
+whether it is permitted.
+
+Second, **the tripwire as written was already tripped by screens this document blesses.** It said
+a query box that "returns knowledge `yoke_inject` would have withheld" has become the search UI
+and must be removed. `browse` returns exactly that, and `GET /api/entities` writes no audit row.
+Read literally, the rule condemned `browse`, not a search box. A rule the shipped code violates
+is not protecting anything — it is just unenforced, and unenforced rules are how a codebase learns
+that its documents can be ignored.
+
+**What replaces it.** Three guarantees, each of which is checkable rather than aspirational:
+
+1. **Records, not answers.** Search returns the same row shape `browse` returns — type, summary,
+   effective status, actor, citation — through the same `KnowledgeTable`. A draft hit reads as a
+   draft. No prose, no "best match" framing, no result the reader cannot trace to a stored row.
+2. **The port's retrieval, not ours.** The box calls the `search(TextQuery)` the storage port has
+   had since v1 and that `inject` itself falls back to. No re-ranking in the web tier and no
+   scoring invented for the screen — test 2 ("no relevance ranking outside the injection ranker")
+   survives intact, because there is no second ranker.
+3. **Bounded, and it says so.** `search` takes a `limit` and has no cursor: it returns a top-N,
+   never a walk of the corpus. Over the cap the screen says how many it left off, the way the
+   graph and briefing screens already do. The way to get everything is still `inject`, or the CLI.
+
+**And the audit claim gets made true.** SPEC's rule — "any route that returns knowledge attributes
+writes an audit row" — was already false in one place: `GET /api/entity/:id` returns full
+attributes and wrote nothing, and so does `yoke get`. Both are fixed in the same change as this
+amendment, under a new `read` action, and the query box writes a `search` row. `search` is its own
+action rather than folded into `read` because a query records something an enumeration does not:
+what someone was looking for. Distinguishing "who listed the namespace" from "who asked for X"
+from "what an agent was told" is the whole point of having action names.
+
+**The cost, stated.** The trail now grows when people read, not only when they govern. On a local
+single-user database that is a row per record opened, which is the intended trade: `yoke audit`
+answers "what did I look at" as well as "what did I promote". If that noise ever swamps the
+governance rows, the fix is a filter on the audit screen — which already exists — not a quieter
+rule.
+
+**Still forbidden.** A conversational surface; any model call from the web tier; synthesized prose;
+a second ranker; presenting results as an answer; and search over anything but stored records.
+
+**CLI parity is unchanged and binding.** `yoke search` already exists and predates this box; it
+gains `--status` so the two surfaces can express the same query, and the `search` audit row so the
+trail does not depend on which interface was used.

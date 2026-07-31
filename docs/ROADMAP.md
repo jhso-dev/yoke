@@ -155,6 +155,11 @@ port capabilities, etc. See SPEC).
       clean machine is on the human-verification list below)
 - [x] Regression closed: a check that *executes* the shipped client bundle, not one
       that greps the HTML for markers (see the v2.5 note)
+- [ ] Text query on browse, and the audit rule made true: `GET /api/search` over the
+      port's existing `search()`, plus the `read` row that `GET /api/entity/:id` and
+      `yoke get` were supposed to write since v5.0 opened and never did. The ban on a
+      human query box is narrowed, not deleted — WEB-UI.md's second 2026-07-31 amendment
+      states what replaced it and what stays forbidden
 
 Human-verification list (the docs/BACKENDS.md pattern) — **one of four done**, and the
 boxes above are checked for what automation proves, not for this:
