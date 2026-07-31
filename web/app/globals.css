@@ -30,11 +30,11 @@ body {
   line-height: 1.5;
 }
 
-a {
+:where(a:not([data-slot="button"])) {
   color: var(--primary);
   text-decoration: none;
 }
-a:hover {
+:where(a:not([data-slot="button"])):hover {
   text-decoration: underline;
 }
 
