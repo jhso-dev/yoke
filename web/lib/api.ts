@@ -8,6 +8,7 @@ import { clearCredential, getCredential } from "./credential";
 import type {
   AuditEntry,
   ConflictPair,
+  Edge,
   EntityDetail,
   GraphData,
   InjectPreview,
@@ -121,5 +122,29 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ids }),
+    }),
+  /** Create a record. It enters as a draft like any other — the gate does not care which adapter
+   * called it — and comes back with whatever duplicates the gate found, so a form can show them. */
+  create: (p: {
+    type: string;
+    attributes: Record<string, string | string[]>;
+    scope?: string;
+  }) =>
+    request<Knowledge & { duplicates: Knowledge[] }>("/api/entity", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(p),
+    }),
+  /** Record a relation. `yoke link` in the browser; direction is the caller's to get right. */
+  link: (p: {
+    from: string;
+    type: string;
+    to: string;
+    attributes?: Record<string, string | string[]>;
+  }) =>
+    request<Edge>("/api/link", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(p),
     }),
 };

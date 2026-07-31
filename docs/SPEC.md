@@ -209,12 +209,21 @@ endpoint shares it at `POST /mcp`.
 | `GET /api/audit` | `listAudit({since, ns, limit})` | read | no |
 | `POST /api/verify` | `verify` | verify | yes |
 | `POST /api/deprecate` | `deprecate` | verify | yes |
+| `POST /api/entity` | `commit({type, attributes})` (+ a `relates_to` commit when `scope` is given) | write (typed) | no — the v1 row records it |
+| `POST /api/link` | `commit({type, attributes, from, to})` | write (typed) | no — same |
 
 Rules that hold for every route:
 
-- **Read-only except lifecycle.** The only mutations are `verify` and `deprecate` on
-  records that already exist. There is no HTTP write path into knowledge — capture goes
-  through the gate via MCP, the CLI, or a connector.
+- **Creation goes through the gate, never around it** (amended 2026-07-31; before that there
+  was no HTTP write path into knowledge at all). `POST /api/entity` and `POST /api/link` call
+  `commit()` like every other adapter, so a record made in a browser is validated against the
+  ontology, enters as `draft`, and needs the same human `verify`. It carries
+  `provenance.origin = "web"`, which is what makes hand-typed knowledge visible as such rather
+  than merely forbidden. No audit row: the v1 row it produces already carries actor, origin and
+  timestamp — the schema's rule for entity mutations. **Editing an existing record's attributes
+  over HTTP remains absent**: correcting a record is a new version through the gate, from the
+  adapter that owns the source. The lifecycle mutations are still `verify` and `deprecate`, and
+  nothing here writes a record in any state but `draft`.
 - **Any route that returns knowledge attributes writes an audit row.** A preview is an
   injection: reading through the browser leaves the same trail as reading through MCP
   (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing

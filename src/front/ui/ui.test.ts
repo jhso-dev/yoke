@@ -599,3 +599,136 @@ describe("audit detail resolves both of its shapes", () => {
     expect(read.refs?.length).toBeGreaterThan(0);
   });
 });
+
+describe("creating from the browser (WEB-UI amendment 2026-07-31)", () => {
+  const postRaw = (p: string, body: unknown) =>
+    fetch(base + p, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("creates a draft carrying origin 'web' — allowed, and labelled as hand-typed", async () => {
+    const res = await postRaw("/api/entity", {
+      type: "fact",
+      attributes: { title: "typed at a screen" },
+    });
+    expect(res.status).toBe(201);
+    const created = await res.json();
+    // Draft, never verified: the amendment permits creating, not promoting. A screen that could
+    // write a verified record would route around the one human gate this product is built on.
+    expect(created.status).toBe("draft");
+
+    // The label is the whole trade — the ban went away, the ability to tell did not.
+    const stored = await store.getEntity(created.id);
+    expect(stored?.provenance.origin).toBe("web");
+    // The server's resolved actor, not an anonymous one: "someone typed this" is only useful if
+    // the record also says who.
+    expect(stored?.provenance.actor).toBe("reviewer");
+
+    // And it is a real record: it shows up in the queue a human reviews.
+    const drafts = await get("/api/review");
+    expect(drafts.some((d: { id: string }) => d.id === created.id)).toBe(true);
+  });
+
+  it("hands back the gate's own rejection rather than inventing validation", async () => {
+    // decision declares conclusion/rationale required; the client duplicating that rule is how a
+    // client and a server come to disagree about what is valid.
+    const res = await postRaw("/api/entity", {
+      type: "decision",
+      attributes: {},
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.reason).toBe("ontology");
+    expect(body.error).toMatch(/conclusion|required/i);
+
+    // An undeclared type is refused for the same reason, by the same gate.
+    expect((await postRaw("/api/entity", { type: "invented" })).status).toBe(
+      400,
+    );
+    // A missing type never reaches it.
+    expect((await postRaw("/api/entity", {})).status).toBe(400);
+  });
+
+  it("links two records, with the direction the caller asked for", async () => {
+    const person = await (
+      await postRaw("/api/entity", {
+        type: "person",
+        attributes: { name: "Nari" },
+      })
+    ).json();
+    const work = await (
+      await postRaw("/api/entity", {
+        type: "collaboration",
+        attributes: { title: "browser-made work" },
+      })
+    ).json();
+    const res = await postRaw("/api/link", {
+      from: person.id,
+      type: "works_on",
+      to: work.id,
+    });
+    expect(res.status).toBe(201);
+    const edge = await res.json();
+    expect(edge.from).toBe(person.id);
+    expect(edge.to).toBe(work.id);
+
+    // Incoming on the collaboration — the direction that makes an anchor gather a roster.
+    const detail = await get(`/api/entity/${work.id}`);
+    expect(
+      detail.relations.in.some(
+        (r: { type: string; other: { id: string } }) =>
+          r.type === "works_on" && r.other.id === person.id,
+      ),
+    ).toBe(true);
+
+    // Half a link is not a relation.
+    expect(
+      (await postRaw("/api/link", { from: person.id, type: "works_on" }))
+        .status,
+    ).toBe(400);
+  });
+
+  it("attaches to a scope with the same relates_to `yoke add --scope` makes", async () => {
+    const work = await (
+      await postRaw("/api/entity", {
+        type: "collaboration",
+        attributes: { title: "scoped from the browser" },
+      })
+    ).json();
+    const fact = await (
+      await postRaw("/api/entity", {
+        type: "fact",
+        attributes: { title: "attached at creation" },
+        scope: work.id,
+      })
+    ).json();
+    const detail = await get(`/api/entity/${work.id}`);
+    expect(
+      detail.relations.in.some(
+        (r: { type: string; other: { id: string } }) =>
+          r.type === "relates_to" && r.other.id === fact.id,
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses a body that is not JSON, and attributes that are not strings", async () => {
+    const notJson = await fetch(base + "/api/entity", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "type=fact",
+    });
+    expect(notJson.status).toBe(400);
+    // A nested object cannot be described by the ontology's attr types, so it stops here rather
+    // than reaching the store as a shape nothing can validate.
+    expect(
+      (
+        await postRaw("/api/entity", {
+          type: "fact",
+          attributes: { title: { nested: true } },
+        })
+      ).status,
+    ).toBe(400);
+  });
+});

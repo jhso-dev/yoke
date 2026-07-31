@@ -11,6 +11,8 @@ import {
   type ServerResponse,
 } from "node:http";
 import { fileURLToPath } from "node:url";
+import { CommitRejected, commit } from "../../core/commit.js";
+import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
 import { deprecate, effectiveStatus, verify } from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
@@ -42,6 +44,10 @@ export interface UiDeps {
   /** Read replica: the client disables mutation controls up front rather than letting people
    * discover replica mode by clicking and getting a 409. */
   readOnly?: boolean;
+  /** Same embedder the CLI builds from env. Passed so a record created in the browser gets the same
+   * duplicate and contradiction detection one created by `yoke add` does — without it the gate's
+   * stages 3 and 4 would silently be weaker on this adapter than on the others. */
+  embedder?: Embedder;
 }
 
 /** Where the built bundle lives: the published layout first, then the source checkout, so
@@ -179,7 +185,9 @@ const MAX_BODY = 256 * 1024;
  * ponytail: a flat per-event cap. Make it a budget across the page if audit pages ever feel slow. */
 const AUDIT_REFS = 20;
 
-async function readIds(req: IncomingMessage): Promise<string[]> {
+async function readBody(
+  req: IncomingMessage,
+): Promise<Record<string, unknown>> {
   const ct = req.headers["content-type"] ?? "";
   if (!ct.includes("application/json"))
     throw new Error("content-type must be application/json");
@@ -191,12 +199,30 @@ async function readIds(req: IncomingMessage): Promise<string[]> {
     chunks.push(c as Buffer);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
-  const body = raw ? JSON.parse(raw) : {};
-  const ids = (body as { ids?: unknown }).ids;
+  return raw ? JSON.parse(raw) : {};
+}
+
+async function readIds(req: IncomingMessage): Promise<string[]> {
+  const ids = (await readBody(req)).ids;
   if (!Array.isArray(ids) || ids.some((i) => typeof i !== "string")) {
     throw new Error("body must be { ids: string[] }");
   }
   return ids as string[];
+}
+
+/** Attribute values a form can send. Anything else (nested objects, numbers that should have been
+ * strings) is refused here rather than reaching the gate as a shape the ontology cannot describe. */
+function readAttributes(v: unknown): Record<string, unknown> {
+  if (v === undefined || v === null) return {};
+  if (typeof v !== "object" || Array.isArray(v))
+    throw new Error("attributes must be an object");
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    const ok =
+      typeof val === "string" ||
+      (Array.isArray(val) && val.every((x) => typeof x === "string"));
+    if (!ok) throw new Error(`attribute "${k}" must be a string or string[]`);
+  }
+  return v as Record<string, unknown>;
 }
 
 /** The bare request handler (no Server wrapper) so serve mode can reuse the exact same routes
@@ -624,6 +650,100 @@ export function createUiHandler(
       return;
     }
 
+    // Creating a record, and linking two of them. Allowed since the 2026-07-31 WEB-UI amendment:
+    // the gate, not the adapter, is what enforces entry, so a record typed at a screen faces the
+    // same ontology validation and the same draft-then-verify path as one an agent commits. What
+    // makes that honest is `origin: "web"` below — hand-typed knowledge is permitted and labelled,
+    // rather than forbidden and therefore invisible when someone works around the ban.
+    //
+    // No audit row: a create IS recorded, by the v1 row it produces, which carries actor, origin and
+    // timestamp. That is the schema's own rule for entity mutations (see audit_log's comment), and
+    // `rename_type` is an exception only because it rewrites the rows that would record it.
+    if (method === "POST" && (path === "/api/entity" || path === "/api/link")) {
+      const isLink = path === "/api/link";
+      const body = await readBody(req);
+      const type = body.type;
+      if (typeof type !== "string" || !type) {
+        sendJson(res, 400, { error: "type is required" });
+        return;
+      }
+      // Per-type write permission — the same key the read routes pass, so a `ns:fact:write` token
+      // can create facts and nothing else.
+      if (!authorize("write", type) && deny(res)) return;
+      const ontology = store.loadOntology(ns);
+      if (ontology.length === 0) {
+        sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
+        return;
+      }
+      const ts = now();
+      const prov = { actor, origin: "web", occurred_at: ts };
+      try {
+        const attributes = readAttributes(body.attributes);
+        if (isLink) {
+          const { from, to } = body;
+          if (
+            typeof from !== "string" ||
+            typeof to !== "string" ||
+            !from ||
+            !to
+          ) {
+            sendJson(res, 400, { error: "from and to are required" });
+            return;
+          }
+          const { entity } = await commit(
+            store,
+            ontology,
+            { type, attributes, from, to },
+            prov,
+            ts,
+            { ns },
+          );
+          sendJson(res, 201, await asRelRow()(entity as Relation));
+          return;
+        }
+        const { entity, duplicates } = await commit(
+          store,
+          ontology,
+          { type, attributes },
+          prov,
+          ts,
+          { embedder: deps.embedder, ns },
+        );
+        // Capture-side linking, the same second commit `yoke add --scope` makes — so the browser
+        // path and the CLI path attach knowledge to a collaboration identically.
+        if (typeof body.scope === "string" && body.scope) {
+          await commit(
+            store,
+            ontology,
+            {
+              type: "relates_to",
+              attributes: {},
+              from: entity.id,
+              to: body.scope,
+            },
+            prov,
+            ts,
+            { ns },
+          );
+        }
+        // Duplicates travel with the response: the gate found them, and a form that discards them
+        // is a form that helps someone create the thing they were warned about.
+        sendJson(res, 201, {
+          ...(await asRow()(entity)),
+          duplicates: await Promise.all(duplicates.map(asRow())),
+        });
+        return;
+      } catch (e) {
+        // A rejection is the gate working, not a server fault — 400 with the reason it gave, so the
+        // form can show the ontology's own words instead of inventing its own validation.
+        if (e instanceof CommitRejected) {
+          sendJson(res, 400, { error: e.message, reason: e.reason });
+          return;
+        }
+        throw e;
+      }
+    }
+
     // Anything that is not an API route may be a bundle asset. /api/* JSON-404s without touching
     // the filesystem, so an API typo never reads a file and never leaves the JSON contract.
     if (!path.startsWith("/api/") && (await serveStatic(req, res, path)))
@@ -688,7 +808,14 @@ export async function runUi(
   const store = await openStore({ db, shards }, env);
   await store.init();
   const actor = env.YOKE_ACTOR ?? "yoke:system";
-  const server = createUiServer({ store, actor, ns: ns ?? null });
+  // Same embedder the CLI builds, so the gate's duplicate and contradiction stages are as strong
+  // for a record created in the browser as for one created by `yoke add`.
+  const server = createUiServer({
+    store,
+    actor,
+    ns: ns ?? null,
+    embedder: makeFetchEmbedder(env),
+  });
   server.on("close", () => store.close());
   await listen(server, port, host);
   const addr = server.address();

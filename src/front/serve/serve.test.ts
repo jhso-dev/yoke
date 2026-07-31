@@ -171,6 +171,23 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     expect(verifyRes.status).toBe(403);
   });
 
+  it("read-only token: POST /api/entity and /api/link → 403", async () => {
+    // The 2026-07-31 amendment let the web tier create records. It did not let a reader do it —
+    // creation is gated on `write`, per type, exactly like the read routes are gated on `read`.
+    expect(
+      (await authPost("/api/entity", { type: "fact" }, readToken)).status,
+    ).toBe(403);
+    expect(
+      (
+        await authPost(
+          "/api/link",
+          { from: draftId, type: "relates_to", to: draftId },
+          readToken,
+        )
+      ).status,
+    ).toBe(403);
+  });
+
   it("verify-scoped token: POST /api/verify → 200 and promotes", async () => {
     const res = await authPost("/api/verify", { ids: [draftId] }, verifyToken);
     expect(res.status).toBe(200);

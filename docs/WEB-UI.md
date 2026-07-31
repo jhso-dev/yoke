@@ -16,8 +16,11 @@ Three tests a screen must pass, argued in this document before the code exists:
    trust, audit — or makes one auditable. Not "look something up".
 2. **No synthesis.** No model call, no relevance ranking outside the injection ranker,
    no generated text. A screen that needs a model to produce its output belongs in MCP.
-3. **No new knowledge.** The only writes are lifecycle transitions on records that
-   already exist. Nothing here creates or edits an entity's attributes.
+3. **No editing, and no bypass.** Writes go through `commit()` or a lifecycle transition,
+   never straight to the store. Created records enter as `draft` like any other, carry
+   `origin: "web"`, and are subject to the same gate. Editing an existing record's
+   attributes from a screen stays forbidden. (Amended 2026-07-31 — the reasoning is at the
+   end of this document; before that, creation was banned outright.)
 
 **Why the injection preview is not the search UI we still refuse to build.** It renders
 the *injection decision*, not a result set: the same filter, the same ranking, the same
@@ -109,11 +112,51 @@ A tenth screen requires the three tests to be argued here first.
 - **A search UI for human reading.** A query box exists only as the injection preview
   defined above. Free-text retrieval that bypasses the injection filter, or presents
   results as an answer rather than as records, is out.
-- **A knowledge-authoring editor.** No create form, no attribute editing, no bulk-import
-  screen. Capture stays with MCP, the CLI and the connectors, so everything passes the
-  gate with real provenance.
+- ~~**A knowledge-authoring editor.**~~ **Reversed 2026-07-31 — see the amendment below.**
+  Creating records and relations is now allowed; *editing an existing record's attributes*
+  and bulk import are still not.
 - **Dashboard-style statistics.** Counts and charts nobody acts on. The eval report and
   CLI output cover measurement.
 - **Server-side rendering, an API framework, or a second deployable.**
 - **UI-only business logic.** Unchanged since v2.5: if a screen wants something the CLI
   cannot do, the answer is a core function and a CLI command, not a route.
+
+## Amendment (2026-07-31): the web tier may create, and test 3 gets a definition
+
+Test 3 read "**No new knowledge.** The only writes are lifecycle transitions on records that
+already exist." That ban is lifted for creation. The reasoning, and the new line:
+
+**What the ban was actually protecting.** MARKET's claim is sourced-only entry: knowledge
+arrives from the work — an agent capturing a decision as it is made, a connector reading a PR
+— rather than being typed into a box by someone looking at a dashboard. A form invites the
+second, and its provenance would be "somebody typed this", which is the weakest kind there is.
+
+**Why that does not require forbidding the form.** The gate, not the adapter, is what enforces
+entry: `commit()` validates against the ontology and stamps provenance no matter which front
+tier calls it, and *every* record enters as `draft` and needs a human `verify`. A record created
+in the browser is subject to exactly the checks one created by an agent is. What the ban bought
+on top of that was a guarantee that hand-typed knowledge could not exist at all — and that
+guarantee cost the product something real: a `collaboration` whose roster could not be recorded
+from the surface built to show it.
+
+So the guarantee is replaced by a weaker but honest one: **hand-typed knowledge is allowed and is
+labelled as such.** Web writes stamp `provenance.origin = "web"`, distinct from `cli`, `mcp` and
+every connector name. A reviewer can see which drafts were typed by a person at a screen, and
+`yoke list`/the review queue can be filtered on it. The claim moves from "this cannot happen" to
+"you can always tell", which is the claim the audit trail already makes about everything else.
+
+**The new test 3.** *No editing, and no bypass.* A screen may create records and relations
+through `commit()`, which means: enters as `draft`, validated against the ontology, provenance
+stamped with the real actor and `origin: "web"`, audit row written. A screen may NOT modify an
+existing record's attributes, may not write a record in any state but `draft`, and may not reach
+the store except through a core function. Attribute correction stays what it always was — a new
+version through the gate, from the adapter that owns the source.
+
+**Still forbidden**, and these are the ones that keep this from becoming an editor: editing an
+existing record's attributes from a screen; bulk import; any write that skips `commit()`; any
+write that lands as anything but `draft`.
+
+**CLI parity is unchanged and is the binding constraint.** Every button added under this
+amendment maps to a command that already exists — `yoke add`, `yoke link`, `yoke verify`,
+`yoke deprecate`, `yoke backfill`, `yoke rename-type`. A button with no command is still a bug,
+and `yoke link` was written first for exactly that reason.

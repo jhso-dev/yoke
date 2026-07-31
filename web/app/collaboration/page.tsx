@@ -2,14 +2,71 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
+import { CreateRecord } from "../../components/CreateRecord";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
-import { recordLabel } from "../../lib/citation";
-import { isMissing } from "../../lib/types";
+import { recordLabel, shortId } from "../../lib/citation";
+import { isMissing, type Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
+
+/** Pick a person, record `works_on`. Direction is fixed here rather than offered as a choice. */
+function AddMember({
+  people,
+  already,
+  to,
+  onLinked,
+}: {
+  people: Knowledge[];
+  already: Set<string>;
+  to: string;
+  onLinked: () => void;
+}) {
+  const candidates = people.filter((p) => !already.has(p.id));
+  const [who, setWho] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  if (candidates.length === 0 && people.length > 0)
+    return <div className="empty">everyone recorded is already on this</div>;
+  return (
+    <div className="controls">
+      <select
+        value={who}
+        onChange={(e) => setWho(e.target.value)}
+        aria-label="person"
+      >
+        <option value="">add someone…</option>
+        {candidates.map((p) => (
+          <option key={p.id} value={p.id}>
+            {recordLabel(p)}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        disabled={!who || busy}
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          try {
+            await api.link({ from: who, type: "works_on", to });
+            setWho("");
+            onLinked();
+          } catch (e) {
+            setError(e);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "linking…" : "add to this work"}
+      </button>
+      <ErrorBanner error={error} />
+    </div>
+  );
+}
 
 /**
  * The shared working context, made visible.
@@ -40,6 +97,15 @@ function CollaborationBody() {
     () => (id ? api.inject({ scope: id, limit: 50 }) : Promise.resolve(null)),
     [id],
   );
+  // The create form is built from the ontology, so a tenant that renamed this type or added an
+  // attribute gets the right fields with no code change here.
+  const ontology = useAsync(() => api.ontology(), []);
+  // Candidate members. `person` is the seeded type for a human; a tenant using another name links
+  // through the entity screen instead, which is why this list is a convenience and not the only path.
+  const people = useAsync(
+    () => api.entities({ type: "person", limit: 200 }),
+    [],
+  );
 
   if (!id) {
     const rows = list.data?.items ?? [];
@@ -55,14 +121,19 @@ function CollaborationBody() {
           answer from <em>this</em> work's context first.
         </p>
         <ErrorBanner error={list.error} />
+        <CreateRecord
+          ontology={ontology.data ?? []}
+          type="collaboration"
+          onCreated={list.reload}
+        />
         <div className="panel">
           {list.loading ? (
             <div className="empty">loading…</div>
           ) : rows.length === 0 ? (
             <div className="empty">
-              none recorded — create one with{" "}
-              <code>yoke add collaboration --attr title=… --attr key=…</code>,
-              or let an agent do it via <code>yoke_use_scope</code>
+              none yet — create one above, with{" "}
+              <code>yoke add collaboration --attr title=…</code>, or let an
+              agent do it via <code>yoke_use_scope</code>
             </div>
           ) : (
             <div className="scroll-x">
@@ -173,11 +244,19 @@ function CollaborationBody() {
             a roster is not knowledge about the work
           </span>
         </div>
+        {/* The direction is not the caller's choice to get wrong: works_on points person →
+            collaboration, so the control always links the picked person TO this record. Reversed, the
+            collaboration would land on the person's persona instead. */}
+        <AddMember
+          people={people.data?.items ?? []}
+          already={new Set(members.map((m) => m.id))}
+          to={id}
+          onLinked={detail.reload}
+        />
         {members.length === 0 ? (
           <div className="empty">
-            nobody linked — there is no command that creates a{" "}
-            <code>works_on</code> edge yet, so this is empty for every database
-            the product built
+            nobody linked yet — pick someone above, or run{" "}
+            <code>yoke link &lt;person&gt; works_on {shortId(id)}</code>
           </div>
         ) : (
           <div className="scroll-x">
