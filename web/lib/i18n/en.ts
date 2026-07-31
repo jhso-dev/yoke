@@ -79,7 +79,7 @@ export const en = {
   home: {
     eyebrow: "collaboration-scoped knowledge for agents",
     heading: "All the knowledge a collaboration needs, in one place",
-    lede: "YOKE gathers trusted information in one place so people and agents can collaborate from the same context.\n\nSee who is working on what, which decisions were made, what facts matter, and which resources to reference.\n\nAgents receive only human-verified information, while unreviewed drafts are left out.",
+    lede: "YOKE gathers trusted information in one place so people and agents can collaborate from the same context.\nSee who is working on what, which decisions were made, what facts matter, and which resources to reference.\nAgents receive only human-verified information, while unreviewed drafts are left out.",
     cards: {
       collaboration: {
         title: "Collaborate",
