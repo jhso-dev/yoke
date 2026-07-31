@@ -387,6 +387,43 @@ describe("runCli", () => {
     expect(JSON.parse(logs.at(-1) as string).created).toBe(0);
   });
 
+  it("link records a relation — the roster a collaboration is named for", async () => {
+    // `add <relation>` cannot do this: a relation needs endpoints and `add` has nowhere to put them,
+    // so works_on had no creation path at all and every "people on this work" panel was empty.
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const mk = async (type: string, attr: string) => {
+      expect(
+        await runCli(["add", type, "--attr", attr, "--db", db, "--json"]),
+      ).toBe(0);
+      return JSON.parse(logs.at(-1) as string).id as string;
+    };
+    const person = await mk("person", "name=Bora");
+    const work = await mk("collaboration", "title=auth revamp");
+    expect(await runCli(["link", person, "works_on", work, "--db", db])).toBe(
+      0,
+    );
+    expect(
+      await runCli(["get", work, "--relations", "--db", db, "--json"]),
+    ).toBe(0);
+    const rels = JSON.parse(logs.at(-1) as string) as {
+      relations: { type: string; from: string; to: string }[];
+    };
+    // Direction matters: works_on points person → collaboration, which is why an anchor gathers a
+    // roster rather than holding one. A link recorded the other way round would still "work" and
+    // would put the collaboration on the person's briefing instead.
+    expect(rels.relations).toContainEqual(
+      expect.objectContaining({ type: "works_on", from: person, to: work }),
+    );
+
+    // The gate stays the only door: an undeclared relation type is refused here like anywhere else.
+    expect(
+      await runCli(["link", person, "invented_rel", work, "--db", db]),
+    ).toBe(1);
+    // And both endpoints are required — a half-link is not a relation.
+    expect(await runCli(["link", person, "works_on", "--db", db])).toBe(1);
+  });
+
   it("list / graph / get --relations / inject --scope give the web tier its CLI parity", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

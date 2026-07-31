@@ -266,6 +266,7 @@ OIDC id_token. No cookie session, therefore no CSRF surface.
 yoke init                  # create the DB + seed the default ontology
 yoke add / get / search    # basic CRUD and search
 yoke get <id> [--relations]  # one record; --relations adds its in/out edges
+yoke link <from> <relation> <to>   # record a relation — the only creation path for one
 yoke list [--type t] [--status s] [--limit n] [--after id]   # enumerate (keyset paging)
 yoke graph [--limit n]     # the entity/relation graph, bounded, truncation reported
 yoke review                # list drafts

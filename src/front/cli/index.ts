@@ -168,6 +168,7 @@ getting started:
   inject <query>            retrieve verified knowledge with citations
 
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
+  link <from> <relation> <to>   record a relation (works_on, supersedes, relates_to …)
 capture:    connect github-pr|slack|notes|rdb
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
 data:       backup, restore, export, audit, backfill, rename-type
@@ -337,6 +338,54 @@ async function cmdAdd(
           : formatEntity(entity);
       // --json emits the entity as-is (preserving the existing contract). The similar-knowledge warning is human text only.
       emit(v, human, entity);
+      return 0;
+    } catch (e) {
+      if (e instanceof CommitRejected) {
+        console.error(`rejected (${e.reason}): ${e.message}`);
+        return 1;
+      }
+      throw e;
+    }
+  });
+}
+
+// link — the creation path for relations. `yoke add <relation>` cannot work: a relation needs
+// endpoints and `add` has nowhere to put them, so it fails with "relation requires non-empty from".
+// That left `relates_to` reachable only through `add --scope`, and `works_on`/`supersedes` reachable
+// not at all — a collaboration whose roster could never be recorded. Reads as a sentence on purpose:
+// `yoke link <person> works_on <collaboration>`.
+async function cmdLink(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const [from, type, to] = positionals;
+  if (!from || !type || !to) {
+    console.error(
+      "usage: yoke link <from-id> <relation> <to-id> [--actor id] [--attr k=v ...]\n" +
+        "  e.g. yoke link 01H… works_on 01H…",
+    );
+    return 1;
+  }
+  const actor = resolveActor(v, env);
+  const ns = resolveNs(v.ns, env);
+  const attributes = parseAttrs(v.attr ?? []);
+  return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
+    const ts = now();
+    try {
+      // Straight through the same gate as everything else: it is the gate that checks the type is a
+      // declared relation and that both endpoints exist, so this command adds no rules of its own.
+      const { entity } = await commit(
+        store,
+        ontology,
+        { type, attributes, from, to },
+        { actor, origin: "cli", occurred_at: ts },
+        ts,
+        { ns },
+      );
+      emit(v, formatEntity(entity), entity);
       return 0;
     } catch (e) {
       if (e instanceof CommitRejected) {
@@ -1240,6 +1289,8 @@ export async function runCli(
     switch (command) {
       case "init":
         return await cmdInit(values, env);
+      case "link":
+        return await cmdLink(rest, values, env);
       case "add":
         return await cmdAdd(rest, values, env);
       case "get":
