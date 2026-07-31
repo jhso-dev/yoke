@@ -78,9 +78,9 @@ export const en = {
     dark: "dark",
   },
   home: {
-    eyebrow: "collaboration knowledge shared by people and agents",
-    heading: "All the knowledge a collaboration needs, in one place",
-    lede: "YOKE gathers trusted information in one place so people and agents can collaborate with the same context.\nSee who is working on what, which decisions were made, which facts matter, and which resources to reference.\nAgents receive only human-verified information. Unreviewed drafts are excluded.",
+    eyebrow: "collaboration knowledge shared by the team",
+    heading: "Keep every teammate working from the same Context",
+    lede: "For every project, YOKE brings its people, decisions, facts, resources, and terms into one place so the team can share the same information.",
     cards: {
       collaboration: {
         title: "Collaborate",
