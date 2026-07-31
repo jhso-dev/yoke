@@ -1,0 +1,17 @@
+docs/ROADMAP.md
+  h_9aabb7d8448c0a 158-162
+docs/SPEC.md
+  h_9aabb7d8448c0a 205,208,242-245,251-255,260,268-269,282,302,304
+docs/WEB-UI.md
+  h_9aabb7d8448c0a 30-34,121-125,174-231
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "348265f10b6bfbadb4aaec54f85a06f869747b4c",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
