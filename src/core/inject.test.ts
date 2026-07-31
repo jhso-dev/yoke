@@ -94,12 +94,12 @@ describe("inject", () => {
 });
 
 describe("inject scoped (v4.0)", () => {
-  // A workstream scope with linked/unlinked, verified/draft facts around it.
+  // A collaboration scope with linked/unlinked, verified/draft facts around it.
   async function scene() {
     const { entity: ws } = await commit(
       port,
       ont,
-      { type: "workstream", attributes: { title: "auth revamp" } },
+      { type: "collaboration", attributes: { title: "auth revamp" } },
       prov,
       now,
     );
@@ -141,7 +141,7 @@ describe("inject scoped (v4.0)", () => {
     const { entity: ws } = await commit(
       port,
       ont,
-      { type: "workstream", attributes: { title: "payments" } },
+      { type: "collaboration", attributes: { title: "payments" } },
       { ...prov, actor: "alice" },
       now,
     );
@@ -193,5 +193,189 @@ describe("inject scoped (v4.0)", () => {
       limit: 1,
     });
     expect(items).toHaveLength(1);
+  });
+});
+
+describe("inject scoped: a briefing is knowledge, in a defined order", () => {
+  /** works_on points person → collaboration, the shape the seed ontology documents. */
+  async function member(name: string, ws: string) {
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name } },
+      prov,
+      now,
+    );
+    await commit(
+      port,
+      ont,
+      { type: "works_on", attributes: {}, from: entity.id, to: ws },
+      prov,
+      now,
+    );
+    await verify(port, [entity.id], "alice", now);
+    return entity.id;
+  }
+
+  async function scene() {
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "search relevance" } },
+      prov,
+      now,
+    );
+    // Members are created FIRST, so on any backend that returns relations in creation order they
+    // would lead the briefing — which is exactly the defect: under a limit the roster crowded the
+    // knowledge out entirely.
+    const people = [
+      await member("Bora", ws.id),
+      await member("Alex", ws.id),
+      await member("Chen", ws.id),
+    ];
+    const knowledge = [
+      await addFact("redis p99 is 4ms"),
+      await addFact("deployment takes 11 minutes"),
+    ];
+    for (const k of knowledge) await link(k, ws.id);
+    await verify(port, [ws.id, ...knowledge], "alice", now);
+    return { ws: ws.id, people, knowledge };
+  }
+
+  it("excludes members: a roster is not knowledge about the work", async () => {
+    const s = await scene();
+    const { items } = await inject(port, ont, "", now, { scope: s.ws });
+    const ids = items.map((i) => i.entity.id);
+    expect(ids.sort()).toEqual([...s.knowledge].sort());
+    for (const p of s.people) expect(ids).not.toContain(p);
+  });
+
+  it("still returns members when the caller asks for that relation by name", async () => {
+    // The escape hatch: `scopeRel: 'works_on'` is someone deliberately asking who is on the work.
+    // Silently returning nothing there would be worse than the original defect.
+    const s = await scene();
+    const { items } = await inject(port, ont, "", now, {
+      scope: s.ws,
+      scopeRel: "works_on",
+      scopeDir: "in",
+    });
+    expect(items.map((i) => i.entity.id).sort()).toEqual([...s.people].sort());
+  });
+
+  it("a limit now cuts by the defined order, not by whichever row was written first", async () => {
+    const s = await scene();
+    const { items } = await inject(port, ont, "", now, {
+      scope: s.ws,
+      limit: 2,
+    });
+    // Two slots, and both go to knowledge — this is the assertion that fails on the old behaviour,
+    // where the three people were written first and took every slot.
+    expect(items).toHaveLength(2);
+    expect(items.map((i) => i.entity.id).sort()).toEqual(
+      [...s.knowledge].sort(),
+    );
+  });
+
+  it("orders most-recently-confirmed first, with a deterministic tiebreak", async () => {
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "ordering" } },
+      prov,
+      now,
+    );
+    const older = await addFact("confirmed long ago");
+    const newer = await addFact("confirmed recently");
+    await link(older, ws.id);
+    await link(newer, ws.id);
+    // Both dates stay inside fact's 180-day TTL: confirm one too long ago and it reads as stale and
+    // is filtered out before ordering can be observed at all.
+    await verify(port, [ws.id, older], "alice", "2026-06-01T00:00:00Z");
+    await verify(port, [newer], "alice", now);
+
+    const { items } = await inject(port, ont, "", now, { scope: ws.id });
+    expect(items.map((i) => i.entity.id)).toEqual([newer, older]);
+
+    // Same order every call — the property that makes four backends agree.
+    const again = await inject(port, ont, "", now, { scope: ws.id });
+    expect(again.items.map((i) => i.entity.id)).toEqual(
+      items.map((i) => i.entity.id),
+    );
+  });
+
+  it("is driven by the ontology, not by a relation name in core", async () => {
+    // A tenant ontology that has not marked works_on gets the members, because nothing declared them
+    // to be membership. That is the point of putting the flag in data: a tenant's own membership
+    // relation (assigned_to, member_of) works the same way with no core change.
+    const unmarked = ont.map((t) =>
+      t.name === "works_on" ? { ...t, membership: undefined } : t,
+    );
+    const s = await scene();
+    const { items } = await inject(port, unmarked, "", now, { scope: s.ws });
+    expect(items.map((i) => i.entity.id)).toEqual(
+      expect.arrayContaining(s.people),
+    );
+  });
+});
+
+describe("inject reports what its limit dropped", () => {
+  async function bigScene(n: number) {
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "long running" } },
+      prov,
+      now,
+    );
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      // Distinct confirm days so the freshness order is unambiguous, all inside fact's 180-day TTL.
+      const at = `2026-07-${String(10 + (i % 20)).padStart(2, "0")}T00:00:00Z`;
+      const id = await addFact(`finding ${i} about widget${i}`);
+      await link(id, ws.id);
+      await verify(port, [id], "alice", at);
+      ids.push(id);
+    }
+    await verify(port, [ws.id], "alice", now);
+    return { ws: ws.id, ids };
+  }
+
+  it("reports omitted so a caller can say 'N of M' instead of slicing silently", async () => {
+    const s = await bigScene(12);
+    const { items, omitted } = await inject(port, ont, "", now, {
+      scope: s.ws,
+      limit: 5,
+    });
+    expect(items).toHaveLength(5);
+    expect(omitted).toBe(7);
+    expect(items.length + omitted).toBe(12);
+  });
+
+  it("reports zero when nothing was dropped", async () => {
+    const s = await bigScene(3);
+    const { omitted } = await inject(port, ont, "", now, {
+      scope: s.ws,
+      limit: 50,
+    });
+    expect(omitted).toBe(0);
+  });
+
+  it("a query still reaches knowledge the briefing's limit dropped", async () => {
+    // This is what makes a cap honest rather than knowledge loss: the briefing is a window on the
+    // work, and the query path searches the whole namespace with scope-linked results merely first.
+    const s = await bigScene(12);
+    const briefed = await inject(port, ont, "", now, { scope: s.ws, limit: 3 });
+    const shown = new Set(briefed.items.map((i) => i.entity.id));
+    const dropped = s.ids.filter((id) => !shown.has(id));
+    expect(dropped.length).toBe(9);
+
+    // Ask about one of the dropped records by name, keeping the same anchor and an even tighter limit.
+    const target = dropped[0];
+    const idx = s.ids.indexOf(target);
+    const { items } = await inject(port, ont, `widget${idx}`, now, {
+      scope: s.ws,
+      limit: 1,
+    });
+    expect(items.map((i) => i.entity.id)).toContain(target);
   });
 });

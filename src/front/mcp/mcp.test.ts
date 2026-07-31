@@ -10,6 +10,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
+import { BRIEFING_LIMIT } from "../../core/inject.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
 import { runCli } from "../cli/index.js";
@@ -168,7 +169,10 @@ describe("yoke MCP server", () => {
       text(
         await s.client.callTool({
           name: "yoke_commit",
-          arguments: { type: "workstream", attributes: { title: "scope ws" } },
+          arguments: {
+            type: "collaboration",
+            attributes: { title: "scope ws" },
+          },
         }),
       ),
     );
@@ -215,13 +219,13 @@ describe("yoke MCP server", () => {
         await s.client.callTool({
           name: "yoke_commit",
           arguments: {
-            type: "workstream",
+            type: "collaboration",
             attributes: { title: "pin ws", key: "PIN-1" },
           },
         }),
       ),
     );
-    // Pin by key — resolves to the workstream and returns its id/title.
+    // Pin by key — resolves to the collaboration and returns its id/title.
     const use = await s.client.callTool({
       name: "yoke_use_scope",
       arguments: { key: "PIN-1" },
@@ -269,7 +273,7 @@ describe("yoke MCP server", () => {
     });
     expect(res.isError).toBeFalsy();
     const out = text(res);
-    expect(out).toContain("no workstream matches");
+    expect(out).toContain("no collaboration matches");
     expect(out).toContain("yoke_commit");
     await s.close();
   });
@@ -281,7 +285,7 @@ describe("yoke MCP server", () => {
         await s.client.callTool({
           name: "yoke_commit",
           arguments: {
-            type: "workstream",
+            type: "collaboration",
             attributes: { title: "override A", key: "OVR-A" },
           },
         }),
@@ -292,7 +296,7 @@ describe("yoke MCP server", () => {
         await s.client.callTool({
           name: "yoke_commit",
           arguments: {
-            type: "workstream",
+            type: "collaboration",
             attributes: { title: "override B", key: "OVR-B" },
           },
         }),
@@ -349,9 +353,80 @@ describe("yoke MCP server", () => {
     expect(text(briefB)).toContain("overridescopedecision");
     await s2.close();
   });
+  it("caps an unbounded briefing and tells the agent where the rest is (v5.1)", async () => {
+    const s = await openSession();
+    const ws = JSON.parse(
+      text(
+        await s.client.callTool({
+          name: "yoke_commit",
+          arguments: {
+            type: "collaboration",
+            attributes: { title: "capped work", key: "CAP-1" },
+          },
+        }),
+      ),
+    );
+    // More attached records than the briefing cap, all verified so they pass the injection filter.
+    const ids: string[] = [];
+    for (let i = 0; i < BRIEFING_LIMIT + 4; i++) {
+      const f = JSON.parse(
+        text(
+          await s.client.callTool({
+            name: "yoke_commit",
+            arguments: {
+              type: "fact",
+              attributes: { statement: `capfact ${i} about gizmo${i}` },
+              scope: ws.id,
+            },
+          }),
+        ),
+      );
+      ids.push(f.id);
+    }
+    await s.close();
+    expect(await runCli(["verify", ...ids, "--db", db], {})).toBe(0);
+
+    const s2 = await openSession();
+    // A briefing: scope set, empty query. Uncapped this returned all 54 records in full.
+    const brief = text(
+      await s2.client.callTool({
+        name: "yoke_inject",
+        arguments: { query: "", scope: ws.id },
+      }),
+    );
+    const shown = brief.split("\n\n").filter((b) => b.startsWith("[fact:"));
+    expect(shown).toHaveLength(BRIEFING_LIMIT);
+    // The notice must be an instruction, not a flag: an agent that reads a truncated briefing as
+    // complete answers from part of the knowledge without knowing it.
+    expect(brief).toContain(`${BRIEFING_LIMIT} of ${BRIEFING_LIMIT + 4}`);
+    expect(brief).toContain("NOT lost");
+    expect(brief).toContain("ask yoke_inject a specific question");
+
+    // And the claim the notice makes is true: a query reaches a record the briefing dropped.
+    const dropped = ids.find((id) => !brief.includes(id));
+    expect(dropped).toBeDefined();
+    const idx = ids.indexOf(dropped as string);
+    const q = text(
+      await s2.client.callTool({
+        name: "yoke_inject",
+        arguments: { query: `gizmo${idx}`, scope: ws.id },
+      }),
+    );
+    expect(q).toContain(dropped as string);
+
+    // An explicit limit still overrides the default in both directions.
+    const all = text(
+      await s2.client.callTool({
+        name: "yoke_inject",
+        arguments: { query: "", scope: ws.id, limit: 100 },
+      }),
+    );
+    expect(all).not.toContain("NOT lost");
+    await s2.close();
+  });
 });
 
-describe("resolveScope (key/id → workstream lookup)", () => {
+describe("resolveScope (key/id → collaboration lookup)", () => {
   const now = "2026-07-14T00:00:00Z";
   const prov: Provenance = { actor: "t", origin: "cli", occurred_at: now };
 
@@ -361,7 +436,7 @@ describe("resolveScope (key/id → workstream lookup)", () => {
     const { entity } = await commit(
       port,
       seedOntology(),
-      { type: "workstream", attributes: { title: "auth", key: "ABC-123" } },
+      { type: "collaboration", attributes: { title: "auth", key: "ABC-123" } },
       prov,
       now,
     );

@@ -2,9 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { ApiError, api } from "../../lib/api";
 import { setCredential } from "../../lib/credential";
+import { useT } from "../../lib/i18n";
 
 /**
  * Paste a credential. There is no password anywhere in yoke (ENTERPRISE.md), so this takes something
@@ -17,6 +19,7 @@ import { setCredential } from "../../lib/credential";
  * would otherwise look like a working login onto empty screens.
  */
 export default function Login() {
+  const t = useT();
   const router = useRouter();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,7 +41,7 @@ export default function Login() {
           ),
         );
       } else {
-        setError(new Error("credential rejected"));
+        setError(new Error(t.login.rejected));
       }
     } finally {
       setBusy(false);
@@ -47,37 +50,31 @@ export default function Login() {
 
   return (
     <div className="login">
-      <h1>Sign in</h1>
-      <p className="lede">
-        Paste an API token or an OIDC id_token. yoke never stores a password —
-        this is a credential you already minted.
-      </p>
+      <h1>{t.login.heading}</h1>
+      <p className="lede">{t.login.lede}</p>
       <form onSubmit={submit}>
         <input
           type="password"
           autoComplete="off"
           spellCheck={false}
-          placeholder="token"
-          aria-label="credential"
+          placeholder={t.login.token}
+          aria-label={t.login.credential}
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
-        <button
-          type="submit"
-          className="primary"
-          disabled={busy || !value.trim()}
-        >
-          {busy ? "checking…" : "sign in"}
-        </button>
+        <Button type="submit" disabled={busy || !value.trim()}>
+          {busy ? t.login.checking : t.login.submit}
+        </Button>
       </form>
       <ErrorBanner error={error} />
       <div className="banner" data-kind="info">
-        No token yet? On the server running yoke:
+        {t.login.noTokenBefore}
         <br />
         <code>yoke token create --name alex --scopes read</code>
         <br />
-        Add <code>,verify</code> to that scope list to allow promoting drafts —
-        verify is the governance permission, so it is granted, never assumed.
+        {t.login.addPrefix}
+        <code>,verify</code>
+        {t.login.noTokenAfter}
       </div>
     </div>
   );

@@ -8,6 +8,7 @@ import { clearCredential, getCredential } from "./credential";
 import type {
   AuditEntry,
   ConflictPair,
+  Edge,
   EntityDetail,
   GraphData,
   InjectPreview,
@@ -121,5 +122,50 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ids }),
+    }),
+  /** Create a record. It enters as a draft like any other — the gate does not care which adapter
+   * called it — and comes back with whatever duplicates the gate found, so a form can show them. */
+  create: (p: {
+    type: string;
+    attributes: Record<string, string | string[]>;
+    scope?: string;
+  }) =>
+    request<Knowledge & { duplicates: Knowledge[] }>("/api/entity", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(p),
+    }),
+  /** Record a relation. `yoke link` in the browser; direction is the caller's to get right. */
+  link: (p: {
+    from: string;
+    type: string;
+    to: string;
+    attributes?: Record<string, string | string[]>;
+  }) =>
+    request<Edge>("/api/link", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(p),
+    }),
+  /** `yoke ontology add-type`. Append-only per name, so an existing name is a migration. */
+  addType: (def: TypeDef) =>
+    request<TypeDef>("/api/ontology", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ def }),
+    }),
+  /** `yoke backfill` — re-derive authorship edges. Idempotent; a second run creates nothing. */
+  backfill: () =>
+    request<{ scanned: number; created: number }>("/api/backfill", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }),
+  /** `yoke rename-type` — the declaration and every stored row, including history. */
+  renameType: (p: { from: string; to: string }) =>
+    request<{ from: string; to: string; rows: number }>("/api/rename-type", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(p),
     }),
 };

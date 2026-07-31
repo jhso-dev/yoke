@@ -3,6 +3,7 @@ import {
   endId,
   MAX_NODES,
   makeTypeColors,
+  membershipTypes,
   mergeGraph,
   nodeRadius,
   toGraph,
@@ -160,7 +161,7 @@ describe("presentation", () => {
       "decision",
       "term",
       "resource",
-      "workstream",
+      "collaboration",
       "authored_by",
       "relates_to",
       "conflicts_with",
@@ -190,5 +191,20 @@ describe("presentation", () => {
   it("reads an endpoint whether d3 has replaced it with an object yet or not", () => {
     expect(endId("a")).toBe("a");
     expect(endId({ id: "b" } as never)).toBe("b");
+  });
+
+  it("takes membership edges from the ontology, not from the name `works_on`", () => {
+    // An org that calls its roster edge something else must still get the not-knowledge dash — the
+    // flag is stored as data for exactly that reason, so a hardcoded name here would be a silent
+    // regression for every one of them.
+    const m = membershipTypes([
+      { name: "assigned_to", kind: "relation", attrs: {}, membership: true },
+      { name: "relates_to", kind: "relation", attrs: {} },
+      // A flag on an entity type is not a relation and must not leak into the edge set.
+      { name: "collaboration", kind: "entity", attrs: {}, membership: true },
+    ]);
+    expect([...m]).toEqual(["assigned_to"]);
+    // No ontology yet (it loads on its own request) → nothing dashed, never a crash.
+    expect(membershipTypes([]).size).toBe(0);
   });
 });

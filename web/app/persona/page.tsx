@@ -1,10 +1,17 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
+import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
+import { recordLabel } from "../../lib/citation";
+import { useT } from "../../lib/i18n";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -13,99 +20,173 @@ import { useAsync } from "../../lib/useAsync";
  * Citation, not impersonation: this lists that person's own records with their sources. It never
  * synthesizes prose in their voice — the AI does that over MCP, from these same records.
  *
- * Nobody types a ULID, so the person is chosen from the people the ontology knows about.
+ * Two views on one route, because a ULID cannot be a static path (`generateStaticParams` has nothing
+ * to enumerate): `/persona/` is the roster, `/persona/?id=…` is one person. The roster used to be a
+ * <select>, which hid every person behind a click and told you nothing about them until you picked
+ * one.
  */
-function PersonaBody() {
-  const params = useSearchParams();
-  const router = useRouter();
-  const id = params.get("id") ?? "";
-  const [query, setQuery] = useState("");
 
-  const people = useAsync(
-    () => api.entities({ type: "person", limit: 200 }),
-    [],
-  );
-  const persona = useAsync(
-    () => (id ? api.persona(id) : Promise.resolve(null)),
-    [id],
-  );
+/** A page of the roster. Sized so a card grid fills a screen without a second request. */
+const PER_PAGE = 24;
 
-  const pick = (next: string) =>
-    router.replace(
-      next ? `/persona/?id=${encodeURIComponent(next)}` : "/persona/",
-    );
-
-  const hit = (s: string) =>
-    !query || s.toLowerCase().includes(query.toLowerCase());
-  const decisions = (persona.data?.decisions ?? []).filter((d) =>
-    hit(d.summary),
+function Roster() {
+  const t = useT();
+  // The same keyset-cursor stack browse uses: a list of `after` values, so Previous is a pop rather
+  // than a backwards query the port has no way to answer.
+  const [cursors, setCursors] = useState<string[]>([]);
+  const after = cursors.at(-1);
+  const page = useAsync(
+    () => api.entities({ type: "person", after, limit: PER_PAGE }),
+    [after],
   );
-  const facts = (persona.data?.facts ?? []).filter((f) => hit(f.summary));
+  const rows = page.data?.items ?? [];
 
   return (
     <>
-      <h1>Persona</h1>
-      <p className="lede">
-        The verified knowledge a person authored — what an agent receives when
-        it asks how they would decide. Their records with their sources, never
-        text written in their voice.
-      </p>
-      <ErrorBanner error={people.error ?? persona.error} />
-      <div className="controls">
-        <select
-          value={id}
-          onChange={(e) => pick(e.target.value)}
-          aria-label="person"
-        >
-          <option value="">choose a person…</option>
-          {(people.data?.items ?? []).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.summary || p.id}
-            </option>
+      <h1>{t.persona.heading}</h1>
+      <p className="lede">{t.persona.lede}</p>
+      <ErrorBanner error={page.error} />
+      {page.loading ? (
+        <div className="panel">
+          <div className="empty">{t.common.loading}</div>
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="panel">
+          <div className="empty">{t.persona.emptyList}</div>
+        </div>
+      ) : (
+        <div className="cards">
+          {rows.map((p) => (
+            // The whole card is the link, so the click target is the card and not just its title.
+            <Link
+              key={p.id}
+              href={`/persona/?id=${encodeURIComponent(p.id)}`}
+              className="card-link"
+            >
+              {/* Tighter than shadcn's default card padding, to sit in the same density as the
+                  tables on every other screen. */}
+              <Card className="h-full gap-3 py-4">
+                <CardHeader className="gap-2 px-4">
+                  <CardTitle>{recordLabel(p)}</CardTitle>
+                  {/* A grid item stretches across its column whatever its display, so the badge
+                      needs telling to be its own width — otherwise it draws as a full-width bar. */}
+                  <div className="justify-self-start">
+                    <StatusBadge status={p.effectiveStatus} />
+                  </div>
+                </CardHeader>
+                {/* No record count on the card: the list payload carries `summary`, not a tally,
+                    and one persona query per card to print a number would be an N+1 for a number
+                    nobody acts on. The count is on the person's own page. */}
+                <CardContent className="px-4">
+                  <Citation row={p} />
+                </CardContent>
+              </Card>
+            </Link>
           ))}
-        </select>
+        </div>
+      )}
+      <div className="controls" style={{ marginTop: 12 }}>
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={cursors.length === 0}
+          onClick={() => setCursors((c) => c.slice(0, -1))}
+        >
+          {t.common.prev}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={!page.data?.next}
+          onClick={() =>
+            setCursors((c) => (page.data?.next ? [...c, page.data.next] : c))
+          }
+        >
+          {t.common.next}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function Person({ id }: { id: string }) {
+  const t = useT();
+  const [query, setQuery] = useState("");
+  // Two requests, and they answer different questions: `persona` is the injection (audited as such),
+  // `who` is the person record it is about — the roster is not on screen to supply a name, and a
+  // deep link never had one.
+  const who = useAsync(() => api.entity(id), [id]);
+  const persona = useAsync(() => api.persona(id), [id]);
+
+  // Searching the loaded set, not the namespace. That is the honest scope for this box: everything
+  // this person authored is already here, so there is no page 3 for a match to hide on.
+  const hit = (s: string) =>
+    !query || s.toLowerCase().includes(query.toLowerCase());
+  const allDecisions = persona.data?.decisions ?? [];
+  const allFacts = persona.data?.facts ?? [];
+  const decisions = allDecisions.filter((d) => hit(d.summary));
+  const facts = allFacts.filter((f) => hit(f.summary));
+  const total = allDecisions.length + allFacts.length;
+  const shown = decisions.length + facts.length;
+
+  const name = who.data ? recordLabel(who.data.entity) : "";
+
+  return (
+    <>
+      <h1>{name || t.persona.headingOne}</h1>
+      <p className="lede">
+        {who.data && <StatusBadge status={who.data.entity.effectiveStatus} />}{" "}
+        <Link href="/persona/">{t.persona.all}</Link>
+      </p>
+      <ErrorBanner error={who.error ?? persona.error} />
+
+      <div className="controls">
         <input
-          placeholder="filter their records"
+          placeholder={t.persona.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          aria-label="filter"
-          disabled={!id}
+          aria-label="search"
+          style={{ minWidth: 260 }}
         />
-        {id && (
-          <span className="muted mono">
-            export: yoke persona {id} --out ./skills
-          </span>
+        {/* Counted only while searching: "12 of 12" beside an untouched box is noise, but an empty
+            result has to be distinguishable from a person with nothing on record. */}
+        {query && (
+          <span className="muted">{t.persona.matched(shown, total)}</span>
         )}
+        <Link className="btn" href={`/entity/?id=${encodeURIComponent(id)}`}>
+          {t.common.openAsRecord}
+        </Link>
+        <Link className="btn" href={`/graph/?scope=${encodeURIComponent(id)}`}>
+          {t.common.openInGraph}
+        </Link>
+        <code>{t.persona.exportHint(id)}</code>
       </div>
 
-      {!id ? (
+      {persona.loading ? (
         <div className="panel">
-          <div className="empty">
-            pick a person to see the judgment they have on record
-          </div>
-        </div>
-      ) : persona.loading ? (
-        <div className="panel">
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         </div>
       ) : (
         <>
           <div className="panel">
             <div className="panel-head">
-              guiding decisions
+              {t.persona.decisions}
               <span className="muted">{decisions.length}</span>
             </div>
             <KnowledgeTable
               rows={decisions}
-              empty="no decisions on record — the bottleneck for a persona is capture, not query"
+              empty={query ? t.persona.noMatch : t.persona.noDecisions}
             />
           </div>
           <div className="panel">
             <div className="panel-head">
-              other knowledge
+              {t.persona.otherKnowledge}
               <span className="muted">{facts.length}</span>
             </div>
-            <KnowledgeTable rows={facts} empty="none" />
+            <KnowledgeTable
+              rows={facts}
+              empty={query ? t.persona.noMatch : t.common.none}
+            />
           </div>
         </>
       )}
@@ -113,10 +194,16 @@ function PersonaBody() {
   );
 }
 
+function PersonaBody() {
+  const id = useSearchParams().get("id") ?? "";
+  return id ? <Person id={id} /> : <Roster />;
+}
+
 /** useSearchParams must sit under a Suspense boundary or the static export build fails. */
 export default function Persona() {
+  const t = useT();
   return (
-    <Suspense fallback={<p className="muted">loading…</p>}>
+    <Suspense fallback={<p className="muted">{t.common.loading}</p>}>
       <PersonaBody />
     </Suspense>
   );

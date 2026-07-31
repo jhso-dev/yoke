@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { recordLabel } from "../lib/citation";
+import { useT } from "../lib/i18n";
+import { headerCheckState } from "../lib/selection";
 import type { Knowledge } from "../lib/types";
+import { Actor } from "./Actor";
 import { Citation } from "./Citation";
 import { StatusBadge } from "./StatusBadge";
 
@@ -18,20 +22,44 @@ export function KnowledgeTable({
   rows: Knowledge[];
   empty?: string;
   /** When given, renders a checkbox column for bulk governance actions. */
-  select?: { chosen: Set<string>; toggle: (id: string) => void };
+  select?: {
+    chosen: Set<string>;
+    toggle: (id: string) => void;
+    /** Select or clear every row currently in the table — the header checkbox. */
+    setAll: (next: boolean) => void;
+  };
 }) {
+  const t = useT();
+  // Counted against the rows on screen, not `chosen.size`: the header must describe THIS table, and
+  // a selection made before a filter narrowed it would otherwise show as "all".
+  const here = select ? rows.filter((r) => select.chosen.has(r.id)).length : 0;
+  const head = headerCheckState(rows.length, here);
   if (rows.length === 0) return <div className="empty">{empty}</div>;
   return (
     <div className="scroll-x">
       <table>
         <thead>
           <tr>
-            {select && <th aria-label="select" />}
-            <th>type</th>
-            <th>summary</th>
-            <th>status</th>
-            <th>actor</th>
-            <th>source</th>
+            {select && (
+              <th>
+                <input
+                  type="checkbox"
+                  checked={head.checked}
+                  // A DOM property with no attribute form, so it is set on the node itself.
+                  ref={(el) => {
+                    if (el) el.indeterminate = head.indeterminate;
+                  }}
+                  onChange={() => select.setAll(!head.checked)}
+                  aria-label={t.review.selectAll}
+                  title={t.review.selectAll}
+                />
+              </th>
+            )}
+            <th>{t.common.type}</th>
+            <th>{t.chrome.summary}</th>
+            <th>{t.common.status}</th>
+            <th>{t.common.actor}</th>
+            <th>{t.common.source}</th>
           </tr>
         </thead>
         <tbody>
@@ -50,15 +78,17 @@ export function KnowledgeTable({
               <td className="mono">{r.type}</td>
               <td>
                 <Link href={`/entity/?id=${encodeURIComponent(r.id)}`}>
-                  {r.summary || r.id}
+                  {recordLabel(r)}
                 </Link>
               </td>
               <td>
                 <StatusBadge status={r.effectiveStatus} />
               </td>
-              <td className="mono">{r.actor}</td>
               <td>
-                <Citation value={r.citation} />
+                <Actor actor={r.actor} actorName={r.actorName} />
+              </td>
+              <td>
+                <Citation row={r} />
               </td>
             </tr>
           ))}

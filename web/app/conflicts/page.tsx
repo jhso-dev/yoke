@@ -1,18 +1,22 @@
 "use client";
 
+import { ArrowLeftRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
+import { recordLabel, shortId } from "../../lib/citation";
+import { useT } from "../../lib/i18n";
 import { type ConflictPair, isMissing, type Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /**
  * Contradiction pairs, side by side.
  *
- * The only actions are "deprecate this side" or leave both — never merge, never auto-resolve. A
+ * The only actions are deprecating one side or leaving both — never merge, never auto-resolve. A
  * disagreement is itself knowledge (KNOWLEDGE-POLICY), so coexisting is a legitimate outcome and the
  * screen says so instead of pressuring a decision.
  */
@@ -38,7 +42,10 @@ export default function Conflicts() {
     if (isMissing(s))
       return (
         <div className="panel" style={{ padding: 12 }}>
-          <span className="mono muted">{s.id} — not in this namespace</span>
+          <span className="muted">
+            <span className="mono">{shortId(s.id)}</span> —{" "}
+            {t.common.notInNamespace}
+          </span>
         </div>
       );
     const k = s as Knowledge;
@@ -50,50 +57,46 @@ export default function Conflicts() {
         </div>
         <p style={{ margin: "8px 0" }}>
           <Link href={`/entity/?id=${encodeURIComponent(k.id)}`}>
-            {k.summary || k.id}
+            {recordLabel(k)}
           </Link>
         </p>
-        <Citation value={k.citation} />
+        <Citation row={k} />
         <div style={{ marginTop: 10 }}>
-          <button
+          <Button
             type="button"
-            className="danger"
+            variant="destructive"
             disabled={busy === k.id || k.effectiveStatus === "deprecated"}
             onClick={() => retire(k.id)}
           >
             {k.effectiveStatus === "deprecated"
-              ? "already retired"
-              : "deprecate this side"}
-          </button>
+              ? t.conflicts.alreadyRetired
+              : t.common.deprecate}
+          </Button>
         </div>
       </div>
     );
   };
 
+  const t = useT();
   const rows = pairs.data ?? [];
   return (
     <>
-      <h1>Conflicts</h1>
-      <p className="lede">
-        Verified records that contradict each other. yoke keeps both and never
-        picks a winner — deprecate one side, or leave them coexisting, which is
-        a real answer when the disagreement is the knowledge.
-      </p>
+      <h1>{t.conflicts.heading}</h1>
+      <p className="lede">{t.conflicts.lede}</p>
       <ErrorBanner error={pairs.error ?? actionError} />
       {pairs.loading ? (
         <div className="panel">
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         </div>
       ) : rows.length === 0 ? (
         <div className="panel">
-          <div className="empty">no contradictions recorded</div>
+          <div className="empty">{t.conflicts.empty}</div>
         </div>
       ) : (
         rows.map((p) => (
           <div key={p.id} className="panel" style={{ marginBottom: 14 }}>
             <div className="panel-head">
               <span className="mono">conflicts_with</span>
-              <span className="muted mono">{p.id}</span>
             </div>
             <div
               style={{
@@ -105,12 +108,18 @@ export default function Conflicts() {
               }}
             >
               {side(p.from)}
-              <div
-                className="muted mono"
-                style={{ alignSelf: "center", padding: "0 4px" }}
-              >
-                ↔
-              </div>
+              {/* Lucide rather than the ↔ character: a glyph renders at whatever weight the
+                  system font happens to give it, which is how this arrived hairline-thin and
+                  invisible. An icon is a path, so it is the same on every machine.
+                  `aria-hidden` because the panel head already says `conflicts_with` in text. */}
+              <ArrowLeftRightIcon
+                aria-hidden="true"
+                size={24}
+                style={{
+                  alignSelf: "center",
+                  color: "var(--muted-foreground)",
+                }}
+              />
               {side(p.to)}
             </div>
           </div>

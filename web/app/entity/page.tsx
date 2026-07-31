@@ -3,10 +3,16 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
+import { Instant } from "../../components/Instant";
+import { LinkRecord } from "../../components/LinkRecord";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
+import { recordLabel, shortId } from "../../lib/citation";
+import { useT } from "../../lib/i18n";
 import { isMissing } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
@@ -25,6 +31,10 @@ function EntityBody() {
     () => (id ? api.entity(id) : Promise.resolve(null)),
     [id],
   );
+  // The relation types this namespace declares — the link control is built from them, so a tenant
+  // with its own relation names gets its own list without a code change.
+  const ontology = useAsync(() => api.ontology(), []);
+  const t = useT();
 
   async function act(kind: "verify" | "deprecate") {
     setBusy(true);
@@ -43,61 +53,81 @@ function EntityBody() {
     return (
       <div className="panel">
         <div className="empty">
-          no id — reach this screen from <Link href="/browse/">browse</Link>
+          {t.entity.noId} <Link href="/browse/">{t.common.browse}</Link>
         </div>
       </div>
     );
-  if (detail.loading) return <p className="muted">loading…</p>;
+  if (detail.loading) return <p className="muted">{t.common.loading}</p>;
   if (detail.error)
     return (
       <>
-        <h1>Entity</h1>
+        <h1>{t.common.record}</h1>
         <ErrorBanner error={detail.error} />
       </>
     );
   const d = detail.data;
-  if (!d) return <div className="empty">not found in this namespace</div>;
+  if (!d) return <div className="empty">{t.common.notFound}</div>;
 
   const edges = [...d.relations.out, ...d.relations.in];
   return (
     <>
       <h1>
-        <span className="mono">{d.entity.type}</span> {d.entity.summary}
+        <span className="mono">{d.entity.type}</span>{" "}
+        {recordLabel(d.entity) === d.entity.summary
+          ? d.entity.summary
+          : t.entity.noTextAttributes}
       </h1>
       <p className="lede">
         <StatusBadge status={d.entity.effectiveStatus} />{" "}
-        <span className="mono muted">{d.entity.id}</span>
+        {/* This record's own id, shortened like every other id a person reads. Click to copy the
+            whole thing — a ULID is for machines and for pasting into a command, not for reading. */}
+        <button
+          type="button"
+          className="mono muted"
+          title={`${d.entity.id}\n\n${t.entity.copyId}`}
+          style={{
+            border: "none",
+            background: "none",
+            padding: 0,
+            cursor: "copy",
+            font: "inherit",
+          }}
+          onClick={() => navigator.clipboard?.writeText(d.entity.id)}
+        >
+          {shortId(d.entity.id)}
+        </button>
       </p>
       <ErrorBanner error={actionError} />
 
       <div className="controls">
-        <button
+        <Button
           type="button"
-          className="primary"
           disabled={busy || d.entity.effectiveStatus === "verified"}
           onClick={() => act("verify")}
-          title="promote, or re-confirm a stale record"
+          title={t.common.verifyHint}
         >
-          {d.entity.effectiveStatus === "stale" ? "re-confirm" : "verify"}
-        </button>
-        <button
+          {d.entity.effectiveStatus === "stale"
+            ? t.common.reconfirm
+            : t.common.verify}
+        </Button>
+        <Button
           type="button"
-          className="danger"
+          variant="destructive"
           disabled={busy || d.entity.effectiveStatus === "deprecated"}
           onClick={() => act("deprecate")}
         >
-          deprecate
-        </button>
+          {t.common.deprecate}
+        </Button>
         <Link
           className="btn"
           href={`/graph/?scope=${encodeURIComponent(d.entity.id)}`}
         >
-          open in graph
+          {t.common.openInGraph}
         </Link>
       </div>
 
       <div className="panel">
-        <div className="panel-head">attributes</div>
+        <div className="panel-head">{t.common.attributes}</div>
         <div className="scroll-x">
           <table>
             <tbody>
@@ -113,30 +143,42 @@ function EntityBody() {
       </div>
 
       <div className="panel">
-        <div className="panel-head">provenance</div>
+        <div className="panel-head">{t.entity.provenance}</div>
         <div className="scroll-x">
           <table>
             <tbody>
               <tr>
-                <th style={{ width: "22%" }}>recorded by</th>
-                <td className="mono">{d.entity.actor}</td>
+                <th style={{ width: "22%" }}>{t.entity.recordedBy}</th>
+                <td>
+                  <Actor
+                    actor={d.entity.actor}
+                    actorName={d.entity.actorName}
+                  />
+                </td>
               </tr>
               <tr>
-                <th>origin</th>
+                <th>{t.entity.origin}</th>
                 <td className="mono">{d.entity.origin}</td>
               </tr>
               <tr>
-                <th>occurred at</th>
-                <td className="mono">{d.entity.occurred_at}</td>
+                <th>{t.entity.occurredAt}</th>
+                <td className="mono">
+                  <Instant iso={d.entity.occurred_at} />
+                </td>
               </tr>
               <tr>
-                <th>last confirmed</th>
-                <td className="mono">{d.entity.last_confirmed}</td>
+                <th>{t.entity.lastConfirmed}</th>
+                <td className="mono">
+                  <Instant iso={d.entity.last_confirmed} />
+                </td>
               </tr>
+              {/* Compact, like everywhere else. Every field the raw string contains is already a row
+                  in this table (id in the header, version, recorded by, occurred at) — its only
+                  unique value is being copyable exactly, which the click gives. */}
               <tr>
-                <th>citation</th>
+                <th>{t.entity.citation}</th>
                 <td>
-                  <Citation value={d.entity.citation} />
+                  <Citation row={d.entity} />
                 </td>
               </tr>
             </tbody>
@@ -146,18 +188,18 @@ function EntityBody() {
 
       <div className="panel">
         <div className="panel-head">
-          version history
+          {t.entity.versionHistory}
           <span className="muted">{d.history.length}</span>
         </div>
         <div className="scroll-x">
           <table>
             <thead>
               <tr>
-                <th>v</th>
-                <th>stored status</th>
-                <th>actor</th>
-                <th>occurred at</th>
-                <th>source</th>
+                <th>{t.common.version}</th>
+                <th>{t.entity.storedStatus}</th>
+                <th>{t.common.actor}</th>
+                <th>{t.entity.occurredAt}</th>
+                <th>{t.common.source}</th>
               </tr>
             </thead>
             <tbody>
@@ -167,10 +209,14 @@ function EntityBody() {
                   <td>
                     <StatusBadge status={h.status} />
                   </td>
-                  <td className="mono">{h.actor}</td>
-                  <td className="mono">{h.occurred_at}</td>
                   <td>
-                    <Citation value={h.citation} />
+                    <Actor actor={h.actor} actorName={h.actorName} />
+                  </td>
+                  <td className="mono">
+                    <Instant iso={h.occurred_at} />
+                  </td>
+                  <td>
+                    <Citation row={h} />
                   </td>
                 </tr>
               ))}
@@ -181,19 +227,26 @@ function EntityBody() {
 
       <div className="panel">
         <div className="panel-head">
-          relations
+          {t.common.relations}
           <span className="muted">{edges.length}</span>
         </div>
+        {/* `yoke link` for this record. Any declared relation, either direction — the general case
+            the collaboration screen specialises. */}
+        <LinkRecord
+          ontology={ontology.data ?? []}
+          record={d.entity}
+          onLinked={detail.reload}
+        />
         {edges.length === 0 ? (
-          <div className="empty">none — this record stands alone</div>
+          <div className="empty">{t.entity.standsAlone}</div>
         ) : (
           <div className="scroll-x">
             <table>
               <thead>
                 <tr>
-                  <th>direction</th>
-                  <th>type</th>
-                  <th>other end</th>
+                  <th>{t.common.direction}</th>
+                  <th>{t.common.type}</th>
+                  <th>{t.common.otherEnd}</th>
                   <th>status</th>
                 </tr>
               </thead>
@@ -205,13 +258,14 @@ function EntityBody() {
                     <td>
                       {isMissing(e.other) ? (
                         <span className="mono muted">
-                          {e.other.id} — not in this namespace
+                          <span className="mono">{shortId(e.other.id)}</span> —
+                          {t.common.notInNamespace}
                         </span>
                       ) : (
                         <Link
                           href={`/entity/?id=${encodeURIComponent(e.other.id)}`}
                         >
-                          {e.other.summary || e.other.id}
+                          {recordLabel(e.other)}
                         </Link>
                       )}
                     </td>

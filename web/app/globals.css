@@ -1,59 +1,21 @@
+/* Tailwind + the shadcn token layer. Must be first: CSS @import may not follow other rules. */
+@import "./theme.css";
+
+/* Below is the hand-written layer this workbench shipped with, kept while the screens migrate.
+   Interactive primitives (button, input, select, label, dialog) now come from components/ui and are
+   styled by Tailwind; the structural classes here — .panel, tables, .pill, .banner, the shell — are
+   still in use and are removed as each screen moves over. Anything still referenced is live CSS, not
+   dead weight: `git grep` the class name before deleting a block. */
+
 /* One stylesheet for the workbench. Terminal-adjacent: this is an operator's tool, so it borrows
    the CLI's vocabulary (monospace ids and citations, teal accent) rather than looking like a SaaS
    dashboard. Tokens first so both themes are one place. */
 
-:root {
-  color-scheme: light dark;
-
-  --bg: #fbfbfc;
-  --panel: #ffffff;
-  --panel-2: #f4f5f7;
-  --border: #dfe1e6;
-  --text: #17191c;
-  --muted: #63676e;
-  --accent: #0d9488;
-  --accent-weak: #ccfbf1;
-
-  /* Semantic, and separate from the accent: these encode a record's real lifecycle state. */
-  --tone-draft: #b45309;
-  --tone-draft-bg: #fef3c7;
-  --tone-verified: #15803d;
-  --tone-verified-bg: #dcfce7;
-  --tone-stale: #52525b;
-  --tone-stale-bg: #f1f1f3;
-  --tone-deprecated: #b91c1c;
-  --tone-deprecated-bg: #fee2e2;
-  --tone-unknown: #52525b;
-  --tone-unknown-bg: #f1f1f3;
-
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --radius: 6px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e1013;
-    --panel: #16191d;
-    --panel-2: #1c2025;
-    --border: #2a2f36;
-    --text: #e7e9ec;
-    --muted: #9aa0a8;
-    --accent: #2dd4bf;
-    --accent-weak: #10312e;
-
-    --tone-draft: #fbbf24;
-    --tone-draft-bg: #3a2c07;
-    --tone-verified: #4ade80;
-    --tone-verified-bg: #0d2f1a;
-    --tone-stale: #a1a1aa;
-    --tone-stale-bg: #23262b;
-    --tone-deprecated: #f87171;
-    --tone-deprecated-bg: #3a1414;
-    --tone-unknown: #a1a1aa;
-    --tone-unknown-bg: #23262b;
-  }
-}
+/* Tokens live in theme.css and ONLY there. This file used to declare its own :root block after
+   importing that one, which silently redefined the names they share — `--accent` became the teal
+   foreground instead of the pale hover background, so a hovered select item drew its text in its
+   own background colour, and `--muted` (a background in shadcn's vocabulary) became a text grey.
+   Two vocabularies, one namespace: the later declaration always won and nothing said so. */
 
 * {
   box-sizing: border-box;
@@ -61,15 +23,15 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
 }
 
 a {
-  color: var(--accent);
+  color: var(--primary);
   text-decoration: none;
 }
 a:hover {
@@ -77,7 +39,7 @@ a:hover {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
@@ -95,15 +57,15 @@ a:hover {
   gap: 16px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  background: var(--card);
   flex-wrap: wrap;
 }
 
 .brand {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: var(--accent);
+  color: var(--primary);
 }
 
 .nav {
@@ -115,27 +77,41 @@ a:hover {
 .nav a {
   padding: 5px 10px;
   border-radius: var(--radius);
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-size: 13px;
 }
 .nav a:hover {
-  background: var(--panel-2);
+  background: var(--secondary);
   text-decoration: none;
 }
 .nav a[aria-current="page"] {
-  background: var(--accent-weak);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--primary);
   font-weight: 600;
 }
 
+/* The right cluster. AuthGate renders its own `.topbar-right` inside this one, so the auto margin
+   would be declared twice on nested flex items — harmless but ambiguous about which one absorbs the
+   slack. This owns the alignment; the nested one keeps only its typography. */
+.topbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .topbar-right {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: var(--muted);
-  font-family: var(--mono);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+}
+/* Nested in the end cluster it is not the thing doing the pushing — the wrapper is. Declared after
+   `.topbar-right` so specificity and source order agree. */
+.topbar-end .topbar-right {
+  margin-left: 0;
 }
 
 main {
@@ -151,8 +127,18 @@ h1 {
   margin: 0 0 4px;
 }
 
+/* The title row: heading left, the page's one primary action right. Baseline-aligned rather than
+   centred, so a long title wrapping to two lines does not drag the button down with it. */
+.page-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .lede {
-  color: var(--muted);
+  color: var(--muted-foreground);
   margin: 0 0 18px;
   max-width: 68ch;
 }
@@ -160,7 +146,7 @@ h1 {
 /* --- panels, tables, rows --- */
 
 .panel {
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -173,7 +159,7 @@ h1 {
 .panel-head {
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--panel-2);
+  background: var(--secondary);
   font-weight: 600;
   font-size: 13px;
   display: flex;
@@ -203,7 +189,7 @@ th {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--muted);
+  color: var(--muted-foreground);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -217,24 +203,24 @@ td.num {
 }
 
 .mono {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
 .cite {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--muted);
+  color: var(--muted-foreground);
   white-space: nowrap;
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .empty {
   padding: 22px 12px;
-  color: var(--muted);
+  color: var(--muted-foreground);
   text-align: center;
 }
 
@@ -278,40 +264,33 @@ td.num {
 
 /* --- controls --- */
 
-button,
+/* button / .btn / input / select used to be styled here as bare element selectors. They are gone:
+   those primitives now come from components/ui, and an UNLAYERED element rule beats a Tailwind
+   utility no matter the specificity — Tailwind's output sits in @layer utilities, and unlayered CSS
+   always wins over layered CSS. So `button { background: var(--secondary) }` silently overrode every
+   shadcn variant, which is how a teal primary button rendered grey. Anything still on the old
+   classes is listed in the migration note at the top of this file.
+
+   `.btn` survives for <Link> elements that look like buttons — Button's `asChild` is the eventual
+   home for those, and they move with their screens. */
+/* Boxed to match Button's `compact` (h-7, px-2.5, 13px) so a link that looks like a button is the
+   same size as one — these sit in the same rows on entity, graph and collaboration. */
 .btn {
   font: inherit;
-  padding: 5px 11px;
+  font-size: 13px;
+  height: 28px;
+  padding: 0 10px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--panel-2);
-  color: var(--text);
+  background: var(--secondary);
+  color: var(--foreground);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
 }
-button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-button.danger {
-  color: var(--tone-deprecated);
-}
-
-input,
-select {
-  font: inherit;
-  padding: 5px 8px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--text);
+.btn:hover {
+  border-color: var(--primary);
+  text-decoration: none;
 }
 
 .controls {
@@ -320,6 +299,70 @@ select {
   align-items: center;
   flex-wrap: wrap;
   margin-bottom: 12px;
+}
+
+/* A card grid: as many columns as fit at a readable width, no breakpoint list to maintain.
+   `auto-fill` rather than `auto-fit` so two cards stay card-width instead of stretching to half the
+   screen each. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* The whole card is the click target. The underline belongs to prose links, not to a card, so it is
+   removed here and the border carries the hover state instead. */
+.card-link {
+  color: inherit;
+  text-decoration: none;
+}
+.card-link:hover {
+  text-decoration: none;
+}
+.card-link:hover [data-slot="card"] {
+  border-color: var(--primary);
+}
+.card-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+/* The native `<input>`/`<select>` still used on browse, audit, inject, persona and login, given the
+   same 32px box as a `sm` Button so a control row is one height instead of three — UA defaults were
+   19-21px beside a 32px button, which is what made the button look oversized rather than the button
+   being large. Checkboxes keep their own box.
+
+   Scoped by class, and `:not([data-slot])` keeps it off shadcn's primitives: an unlayered rule beats
+   any Tailwind utility, so an unguarded `.controls input` would silently override <Input> the same
+   way the bare element rules once overrode <Button>. */
+.controls input:not([type="checkbox"]):not([data-slot]),
+.controls select:not([data-slot]),
+.field input:not([type="checkbox"]):not([data-slot]),
+.field select:not([data-slot]),
+.login input:not([data-slot]) {
+  font: inherit;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--foreground);
+}
+
+/* A panel has no padding of its own: its usual content is a full-bleed table, and the padding a
+   reader sees comes from the cells. Anything else placed in one — the form rows on browse, entity,
+   ontology and collaboration — therefore sits flush against the border unless it brings its own.
+   Scoped to direct children so a top-level `.controls` row, which sits on the page background and
+   wants no padding, is untouched. */
+.panel > .controls {
+  padding: 12px;
+  margin: 0;
+}
+/* Stacked rows in one panel (ontology's maintenance): the gap belongs between them, not doubled. */
+.panel > .controls + .controls {
+  padding-top: 0;
 }
 
 /* --- banners --- */
@@ -342,11 +385,17 @@ select {
   border-color: var(--tone-draft);
 }
 .banner[data-kind="info"] {
-  background: var(--panel-2);
+  background: var(--secondary);
 }
 .banner code {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
+}
+/* A banner is its own bordered box, so inside a panel it takes a margin rather than padding, or its
+   border would sit on the panel's. Declared after `.banner` so the cascade reads in specificity
+   order rather than relying on the more specific rule winning from above. */
+.panel > .banner {
+  margin: 0 12px 12px;
 }
 
 /* --- login --- */
@@ -360,6 +409,69 @@ select {
   flex-direction: column;
   gap: 10px;
 }
-.login input {
-  font-family: var(--mono);
+/* Same `:not([data-slot])` as the sizing rule above so this stays equal in specificity and wins on
+   order — otherwise `font: inherit` there would quietly take the mono face off a pasted token. */
+.login input:not([data-slot]) {
+  font-family: var(--font-mono);
+}
+
+/* --- modal (native <dialog>) --- */
+
+/* The element brings the behaviour — focus trap, Esc, inert background — so this is only its look.
+   `dialog` ships with a UA border and padding; both are reset here rather than fought later. */
+dialog {
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+  width: min(560px, calc(100vw - 32px));
+  /* Tall content scrolls inside the dialog, so the page behind never becomes the scroller. */
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+}
+
+dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--secondary);
+  /* Sticky so a long form's close button stays reachable without scrolling back up. */
+  position: sticky;
+  top: 0;
+}
+
+.modal-body {
+  padding: 14px;
+}
+
+/* Labelled fields stacked one per row — a wrapping flex row put labels beside their inputs and, at
+   three or more fields, beside the wrong ones. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.field > span {
+  color: var(--muted-foreground);
+}
+
+.field input,
+.field select {
+  width: 100%;
 }

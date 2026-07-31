@@ -15,6 +15,18 @@ export type TypeDef = {
   attrs: Record<string, AttrSpec>;
   /** TTL (in days) for freshness. Omit = unlimited. Used by the 2.1 lifecycle. */
   ttl_days?: number;
+  /**
+   * Relation types only: this edge records WHO IS INVOLVED in something, not knowledge attached to it.
+   *
+   * An anchored briefing walks every relation on the anchor, so without this a collaboration briefing
+   * hands an agent the roster (`works_on` → three person records) as though it were knowledge — and
+   * under a limit the roster can crowd the knowledge out entirely.
+   *
+   * It is ontology DATA, not a name hardcoded in core, because orgs define their own equivalents
+   * (assigned_to, member_of, reviews) — see the collaboration note below. A tenant that adds a
+   * membership relation marks it here and gets the same behaviour, with no core change.
+   */
+  membership?: boolean;
 };
 
 /** Whether the actual value matches AttrSpec.type. */
@@ -76,21 +88,31 @@ export function seedOntology(): TypeDef[] {
     },
     { name: "term", kind: "entity", attrs: {} },
     { name: "resource", kind: "entity", attrs: {} },
-    // A unit of collaborative work that groups people and knowledge for its duration (v4.0 shared
-    // working context). Orgs define their own equivalents in their ontology (initiative, experiment, …).
+    // One thing being worked on together, for as long as it lasts (v4.0 shared working context). Named
+    // for what the definition always said — "a unit of collaborative work" — because a type name that
+    // is a different word from its own definition is a name nobody can guess. It groups nothing in the
+    // containment sense: people and records point AT it, so deprecating one leaves them all intact.
+    // Orgs define their own equivalents in their ontology (initiative, experiment, …).
     {
-      name: "workstream",
+      name: "collaboration",
       kind: "entity",
+      // `title` only. The seed also declared a free-text `status` attribute: nothing ever read it,
+      // no document said what it meant, and it collided with the word every record already carries —
+      // a lifecycle status, which is assigned by the gate and moved by verify/deprecate, never typed.
+      // A create form built from the ontology rendered the two side by side and invited exactly that
+      // confusion. Whether the work is under way is what its records and their freshness say; an org
+      // that wants a workflow field declares its own, with a name that does not already mean
+      // something here.
       attrs: {
         title: { type: "string", required: true },
-        status: { type: "string" },
       },
     },
     { name: "authored_by", kind: "relation", attrs: {} },
     { name: "relates_to", kind: "relation", attrs: {} },
     { name: "supersedes", kind: "relation", attrs: {} },
     { name: "conflicts_with", kind: "relation", attrs: {} },
-    // Links a person to a workstream they participate in (v4.0).
-    { name: "works_on", kind: "relation", attrs: {} },
+    // Links a person to a collaboration they participate in (v4.0). Membership, not knowledge: the
+    // roster belongs on the collaboration screen, not in the briefing an agent is handed.
+    { name: "works_on", kind: "relation", attrs: {}, membership: true },
   ];
 }

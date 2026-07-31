@@ -31,8 +31,8 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 
 ## Default ontology (seed)
 
-- entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`, `workstream` (attributes: title (required), status) — a unit of collaborative work grouping people and knowledge (v4.0)
-- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → workstream, v4.0)
+- entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`, `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). It declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature
+- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → collaboration, v4.0)
 - **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
 - **Bootstrap**: `yoke init` seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself). All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
@@ -117,7 +117,7 @@ The `commit(input, provenance)` pipeline — fixed order:
 ### Anchored injection (v4.0 — shared working context, and persona)
 
 `inject(query, { scope })` where `scope` is an entity id to anchor on. **One mechanism, two named
-entry points**: a `workstream` anchor is the shared working context, a `person` anchor is a persona.
+entry points**: a `collaboration` anchor is the shared working context, a `person` anchor is a persona.
 
 - **Scope prioritizes, it does not imprison.** A pinned working context must never hide
   org-wide knowledge (or personas — `yoke_persona` is a separate entry point, unaffected by scope).
@@ -126,11 +126,35 @@ entry points**: a `workstream` anchor is the shared working context, a `person` 
   working context leads, org-wide matches still flow in. `limit` applies after ordering.
 - With no `query`: only the one-hop set is returned — a briefing of that working context.
   The scope entity itself is never returned.
+- **A briefing has a defined order**, and it is part of this contract: verified before draft, then
+  most-recently-confirmed first, then `id` ascending as the tiebreak. Without it `limit` cuts by
+  whatever order a backend returns relations in — creation order on SQLite, something else on kuzu
+  and qdrant — so the same question would answer differently per backend, which is backend behaviour
+  leaking into the core (invariant 2). The `id` tiebreak is what makes the four agree and is not
+  optional. The query paths keep search-relevance order; this ordering applies only to a briefing.
+- **A briefing is capped, and says so in words.** Core applies no default (that would silently cap
+  `personaQuery` too); it exports `BRIEFING_LIMIT = 50` and returns `omitted` — how many its limit
+  dropped, knowable only on the scope path, which fetches the whole hop set before filtering. The
+  three front adapters apply the default to a briefing (anchor + empty query) and never to a query.
+  An explicit `limit` always wins.
+  A cap is honest **only because the briefing is not the only way in**: the query path searches the
+  whole namespace and scope merely re-orders it, so a record past the cap is reached by asking about
+  it. That fact must be stated in the output, not implied — for `yoke_inject` the notice is an
+  instruction ("the other N are NOT lost: ask a specific question"), because an agent that reads a
+  truncated briefing as the complete record answers from part of the knowledge without knowing it.
+  A `truncated` boolean would not have carried that.
+- **A roster is not knowledge.** Anything reached only through a relation type the ontology marks
+  `membership: true` is excluded from a briefing — a collaboration's `works_on` edges name who is
+  involved in the work, not what is known about it, and under a `limit` they otherwise crowd the
+  knowledge out entirely. Naming that type in `scopeRel` asks for members on purpose and still
+  returns them. The flag is ontology **data**, not a relation name in core, because orgs define their
+  own equivalents (`assigned_to`, `member_of`); a tenant marks theirs and gets the same behaviour with
+  no core change.
 - The **same filters** apply as unscoped injection: verified-only by default (`includeDraft` still
   works), stale/deprecated always excluded, and the namespace filter is enforced on fetched
   entities (`getEntity` is id-based, so the ns check happens in `inject`, not the port).
 - `opts.scopeRel` / `opts.scopeDir` narrow the anchor walk (passed straight to `port.neighbors`).
-  Default is every relation type, both directions — right for a workstream, whose point is
+  Default is every relation type, both directions — right for a collaboration, whose point is
   everything attached to the work.
 
 **Capture-side linking**: `yoke add --scope <id>`, and the `scope` argument on `yoke_commit` /
@@ -141,16 +165,16 @@ through a second gate-passing commit at the front tier (core `commit` is untouch
 current work belongs to — when the user says so or the agent infers it ("this is `ABC-12345` work") —
 by calling `yoke_use_scope { key }`. The key is resolved to an anchor entity: an exact entity id
 (`getEntity`), else an entity whose `key` OR `title` attribute equals the key, preferring a
-`workstream` since that is what a work-item key names — any entity type may anchor a session. On a match it is
+`collaboration` since that is what a work-item key names — any entity type may anchor a session. On a match it is
 pinned as the session default for subsequent injections and recordings, and the resolved `{ id, title }`
 is returned; on no match the tool returns a non-error hint to create one via `yoke_commit` (type
-`workstream`, attributes `{ title, key }`) and call again. Precedence: a per-call `scope` argument >
-the session pin (`yoke_use_scope`) > `YOKE_SCOPE` (an entity id or workstream key resolved at startup,
+`collaboration`, attributes `{ title, key }`) and call again. Precedence: a per-call `scope` argument >
+the session pin (`yoke_use_scope`) > `YOKE_SCOPE` (an entity id or collaboration key resolved at startup,
 for fixed setups). In stateless (serve) deployments the session pin does not persist, so the agent
 passes `scope` per call — `yoke_use_scope` still returns the resolved id for reuse.
 
 We deliberately do **not** infer scope from the git branch: branch names usually carry a *child* task
-key while the shared context lives on the *parent* workstream, so regex-from-branch systematically
+key while the shared context lives on the *parent* collaboration, so regex-from-branch systematically
 picks the wrong scope.
 
 ## MCP tools
@@ -178,28 +202,84 @@ endpoint shares it at `POST /mcp`.
 | `GET /api/conflicts` | `listRelationsByType('conflicts_with', ns)` | read | no |
 | `GET /api/ontology` | `loadOntology(ns)` | read | no |
 | `GET /api/entities` | `listEntities` | read (typed when `?type=`) | no |
-| `GET /api/entity/:id` | `getEntity` + `listHistory` + `neighbors` | read (typed) | no |
+| `GET /api/entity/:id` | `getEntity` + `listHistory` + `neighbors` | read (typed) | **yes** (`read`) |
 | `GET /api/inject` | `inject(query, {scope, ns})` | read | **yes** (`inject_preview`) |
 | `GET /api/persona/:id` | `personaQuery` | read | **yes** (`persona`) |
+| `GET /api/search` | `search({text, type, status, limit, ns})` | read (typed when `?type=`) | **yes** (`search`) |
 | `GET /api/graph` | `listEntities` + `listRelations` | read | no |
 | `GET /api/audit` | `listAudit({since, ns, limit})` | read | no |
 | `POST /api/verify` | `verify` | verify | yes |
 | `POST /api/deprecate` | `deprecate` | verify | yes |
+| `POST /api/entity` | `commit({type, attributes})` (+ a `relates_to` commit when `scope` is given) | write (typed) | no — the v1 row records it |
+| `POST /api/link` | `commit({type, attributes, from, to})` | write (typed) | no — same |
+| `POST /api/backfill` | `backfillAuthorship` | write | no — the edges it creates record it |
+| `POST /api/ontology` | `saveOntology([def], ns)` | **verify** | no |
+| `POST /api/rename-type` | `renameType(from, to, ns)` | **verify** | **yes** (`rename_type`) |
 
 Rules that hold for every route:
 
-- **Read-only except lifecycle.** The only mutations are `verify` and `deprecate` on
-  records that already exist. There is no HTTP write path into knowledge — capture goes
-  through the gate via MCP, the CLI, or a connector.
+- **Creation goes through the gate, never around it** (amended 2026-07-31; before that there
+  was no HTTP write path into knowledge at all). `POST /api/entity` and `POST /api/link` call
+  `commit()` like every other adapter, so a record made in a browser is validated against the
+  ontology, enters as `draft`, and needs the same human `verify`. It carries
+  `provenance.origin = "web"`, which is what makes hand-typed knowledge visible as such rather
+  than merely forbidden. No audit row: the v1 row it produces already carries actor, origin and
+  timestamp — the schema's rule for entity mutations. **Editing an existing record's attributes
+  over HTTP remains absent**: correcting a record is a new version through the gate, from the
+  adapter that owns the source. The lifecycle mutations are still `verify` and `deprecate`, and
+  nothing here writes a record in any state but `draft`.
+- **The two schema-level writes are gated on `verify`, not `write`.** `POST /api/ontology`
+  is the one write that BYPASSES the commit gate — the gate reads the ontology, so validating
+  it against itself would be circular — and `POST /api/rename-type` rewrites every stored row
+  carrying a name, history included. Neither is a per-type permission, because neither is
+  scoped to a type: they change what types mean.
+- **Not exposed over HTTP, and why.** `init` (bootstrap: the server is already holding the
+  database it would create), `connect <source>` (needs credentials and runs long), `backup` /
+  `restore` / `export` (server-side filesystem paths — a browser form choosing where a process
+  writes is a foot-gun, not a feature), `token` (credential minting stays a terminal act), and
+  `mcp` / `ui` / `serve` (process lifecycle, not actions). Plain `search` stays absent for the
+  original reason: free-text retrieval for human reading is the search UI this document refuses,
+  and the injection preview is the sanctioned query box. Narrowed 2026-07-31: `GET /api/search`
+  exposes the port's `search()` to `browse`, returning summary rows and writing a `search` audit
+  row. What stays refused is synthesis, a second ranker, and results framed as an answer — see the
+  second amendment in WEB-UI.md.
 - **Any route that returns knowledge attributes writes an audit row.** A preview is an
   injection: reading through the browser leaves the same trail as reading through MCP
   (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing
   routes that return only a truncated summary do not, but a route that returns full
   attributes and cannot be audited must not exist.
+
+  Corrected 2026-07-31: this was false for `GET /api/entity/:id`, which returns full
+  attributes and wrote nothing, and for `yoke get`, its CLI twin. Both now write `read`.
+  The rule had been in the document since v5.0 opened while the code disagreed with it, so
+  it was documentation of an intention rather than of a behaviour.
 - **The injection preview is the real `inject()`.** Not a re-implementation with similar
   filters — byte-for-byte what an agent would receive, so the screen cannot drift from
   the behaviour it claims to show. Its audit action is `inject_preview`, distinct from
   `inject`, so a human looking does not pollute the record of what an agent was told.
+- **The audit rule is per front ADAPTER, not per route.** The same actions are written
+  wherever the act happens, so the trail does not depend on which interface someone used:
+
+  | action | meaning | written by |
+  |---|---|---|
+  | `inject` | a model received knowledge | MCP, CLI |
+  | `inject_preview` | a human saw what a model *would* receive | web only — there is no CLI preview |
+  | `persona` | someone's recorded judgment was read | MCP, CLI, web |
+  | `read` | a full record — attributes, versions, relations — was read | CLI, web |
+  | `search` | someone queried the store for text and got matching records | CLI, web |
+  | `verify` | records were promoted | CLI, web |
+  | `deprecate` | records were retired | CLI, web |
+  | `rename_type` | an ontology type was renamed in the declaration and in every stored row | CLI only |
+
+  `rename_type` is the exception to "entity mutations need no audit row, the version history records
+  them": it rewrites those very rows, so the history cannot record it and this row is the only trace.
+
+  This is written down because the two adapters drifted: the web audited `verify`, `deprecate` and
+  `persona` and the CLI audited only `inject`, so "who promoted this" was unanswerable for every
+  promotion done through the CLI — the interface ROADMAP v0.2 makes primary for review and verify.
+  `detail` uses the same shape in both (`<subject> -> <id> <id> …`, or a bare id list for a
+  lifecycle transition) so rows from different adapters are comparable. A parity test in
+  `cli.test.ts` asserts the CLI writes the actions it owns and never writes `inject_preview`.
 - **Every row carries a citation**, source and version, on every screen (since v2.5).
 - **Namespace isolation holds on every route**, including the global listings. `getEntity`
   is id-based and deliberately not ns-filtered, so a route that resolves an id re-checks
@@ -219,8 +299,10 @@ OIDC id_token. No cookie session, therefore no CSRF surface.
 
 ```
 yoke init                  # create the DB + seed the default ontology
-yoke add / get / search    # basic CRUD and search
+yoke add                   # commit one entity through the gate
 yoke get <id> [--relations]  # one record; --relations adds its in/out edges
+yoke search <text> [--type t] [--status s] [--limit n]   # the port's FTS; what /api/search exposes
+yoke link <from> <relation> <to>   # record a relation — the only creation path for one
 yoke list [--type t] [--status s] [--limit n] [--after id]   # enumerate (keyset paging)
 yoke graph [--limit n]     # the entity/relation graph, bounded, truncation reported
 yoke review                # list drafts
@@ -233,6 +315,7 @@ yoke audit [--since ts] [--limit n]   # the injection / governance audit trail
 yoke ontology <subcmd>     # inspect types / migrate
 yoke persona <person>      # generate/export a persona skill (SKILL.md)
 yoke backfill              # derive missing authored_by edges (upgrade path, idempotent)
+yoke rename-type <from> <to>   # rename an ontology type in the declaration AND every stored row
 yoke connect <github-pr|slack|notes|rdb>   # external sources → draft knowledge
 yoke mcp                   # start the MCP server (stdio)
 yoke ui [--port] [--host]  # local governance workbench (loopback, ungated, single-user)
@@ -252,8 +335,8 @@ A persona is the person-anchored reading of an anchored injection — not a seco
 
 - Anchor: the person entity, walked with `scopeRel: 'authored_by'`, `scopeDir: 'in'`. Since the gate
   mirrors provenance into `authored_by`, that hop is exactly the knowledge the person authored —
-  never what merely touches them (the workstream they work on, whoever filed their person record).
-- Read **strictly**, and this is the one place the two entry points differ: a workstream anchor
+  never what merely touches them (the collaboration they work on, whoever filed their person record).
+- Read **strictly**, and this is the one place the two entry points differ: a collaboration anchor
   unions in org-wide query matches, while a persona's `query` filters the person's *own* records.
   Presenting knowledge someone did not author as their judgment would be impersonation.
 - Output: decisions vs facts (`classifyPersona`), the rendering shape only. Filtering already

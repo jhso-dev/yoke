@@ -3,9 +3,9 @@
 // Citation, not impersonation — the output must be citation-based to be auditable.
 //
 // Collection is deliberately NOT here: it is inject() anchored on the person entity, the same
-// one-hop walk a workstream anchor uses (authorship is a graph edge — the commit gate mirrors
+// one-hop walk a collaboration anchor uses (authorship is a graph edge — the commit gate mirrors
 // provenance into authored_by). One mechanism, two named entry points. What persona adds is how
-// that anchor is read: strictly. A workstream anchor prioritizes and lets org-wide knowledge in;
+// that anchor is read: strictly. A collaboration anchor prioritizes and lets org-wide knowledge in;
 // a persona anchors on authored_by/'in' with no query and filters locally, because presenting
 // knowledge a person did not author as their judgment would be impersonation.
 // Time is injected (never call new Date() in core).
@@ -23,11 +23,11 @@ export interface PersonaResult {
 /**
  * The persona entry point: an injection anchored on a person, read strictly.
  * authored_by means "entity authored by person" → from:entity → to:person, so the person's dir:'in'
- * neighbors are exactly the knowledge they authored — never what merely touches them (the workstream
+ * neighbors are exactly the knowledge they authored — never what merely touches them (the collaboration
  * they work on, the colleague who filed their person record).
  * @param query filters the person's OWN records (substring over attributes). It deliberately does
  *   not go through inject's query path: that unions in org-wide matches, which is right for a
- *   workstream and wrong for a persona.
+ *   collaboration and wrong for a persona.
  */
 export async function personaQuery(
   port: StoragePort,

@@ -431,6 +431,85 @@ export class SqliteStorage implements StoragePort {
     tx(defs);
   }
 
+  /**
+   * Rename an ontology type everywhere it is stored: the declaration, every entity and relation
+   * version carrying it, and the FTS text (which embeds the type name — see serializeText).
+   *
+   * This REWRITES existing rows instead of appending, and that is the point. Appending a new version
+   * per record would leave the old name in every historical row, and a rename exists precisely so the
+   * old name is gone. Nothing about the knowledge changes — same ids, same version numbers, same
+   * attributes, provenance and edges — so no version is invented and no promotion is implied; only a
+   * vocabulary term moves. The append-only rule protects what was asserted, not what it was called.
+   *
+   * The schema comment above says entity mutations need no audit row because the version history
+   * records them. This is the one mutation it CANNOT record, so the caller writes the row that does —
+   * see `yoke rename-type`. Returns rows rewritten (declaration included) so it can be reported.
+   */
+  renameType(from: string, to: string, ns?: string | null): number {
+    const n = normalizeNs(ns);
+    return this.db.transaction(() => {
+      let rows = 0;
+      // Collected before the UPDATE: the FTS text is built from type + attributes, so every affected
+      // id's index row goes stale the instant the column changes.
+      const ids = (
+        this.db
+          .prepare(
+            `SELECT DISTINCT id FROM entities WHERE type = ? AND ns IS ?`,
+          )
+          .all(from, n) as { id: string }[]
+      ).map((r) => r.id);
+      rows += this.db
+        .prepare(`UPDATE entities SET type = ? WHERE type = ? AND ns IS ?`)
+        .run(to, from, n).changes;
+      // Relations too, without asking the caller which kind it was: one name lives in one ontology,
+      // and `kind` only decides which table holds it. The other statement simply matches nothing.
+      rows += this.db
+        .prepare(`UPDATE relations SET type = ? WHERE type = ? AND ns IS ?`)
+        .run(to, from, n).changes;
+      const del = this.db.prepare(`DELETE FROM entities_fts WHERE id = ?`);
+      const ins = this.db.prepare(
+        `INSERT INTO entities_fts (id, text) VALUES (?, ?)`,
+      );
+      const latest = this.db.prepare(
+        `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
+      );
+      for (const id of ids) {
+        const l = latest.get(id) as { type: string; attributes: string };
+        del.run(id);
+        ins.run(id, serializeText(l.type, l.attributes));
+      }
+      // The declaration. saveOntology appends a version per name, which would leave every `from` row
+      // sitting there, so these are rewritten in place — name column and the name inside `def`.
+      const declared = this.db
+        .prepare(
+          `SELECT 1 FROM ontology_types WHERE name = ? AND ns IS ? LIMIT 1`,
+        )
+        .get(to, n);
+      if (declared) {
+        // `to` already exists — the ordinary case when the code was renamed before the database was,
+        // so a later `yoke init` seeded the new type beside the old one. Drop the stale declaration
+        // rather than colliding with the live one; the rows above already point at the survivor.
+        rows += this.db
+          .prepare(`DELETE FROM ontology_types WHERE name = ? AND ns IS ?`)
+          .run(from, n).changes;
+      } else {
+        const defs = this.db
+          .prepare(
+            `SELECT version, def FROM ontology_types WHERE name = ? AND ns IS ?`,
+          )
+          .all(from, n) as { version: number; def: string }[];
+        const upd = this.db.prepare(
+          `UPDATE ontology_types SET name = ?, def = ? WHERE name = ? AND version = ? AND ns IS ?`,
+        );
+        for (const r of defs) {
+          const def: TypeDef = { ...(JSON.parse(r.def) as TypeDef), name: to };
+          rows += upd.run(to, JSON.stringify(def), from, r.version, n).changes;
+        }
+      }
+      return rows;
+    })();
+  }
+
   /** All versions of an id, ascending (outside StoragePort — for CLI history, PLAN 8.4).
    * getEntity returns one version; the append-only rows ARE the change audit, this just exposes them. */
   listHistory(id: string): Entity[] {

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
+import { verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
 import { createUiServer } from "./server.js";
@@ -24,6 +25,10 @@ let base: string;
 let factId: string;
 let decisionAId: string;
 let decisionBId: string;
+let personId: string;
+let byPersonId: string;
+let collaborationId: string;
+let scopedFactId: string;
 
 beforeAll(async () => {
   const ont = seedOntology();
@@ -70,6 +75,61 @@ beforeAll(async () => {
       attributes: {},
       from: b.entity.id,
       to: a.entity.id,
+    },
+    prov,
+    now,
+  );
+
+  // A person, and knowledge whose provenance.actor IS that person's id — the real shape once the
+  // gate mirrors authorship (commit stage 4b). Without this the suite only ever saw a bare string
+  // actor, which is why an unreadable ULID reached a browser unnoticed.
+  const person = await commit(
+    store,
+    ont,
+    { type: "person", attributes: { name: "Bora", role: "engineer" } },
+    prov,
+    now,
+  );
+  personId = person.entity.id;
+  const byPerson = await commit(
+    store,
+    ont,
+    { type: "fact", attributes: { title: "index rebuilds nightly" } },
+    { actor: personId, origin: "cli", occurred_at: now },
+    now,
+  );
+  byPersonId = byPerson.entity.id;
+
+  // A collaboration with one fact attached to it. The scope-anchored inject route had no test at all —
+  // v4.0's shared working context reached the web tier as an untested query parameter.
+  const ws = await commit(
+    store,
+    ont,
+    {
+      type: "collaboration",
+      attributes: { title: "auth revamp", key: "AUTH-1" },
+    },
+    prov,
+    now,
+  );
+  collaborationId = ws.entity.id;
+  const scoped = await commit(
+    store,
+    ont,
+    { type: "fact", attributes: { statement: "tokens rotate hourly" } },
+    prov,
+    now,
+  );
+  scopedFactId = scoped.entity.id;
+  await verify(store, [scopedFactId], "reviewer", now);
+  await commit(
+    store,
+    ont,
+    {
+      type: "relates_to",
+      attributes: {},
+      from: scopedFactId,
+      to: collaborationId,
     },
     prov,
     now,
@@ -353,6 +413,35 @@ describe("ui API", () => {
     expect(one.items).toHaveLength(1);
     expect(one.items[0].at).toBe(times[times.length - 1]);
   });
+
+  // provenance.actor is a person entity id (core/types.ts), so every row and every citation carried a
+  // raw ULID into the browser. The name is resolved for reading; the id stays, because the id is what
+  // the citation points at and names are neither unique nor stable.
+  it("resolves a person actor to a name without dropping the id, and leaves the citation alone", async () => {
+    const rows = await get("/api/entities?type=fact");
+    const mine = rows.items.find((r: { id: string }) => r.id === byPersonId);
+    expect(mine.actorName).toBe("Bora");
+    expect(mine.actor).toBe(personId);
+    // The audit pointer is unchanged: it carries the id, never the name.
+    expect(mine.citation).toContain(personId);
+    expect(mine.citation).not.toContain("Bora");
+
+    // A machine actor has no person record, so there is nothing to resolve and the id stands alone.
+    // Asserted on the person record itself, which no test verifies — verify appends a version whose
+    // actor is the verifier, so asserting on a promoted row would depend on test order.
+    const people = await get("/api/entities?type=person");
+    const bare = people.items.find((r: { id: string }) => r.id === personId);
+    expect(bare.actor).toBe("tester");
+    expect(bare.actorName).toBeUndefined();
+
+    // Every read path that shows a row shows the same resolution — one serializer, not per-route.
+    const detail = await get(`/api/entity/${byPersonId}`);
+    expect(detail.entity.actorName).toBe("Bora");
+    const graph = await get("/api/graph");
+    expect(
+      graph.nodes.find((n: { id: string }) => n.id === byPersonId).actorName,
+    ).toBe("Bora");
+  });
 });
 
 // A tenant must never see another tenant's knowledge through a global listing. Before this was
@@ -435,5 +524,327 @@ describe("ui API namespace isolation", () => {
     expect(summaries.some((s: string) => s.includes("globex"))).toBe(false);
     // The resolved side is a real row, not a "missing" stub — the ns check must not over-reject.
     expect([pairs[0].from.id, pairs[0].to.id]).toContain(acmeDecision);
+  });
+});
+
+// v4.0's shared working context, over HTTP. The route shipped in v5.0 with no test — `scope` was a
+// query parameter nobody exercised, which is how the collaboration screen came to be missing too.
+describe("scope-anchored injection over HTTP", () => {
+  it("anchors a briefing on a collaboration and reports the anchor back", async () => {
+    const out = await get(
+      `/api/inject?scope=${encodeURIComponent(collaborationId)}`,
+    );
+    expect(out.scope).toBe(collaborationId);
+    // The attached, verified fact is in the briefing; the anchor itself never is.
+    expect(out.items.map((i: { id: string }) => i.id)).toContain(scopedFactId);
+    expect(out.items.map((i: { id: string }) => i.id)).not.toContain(
+      collaborationId,
+    );
+  });
+
+  it("injects only verified knowledge, anchored or not", async () => {
+    const out = await get(
+      `/api/inject?scope=${encodeURIComponent(collaborationId)}`,
+    );
+    // The hard rule (KNOWLEDGE-POLICY): an anchor prioritises, it never lowers the gate.
+    for (const i of out.items)
+      expect(["verified", "stale"]).toContain(i.effectiveStatus);
+    expect(
+      out.items.every(
+        (i: { effectiveStatus: string }) => i.effectiveStatus !== "draft",
+      ),
+    ).toBe(true);
+  });
+
+  it("audits a scoped preview like any other read", async () => {
+    await get(
+      `/api/inject?scope=${encodeURIComponent(collaborationId)}&q=tokens`,
+    );
+    const entry = store
+      .listAudit()
+      .filter((a) => a.action === "inject_preview")
+      .at(-1);
+    expect(entry?.detail).toContain(scopedFactId);
+  });
+});
+
+// The audit viewer's whole job is legibility, so its two detail shapes must both resolve. A verify
+// row stores a bare id list (no " -> "), and reading only the post-arrow half rendered it as ULIDs.
+describe("audit detail resolves both of its shapes", () => {
+  it("resolves a lifecycle transition's bare id list, not just a read's arrow form", async () => {
+    await post("/api/verify", { ids: [scopedFactId] });
+    const trail = await get("/api/audit");
+    const items = trail.items as Array<{
+      action: string;
+      detail: string;
+      refs?: { id: string; type: string; summary: string }[];
+    }>;
+
+    const verified = items.filter((e) => e.action === "verify").at(-1);
+    // The stored detail is unchanged — it is the audit fact — and carries no arrow.
+    expect(verified?.detail).not.toContain(" -> ");
+    expect(verified?.detail).toContain(scopedFactId);
+    // ...and it still resolves, so the screen can name the record instead of printing its id.
+    expect(verified?.refs?.map((r) => r.id)).toContain(scopedFactId);
+    expect(verified?.refs?.find((r) => r.id === scopedFactId)?.summary).toBe(
+      "tokens rotate hourly",
+    );
+
+    // The arrow form keeps working: a read names its subject before the ids.
+    await get(`/api/inject?q=${encodeURIComponent("tokens")}`);
+    const read = (await get("/api/audit")).items
+      .filter((e: { action: string }) => e.action === "inject_preview")
+      .at(-1);
+    expect(read.detail).toContain(" -> ");
+    expect(read.refs?.length).toBeGreaterThan(0);
+  });
+});
+
+describe("creating from the browser (WEB-UI amendment 2026-07-31)", () => {
+  const postRaw = (p: string, body: unknown) =>
+    fetch(base + p, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("creates a draft carrying origin 'web' — allowed, and labelled as hand-typed", async () => {
+    const res = await postRaw("/api/entity", {
+      type: "fact",
+      attributes: { title: "typed at a screen" },
+    });
+    expect(res.status).toBe(201);
+    const created = await res.json();
+    // Draft, never verified: the amendment permits creating, not promoting. A screen that could
+    // write a verified record would route around the one human gate this product is built on.
+    expect(created.status).toBe("draft");
+
+    // And not because the caller happened to omit it — asking for another state changes nothing.
+    // The gate assigns status; it is not an input, on any adapter.
+    const asked = await (
+      await postRaw("/api/entity", {
+        type: "fact",
+        status: "verified",
+        attributes: { title: "asked to be born verified" },
+      })
+    ).json();
+    expect(asked.status).toBe("draft");
+
+    // The label is the whole trade — the ban went away, the ability to tell did not.
+    const stored = await store.getEntity(created.id);
+    expect(stored?.provenance.origin).toBe("web");
+    // The server's resolved actor, not an anonymous one: "someone typed this" is only useful if
+    // the record also says who.
+    expect(stored?.provenance.actor).toBe("reviewer");
+
+    // And it is a real record: it shows up in the queue a human reviews.
+    const drafts = await get("/api/review");
+    expect(drafts.some((d: { id: string }) => d.id === created.id)).toBe(true);
+  });
+
+  it("hands back the gate's own rejection rather than inventing validation", async () => {
+    // decision declares conclusion/rationale required; the client duplicating that rule is how a
+    // client and a server come to disagree about what is valid.
+    const res = await postRaw("/api/entity", {
+      type: "decision",
+      attributes: {},
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.reason).toBe("ontology");
+    expect(body.error).toMatch(/conclusion|required/i);
+
+    // An undeclared type is refused for the same reason, by the same gate.
+    expect((await postRaw("/api/entity", { type: "invented" })).status).toBe(
+      400,
+    );
+    // A missing type never reaches it.
+    expect((await postRaw("/api/entity", {})).status).toBe(400);
+  });
+
+  it("links two records, with the direction the caller asked for", async () => {
+    const person = await (
+      await postRaw("/api/entity", {
+        type: "person",
+        attributes: { name: "Nari" },
+      })
+    ).json();
+    const work = await (
+      await postRaw("/api/entity", {
+        type: "collaboration",
+        attributes: { title: "browser-made work" },
+      })
+    ).json();
+    const res = await postRaw("/api/link", {
+      from: person.id,
+      type: "works_on",
+      to: work.id,
+    });
+    expect(res.status).toBe(201);
+    const edge = await res.json();
+    expect(edge.from).toBe(person.id);
+    expect(edge.to).toBe(work.id);
+
+    // Incoming on the collaboration — the direction that makes an anchor gather a roster.
+    const detail = await get(`/api/entity/${work.id}`);
+    expect(
+      detail.relations.in.some(
+        (r: { type: string; other: { id: string } }) =>
+          r.type === "works_on" && r.other.id === person.id,
+      ),
+    ).toBe(true);
+
+    // Half a link is not a relation.
+    expect(
+      (await postRaw("/api/link", { from: person.id, type: "works_on" }))
+        .status,
+    ).toBe(400);
+  });
+
+  it("attaches to a scope with the same relates_to `yoke add --scope` makes", async () => {
+    const work = await (
+      await postRaw("/api/entity", {
+        type: "collaboration",
+        attributes: { title: "scoped from the browser" },
+      })
+    ).json();
+    const fact = await (
+      await postRaw("/api/entity", {
+        type: "fact",
+        attributes: { title: "attached at creation" },
+        scope: work.id,
+      })
+    ).json();
+    const detail = await get(`/api/entity/${work.id}`);
+    expect(
+      detail.relations.in.some(
+        (r: { type: string; other: { id: string } }) =>
+          r.type === "relates_to" && r.other.id === fact.id,
+      ),
+    ).toBe(true);
+  });
+
+  it("refuses a body that is not JSON, and attributes that are not strings", async () => {
+    const notJson = await fetch(base + "/api/entity", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "type=fact",
+    });
+    expect(notJson.status).toBe(400);
+    // A nested object cannot be described by the ontology's attr types, so it stops here rather
+    // than reaching the store as a shape nothing can validate.
+    expect(
+      (
+        await postRaw("/api/entity", {
+          type: "fact",
+          attributes: { title: { nested: true } },
+        })
+      ).status,
+    ).toBe(400);
+  });
+});
+
+describe("schema and maintenance from the browser", () => {
+  const postRaw = (p: string, body: unknown) =>
+    fetch(base + p, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("declares a type, and declaring it again is a migration not an error", async () => {
+    const def = {
+      name: "experiment",
+      kind: "entity",
+      attrs: { hypothesis: { type: "string", required: true } },
+      ttl_days: 30,
+    };
+    expect((await postRaw("/api/ontology", { def })).status).toBe(201);
+    // The gate reads the ontology, so a record of the new type is immediately creatable — which is
+    // the only proof that the declaration landed somewhere the gate actually looks.
+    expect(
+      (
+        await postRaw("/api/entity", {
+          type: "experiment",
+          attributes: { hypothesis: "caching helps" },
+        })
+      ).status,
+    ).toBe(201);
+    // ...and its required attribute is enforced, from the definition just posted.
+    expect(
+      (await postRaw("/api/entity", { type: "experiment", attributes: {} }))
+        .status,
+    ).toBe(400);
+
+    // Same name again = a new version, the append-only migration the CLI performs.
+    expect(
+      (
+        await postRaw("/api/ontology", {
+          def: { ...def, ttl_days: 60 },
+        })
+      ).status,
+    ).toBe(201);
+    const types = await get("/api/ontology");
+    const found = types.filter(
+      (t: { name: string }) => t.name === "experiment",
+    );
+    // loadOntology returns the latest version per name, so the migration replaced rather than duped.
+    expect(found).toHaveLength(1);
+    expect(found[0].ttl_days).toBe(60);
+
+    // A def that is not a type def never reaches the store.
+    expect(
+      (await postRaw("/api/ontology", { def: { name: "x" } })).status,
+    ).toBe(400);
+    expect((await postRaw("/api/ontology", {})).status).toBe(400);
+  });
+
+  it("backfill is idempotent — the second run creates nothing", async () => {
+    const first = await (await postRaw("/api/backfill", {})).json();
+    expect(first.scanned).toBeGreaterThan(0);
+    const second = await (await postRaw("/api/backfill", {})).json();
+    expect(second.created).toBe(0);
+  });
+
+  it("renames a type everywhere and leaves the audit row that is its only trace", async () => {
+    const created = await (
+      await postRaw("/api/entity", {
+        type: "term",
+        attributes: { title: "renameable" },
+      })
+    ).json();
+    const res = await postRaw("/api/rename-type", {
+      from: "term",
+      to: "glossary",
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rows).toBeGreaterThan(0);
+
+    // The record moved with the declaration — a rename that only touched one of them would leave
+    // the database describing itself in two vocabularies.
+    expect((await get(`/api/entity/${created.id}`)).entity.type).toBe(
+      "glossary",
+    );
+    expect(
+      (await get("/api/ontology")).some(
+        (t: { name: string }) => t.name === "glossary",
+      ),
+    ).toBe(true);
+
+    // The one mutation the version history cannot record, because it rewrites those rows.
+    const trail = await get("/api/audit?limit=500");
+    expect(
+      trail.items.some(
+        (e: { action: string; detail: string }) =>
+          e.action === "rename_type" && e.detail === "term -> glossary",
+      ),
+    ).toBe(true);
+
+    // Renaming to itself is refused rather than quietly rewriting every row for no change.
+    expect(
+      (await postRaw("/api/rename-type", { from: "a", to: "a" })).status,
+    ).toBe(400);
+    expect((await postRaw("/api/rename-type", { from: "a" })).status).toBe(400);
   });
 });

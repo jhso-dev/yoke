@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { api, configureApi } from "../lib/api";
+import { shortId } from "../lib/citation";
 import { clearCredential, getCredential } from "../lib/credential";
+import { useT } from "../lib/i18n";
 import type { Meta } from "../lib/types";
 
 /**
@@ -15,6 +18,7 @@ import type { Meta } from "../lib/types";
  * carries no knowledge, so nothing leaks by loading it.
  */
 export function AuthGate() {
+  const t = useT();
   const router = useRouter();
   const here = usePathname();
   const [meta, setMeta] = useState<Meta | null>(null);
@@ -47,34 +51,37 @@ export function AuthGate() {
     };
   }, [router, here]);
 
-  if (!meta) return <span className="topbar-right muted">connecting…</span>;
+  if (!meta)
+    return <span className="topbar-right muted">{t.chrome.connecting}</span>;
 
   return (
     <span className="topbar-right">
       {meta.readOnly && (
-        <span title="read replica: writes go to the primary">read-only</span>
+        <span title={t.chrome.readOnlyHint}>{t.chrome.readOnly}</span>
       )}
-      {meta.ns && <span title="tenant namespace">ns:{meta.ns}</span>}
-      {meta.actor && <span title="authenticated as">{meta.actor}</span>}
+      {meta.ns && <span title={t.chrome.namespaceHint}>ns:{meta.ns}</span>}
+      {meta.actor && (
+        <span title={t.chrome.authedAs(meta.actor)}>
+          {meta.actorName ?? shortId(meta.actor)}
+        </span>
+      )}
       {meta.auth ? (
         getCredential() ? (
-          <button
+          <Button
             type="button"
             onClick={() => {
               clearCredential();
               router.replace("/login/");
             }}
-            title="clears this browser's credential; revoke the token itself with `yoke token revoke`"
+            title={t.chrome.signOutHint}
           >
-            sign out
-          </button>
+            {t.chrome.signOut}
+          </Button>
         ) : (
-          <Link href="/login/">sign in</Link>
+          <Link href="/login/">{t.chrome.signIn}</Link>
         )
       ) : (
-        <span title="local single-user mode — no credential required">
-          ungated
-        </span>
+        <span title={t.chrome.ungatedHint}>{t.chrome.ungated}</span>
       )}
     </span>
   );

@@ -1,0 +1,137 @@
+/* shadcn's token contract, filled with THIS product's palette rather than the generated default.
+   The workbench is terminal-adjacent — an operator's tool that borrows the CLI's vocabulary
+   (monospace ids and citations, a teal accent) instead of looking like a SaaS dashboard — and
+   adopting a component library is not a reason to lose that. Every value below is the one the
+   hand-written stylesheet already used; only the names are shadcn's. */
+
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Tells the UA to render form controls and scrollbars for whichever theme is active. */
+  color-scheme: light dark;
+
+  --radius: 0.375rem; /* 6px, unchanged */
+
+  --background: #fbfbfc;
+  --foreground: #17191c;
+  --card: #ffffff;
+  --card-foreground: #17191c;
+  --popover: #ffffff;
+  --popover-foreground: #17191c;
+  --primary: #0d9488;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f5f7;
+  --secondary-foreground: #17191c;
+  --muted: #f4f5f7;
+  --muted-foreground: #63676e;
+  --accent: #ccfbf1;
+  /* teal-800, not the teal-600 used everywhere else. On the pale hover background teal-600 measures
+     3.32:1 — under WCAG AA — which is how a hovered select item became hard to read. This is 6.73:1.
+     The dark theme's pair was already 7.52:1 and is unchanged. */
+  --accent-foreground: #115e59;
+  --destructive: #b91c1c;
+  --border: #dfe1e6;
+  --input: #dfe1e6;
+  --ring: #0d9488;
+
+  /* Lifecycle tones. Deliberately NOT derived from the accent: they encode a record's real state,
+     and a palette change must never be able to make "verified" and "draft" look alike. */
+  --tone-draft: #b45309;
+  --tone-draft-bg: #fef3c7;
+  --tone-verified: #15803d;
+  --tone-verified-bg: #dcfce7;
+  --tone-stale: #52525b;
+  --tone-stale-bg: #f1f1f3;
+  --tone-deprecated: #b91c1c;
+  --tone-deprecated-bg: #fee2e2;
+  --tone-unknown: #52525b;
+  --tone-unknown-bg: #f1f1f3;
+}
+
+/* Both themes, and the OS preference is the signal — this workbench has no theme toggle, so the
+   media query is the whole story rather than a fallback behind a `.dark` class. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0e1013;
+    --foreground: #e7e9ec;
+    --card: #16191d;
+    --card-foreground: #e7e9ec;
+    --popover: #16191d;
+    --popover-foreground: #e7e9ec;
+    --primary: #2dd4bf;
+    --primary-foreground: #0e1013;
+    --secondary: #1c2025;
+    --secondary-foreground: #e7e9ec;
+    --muted: #1c2025;
+    --muted-foreground: #9aa0a8;
+    --accent: #10312e;
+    --accent-foreground: #2dd4bf;
+    --destructive: #f87171;
+    --border: #2a2f36;
+    --input: #2a2f36;
+    --ring: #2dd4bf;
+
+    --tone-draft: #fbbf24;
+    --tone-draft-bg: #3a2c07;
+    --tone-verified: #4ade80;
+    --tone-verified-bg: #0d2f1a;
+    --tone-stale: #a1a1aa;
+    --tone-stale-bg: #23262b;
+    --tone-deprecated: #f87171;
+    --tone-deprecated-bg: #3a1414;
+    --tone-unknown: #a1a1aa;
+    --tone-unknown-bg: #23262b;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-draft: var(--tone-draft);
+  --color-draft-bg: var(--tone-draft-bg);
+  --color-verified: var(--tone-verified);
+  --color-verified-bg: var(--tone-verified-bg);
+  --color-stale: var(--tone-stale);
+  --color-stale-bg: var(--tone-stale-bg);
+  --color-deprecated: var(--tone-deprecated);
+  --color-deprecated-bg: var(--tone-deprecated-bg);
+  --color-unknown: var(--tone-unknown);
+  --color-unknown-bg: var(--tone-unknown-bg);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans text-sm;
+  }
+}

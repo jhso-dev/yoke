@@ -11,12 +11,16 @@ import {
   type ServerResponse,
 } from "node:http";
 import { fileURLToPath } from "node:url";
-import { citation, inject } from "../../core/inject.js";
+import { backfillAuthorship } from "../../core/backfill.js";
+import { CommitRejected, commit } from "../../core/commit.js";
+import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
+import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
 import { deprecate, effectiveStatus, verify } from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
+import { summarize } from "../display.js";
 import { openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
 
@@ -41,6 +45,10 @@ export interface UiDeps {
   /** Read replica: the client disables mutation controls up front rather than letting people
    * discover replica mode by clicking and getting a 409. */
   readOnly?: boolean;
+  /** Same embedder the CLI builds from env. Passed so a record created in the browser gets the same
+   * duplicate and contradiction detection one created by `yoke add` does — without it the gate's
+   * stages 3 and 4 would silently be weaker on this adapter than on the others. */
+  embedder?: Embedder;
 }
 
 /** Where the built bundle lives: the published layout first, then the source checkout, so
@@ -64,35 +72,87 @@ function defaultWebRoot(): string | null {
   return cachedWebRoot;
 }
 
-/** First string value in attributes, truncated — same compact summary the CLI uses. */
-function summarize(attributes: Record<string, unknown>): string {
-  for (const val of Object.values(attributes)) {
-    if (typeof val === "string") return val.slice(0, 60);
-  }
-  return "";
+/** A person's display name: the `name` attribute by convention, else the first string attribute.
+ * The seed ontology declares `person` with no required attrs, so this is a convention, not a schema
+ * guarantee — hence the fallback and the `undefined` when there is nothing readable. */
+function personName(e: Entity, ontology: TypeDef[]): string | undefined {
+  const named = e.attributes.name;
+  if (typeof named === "string" && named) return named;
+  return summarize(e, ontology) || undefined;
+}
+
+/**
+ * actor id → display name, memoized for one request.
+ *
+ * `provenance.actor` is "a person entity id or agent identifier" (core/types.ts), so half the time
+ * it is a ULID that means nothing to a reader. Resolution lives HERE, in the front tier, and never
+ * in `citation()`: the citation is the audit pointer and an id is what makes it one — names are not
+ * unique and they change, so a renamed person must not rewrite history.
+ *
+ * ponytail: one point read per distinct actor per request, memoized. A page of 100 rows by 3 authors
+ * costs 3 reads. Batch it via a port method only if a profile ever says these reads matter.
+ */
+function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
+  const seen = new Map<string, string | undefined>();
+  return async (actorId: string): Promise<string | undefined> => {
+    if (!seen.has(actorId)) {
+      // Agent identifiers are namespaced with a colon ('yoke:system', 'connector:github-pr');
+      // ULIDs never contain one, so this skips the pointless read for every machine actor.
+      const e = actorId.includes(":") ? null : await store.getEntity(actorId);
+      seen.set(
+        actorId,
+        e?.type === "person" ? personName(e, ontology) : undefined,
+      );
+    }
+    return seen.get(actorId);
+  };
 }
 
 /** The audit-visible knowledge row shape shared by every screen (citation everywhere).
  * effectiveStatus is always present because 'stale' is computed at read time and never stored
  * (core/lifecycle) — without it a client physically cannot render an expired record as expired,
- * and would show it as verified. The client renders effectiveStatus and never recomputes TTL. */
-function row(e: Entity, ontology: TypeDef[], ts: string) {
+ * and would show it as verified. The client renders effectiveStatus and never recomputes TTL.
+ * `actor` stays the id (it is what the citation points at); `actorName` is the readable rendering
+ * and is absent when the actor is a machine or an unresolvable person. */
+function row(
+  e: Entity,
+  ontology: TypeDef[],
+  ts: string,
+  actorName?: string,
+): {
+  id: string;
+  type: string;
+  version: number;
+  status: string;
+  effectiveStatus: string;
+  summary: string;
+  actor: string;
+  actorName?: string;
+  occurred_at: string;
+  citation: string;
+} {
   return {
     id: e.id,
     type: e.type,
     version: e.version,
     status: e.status,
     effectiveStatus: effectiveStatus(e, ontology, ts),
-    summary: summarize(e.attributes),
+    summary: summarize(e, ontology),
     actor: e.provenance.actor,
+    ...(actorName === undefined ? {} : { actorName }),
     occurred_at: e.provenance.occurred_at,
     citation: citation(e),
   };
 }
 
 /** A relation row: the same shape plus its endpoints (row() reads a Relation structurally). */
-function relRow(r: Relation, ontology: TypeDef[], ts: string) {
-  return { ...row(r, ontology, ts), from: r.from, to: r.to };
+function relRow(
+  r: Relation,
+  ontology: TypeDef[],
+  ts: string,
+  actorName?: string,
+) {
+  return { ...row(r, ontology, ts, actorName), from: r.from, to: r.to };
 }
 
 /** A bounded positive-int query param. Throws (→400) on garbage or over max — never a silent cap,
@@ -120,7 +180,15 @@ function sendJson(res: ServerResponse, code: number, data: unknown): void {
  * memory. ponytail: one cap for the one POST shape we accept; make it per-route if that changes. */
 const MAX_BODY = 256 * 1024;
 
-async function readIds(req: IncomingMessage): Promise<string[]> {
+/** How many of an audit event's referenced records get resolved to a readable summary. A bulk verify
+ * can name thousands of ids; resolving all of them would turn one audit page into thousands of point
+ * reads. The untouched `detail` string still holds every id, so nothing is hidden — only unexpanded.
+ * ponytail: a flat per-event cap. Make it a budget across the page if audit pages ever feel slow. */
+const AUDIT_REFS = 20;
+
+async function readBody(
+  req: IncomingMessage,
+): Promise<Record<string, unknown>> {
   const ct = req.headers["content-type"] ?? "";
   if (!ct.includes("application/json"))
     throw new Error("content-type must be application/json");
@@ -132,12 +200,30 @@ async function readIds(req: IncomingMessage): Promise<string[]> {
     chunks.push(c as Buffer);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
-  const body = raw ? JSON.parse(raw) : {};
-  const ids = (body as { ids?: unknown }).ids;
+  return raw ? JSON.parse(raw) : {};
+}
+
+async function readIds(req: IncomingMessage): Promise<string[]> {
+  const ids = (await readBody(req)).ids;
   if (!Array.isArray(ids) || ids.some((i) => typeof i !== "string")) {
     throw new Error("body must be { ids: string[] }");
   }
   return ids as string[];
+}
+
+/** Attribute values a form can send. Anything else (nested objects, numbers that should have been
+ * strings) is refused here rather than reaching the gate as a shape the ontology cannot describe. */
+function readAttributes(v: unknown): Record<string, unknown> {
+  if (v === undefined || v === null) return {};
+  if (typeof v !== "object" || Array.isArray(v))
+    throw new Error("attributes must be an object");
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    const ok =
+      typeof val === "string" ||
+      (Array.isArray(val) && val.every((x) => typeof x === "string"));
+    if (!ok) throw new Error(`attribute "${k}" must be a string or string[]`);
+  }
+  return v as Record<string, unknown>;
 }
 
 /** The bare request handler (no Server wrapper) so serve mode can reuse the exact same routes
@@ -158,11 +244,24 @@ export function createUiHandler(
     deps.webRoot === undefined ? defaultWebRoot() : deps.webRoot,
   );
   /** A row serializer bound to this request's ontology and clock — so effectiveStatus is computed
-   * once per request rather than per row, and every route reports freshness the same way. */
+   * once per request rather than per row, and every route reports freshness the same way.
+   * Async because it also resolves actor ids to display names; the name memo is created here, per
+   * call, so it cannot outlive one response and serve a renamed person their old name. */
   const asRow = () => {
     const ontology = store.loadOntology(ns);
     const ts = now();
-    return (e: Entity) => row(e, ontology, ts);
+    const nameOf = makeActorNames(store, ontology);
+    return async (e: Entity) =>
+      row(e, ontology, ts, await nameOf(e.provenance.actor));
+  };
+  /** The same, for relations — a relation is knowledge with an author too, so its row carries the
+   * readable actor for the identical reason. */
+  const asRelRow = () => {
+    const ontology = store.loadOntology(ns);
+    const ts = now();
+    const nameOf = makeActorNames(store, ontology);
+    return async (r: Relation) =>
+      relRow(r, ontology, ts, await nameOf(r.provenance.actor));
   };
 
   return async function handle(
@@ -191,21 +290,30 @@ export function createUiHandler(
     // is unauthenticated it withholds actor and ns too, so it cannot be used to enumerate tenants.
     if (method === "GET" && path === "/api/meta") {
       const authenticated = authorize("read");
+      // The topbar says who you are signed in as. Under --auth that actor is a person entity id, so
+      // without resolution the header reads as a ULID.
+      const actorName = authenticated
+        ? await makeActorNames(store, store.loadOntology(ns))(actor)
+        : undefined;
       sendJson(res, 200, {
         auth: deps.authRequired ?? false,
         readOnly: deps.readOnly ?? false,
         ns: authenticated ? ns : null,
         actor: authenticated ? actor : null,
+        ...(actorName === undefined ? {} : { actorName }),
       });
       return;
     }
 
     if (method === "GET" && path === "/api/review") {
       if (!authorize("read") && deny(res)) return;
-      // Only this reviewer's raw draft list — no peers' pending approvals (Delphi independence
-      // guard — see web/app/review/page.tsx). Hook for v3 multi-reviewer aggregation.
+      // Every draft in the namespace. It carries no peer approval state — not because it is
+      // filtered out, but because none exists: verify is immediate and per-actor, so there is no
+      // pending approval to leak. The Delphi independence constraint (docs/RESEARCH.md §2–3) binds
+      // whoever adds multi-reviewer aggregation; this route is not currently enforcing it, and the
+      // comment that used to say "only this reviewer's list" described a filter that is not here.
       const drafts = await store.listEntities({ status: "draft", ns });
-      sendJson(res, 200, drafts.items.map(asRow()));
+      sendJson(res, 200, await Promise.all(drafts.items.map(asRow())));
       return;
     }
 
@@ -222,7 +330,10 @@ export function createUiHandler(
         limit: intParam(url, "limit", 100, 1000),
       };
       const p = await store.listEntities(q);
-      sendJson(res, 200, { items: p.items.map(asRow()), next: p.next });
+      sendJson(res, 200, {
+        items: await Promise.all(p.items.map(asRow())),
+        next: p.next,
+      });
       return;
     }
 
@@ -240,33 +351,32 @@ export function createUiHandler(
         return;
       }
       const asR = asRow();
-      const ont = store.loadOntology(ns);
-      const ts = now();
+      const asRel = asRelRow();
       const rels = await store.neighbors(id);
       const side = async (other: string) => {
         const o = await store.getEntity(other);
         return o && normalizeNs(o.ns) === normalizeNs(ns)
-          ? asR(o)
+          ? await asR(o)
           : { id: other, missing: true };
       };
       const edges = await Promise.all(
         rels
           .filter((r) => normalizeNs(r.ns) === normalizeNs(ns))
           .map(async (r) => ({
-            ...relRow(r, ont, ts),
+            ...(await asRel(r)),
             dir: r.from === id ? ("out" as const) : ("in" as const),
             other: await side(r.from === id ? r.to : r.from),
           })),
       );
       sendJson(res, 200, {
         entity: {
-          ...asR(e),
+          ...(await asR(e)),
           attributes: e.attributes,
           last_confirmed: e.last_confirmed,
           origin: e.provenance.origin,
           ...(e.ns != null ? { ns: e.ns } : {}),
         },
-        history: store.listHistory(id).map(asR),
+        history: await Promise.all(store.listHistory(id).map(asR)),
         relations: {
           out: edges.filter((x) => x.dir === "out"),
           in: edges.filter((x) => x.dir === "in"),
@@ -285,7 +395,7 @@ export function createUiHandler(
       const side = async (id: string) => {
         const e = await store.getEntity(id);
         return e && normalizeNs(e.ns) === normalizeNs(ns)
-          ? asR(e)
+          ? await asR(e)
           : { id, missing: true };
       };
       const pairs = await Promise.all(
@@ -311,12 +421,20 @@ export function createUiHandler(
         throw new Error("q or scope is required (scope alone is a briefing)");
       const ts = now();
       const includeDraft = url.searchParams.get("includeDraft") === "true";
-      const { items } = await inject(store, store.loadOntology(ns), query, ts, {
-        includeDraft,
-        limit: intParam(url, "limit", 50, 500),
-        ns,
-        scope,
-      });
+      const { items, omitted } = await inject(
+        store,
+        store.loadOntology(ns),
+        query,
+        ts,
+        {
+          includeDraft,
+          // This route already defaulted to 50; what it lacked was saying so. A preview that quietly
+          // shows 50 of 312 misrepresents what an agent would receive.
+          limit: intParam(url, "limit", BRIEFING_LIMIT, 500),
+          ns,
+          scope,
+        },
+      );
       store.logAudit({
         actor,
         action: "inject_preview",
@@ -329,7 +447,8 @@ export function createUiHandler(
         query,
         scope: scope ?? null,
         includeDraft,
-        items: items.map((it) => asR(it.entity)),
+        omitted,
+        items: await Promise.all(items.map((it) => asR(it.entity))),
       });
       return;
     }
@@ -344,8 +463,7 @@ export function createUiHandler(
       const limit = intParam(url, "limit", 300, 2000);
       const scope = url.searchParams.get("scope");
       const asR = asRow();
-      const ont = store.loadOntology(ns);
-      const ts = now();
+      const asRel = asRelRow();
       const inNs = (x: { ns?: string | null }) =>
         normalizeNs(x.ns) === normalizeNs(ns);
 
@@ -377,10 +495,12 @@ export function createUiHandler(
         const keptIds = new Set(kept.map((e) => e.id));
         sendJson(res, 200, {
           anchor: scope,
-          nodes: kept.map(asR),
-          edges: [...edges.values()]
-            .filter((r) => keptIds.has(r.from) || keptIds.has(r.to))
-            .map((r) => relRow(r, ont, ts)),
+          nodes: await Promise.all(kept.map(asR)),
+          edges: await Promise.all(
+            [...edges.values()]
+              .filter((r) => keptIds.has(r.from) || keptIds.has(r.to))
+              .map(asRel),
+          ),
           next: { nodes: null, edges: null },
           truncated: nodes.size > kept.length,
           limit,
@@ -402,8 +522,8 @@ export function createUiHandler(
       ]);
       sendJson(res, 200, {
         anchor: null,
-        nodes: ents.items.map(asR),
-        edges: rels.items.map((r) => relRow(r, ont, ts)),
+        nodes: await Promise.all(ents.items.map(asR)),
+        edges: await Promise.all(rels.items.map(asRel)),
         next: { nodes: ents.next, edges: rels.next },
         truncated: ents.next !== null || rels.next !== null,
         limit,
@@ -421,7 +541,61 @@ export function createUiHandler(
         ns,
         limit,
       });
-      sendJson(res, 200, { items: events, limit });
+      // The trail records ids — that is the auditable fact — but an id tells a reader nothing about
+      // WHAT was injected. So the actor and every id named in `detail` are resolved for reading,
+      // alongside the untouched `detail` string. One batched pass over the whole page: ids repeat
+      // heavily across events (the same knowledge injected again and again), so a shared memo turns
+      // what would be limit×refs point reads into one per distinct id.
+      const auditOnt = store.loadOntology(ns);
+      const nameOf = makeActorNames(store, auditOnt);
+      const seen = new Map<string, { type: string; summary: string } | null>();
+      const resolve = async (id: string) => {
+        if (!seen.has(id)) {
+          const e = await store.getEntity(id);
+          // A miss is cached as null too: a deleted or foreign-ns id must not be re-read per event.
+          const inNs = e !== null && normalizeNs(e.ns) === normalizeNs(ns);
+          seen.set(
+            id,
+            inNs && e
+              ? { type: e.type, summary: summarize(e, auditOnt) }
+              : null,
+          );
+        }
+        return seen.get(id) ?? null;
+      };
+      const items = await Promise.all(
+        events.map(async (e) => {
+          const actorName = await nameOf(e.actor);
+          // `detail` has two shapes: `<subject> -> <id> <id> …` for a read, and a bare id list for a
+          // lifecycle transition (verify/deprecate). Reading only the post-arrow half meant a verify
+          // row rendered as raw ULIDs — the exact defect this pass exists to remove, in the rows the
+          // audit screen most needs to be legible.
+          const after = e.detail.split(" -> ");
+          const ids = (after[1] ?? after[0] ?? "")
+            .split(" ")
+            .filter(Boolean)
+            .slice(0, AUDIT_REFS);
+          // A `persona` row's subject is the person whose judgment was read, so it is an id too and
+          // was rendering as one. An `inject` row's subject is a query string; only try the ones
+          // shaped like a ULID, so a query never costs a pointless point read.
+          const head = after.length > 1 ? (after[0] ?? "") : "";
+          if (/^[0-9A-HJKMNP-TV-Z]{26}$/.test(head)) ids.unshift(head);
+          const refs = (
+            await Promise.all(
+              ids.map(async (id) => {
+                const r = await resolve(id);
+                return r === null ? null : { id, ...r };
+              }),
+            )
+          ).filter((r) => r !== null);
+          return {
+            ...e,
+            ...(actorName === undefined ? {} : { actorName }),
+            ...(refs.length ? { refs } : {}),
+          };
+        }),
+      );
+      sendJson(res, 200, { items, limit });
       return;
     }
 
@@ -451,8 +625,8 @@ export function createUiHandler(
       });
       const asR = asRow();
       sendJson(res, 200, {
-        decisions: result.decisions.map(asR),
-        facts: result.facts.map(asR),
+        decisions: await Promise.all(result.decisions.map(asR)),
+        facts: await Promise.all(result.facts.map(asR)),
       });
       return;
     }
@@ -476,7 +650,177 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      sendJson(res, 200, done.map(asRow()));
+      sendJson(res, 200, await Promise.all(done.map(asRow())));
+      return;
+    }
+
+    // Creating a record, and linking two of them. Allowed since the 2026-07-31 WEB-UI amendment:
+    // the gate, not the adapter, is what enforces entry, so a record typed at a screen faces the
+    // same ontology validation and the same draft-then-verify path as one an agent commits. What
+    // makes that honest is `origin: "web"` below — hand-typed knowledge is permitted and labelled,
+    // rather than forbidden and therefore invisible when someone works around the ban.
+    //
+    // No audit row: a create IS recorded, by the v1 row it produces, which carries actor, origin and
+    // timestamp. That is the schema's own rule for entity mutations (see audit_log's comment), and
+    // `rename_type` is an exception only because it rewrites the rows that would record it.
+    if (method === "POST" && (path === "/api/entity" || path === "/api/link")) {
+      const isLink = path === "/api/link";
+      const body = await readBody(req);
+      const type = body.type;
+      if (typeof type !== "string" || !type) {
+        sendJson(res, 400, { error: "type is required" });
+        return;
+      }
+      // Per-type write permission — the same key the read routes pass, so a `ns:fact:write` token
+      // can create facts and nothing else.
+      if (!authorize("write", type) && deny(res)) return;
+      const ontology = store.loadOntology(ns);
+      if (ontology.length === 0) {
+        sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
+        return;
+      }
+      const ts = now();
+      const prov = { actor, origin: "web", occurred_at: ts };
+      try {
+        const attributes = readAttributes(body.attributes);
+        if (isLink) {
+          const { from, to } = body;
+          if (
+            typeof from !== "string" ||
+            typeof to !== "string" ||
+            !from ||
+            !to
+          ) {
+            sendJson(res, 400, { error: "from and to are required" });
+            return;
+          }
+          const { entity } = await commit(
+            store,
+            ontology,
+            { type, attributes, from, to },
+            prov,
+            ts,
+            { ns },
+          );
+          sendJson(res, 201, await asRelRow()(entity as Relation));
+          return;
+        }
+        const { entity, duplicates } = await commit(
+          store,
+          ontology,
+          { type, attributes },
+          prov,
+          ts,
+          { embedder: deps.embedder, ns },
+        );
+        // Capture-side linking, the same second commit `yoke add --scope` makes — so the browser
+        // path and the CLI path attach knowledge to a collaboration identically.
+        if (typeof body.scope === "string" && body.scope) {
+          await commit(
+            store,
+            ontology,
+            {
+              type: "relates_to",
+              attributes: {},
+              from: entity.id,
+              to: body.scope,
+            },
+            prov,
+            ts,
+            { ns },
+          );
+        }
+        // Duplicates travel with the response: the gate found them, and a form that discards them
+        // is a form that helps someone create the thing they were warned about.
+        sendJson(res, 201, {
+          ...(await asRow()(entity)),
+          duplicates: await Promise.all(duplicates.map(asRow())),
+        });
+        return;
+      } catch (e) {
+        // A rejection is the gate working, not a server fault — 400 with the reason it gave, so the
+        // form can show the ontology's own words instead of inventing its own validation.
+        if (e instanceof CommitRejected) {
+          sendJson(res, 400, { error: e.message, reason: e.reason });
+          return;
+        }
+        throw e;
+      }
+    }
+
+    // Ontology migration — `yoke ontology add-type`. Gated on `verify`, not `write`: this is the
+    // one write that BYPASSES the commit gate (the gate reads the ontology, so validating it against
+    // itself would be circular), which makes it the most powerful action here. Append-only per name,
+    // so an existing name is a new version — a migration, exactly as it is from the CLI.
+    if (method === "POST" && path === "/api/ontology") {
+      if (!authorize("verify") && deny(res)) return;
+      const def = (await readBody(req)).def;
+      if (
+        !def ||
+        typeof def !== "object" ||
+        typeof (def as TypeDef).name !== "string" ||
+        !(def as TypeDef).name ||
+        ((def as TypeDef).kind !== "entity" &&
+          (def as TypeDef).kind !== "relation")
+      ) {
+        sendJson(res, 400, {
+          error: 'def must be { name, kind: "entity"|"relation", attrs }',
+        });
+        return;
+      }
+      // attrs defaulted, not overridden: a type with no attributes is legitimate (the seed's `term`
+      // and `resource` both are), and the CLI's JSON-file path allows omitting the key.
+      const incoming = def as TypeDef;
+      const typeDef: TypeDef = { ...incoming, attrs: incoming.attrs ?? {} };
+      store.saveOntology([typeDef], ns);
+      sendJson(res, 201, typeDef);
+      return;
+    }
+
+    // Repair: re-derive authorship edges for records committed before the gate made them. Gated on
+    // `write` because that is what it produces — edges, through the same gate, attributed to each
+    // record's recorded author rather than to whoever pressed the button.
+    if (method === "POST" && path === "/api/backfill") {
+      if (!authorize("write") && deny(res)) return;
+      const ontology = store.loadOntology(ns);
+      if (ontology.length === 0) {
+        sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        await backfillAuthorship(store, ontology, now(), { ns }),
+      );
+      return;
+    }
+
+    // Renaming a type rewrites every row that carries it, including history. Gated on `verify` for
+    // that reason, and it writes the `rename_type` audit row for the reason the store documents:
+    // it is the one mutation the append-only history cannot record, because it rewrites those rows.
+    if (method === "POST" && path === "/api/rename-type") {
+      if (!authorize("verify") && deny(res)) return;
+      const body = await readBody(req);
+      const { from, to } = body;
+      if (typeof from !== "string" || typeof to !== "string" || !from || !to) {
+        sendJson(res, 400, { error: "from and to are required" });
+        return;
+      }
+      if (from === to) {
+        sendJson(res, 400, { error: "from and to are the same name" });
+        return;
+      }
+      const ts = now();
+      const rows = store.renameType(from, to, ns);
+      if (rows > 0)
+        store.logAudit({
+          actor,
+          action: "rename_type",
+          detail: `${from} -> ${to}`,
+          at: ts,
+          ns,
+        });
+      sendJson(res, 200, { from, to, rows });
       return;
     }
 
@@ -544,7 +888,14 @@ export async function runUi(
   const store = await openStore({ db, shards }, env);
   await store.init();
   const actor = env.YOKE_ACTOR ?? "yoke:system";
-  const server = createUiServer({ store, actor, ns: ns ?? null });
+  // Same embedder the CLI builds, so the gate's duplicate and contradiction stages are as strong
+  // for a record created in the browser as for one created by `yoke add`.
+  const server = createUiServer({
+    store,
+    actor,
+    ns: ns ?? null,
+    embedder: makeFetchEmbedder(env),
+  });
   server.on("close", () => store.close());
   await listen(server, port, host);
   const addr = server.address();

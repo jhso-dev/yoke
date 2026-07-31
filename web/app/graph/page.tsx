@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Actor } from "../../components/Actor";
+import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { GraphCanvas } from "../../components/GraphCanvas";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -11,10 +14,13 @@ import {
   type Graph,
   MAX_NODES,
   makeTypeColors,
+  membershipTypes,
   mergeGraph,
   toGraph,
   truncationNotice,
 } from "../../lib/graph";
+import { useT } from "../../lib/i18n";
+import { useAsync } from "../../lib/useAsync";
 
 /**
  * The knowledge graph, navigable.
@@ -68,17 +74,22 @@ function GraphBody() {
     [graph],
   );
   const colorOf = useMemo(() => makeTypeColors(types), [types]);
+  // Fetched only for what `membership: true` means to the drawing — a roster edge is not knowledge.
+  // Its failure is cosmetic, so it deliberately has no ErrorBanner: an unreachable ontology must not
+  // blank a graph that loaded fine.
+  const ontology = useAsync(() => api.ontology(), []);
+  const membership = useMemo(
+    () => membershipTypes(ontology.data ?? []),
+    [ontology.data],
+  );
+  const t = useT();
   const notice = graph ? truncationNotice(graph) : null;
   const chosen = graph?.nodes.find((n) => n.id === selected) ?? null;
 
   return (
     <>
-      <h1>Graph</h1>
-      <p className="lede">
-        {anchor
-          ? "Two hops out from one record. Double-click any node to expand from it."
-          : "Every record and relation in this namespace. Double-click a node to pull in its neighbours."}
-      </p>
+      <h1>{t.graph.heading}</h1>
+      <p className="lede">{anchor ? t.graph.ledeAnchored : t.graph.lede}</p>
       <ErrorBanner error={error} />
       {notice && (
         <div className="banner" data-kind="warn">
@@ -89,12 +100,11 @@ function GraphBody() {
       <div className="controls">
         {anchor && (
           <Link className="btn" href="/graph/">
-            whole namespace
+            {t.graph.wholeNamespace}
           </Link>
         )}
         <span className="muted">
-          {graph?.nodes.length ?? 0} nodes · {graph?.links.length ?? 0}{" "}
-          relations
+          {t.graph.counts(graph?.nodes.length ?? 0, graph?.links.length ?? 0)}
         </span>
         {types.map((t) => (
           <span key={t} className="pill" style={{ background: "transparent" }}>
@@ -111,18 +121,22 @@ function GraphBody() {
             {t}
           </span>
         ))}
+        {/* Without this the two edge marks are decoration. The direction is the point: knowledge and
+            people point AT the work, which is why an anchor gathers knowledge instead of holding it. */}
+        <span className="muted">{t.graph.legend}</span>
       </div>
 
       <div className="panel">
         {loading ? (
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         ) : !graph || graph.nodes.length === 0 ? (
-          <div className="empty">nothing to draw in this namespace</div>
+          <div className="empty">{t.graph.empty}</div>
         ) : (
           <>
             <GraphCanvas
               graph={graph}
               colorOf={colorOf}
+              membership={membership}
               selected={selected}
               onSelect={setSelected}
               onExpand={expand}
@@ -141,13 +155,14 @@ function GraphBody() {
                 <StatusBadge status={chosen.status} />
                 <span className="mono">{chosen.type}</span>
                 <strong>{chosen.label}</strong>
-                <span className="cite">{chosen.citation}</span>
+                <Actor actor={chosen.actor} actorName={chosen.actorName} />
+                <Citation row={chosen} />
                 <Link href={`/entity/?id=${encodeURIComponent(chosen.id)}`}>
-                  open record
+                  {t.common.openRecord}
                 </Link>
-                <button type="button" onClick={() => expand(chosen.id)}>
-                  expand
-                </button>
+                <Button type="button" onClick={() => expand(chosen.id)}>
+                  {t.common.expand}
+                </Button>
               </div>
             )}
           </>
@@ -156,21 +171,18 @@ function GraphBody() {
 
       <div className="panel">
         <div className="panel-head">
-          nodes
-          <span className="muted">
-            same data, keyboard-navigable — the canvas above is not reachable by
-            screen readers
-          </span>
+          {t.graph.nodes}
+          <span className="muted">{t.graph.nodesNote}</span>
         </div>
         {graph && graph.nodes.length > 0 ? (
           <div className="scroll-x">
             <table>
               <thead>
                 <tr>
-                  <th>type</th>
-                  <th>record</th>
-                  <th>status</th>
-                  <th>relations</th>
+                  <th>{t.common.type}</th>
+                  <th>{t.common.record}</th>
+                  <th>{t.common.status}</th>
+                  <th>{t.common.relations}</th>
                   <th />
                 </tr>
               </thead>
@@ -190,9 +202,9 @@ function GraphBody() {
                       </td>
                       <td className="num">{n.degree}</td>
                       <td>
-                        <button type="button" onClick={() => expand(n.id)}>
-                          expand
-                        </button>
+                        <Button type="button" onClick={() => expand(n.id)}>
+                          {t.common.expand}
+                        </Button>
                       </td>
                     </tr>
                   ))}

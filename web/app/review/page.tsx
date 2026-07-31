@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
+import { useT } from "../../lib/i18n";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -16,6 +18,7 @@ import { useAsync } from "../../lib/useAsync";
  * deliberately no endpoint exposing peers' pending decisions, and there must not be one.
  */
 export default function Review() {
+  const t = useT();
   const drafts = useAsync(() => api.review(), []);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -44,48 +47,42 @@ export default function Review() {
   }
 
   const rows = drafts.data ?? [];
+
+  // The header checkbox. Over the rows on screen rather than every draft, so it keeps meaning the
+  // moment this queue grows a filter.
+  const setAll = (next: boolean) =>
+    setChosen(next ? new Set(rows.map((r) => r.id)) : new Set());
   return (
     <>
-      <h1>Review queue</h1>
-      <p className="lede">
-        Everything staged and not yet believed. Nothing here reaches an agent:
-        drafts are withheld from injection until a human promotes them.
-      </p>
+      <h1>{t.review.heading}</h1>
+      <p className="lede">{t.review.lede}</p>
       <ErrorBanner error={drafts.error ?? actionError} />
       <div className="controls">
-        <button
+        <Button
           type="button"
-          className="primary"
           disabled={busy || chosen.size === 0}
           onClick={() => act("verify")}
         >
-          verify {chosen.size || ""}
-        </button>
-        <button
+          {t.common.verify} {chosen.size || ""}
+        </Button>
+        <Button
           type="button"
-          className="danger"
+          variant="destructive"
           disabled={busy || chosen.size === 0}
           onClick={() => act("deprecate")}
         >
-          deprecate {chosen.size || ""}
-        </button>
-        <button
-          type="button"
-          disabled={rows.length === 0}
-          onClick={() => setChosen(new Set(rows.map((r) => r.id)))}
-        >
-          select all
-        </button>
-        <span className="muted">{rows.length} draft(s)</span>
+          {t.common.deprecate} {chosen.size || ""}
+        </Button>
+        <span className="muted">{t.review.draftCount(rows.length)}</span>
       </div>
       <div className="panel">
         {drafts.loading ? (
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         ) : (
           <KnowledgeTable
             rows={rows}
-            empty="no drafts — the queue is clear"
-            select={{ chosen, toggle }}
+            empty={t.review.empty}
+            select={{ chosen, toggle, setAll }}
           />
         )}
       </div>

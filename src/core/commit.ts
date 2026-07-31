@@ -178,7 +178,7 @@ export async function commit(
   // (4b) Authorship as a graph edge. provenance.actor is a stored field, so a graph walk cannot see
   // it — which is why persona used to need a listByActor lookup outside the port. Mirroring
   // authorship as an authored_by relation makes "knowledge from this person" the same one-hop walk
-  // as "knowledge in this workstream": one mechanism, and it works on every conformant backend.
+  // as "knowledge in this collaboration": one mechanism, and it works on every conformant backend.
   // Entities only (the inner call commits a relation, which returns above — no recursion), skipping
   // self-authorship, and idempotent per (entity, actor) so re-commits never pile up edges.
   // Skipped when the ontology in force does not declare authored_by: a tenant schema that never

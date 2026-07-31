@@ -263,7 +263,7 @@ describe("commit gate stage 4 (decision conflict)", () => {
 });
 
 // Stage 4b — provenance mirrored into the graph. This is what lets a person anchor an injection
-// exactly like a workstream does (one mechanism), so the edge is part of the gate's contract.
+// exactly like a collaboration does (one mechanism), so the edge is part of the gate's contract.
 describe("authorship edge", () => {
   const add = (attributes: Record<string, unknown>, actor: string) =>
     commit(port, ont, { type: "fact", attributes }, { ...prov, actor }, now);

@@ -11,7 +11,7 @@ import { z } from "zod";
 import type { AuditEvent } from "../../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
-import { citation, inject } from "../../core/inject.js";
+import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
 import { resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
@@ -38,7 +38,7 @@ export interface YokeMcpDeps {
   /** Per-request RBAC hook (PLAN-V2 10.4). Default allow-all — stdio `yoke mcp` is single-user
    * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */
   authorize?: (action: "read" | "write" | "verify", type?: string) => boolean;
-  /** Default injection/capture scope (a workstream/entity id) resolved at startup from YOKE_SCOPE
+  /** Default injection/capture scope (a collaboration/entity id) resolved at startup from YOKE_SCOPE
    * (v4.0). The agent can also pin one at runtime via yoke_use_scope; a tool-call `scope` argument
    * always overrides both. null = no default. */
   defaultScope?: string | null;
@@ -46,8 +46,8 @@ export interface YokeMcpDeps {
 
 /** Resolve a work-item key (or entity id) to an anchor entity. Exact entity id wins (getEntity);
  * otherwise search for an entity whose `key` OR `title` attribute equals the key, preferring a
- * `workstream` since that is what a work-item key names. Any entity type may anchor an injection —
- * a workstream is the shared working context, a person is a persona — so the fallback is not
+ * `collaboration` since that is what a work-item key names. Any entity type may anchor an injection —
+ * a collaboration is the shared working context, a person is a persona — so the fallback is not
  * restricted to one type. Front-tier only. Returns null when nothing matches. Shared by startup
  * (YOKE_SCOPE) and the yoke_use_scope tool.
  */
@@ -66,7 +66,7 @@ export async function resolveScope(
   const named = hits.filter(
     (e) => e.attributes.key === key || e.attributes.title === key,
   );
-  const found = named.find((e) => e.type === "workstream") ?? named[0];
+  const found = named.find((e) => e.type === "collaboration") ?? named[0];
   return found ? asEntity(found) : null;
 }
 
@@ -83,7 +83,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   let sessionScope: string | null = null;
   // Precedence: explicit per-call scope > session pin (yoke_use_scope) > startup YOKE_SCOPE.
   // An explicit empty string opts OUT for that call — without it, a pinned session
-  // could never record or query knowledge outside its workstream.
+  // could never record or query knowledge outside its collaboration.
   const effectiveScope = (scope?: string) =>
     scope === ""
       ? undefined
@@ -151,7 +151,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         "Before starting a task, use this tool to retrieve relevant knowledge (past decisions, facts, terms). " +
         "It returns verified knowledge matching the query, each with its citation. " +
         "Set includeDraft to also include unverified (draft) knowledge, tagged with its status label. " +
-        "Set scope to focus on one working context — e.g. the workstream the team is currently on.",
+        "Set scope to focus on one working context — e.g. the collaboration the team is currently on.",
       inputSchema: {
         query: z.string().describe("Natural-language query to search for"),
         includeDraft: z
@@ -165,12 +165,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .int()
           .positive()
           .optional()
-          .describe("Maximum number of results"),
+          .describe(
+            `Maximum number of results. A scope briefing (scope set, empty query) defaults to ` +
+              `${BRIEFING_LIMIT}, most recently confirmed first; raise it to see more of the briefing. ` +
+              `A query is never capped by default.`,
+          ),
         scope: z
           .string()
           .optional()
           .describe(
-            "Entity id to scope the injection to (one relation hop) — e.g. a workstream id to " +
+            "Entity id to scope the injection to (one relation hop) — e.g. a collaboration id to " +
               'retrieve only the knowledge linked to that unit of work. Pass "" to query ' +
               "without any scope when a session scope is pinned",
           ),
@@ -179,11 +183,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     async ({ query, includeDraft, limit, scope }) => {
       if (!authorize("read")) return forbidden();
       const ts = now();
-      const { items } = await inject(store, ontology, query, ts, {
+      const anchor = effectiveScope(scope);
+      // A briefing (anchored, no query) had no cap at all: a collaboration with 300 records attached
+      // returned all 300 in full, ~15k tokens, because someone pinned a scope. Default it, and let an
+      // explicit limit override. Only the briefing — a query is already narrowed by its own terms.
+      const briefing = anchor !== undefined && !query;
+      const { items, omitted } = await inject(store, ontology, query, ts, {
         includeDraft,
-        limit,
+        limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
         ns,
-        scope: effectiveScope(scope),
+        scope: anchor,
       });
       // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
       store.logAudit?.({
@@ -199,6 +208,15 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         (it) =>
           `${it.citation} [${it.effectiveStatus}]\n${JSON.stringify(it.entity.attributes)}`,
       );
+      // Never a silent slice — and for a model the notice has to be an INSTRUCTION, not a flag. An
+      // agent that reads a truncated briefing as the complete record answers from part of the
+      // knowledge without knowing it. Saying where the rest is turns the cap from loss into paging.
+      if (omitted > 0)
+        blocks.push(
+          `[${items.length} of ${items.length + omitted} records on this scope, most recently confirmed first. ` +
+            `The other ${omitted} are NOT lost: ask yoke_inject a specific question and it searches ` +
+            `everything, scope-linked results first. Raise "limit" to see more of the briefing.]`,
+        );
       return ok(blocks.join("\n\n"));
     },
   );
@@ -225,7 +243,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .string()
           .optional()
           .describe(
-            "Entity id (e.g. a workstream) to link the new knowledge to via a relates_to relation. " +
+            "Entity id (e.g. a collaboration) to link the new knowledge to via a relates_to relation. " +
               'Pass "" to record outside the pinned session scope',
           ),
       },
@@ -256,7 +274,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .string()
           .optional()
           .describe(
-            "Entity id (e.g. a workstream) to link this decision to via a relates_to relation. " +
+            "Entity id (e.g. a collaboration) to link this decision to via a relates_to relation. " +
               'Pass "" to record outside the pinned session scope',
           ),
       },
@@ -331,17 +349,17 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     "yoke_use_scope",
     {
       description:
-        "When the user states or implies which work item / workstream the current work belongs to " +
+        "When the user states or implies which work item / collaboration the current work belongs to " +
         "(e.g. 'this is ABC-12345 work'), call this once — subsequent injections and recordings default " +
-        "to that scope. Resolves the key to a workstream (by exact entity id, or a workstream whose key " +
+        "to that scope. Resolves the key to a collaboration (by exact entity id, or a collaboration whose key " +
         "or title matches). If none matches, it says so and you can create one via yoke_commit (type " +
-        "workstream, attributes { title, key }) then call yoke_use_scope again. In stateless deployments " +
+        "collaboration, attributes { title, key }) then call yoke_use_scope again. In stateless deployments " +
         "the session pin does not persist, so pass scope per call — this tool still returns the resolved id for reuse.",
       inputSchema: {
         key: z
           .string()
           .describe(
-            "The work-item key (e.g. ABC-12345) or workstream entity id the current work belongs to",
+            "The work-item key (e.g. ABC-12345) or collaboration entity id the current work belongs to",
           ),
       },
     },
@@ -350,8 +368,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const found = await resolveScope(store, ns, key);
       if (!found)
         return ok(
-          `no workstream matches "${key}". Create one via yoke_commit ` +
-            `(type: workstream, attributes: { title, key }), then call yoke_use_scope again.`,
+          `no collaboration matches "${key}". Create one via yoke_commit ` +
+            `(type: collaboration, attributes: { title, key }), then call yoke_use_scope again.`,
         );
       sessionScope = found.id;
       return ok(JSON.stringify({ id: found.id, title: found.title }));
@@ -378,7 +396,7 @@ export async function runMcp(
     process.exit(1);
   }
   const ns = resolveNs(undefined, env);
-  // Default working-context scope (v4.0): YOKE_SCOPE, an explicit entity id or workstream key resolved
+  // Default working-context scope (v4.0): YOKE_SCOPE, an explicit entity id or collaboration key resolved
   // at startup (for fixed setups). At runtime the agent pins scope via the yoke_use_scope tool instead.
   let defaultScope: string | null = null;
   if (env.YOKE_SCOPE) {
@@ -386,7 +404,7 @@ export async function runMcp(
     if (resolved) defaultScope = resolved.id;
     else
       process.stderr.write(
-        `yoke: YOKE_SCOPE "${env.YOKE_SCOPE}" did not resolve to any entity or workstream — no default scope\n`,
+        `yoke: YOKE_SCOPE "${env.YOKE_SCOPE}" did not resolve to any entity or collaboration — no default scope\n`,
       );
   }
   const server = createYokeMcpServer({
