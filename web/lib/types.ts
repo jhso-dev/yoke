@@ -87,6 +87,16 @@ export interface AuditEntry {
   ns?: string;
 }
 
+export interface TokenInfo {
+  name: string;
+  scopes: string[];
+  created_at: string;
+}
+
+export interface CreatedToken extends TokenInfo {
+  token: string;
+}
+
 export interface GraphData {
   anchor: string | null;
   nodes: Knowledge[];

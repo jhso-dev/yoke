@@ -8,6 +8,7 @@ import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { GraphCanvas } from "../../components/GraphCanvas";
+import { Pagination, usePage } from "../../components/Pagination";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import {
@@ -85,6 +86,11 @@ function GraphBody() {
   const t = useT();
   const notice = graph ? truncationNotice(graph) : null;
   const chosen = graph?.nodes.find((n) => n.id === selected) ?? null;
+  const sortedNodes = useMemo(
+    () => [...(graph?.nodes ?? [])].sort((a, b) => b.degree - a.degree),
+    [graph],
+  );
+  const nodePage = usePage(sortedNodes);
 
   return (
     <>
@@ -187,29 +193,33 @@ function GraphBody() {
                 </tr>
               </thead>
               <tbody>
-                {[...graph.nodes]
-                  .sort((a, b) => b.degree - a.degree)
-                  .map((n) => (
-                    <tr key={n.id}>
-                      <td className="mono">{n.type}</td>
-                      <td>
-                        <Link href={`/entity/?id=${encodeURIComponent(n.id)}`}>
-                          {n.label}
-                        </Link>
-                      </td>
-                      <td>
-                        <StatusBadge status={n.status} />
-                      </td>
-                      <td className="num">{n.degree}</td>
-                      <td>
-                        <Button type="button" onClick={() => expand(n.id)}>
-                          {t.common.expand}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                {nodePage.items.map((n) => (
+                  <tr key={n.id}>
+                    <td className="mono">{n.type}</td>
+                    <td>
+                      <Link href={`/entity/?id=${encodeURIComponent(n.id)}`}>
+                        {n.label}
+                      </Link>
+                    </td>
+                    <td>
+                      <StatusBadge status={n.status} />
+                    </td>
+                    <td className="num">{n.degree}</td>
+                    <td>
+                      <Button type="button" onClick={() => expand(n.id)}>
+                        {t.common.expand}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
+            <Pagination
+              page={nodePage.page}
+              pages={nodePage.pages}
+              setPage={nodePage.setPage}
+              total={sortedNodes.length}
+            />
           </div>
         ) : (
           <div className="empty">none</div>

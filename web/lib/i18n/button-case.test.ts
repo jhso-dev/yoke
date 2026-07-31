@@ -59,7 +59,7 @@ describe("English button labels", () => {
     const lower = [...labels]
       .map((p) => [p, value(p)] as const)
       .filter(([, v]) => typeof v === "string")
-      // The first LETTER, not the first character: `← Previous` and `Next →` are correct.
+      // The first LETTER, not the first character: punctuation before a label is allowed.
       .filter(([, v]) => /^[^A-Za-z]*[a-z]/.test(v as string))
       .map(([p, v]) => `${p}: ${v}`);
     expect(lower).toEqual([]);

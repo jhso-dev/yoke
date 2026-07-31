@@ -20,6 +20,14 @@ describe("GraphCanvas rAF loop does not run forever", () => {
     expect(src).toContain('"pointercancel"');
   });
 
+  it("single-click expands and recenters the clicked node", () => {
+    expect(src).toContain("const focus = (n: GraphNode)");
+    expect(src).toContain(
+      "view.current = { k, x: -(n.x ?? 0) * k, y: -(n.y ?? 0) * k }",
+    );
+    expect(src).toContain("onExpandRef.current(n.id)");
+  });
+
   it("does not rebuild the simulation when `selected` changes", () => {
     // `selected` may only ever appear alone in a dep array (the small redraw-only effect) — combined
     // with anything else (`[graph, ..., selected, ...]`) is the main effect rebuilding the whole

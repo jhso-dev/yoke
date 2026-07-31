@@ -17,9 +17,10 @@ const LINKS = [
   { href: "/inject/", key: "inject" },
   { href: "/graph/", key: "graph" },
   { href: "/audit/", key: "audit" },
+  { href: "/tokens/", key: "tokens" },
 ] as const;
 
-export function Nav() {
+export function Nav({ onNavigate }: { onNavigate?: () => void }) {
   const here = usePathname();
   const t = useT();
   return (
@@ -29,6 +30,7 @@ export function Nav() {
           key={l.href}
           href={l.href}
           aria-current={here?.startsWith(l.href) ? "page" : undefined}
+          onClick={onNavigate}
         >
           {t.nav[l.key]}
         </Link>

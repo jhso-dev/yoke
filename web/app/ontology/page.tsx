@@ -13,10 +13,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Modal } from "../../components/Modal";
+import { Pagination, usePage } from "../../components/Pagination";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
+import type { TypeDef } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /** The schema, as data. Type defs are not versioned knowledge, so this is the one screen without
@@ -28,7 +31,33 @@ export default function Ontology() {
   const entities = rows.filter((d) => d.kind === "entity");
   const relations = rows.filter((d) => d.kind === "relation");
 
-  const table = (title: string, list: typeof rows) => (
+  return (
+    <>
+      <div className="page-head">
+        <h1>{t.ontology.heading}</h1>
+        <AddTypeButton onSaved={defs.reload} />
+      </div>
+      <p className="lede">{t.ontology.lede}</p>
+      <ErrorBanner error={defs.error} />
+      {defs.loading ? (
+        <div className="panel">
+          <div className="empty">loading…</div>
+        </div>
+      ) : (
+        <>
+          <TypeTable title={t.ontology.entityTypes} list={entities} />
+          <TypeTable title={t.ontology.relationTypes} list={relations} />
+          <Maintenance names={rows.map((d) => d.name)} onDone={defs.reload} />
+        </>
+      )}
+    </>
+  );
+}
+
+function TypeTable({ title, list }: { title: string; list: TypeDef[] }) {
+  const t = useT();
+  const page = usePage(list);
+  return (
     <div className="panel">
       <div className="panel-head">
         {title}
@@ -48,7 +77,7 @@ export default function Ontology() {
               </tr>
             </thead>
             <tbody>
-              {list.map((d) => (
+              {page.items.map((d) => (
                 <tr key={`${d.kind}:${d.name}`}>
                   <td className="mono">{d.name}</td>
                   <td className="mono">
@@ -72,31 +101,15 @@ export default function Ontology() {
               ))}
             </tbody>
           </table>
+          <Pagination
+            page={page.page}
+            pages={page.pages}
+            setPage={page.setPage}
+            total={list.length}
+          />
         </div>
       )}
     </div>
-  );
-
-  return (
-    <>
-      <div className="page-head">
-        <h1>{t.ontology.heading}</h1>
-        <AddTypeButton onSaved={defs.reload} />
-      </div>
-      <p className="lede">{t.ontology.lede}</p>
-      <ErrorBanner error={defs.error} />
-      {defs.loading ? (
-        <div className="panel">
-          <div className="empty">loading…</div>
-        </div>
-      ) : (
-        <>
-          {table(t.ontology.entityTypes, entities)}
-          {table(t.ontology.relationTypes, relations)}
-          <Maintenance names={rows.map((d) => d.name)} onDone={defs.reload} />
-        </>
-      )}
-    </>
   );
 }
 
@@ -303,7 +316,7 @@ function Maintenance({
             ))}
           </SelectContent>
         </Select>
-        <span className="text-muted-foreground">→</span>
+        <DirectionIcon direction="right" />
         <Input
           value={to}
           onChange={(e) => setTo(e.target.value)}

@@ -14,6 +14,7 @@ import { api } from "../lib/api";
 import { recordLabel } from "../lib/citation";
 import { useT } from "../lib/i18n";
 import type { Knowledge, TypeDef } from "../lib/types";
+import { DirectionIcon } from "./DirectionIcon";
 import { ErrorBanner } from "./ErrorBanner";
 
 /**
@@ -79,7 +80,7 @@ export function LinkRecord({
         title={tr.entity.swapDirection}
         aria-label={outgoing ? tr.entity.pointsAt : tr.entity.isPointedAt}
       >
-        {outgoing ? "→" : "←"}
+        <DirectionIcon direction={outgoing ? "right" : "left"} />
       </Button>
       <Select value={type} onValueChange={setType}>
         <SelectTrigger aria-label={tr.common.relation} className="w-48">

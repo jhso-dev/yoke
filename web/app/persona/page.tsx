@@ -1,11 +1,13 @@
 "use client";
 
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Citation } from "../../components/Citation";
+import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -61,7 +63,7 @@ function Roster() {
             <Link
               key={p.id}
               href={`/persona/?id=${encodeURIComponent(p.id)}`}
-              className="card-link"
+              className="card-link persona-card"
             >
               {/* Tighter than shadcn's default card padding, to sit in the same density as the
                   tables on every other screen. */}
@@ -92,6 +94,7 @@ function Roster() {
           disabled={cursors.length === 0}
           onClick={() => setCursors((c) => c.slice(0, -1))}
         >
+          <ChevronLeftIcon />
           {t.common.prev}
         </Button>
         <Button
@@ -103,6 +106,7 @@ function Roster() {
           }
         >
           {t.common.next}
+          <ChevronRightIcon />
         </Button>
       </div>
     </>
@@ -159,7 +163,7 @@ function Person({ id }: { id: string }) {
         <Link className="btn" href={`/graph/?scope=${encodeURIComponent(id)}`}>
           {t.common.openInGraph}
         </Link>
-        <code>{t.persona.exportHint(id)}</code>
+        <CopyCode value={t.persona.exportHint(id)} />
       </div>
 
       {persona.loading ? (
@@ -175,6 +179,7 @@ function Person({ id }: { id: string }) {
             </div>
             <KnowledgeTable
               rows={decisions}
+              paginate
               empty={query ? t.persona.noMatch : t.persona.noDecisions}
             />
           </div>
@@ -185,6 +190,7 @@ function Person({ id }: { id: string }) {
             </div>
             <KnowledgeTable
               rows={facts}
+              paginate
               empty={query ? t.persona.noMatch : t.common.none}
             />
           </div>

@@ -6,12 +6,14 @@ import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
+import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
 import { LinkRecord } from "../../components/LinkRecord";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
+import { copyText } from "../../lib/clipboard";
 import { useT } from "../../lib/i18n";
 import { isMissing } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
@@ -92,7 +94,7 @@ function EntityBody() {
             cursor: "copy",
             font: "inherit",
           }}
-          onClick={() => navigator.clipboard?.writeText(d.entity.id)}
+          onClick={() => copyText(d.entity.id, t.common.copied)}
         >
           {shortId(d.entity.id)}
         </button>
@@ -253,7 +255,12 @@ function EntityBody() {
               <tbody>
                 {edges.map((e) => (
                   <tr key={e.id}>
-                    <td className="mono">{e.dir === "out" ? "→" : "←"}</td>
+                    <td className="mono">
+                      <DirectionIcon
+                        direction={e.dir === "out" ? "right" : "left"}
+                        label={e.dir}
+                      />
+                    </td>
                     <td className="mono">{e.type}</td>
                     <td>
                       {isMissing(e.other) ? (

@@ -30,11 +30,11 @@ body {
   line-height: 1.5;
 }
 
-a {
+:where(a:not([data-slot="button"])) {
   color: var(--primary);
   text-decoration: none;
 }
-a:hover {
+:where(a:not([data-slot="button"])):hover {
   text-decoration: underline;
 }
 
@@ -61,11 +61,22 @@ a:hover {
   flex-wrap: wrap;
 }
 
+.topbar-content {
+  display: contents;
+}
+
+.mobile-menu-toggle {
+  display: none;
+}
+
 .brand {
   font-family: var(--font-mono);
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--primary);
+}
+.brand:hover {
+  text-decoration: none;
 }
 
 .nav {
@@ -114,6 +125,57 @@ a:hover {
   margin-left: 0;
 }
 
+@media (max-width: 760px) {
+  .topbar {
+    gap: 8px;
+    padding: 6px 12px;
+    flex-wrap: nowrap;
+  }
+
+  .mobile-menu-toggle {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .topbar[data-menu-open] {
+    flex-wrap: wrap;
+  }
+
+  .topbar-content {
+    display: none;
+    width: 100%;
+  }
+
+  .topbar[data-menu-open] .topbar-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+  }
+
+  .topbar-content .nav {
+    flex-direction: column;
+  }
+
+  .topbar-content .nav a {
+    padding: 8px 10px;
+  }
+
+  .topbar-content .topbar-end {
+    width: 100%;
+    margin-left: 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .topbar-content .topbar-right {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+  }
+}
+
 main {
   flex: 1;
   padding: 20px 16px 48px;
@@ -141,6 +203,132 @@ h1 {
   color: var(--muted-foreground);
   margin: 0 0 18px;
   max-width: 68ch;
+}
+
+/* --- home --- */
+
+.home-hero {
+  padding: 26px 0 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 420px);
+  gap: 24px;
+  align-items: center;
+}
+
+.home-art,
+.home-icon {
+  width: 100%;
+}
+
+.home-art {
+  display: block;
+}
+
+.home-icon {
+  height: auto;
+  aspect-ratio: 1145 / 648;
+  display: block;
+  object-fit: contain;
+  opacity: 0.7;
+}
+.home-icon-dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .home-icon-light {
+    display: none;
+  }
+  :root:not([data-theme="light"]) .home-icon-dark {
+    display: block;
+  }
+}
+
+:root[data-theme="dark"] .home-icon-light {
+  display: none;
+}
+:root[data-theme="dark"] .home-icon-dark {
+  display: block;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.home-hero h1 {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+.home-hero .lede {
+  white-space: pre-line;
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-tile {
+  min-height: 146px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.home-tile:hover {
+  background: var(--secondary);
+  text-decoration: none;
+}
+.home-tile svg {
+  width: 18px;
+  height: 18px;
+  color: var(--primary);
+}
+.home-tile span {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.home-tile-primary {
+  grid-column: span 2;
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+.home-tile-primary svg {
+  width: 22px;
+  height: 22px;
+}
+
+.direction-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted-foreground);
+  vertical-align: middle;
+}
+.direction-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 760px) {
+  .home-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .home-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .home-tile-primary {
+    grid-column: auto;
+  }
 }
 
 /* --- panels, tables, rows --- */
@@ -301,6 +489,67 @@ td.num {
   margin-bottom: 12px;
 }
 
+.copy-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 3px 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--secondary);
+  color: var(--foreground);
+  cursor: copy;
+}
+
+.copy-code code {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: min(74ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.token-secret {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: center;
+  padding: 12px;
+}
+.token-label {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.token-secret .copy-code {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .token-secret {
+    grid-template-columns: 1fr;
+  }
+}
+
+.toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--foreground);
+  color: var(--background);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  font-size: 13px;
+}
+
 /* A card grid: as many columns as fit at a readable width, no breakpoint list to maintain.
    `auto-fill` rather than `auto-fit` so two cards stay card-width instead of stretching to half the
    screen each. */
@@ -320,13 +569,31 @@ td.num {
 .card-link:hover {
   text-decoration: none;
 }
-.card-link:hover [data-slot="card"] {
-  border-color: var(--primary);
-}
 .card-link:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
   border-radius: var(--radius);
+}
+
+.persona-card [data-slot="card"],
+.persona-card [data-slot="card-header"],
+.persona-card [data-slot="card-content"],
+.persona-card [data-slot="card-title"],
+.persona-card .cite {
+  min-width: 0;
+  overflow: hidden;
+}
+.persona-card [data-slot="card-title"],
+.persona-card .cite,
+.persona-card .cite button {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-link:hover [data-slot="card"] {
+  border-color: var(--primary);
 }
 
 /* The native `<input>`/`<select>` still used on browse, audit, inject, persona and login, given the
@@ -414,6 +681,9 @@ td.num {
 .login input:not([data-slot]) {
   font-family: var(--font-mono);
 }
+.login .banner[data-kind="info"] {
+  margin-top: 14px;
+}
 
 /* --- modal (native <dialog>) --- */
 
@@ -474,4 +744,12 @@ dialog::backdrop {
 .field input,
 .field select {
   width: 100%;
+}
+
+.token-form {
+  align-items: end;
+  padding: 12px;
+}
+.token-form .field {
+  flex: 1 1 220px;
 }

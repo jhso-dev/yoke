@@ -4,6 +4,9 @@ dist/
 *.db-wal
 *.db-shm
 *.tgz
+.DS_Store
+yoke-serve.log
+yoke-serve.err.log
 
 # Next.js (web/) build output
 web/.next/

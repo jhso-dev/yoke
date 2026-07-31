@@ -82,6 +82,7 @@ export default function Review() {
           <KnowledgeTable
             rows={rows}
             empty={t.review.empty}
+            paginate
             select={{ chosen, toggle, setAll }}
           />
         )}

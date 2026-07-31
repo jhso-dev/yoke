@@ -8,6 +8,7 @@ import { clearCredential, getCredential } from "./credential";
 import type {
   AuditEntry,
   ConflictPair,
+  CreatedToken,
   Edge,
   EntityDetail,
   GraphData,
@@ -16,6 +17,7 @@ import type {
   Meta,
   Page,
   Persona,
+  TokenInfo,
   TypeDef,
 } from "./types";
 
@@ -111,6 +113,18 @@ export const api = {
     request<GraphData>(`/api/graph${qs(p)}`),
   audit: (p: { since?: string; limit?: number }) =>
     request<{ items: AuditEntry[]; limit: number }>(`/api/audit${qs(p)}`),
+  tokens: () => request<TokenInfo[]>("/api/tokens"),
+  createToken: (p: { name: string; scopes: string[] }) =>
+    request<CreatedToken>("/api/tokens", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(p),
+    }),
+  revokeToken: (name: string) =>
+    request<{ name: string; revoked: true }>(
+      `/api/tokens/${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    ),
   verify: (ids: string[]) =>
     request<Knowledge[]>("/api/verify", {
       method: "POST",

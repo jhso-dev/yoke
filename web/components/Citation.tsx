@@ -1,6 +1,7 @@
 "use client";
 
 import { type Cited, citationLabel } from "../lib/citation";
+import { copyText } from "../lib/clipboard";
 import { useT } from "../lib/i18n";
 
 /**
@@ -31,7 +32,7 @@ export function Citation({ row }: { row: Cited }) {
           font: "inherit",
           color: "inherit",
         }}
-        onClick={() => navigator.clipboard?.writeText(row.citation)}
+        onClick={() => copyText(row.citation, t.common.copied)}
       >
         {citationLabel(row)}
       </button>

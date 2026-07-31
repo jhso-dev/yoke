@@ -167,6 +167,58 @@ function intParam(url: URL, name: string, def: number, max: number): number {
   return n;
 }
 
+function newestFirst<
+  T extends { provenance: { occurred_at: string }; id: string },
+>(rows: T[]): T[] {
+  return [...rows].sort(
+    (a, b) =>
+      b.provenance.occurred_at.localeCompare(a.provenance.occurred_at) ||
+      b.id.localeCompare(a.id),
+  );
+}
+
+async function graphEntities(
+  store: YokeStore,
+  ontology: TypeDef[],
+  ns: string | null,
+  limit: number,
+  after?: string,
+) {
+  if (after) return store.listEntities({ ns, limit, after });
+  const types = ontology.filter((t) => t.kind === "entity").map((t) => t.name);
+  if (types.length === 0) return store.listEntities({ ns, limit });
+  const perType = Math.max(1, Math.ceil(limit / types.length));
+  const pages = await Promise.all(
+    types.map((type) => store.listEntities({ ns, type, limit: perType })),
+  );
+  const items = pages.flatMap((p) => p.items).slice(0, limit);
+  return {
+    items,
+    next: pages.some((p) => p.next !== null)
+      ? (items.at(-1)?.id ?? null)
+      : null,
+  };
+}
+
+async function visibleGraphRelations(
+  store: YokeStore,
+  ids: Set<string>,
+  inNs: (x: { ns?: string | null }) => boolean,
+  limit: number,
+) {
+  const edges = new Map<string, Relation>();
+  for (const id of ids) {
+    for (const r of await store.neighbors(id)) {
+      if (!inNs(r) || edges.has(r.id) || !ids.has(r.from) || !ids.has(r.to))
+        continue;
+      edges.set(r.id, r);
+      if (edges.size >= limit)
+        return { items: [...edges.values()], next: r.id };
+    }
+  }
+  return { items: [...edges.values()], next: null };
+}
+
 function sendJson(res: ServerResponse, code: number, data: unknown): void {
   const body = JSON.stringify(data);
   res.writeHead(code, {
@@ -313,7 +365,11 @@ export function createUiHandler(
       // whoever adds multi-reviewer aggregation; this route is not currently enforcing it, and the
       // comment that used to say "only this reviewer's list" described a filter that is not here.
       const drafts = await store.listEntities({ status: "draft", ns });
-      sendJson(res, 200, await Promise.all(drafts.items.map(asRow())));
+      sendJson(
+        res,
+        200,
+        await Promise.all(newestFirst(drafts.items).map(asRow())),
+      );
       return;
     }
 
@@ -471,6 +527,8 @@ export function createUiHandler(
         const depth = intParam(url, "depth", 1, 3);
         const nodes = new Map<string, Entity>();
         const edges = new Map<string, Relation>();
+        const anchor = await store.getEntity(scope);
+        if (anchor && inNs(anchor)) nodes.set(scope, anchor);
         let frontier = [scope];
         for (let d = 0; d < depth && nodes.size < limit; d++) {
           const next: string[] = [];
@@ -489,8 +547,6 @@ export function createUiHandler(
           }
           frontier = next;
         }
-        const anchor = await store.getEntity(scope);
-        if (anchor && inNs(anchor)) nodes.set(scope, anchor);
         const kept = [...nodes.values()].slice(0, limit);
         const keptIds = new Set(kept.map((e) => e.id));
         sendJson(res, 200, {
@@ -498,7 +554,7 @@ export function createUiHandler(
           nodes: await Promise.all(kept.map(asR)),
           edges: await Promise.all(
             [...edges.values()]
-              .filter((r) => keptIds.has(r.from) || keptIds.has(r.to))
+              .filter((r) => keptIds.has(r.from) && keptIds.has(r.to))
               .map(asRel),
           ),
           next: { nodes: null, edges: null },
@@ -508,18 +564,16 @@ export function createUiHandler(
         return;
       }
 
-      const [ents, rels] = await Promise.all([
-        store.listEntities({
-          ns,
-          limit,
-          after: url.searchParams.get("afterNode") ?? undefined,
-        }),
-        store.listRelations({
-          ns,
-          limit,
-          after: url.searchParams.get("afterEdge") ?? undefined,
-        }),
-      ]);
+      const ontology = store.loadOntology(ns);
+      const ents = await graphEntities(
+        store,
+        ontology,
+        ns,
+        limit,
+        url.searchParams.get("afterNode") ?? undefined,
+      );
+      const keptIds = new Set(ents.items.map((e) => e.id));
+      const rels = await visibleGraphRelations(store, keptIds, inNs, limit);
       sendJson(res, 200, {
         anchor: null,
         nodes: await Promise.all(ents.items.map(asR)),
@@ -602,6 +656,59 @@ export function createUiHandler(
     if (method === "GET" && path === "/api/ontology") {
       if (!authorize("read") && deny(res)) return;
       sendJson(res, 200, store.loadOntology(ns));
+      return;
+    }
+
+    if (method === "GET" && path === "/api/tokens") {
+      if (!authorize("verify") && deny(res)) return;
+      sendJson(res, 200, store.listTokens());
+      return;
+    }
+
+    if (method === "POST" && path === "/api/tokens") {
+      if (!authorize("verify") && deny(res)) return;
+      const body = await readBody(req);
+      const name = body.name;
+      const scopes = body.scopes;
+      if (
+        typeof name !== "string" ||
+        !name.trim() ||
+        !Array.isArray(scopes) ||
+        scopes.some((s) => typeof s !== "string" || !s.trim())
+      ) {
+        sendJson(res, 400, {
+          error: "body must be { name: string, scopes: string[] }",
+        });
+        return;
+      }
+      const cleanScopes = scopes.map((s) => s.trim());
+      const created_at = now();
+      const { token } = store.createToken({
+        name: name.trim(),
+        scopes: cleanScopes,
+        created_at,
+      });
+      sendJson(res, 201, {
+        name: name.trim(),
+        scopes: cleanScopes,
+        created_at,
+        token,
+      });
+      return;
+    }
+
+    if (method === "DELETE" && path.startsWith("/api/tokens/")) {
+      if (!authorize("verify") && deny(res)) return;
+      const name = decodeURIComponent(path.slice("/api/tokens/".length));
+      if (!name) {
+        sendJson(res, 400, { error: "token name is required" });
+        return;
+      }
+      if (!store.revokeToken(name)) {
+        sendJson(res, 404, { error: `no such token: ${name}` });
+        return;
+      }
+      sendJson(res, 200, { name, revoked: true });
       return;
     }
 

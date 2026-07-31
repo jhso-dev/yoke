@@ -6,7 +6,11 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api, configureApi } from "../lib/api";
 import { shortId } from "../lib/citation";
-import { clearCredential, getCredential } from "../lib/credential";
+import {
+  clearCredential,
+  getCredential,
+  takeCredentialFromUrl,
+} from "../lib/credential";
 import { useT } from "../lib/i18n";
 import type { Meta } from "../lib/types";
 
@@ -30,6 +34,10 @@ export function AuthGate() {
       },
     });
   }, [router, here]);
+
+  useEffect(() => {
+    takeCredentialFromUrl();
+  }, []);
 
   useEffect(() => {
     let alive = true;

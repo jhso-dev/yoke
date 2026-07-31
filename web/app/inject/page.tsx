@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
@@ -58,7 +59,7 @@ function InjectBody() {
       <h1>{t.inject.heading}</h1>
       <p className="lede">
         {t.inject.ledeBefore}
-        <code>yoke_inject</code>
+        <CopyCode value="yoke_inject" />
         {t.inject.ledeAfter}
       </p>
       <ErrorBanner error={result.error} />
@@ -130,7 +131,7 @@ function InjectBody() {
                 )}
               </div>
             )}
-            <KnowledgeTable rows={items} empty={t.inject.empty} />
+            <KnowledgeTable rows={items} empty={t.inject.empty} paginate />
           </div>
         </>
       )}
