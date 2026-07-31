@@ -19,6 +19,7 @@ import {
   toGraph,
   truncationNotice,
 } from "../../lib/graph";
+import { useT } from "../../lib/i18n";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -81,17 +82,14 @@ function GraphBody() {
     () => membershipTypes(ontology.data ?? []),
     [ontology.data],
   );
+  const t = useT();
   const notice = graph ? truncationNotice(graph) : null;
   const chosen = graph?.nodes.find((n) => n.id === selected) ?? null;
 
   return (
     <>
-      <h1>Graph</h1>
-      <p className="lede">
-        {anchor
-          ? "Two hops out from one record. Double-click any node to expand from it."
-          : "Every record and relation in this namespace. Double-click a node to pull in its neighbours."}
-      </p>
+      <h1>{t.graph.heading}</h1>
+      <p className="lede">{anchor ? t.graph.ledeAnchored : t.graph.lede}</p>
       <ErrorBanner error={error} />
       {notice && (
         <div className="banner" data-kind="warn">
@@ -102,12 +100,11 @@ function GraphBody() {
       <div className="controls">
         {anchor && (
           <Link className="btn" href="/graph/">
-            whole namespace
+            {t.graph.wholeNamespace}
           </Link>
         )}
         <span className="muted">
-          {graph?.nodes.length ?? 0} nodes · {graph?.links.length ?? 0}{" "}
-          relations
+          {t.graph.counts(graph?.nodes.length ?? 0, graph?.links.length ?? 0)}
         </span>
         {types.map((t) => (
           <span key={t} className="pill" style={{ background: "transparent" }}>
@@ -126,17 +123,14 @@ function GraphBody() {
         ))}
         {/* Without this the two edge marks are decoration. The direction is the point: knowledge and
             people point AT the work, which is why an anchor gathers knowledge instead of holding it. */}
-        <span className="muted">
-          arrows point at an edge's target · dashed = not knowledge (authorship,
-          membership)
-        </span>
+        <span className="muted">{t.graph.legend}</span>
       </div>
 
       <div className="panel">
         {loading ? (
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         ) : !graph || graph.nodes.length === 0 ? (
-          <div className="empty">nothing to draw in this namespace</div>
+          <div className="empty">{t.graph.empty}</div>
         ) : (
           <>
             <GraphCanvas
@@ -164,10 +158,10 @@ function GraphBody() {
                 <Actor actor={chosen.actor} actorName={chosen.actorName} />
                 <Citation row={chosen} />
                 <Link href={`/entity/?id=${encodeURIComponent(chosen.id)}`}>
-                  open record
+                  {t.common.openRecord}
                 </Link>
                 <Button type="button" onClick={() => expand(chosen.id)}>
-                  expand
+                  {t.common.expand}
                 </Button>
               </div>
             )}
@@ -177,21 +171,18 @@ function GraphBody() {
 
       <div className="panel">
         <div className="panel-head">
-          nodes
-          <span className="muted">
-            same data, keyboard-navigable — the canvas above is not reachable by
-            screen readers
-          </span>
+          {t.graph.nodes}
+          <span className="muted">{t.graph.nodesNote}</span>
         </div>
         {graph && graph.nodes.length > 0 ? (
           <div className="scroll-x">
             <table>
               <thead>
                 <tr>
-                  <th>type</th>
-                  <th>record</th>
-                  <th>status</th>
-                  <th>relations</th>
+                  <th>{t.common.type}</th>
+                  <th>{t.common.record}</th>
+                  <th>{t.common.status}</th>
+                  <th>{t.common.relations}</th>
                   <th />
                 </tr>
               </thead>
@@ -212,7 +203,7 @@ function GraphBody() {
                       <td className="num">{n.degree}</td>
                       <td>
                         <Button type="button" onClick={() => expand(n.id)}>
-                          expand
+                          {t.common.expand}
                         </Button>
                       </td>
                     </tr>

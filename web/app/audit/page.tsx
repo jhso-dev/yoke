@@ -7,6 +7,7 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
+import { useT } from "../../lib/i18n";
 import { isoFromLocalInput } from "../../lib/time";
 import type { AuditEntry } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
@@ -14,24 +15,18 @@ import { useAsync } from "../../lib/useAsync";
 /**
  * Who was told what, when — answerable without shell access.
  *
- * The action names matter and are shown as-is: `inject` is what an agent received, `inject_preview`
- * is a human looking at this workbench, `persona` is a person-anchored read, `verify`/`deprecate` are
- * governance acts. Collapsing them would destroy the distinction the audit trail exists to record.
+ * The action names are shown as-is and never collapsed: `inject` is what an agent received,
+ * `inject_preview` is a human looking at this workbench, `persona` is a person-anchored read,
+ * `verify`/`deprecate` are governance acts. The readable gloss for each lives in the dictionary
+ * (`t.audit.meaning`) — the NAME is the audit fact and is not translated; the explanation is.
  */
-const MEANING: Record<string, string> = {
-  inject: "an agent received knowledge",
-  inject_preview: "a human previewed what an agent would receive",
-  persona: "a person's recorded judgment was read",
-  verify: "records were promoted",
-  deprecate: "records were retired",
-  rename_type: "an ontology type was renamed in every stored row",
-};
 
 /** A bulk verify names every id it promoted, which can be thousands. Render a readable prefix and
  * say how many were left off — the count is the honesty, the full list is in `yoke audit`. */
 const SHOW_REFS = 12;
 
 function Detail({ event }: { event: AuditEntry }) {
+  const t = useT();
   // Two shapes: `<subject> -> <id> …` for a read, a bare id list for verify/deprecate. Returning the
   // raw text when there is no arrow is what made a verify row a column of ULIDs.
   const [head, right] = event.detail.split(" -> ");
@@ -39,7 +34,7 @@ function Detail({ event }: { event: AuditEntry }) {
   // id list, and printing it as a subject would put the ULIDs back beside their resolved form.
   const subject = right === undefined ? "" : head;
   const all = (right ?? head ?? "").split(" ").filter(Boolean);
-  if (all.length === 0) return <span className="muted">nothing</span>;
+  if (all.length === 0) return <span className="muted">{t.audit.nothing}</span>;
   const ids = all.slice(0, SHOW_REFS);
   const more = all.length - ids.length;
   const byId = new Map((event.refs ?? []).map((r) => [r.id, r]));
@@ -68,12 +63,13 @@ function Detail({ event }: { event: AuditEntry }) {
         );
       })}
       {/* Never a silent truncation: the row says how many it left off. */}
-      {more > 0 && <span className="muted"> · {more} more</span>}
+      {more > 0 && <span className="muted"> · {t.audit.more(more)}</span>}
     </>
   );
 }
 
 export default function Audit() {
+  const t = useT();
   // The control's own vocabulary — local wall time, no zone, no seconds. Round-tripping an ISO string
   // through `value` is what made the field clear itself on every pick; the conversion happens once, at
   // the request, and `since` stays the only thing `<input type="datetime-local">` will accept.
@@ -107,23 +103,23 @@ export default function Audit() {
 
   return (
     <>
-      <h1>Audit</h1>
+      <h1>{t.audit.heading}</h1>
       <p className="lede">
-        The append-only trail of knowledge read and governance performed.
-        Filtering here narrows the loaded window, not the whole history — use{" "}
-        <code>yoke audit --json</code> to walk all of it.
+        {t.audit.lede}
+        <code>yoke audit --json</code>
+        {t.audit.ledeAfter}
       </p>
       <ErrorBanner error={trail.error} />
       <div className="controls">
         <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          since
+          {t.audit.since}
           <input
             type="datetime-local"
             value={since}
             onChange={(e) => setSince(e.target.value)}
             aria-label="since"
             // Every timestamp on this screen reads in the viewer's zone, so the filter takes one too.
-            title="your local time"
+            title={t.audit.sinceHint}
           />
         </label>
         <select
@@ -131,7 +127,7 @@ export default function Audit() {
           onChange={(e) => setAction(e.target.value)}
           aria-label="action"
         >
-          <option value="">all actions</option>
+          <option value="">{t.audit.allActions}</option>
           {actions.map((a) => (
             <option key={a} value={a}>
               {a}
@@ -143,7 +139,7 @@ export default function Audit() {
           onChange={(e) => setActor(e.target.value)}
           aria-label="actor"
         >
-          <option value="">all actors</option>
+          <option value="">{t.audit.allActors}</option>
           {actors.map(([id, label]) => (
             <option key={id} value={id}>
               {label}
@@ -151,23 +147,23 @@ export default function Audit() {
           ))}
         </select>
         <span className="muted">
-          {rows.length} of {loaded.length} loaded
+          {t.audit.shown(rows.length, loaded.length)}
         </span>
       </div>
       <div className="panel">
         {trail.loading ? (
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         ) : rows.length === 0 ? (
-          <div className="empty">no audit events in this window</div>
+          <div className="empty">{t.audit.empty}</div>
         ) : (
           <div className="scroll-x">
             <table>
               <thead>
                 <tr>
-                  <th>when</th>
-                  <th>actor</th>
-                  <th>action</th>
-                  <th>detail</th>
+                  <th>{t.common.when}</th>
+                  <th>{t.common.actor}</th>
+                  <th>{t.common.action}</th>
+                  <th>{t.common.detail}</th>
                 </tr>
               </thead>
               <tbody>
@@ -183,7 +179,10 @@ export default function Audit() {
                     <td>
                       <Actor actor={e.actor} actorName={e.actorName} />
                     </td>
-                    <td className="mono" title={MEANING[e.action] ?? e.action}>
+                    <td
+                      className="mono"
+                      title={t.audit.meaning[e.action] ?? e.action}
+                    >
                       {e.action}
                     </td>
                     <td>

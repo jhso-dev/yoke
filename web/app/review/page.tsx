@@ -83,7 +83,7 @@ export default function Review() {
         ) : (
           <KnowledgeTable
             rows={rows}
-            empty="no drafts — the queue is clear"
+            empty={t.review.empty}
             select={{ chosen, toggle }}
           />
         )}

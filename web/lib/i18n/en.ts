@@ -22,6 +22,7 @@ export const en = {
     saving: "saving…",
     verify: "verify",
     reconfirm: "re-confirm",
+    verifyHint: "promote, or re-confirm a stale record",
     deprecate: "deprecate",
     link: "link",
     linking: "linking…",
@@ -65,10 +66,32 @@ export const en = {
     audit: "audit",
     screens: "screens",
   },
+  chrome: {
+    connecting: "connecting…",
+    readOnly: "read-only",
+    readOnlyHint: "read replica: writes go to the primary",
+    namespaceHint: "tenant namespace",
+    signOut: "sign out",
+    signIn: "sign in",
+    ungated: "ungated",
+    authedAs: (actor: string) => `authenticated as ${actor}`,
+    signOutHint:
+      "clears this browser's credential; revoke the token itself with `yoke token revoke`",
+    ungatedHint: "local single-user mode — no credential required",
+    select: "select",
+    summary: "summary",
+  },
+  create: {
+    pickType: "pick a type",
+    noAttrs: "This type declares no attributes — it will be created with none.",
+    duplicates: (n: number, names: string) =>
+      `Created, but ${n} similar record${n > 1 ? "s" : ""} already exist: ${names}`,
+  },
   review: {
     heading: "Review queue",
     lede: "Everything staged and not yet believed. Nothing here reaches an agent: drafts are withheld from injection until a human promotes them.",
     selectAll: "select all",
+    empty: "no drafts — the queue is clear",
     draftCount: (n: number) => `${n} draft(s)`,
   },
   browse: {
@@ -76,13 +99,14 @@ export const en = {
     lede: "Every record in this namespace, newest last. Use it to see the shape of what you have — orphans, stale corners, drafts nobody reviewed.",
     newRecord: "new record",
     allTypes: "all types",
-    allStatuses: "all statuses",
-    empty: "nothing recorded in this namespace yet",
-    more: "more",
-    back: "back",
+    anyStatus: "any status",
+    shown: (n: number, more: boolean) =>
+      `${n} shown${more ? " (more available)" : ""}`,
+    noMatch: "nothing matches that filter",
+    prev: "← previous",
+    next: "next →",
   },
   entity: {
-    heading: "Entity",
     noId: "no id — reach this screen from",
     noTextAttributes: "(no text attributes)",
     provenance: "provenance",
@@ -98,6 +122,7 @@ export const en = {
     swapDirection: "swap which end this record is",
     pointsAt: "points at the other record",
     isPointedAt: "is pointed at",
+    copyId: "click to copy",
   },
   collaboration: {
     heading: "Collaborations",
@@ -111,6 +136,7 @@ export const en = {
     peopleNote:
       "shown here and deliberately NOT in the briefing — a roster is not knowledge about the work",
     noMembers: "nobody linked yet — pick someone above, or run",
+    person: "person",
     addSomeone: "add someone…",
     addToWork: "add to this work",
     everyoneAdded: "everyone recorded is already on this",
@@ -129,9 +155,10 @@ export const en = {
   },
   conflicts: {
     heading: "Conflicts",
-    lede: "Pairs the gate found contradictory. Both sides are kept — yoke never silently picks a winner — so resolving one is a decision someone makes and the trail records.",
+    lede: "Verified records that contradict each other. yoke keeps both and never picks a winner — deprecate one side, or leave them coexisting, which is a real answer when the disagreement is the knowledge.",
     empty: "no contradictions recorded",
-    keepBoth: "keep both",
+    alreadyRetired: "already retired",
+    deprecateSide: "deprecate this side",
   },
   ontology: {
     heading: "Ontology",
@@ -159,6 +186,8 @@ export const en = {
       "re-derive authored_by edges for records committed before the gate made them",
     backfillDone: (scanned: number, created: number) =>
       `scanned ${scanned} records, added ${created} authorship edges`,
+    renameFrom: "rename from",
+    attrsExample: "title*, owner",
     renamePlaceholder: "rename a type…",
     newName: "new name",
     rename: "rename",
@@ -169,22 +198,35 @@ export const en = {
   },
   persona: {
     heading: "Persona",
-    lede: "What one person's recorded judgment would tell an agent. Verified knowledge sourced from them, nothing inferred.",
-    pick: "pick a person…",
-    decisions: "decisions",
-    facts: "facts",
-    empty: "nothing recorded from this person yet",
-    export: "export skill",
+    lede: "The verified knowledge a person authored — what an agent receives when it asks how they would decide. Their records with their sources, never text written in their voice.",
+    choose: "choose a person…",
+    filter: "filter their records",
+    exportHint: (id: string) => `export: yoke persona ${id} --out ./skills`,
+    prompt: "pick a person to see the judgment they have on record",
+    decisions: "guiding decisions",
+    noDecisions:
+      "no decisions on record — the bottleneck for a persona is capture, not query",
+    otherKnowledge: "other knowledge",
   },
   inject: {
-    heading: "Inject",
-    lede: "Exactly what an agent receives for this question. Same filter, same ranking, same citations as a real yoke_inject — and it leaves the same kind of audit row, marked as a preview.",
-    query: "query",
-    scope: "scope (optional collaboration or person id)",
-    includeDraft: "include drafts",
+    heading: "Injection preview",
+    ledeBefore:
+      "Exactly what an agent receives for this query — same filter, same order, same citations as a real ",
+    ledeAfter:
+      " call. Stale and deprecated records never appear, whatever you ask for.",
+    queryPlaceholder: "what is the agent working on?",
+    scopePlaceholder: "scope (collaboration or person id, optional)",
     run: "preview",
-    empty: "nothing verified matches this question",
-    omitted: (n: number) => `${n} withheld by the injection filter`,
+    includeDraft: "include drafts",
+    prompt: "enter a query, or a scope on its own for that context's briefing",
+    draftsIncluded:
+      "Drafts included. An agent would NOT receive these — they are shown labelled so you can see what is waiting for review.",
+    wouldBeInjected: "would be injected",
+    scopeNote: (id: string) => `scope: ${id} (leads, does not imprison)`,
+    truncated: (shown: number, total: number) =>
+      `showing ${shown} of ${total} — an agent gets the same page, plus a note telling it to ask a specific question for the rest. Raise the limit to preview more.`,
+    empty:
+      "nothing verified matches — an agent would get nothing for this query",
   },
   graph: {
     heading: "Graph",
@@ -203,7 +245,8 @@ export const en = {
   },
   audit: {
     heading: "Audit",
-    lede: "The append-only trail of knowledge read and governance performed. Filtering here narrows the loaded window, not the whole history — use yoke audit --json to walk all of it.",
+    lede: "The append-only trail of knowledge read and governance performed. Filtering here narrows the loaded window, not the whole history — use ",
+    ledeAfter: " to walk all of it.",
     since: "since",
     sinceHint: "your local time",
     allActions: "all actions",
@@ -223,10 +266,16 @@ export const en = {
   },
   login: {
     heading: "Sign in",
-    lede: "This deployment requires a credential. Paste an API token or an OIDC id_token.",
+    lede: "Paste an API token or an OIDC id_token. yoke never stores a password — this is a credential you already minted.",
     token: "token",
+    credential: "credential",
+    checking: "checking…",
     submit: "sign in",
-    signOut: "sign out",
+    rejected: "credential rejected",
+    noTokenBefore: "No token yet? On the server running yoke:",
+    noTokenAfter:
+      " to that scope list to allow promoting drafts — verify is the governance permission, so it is granted, never assumed.",
+    addPrefix: "Add ",
   },
   errors: {
     forbiddenHint:

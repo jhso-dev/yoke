@@ -17,6 +17,7 @@ import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
+import { useT } from "../../lib/i18n";
 import { isMissing, type Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
@@ -32,17 +33,18 @@ function AddMember({
   to: string;
   onLinked: () => void;
 }) {
+  const t = useT();
   const candidates = people.filter((p) => !already.has(p.id));
   const [who, setWho] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   if (candidates.length === 0 && people.length > 0)
-    return <div className="empty">everyone recorded is already on this</div>;
+    return <div className="empty">{t.collaboration.everyoneAdded}</div>;
   return (
     <div className="flex flex-wrap items-center gap-2 p-3">
       <Select value={who} onValueChange={setWho}>
-        <SelectTrigger aria-label="person" className="w-64">
-          <SelectValue placeholder="add someone…" />
+        <SelectTrigger aria-label={t.collaboration.person} className="w-64">
+          <SelectValue placeholder={t.collaboration.addSomeone} />
         </SelectTrigger>
         <SelectContent>
           {candidates.map((p) => (
@@ -69,7 +71,7 @@ function AddMember({
           }
         }}
       >
-        {busy ? "linking…" : "add to this work"}
+        {busy ? t.common.linking : t.collaboration.addToWork}
       </Button>
       <ErrorBanner error={error} />
     </div>
@@ -90,6 +92,7 @@ function AddMember({
  * --scope`).
  */
 function CollaborationBody() {
+  const t = useT();
   const id = useSearchParams().get("id") ?? "";
   const list = useAsync(
     () => api.entities({ type: "collaboration", limit: 200 }),
@@ -120,7 +123,7 @@ function CollaborationBody() {
     return (
       <>
         <div className="page-head">
-          <h1>Collaborations</h1>
+          <h1>{t.collaboration.heading}</h1>
           <CreateButton
             ontology={ontology.data ?? []}
             type="collaboration"
@@ -130,21 +133,13 @@ function CollaborationBody() {
         {/* Says what the thing IS in the first clause, because the type name alone never did. And
             "attached to" rather than "in": a collaboration holds nothing — people and records point at
             it, which is what the arrows on the graph screen draw. */}
-        <p className="lede">
-          One thing being worked on together, and the people and knowledge
-          attached to it. Anchoring an injection here is what makes an agent
-          answer from <em>this</em> work's context first.
-        </p>
+        <p className="lede">{t.collaboration.lede}</p>
         <ErrorBanner error={list.error} />
         <div className="panel">
           {list.loading ? (
-            <div className="empty">loading…</div>
+            <div className="empty">{t.common.loading}</div>
           ) : rows.length === 0 ? (
-            <div className="empty">
-              none yet — create one above, with{" "}
-              <code>yoke add collaboration --attr title=…</code>, or let an
-              agent do it via <code>yoke_use_scope</code>
-            </div>
+            <div className="empty">{t.collaboration.emptyList}</div>
           ) : (
             <div className="scroll-x">
               <table>
@@ -153,8 +148,8 @@ function CollaborationBody() {
                     {/* No key column: the list payload carries `summary`, not attributes, and one
                         request per row to fetch a key would be an N+1 for a label. The key is on the
                         record when you open it. */}
-                    <th>title</th>
-                    <th>status</th>
+                    <th>{t.common.title}</th>
+                    <th>{t.common.status}</th>
                     <th />
                   </tr>
                 </thead>
@@ -175,7 +170,7 @@ function CollaborationBody() {
                         <Link
                           href={`/graph/?scope=${encodeURIComponent(w.id)}`}
                         >
-                          graph
+                          {t.common.graph}
                         </Link>
                       </td>
                     </tr>
@@ -189,16 +184,16 @@ function CollaborationBody() {
     );
   }
 
-  if (detail.loading) return <p className="muted">loading…</p>;
+  if (detail.loading) return <p className="muted">{t.common.loading}</p>;
   const d = detail.data;
   if (detail.error)
     return (
       <>
-        <h1>Collaboration</h1>
+        <h1>{t.collaboration.headingOne}</h1>
         <ErrorBanner error={detail.error} />
       </>
     );
-  if (!d) return <div className="empty">not found in this namespace</div>;
+  if (!d) return <div className="empty">{t.common.notFound}</div>;
 
   // works_on points person → collaboration, so the members are this record's incoming edges on that type.
   const members = d.relations.in
@@ -216,22 +211,22 @@ function CollaborationBody() {
       <h1>{recordLabel(d.entity)}</h1>
       <p className="lede">
         <StatusBadge status={d.entity.effectiveStatus} />{" "}
-        <Link href="/collaboration/">all collaborations</Link>
+        <Link href="/collaboration/">{t.collaboration.all}</Link>
       </p>
       <ErrorBanner error={briefing.error} />
 
       <div className="controls">
         <Link className="btn" href={`/graph/?scope=${encodeURIComponent(id)}`}>
-          open in graph
+          {t.common.openInGraph}
         </Link>
         <Link className="btn" href={`/entity/?id=${encodeURIComponent(id)}`}>
-          open as record
+          {t.common.openAsRecord}
         </Link>
         <code>yoke inject --scope {id}</code>
       </div>
 
       <div className="panel">
-        <div className="panel-head">attributes</div>
+        <div className="panel-head">{t.common.attributes}</div>
         <div className="scroll-x">
           <table>
             <tbody>
@@ -248,10 +243,9 @@ function CollaborationBody() {
 
       <div className="panel">
         <div className="panel-head">
-          people on this work
+          {t.collaboration.people}
           <span className="muted">
-            {members.length} · shown here and deliberately NOT in the briefing —
-            a roster is not knowledge about the work
+            {members.length} · {t.collaboration.peopleNote}
           </span>
         </div>
         {/* The direction is not the caller's choice to get wrong: works_on points person →
@@ -265,7 +259,7 @@ function CollaborationBody() {
         />
         {members.length === 0 ? (
           <div className="empty">
-            nobody linked yet — pick someone above, or run{" "}
+            {t.collaboration.noMembers}{" "}
             <code>yoke link &lt;person&gt; works_on {shortId(id)}</code>
           </div>
         ) : (
@@ -276,11 +270,11 @@ function CollaborationBody() {
                   <tr key={m.id}>
                     <td>
                       {isMissing(m) ? (
-                        <span className="muted">not in this namespace</span>
+                        <span className="muted">{t.common.notInNamespace}</span>
                       ) : (
                         <Link
                           href={`/persona/?id=${encodeURIComponent(m.id)}`}
-                          title="read their recorded judgment"
+                          title={t.collaboration.readJudgment}
                         >
                           {recordLabel(m)}
                         </Link>
@@ -296,11 +290,8 @@ function CollaborationBody() {
 
       <div className="panel">
         <div className="panel-head">
-          the briefing an agent receives
-          <span className="muted">
-            exactly what <code>inject(scope)</code> returns — verified only,
-            freshest first, audited as a preview
-          </span>
+          {t.collaboration.briefing}
+          <span className="muted">{t.collaboration.briefingNote}</span>
         </div>
         {briefing.loading ? (
           <div className="empty">loading…</div>
@@ -321,7 +312,7 @@ function CollaborationBody() {
             )}
             <KnowledgeTable
               rows={briefing.data?.items ?? []}
-              empty="nothing in this work's context yet"
+              empty={t.collaboration.briefingEmpty}
             />
           </>
         )}
@@ -329,26 +320,21 @@ function CollaborationBody() {
 
       <div className="panel">
         <div className="panel-head">
-          attached records
+          {t.collaboration.attached}
           <span className="muted">
-            {attached.length} · <code>←</code> points here: the record carries
-            the link, this work does not contain it. Deprecating this work
-            leaves every one of them untouched
+            {attached.length} · {t.collaboration.attachedNote}
           </span>
         </div>
         {attached.length === 0 ? (
-          <div className="empty">
-            none — knowledge attaches here when it is captured with{" "}
-            <code>--scope</code>
-          </div>
+          <div className="empty">{t.collaboration.attachedEmpty}</div>
         ) : (
           <div className="scroll-x">
             <table>
               <thead>
                 <tr>
-                  <th>direction</th>
-                  <th>relation</th>
-                  <th>record</th>
+                  <th>{t.common.direction}</th>
+                  <th>{t.common.relation}</th>
+                  <th>{t.common.record}</th>
                 </tr>
               </thead>
               <tbody>
@@ -358,7 +344,7 @@ function CollaborationBody() {
                     <td className="mono">{e.type}</td>
                     <td>
                       {isMissing(e.other) ? (
-                        <span className="muted">not in this namespace</span>
+                        <span className="muted">{t.common.notInNamespace}</span>
                       ) : (
                         <Link
                           href={`/entity/?id=${encodeURIComponent(e.other.id)}`}

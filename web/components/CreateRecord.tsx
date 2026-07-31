@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { api } from "../lib/api";
 import { recordLabel } from "../lib/citation";
+import { useT } from "../lib/i18n";
 import type { Knowledge, TypeDef } from "../lib/types";
 import { ErrorBanner } from "./ErrorBanner";
 
@@ -42,7 +43,8 @@ export function CreateRecord({
   scope?: string;
   onCreated: (created: Knowledge) => void;
 }) {
-  const entityTypes = ontology.filter((t) => t.kind === "entity");
+  const tr = useT();
+  const entityTypes = ontology.filter((d) => d.kind === "entity");
   const [chosen, setChosen] = useState(type ?? entityTypes[0]?.name ?? "");
   const active = type ?? chosen;
   const def = ontology.find((t) => t.name === active);
@@ -77,7 +79,7 @@ export function CreateRecord({
     <form onSubmit={submit} className="grid gap-4">
       {!type && (
         <div className="grid gap-2">
-          <Label htmlFor="create-type">type</Label>
+          <Label htmlFor="create-type">{tr.common.type}</Label>
           <Select
             value={chosen}
             onValueChange={(v) => {
@@ -88,7 +90,7 @@ export function CreateRecord({
             }}
           >
             <SelectTrigger id="create-type" className="w-full">
-              <SelectValue placeholder="pick a type" />
+              <SelectValue placeholder={tr.create.pickType} />
             </SelectTrigger>
             <SelectContent>
               {entityTypes.map((t) => (
@@ -101,9 +103,7 @@ export function CreateRecord({
         </div>
       )}
       {attrs.length === 0 && (
-        <p className="text-muted-foreground text-sm">
-          This type declares no attributes — it will be created with none.
-        </p>
+        <p className="text-muted-foreground text-sm">{tr.create.noAttrs}</p>
       )}
       {attrs.map(([name, spec], i) => (
         <div key={name} className="grid gap-2">
@@ -112,7 +112,7 @@ export function CreateRecord({
             {spec.required && (
               <span
                 className="text-muted-foreground"
-                title="required by the ontology"
+                title={tr.common.required}
               >
                 *
               </span>
@@ -136,10 +136,10 @@ export function CreateRecord({
       ))}
       <div className="flex items-center gap-2">
         <Button type="submit" disabled={busy || !active}>
-          {busy ? "creating…" : "create"}
+          {busy ? tr.common.creating : tr.common.create}
         </Button>
         <span className="text-muted-foreground text-xs">
-          enters as a draft and needs a verify
+          {tr.common.draftNotice}
         </span>
       </div>
       <ErrorBanner error={error} />
@@ -149,9 +149,10 @@ export function CreateRecord({
         // the reviewer decides, which is the whole shape of this product.
         <Alert>
           <AlertDescription>
-            Created, but {duplicates.length} similar record
-            {duplicates.length > 1 ? "s" : ""} already exist:{" "}
-            {duplicates.map((d) => recordLabel(d)).join(" · ")}
+            {tr.create.duplicates(
+              duplicates.length,
+              duplicates.map((d) => recordLabel(d)).join(" · "),
+            )}
           </AlertDescription>
         </Alert>
       )}

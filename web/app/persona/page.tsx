@@ -6,6 +6,7 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
 import { recordLabel } from "../../lib/citation";
+import { useT } from "../../lib/i18n";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -43,14 +44,11 @@ function PersonaBody() {
   );
   const facts = (persona.data?.facts ?? []).filter((f) => hit(f.summary));
 
+  const t = useT();
   return (
     <>
-      <h1>Persona</h1>
-      <p className="lede">
-        The verified knowledge a person authored — what an agent receives when
-        it asks how they would decide. Their records with their sources, never
-        text written in their voice.
-      </p>
+      <h1>{t.persona.heading}</h1>
+      <p className="lede">{t.persona.lede}</p>
       <ErrorBanner error={people.error ?? persona.error} />
       <div className="controls">
         <select
@@ -58,7 +56,7 @@ function PersonaBody() {
           onChange={(e) => pick(e.target.value)}
           aria-label="person"
         >
-          <option value="">choose a person…</option>
+          <option value="">{t.persona.choose}</option>
           {(people.data?.items ?? []).map((p) => (
             <option key={p.id} value={p.id}>
               {recordLabel(p)}
@@ -66,47 +64,38 @@ function PersonaBody() {
           ))}
         </select>
         <input
-          placeholder="filter their records"
+          placeholder={t.persona.filter}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           aria-label="filter"
           disabled={!id}
         />
-        {id && (
-          <span className="muted mono">
-            export: yoke persona {id} --out ./skills
-          </span>
-        )}
+        {id && <span className="muted mono">{t.persona.exportHint(id)}</span>}
       </div>
 
       {!id ? (
         <div className="panel">
-          <div className="empty">
-            pick a person to see the judgment they have on record
-          </div>
+          <div className="empty">{t.persona.prompt}</div>
         </div>
       ) : persona.loading ? (
         <div className="panel">
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         </div>
       ) : (
         <>
           <div className="panel">
             <div className="panel-head">
-              guiding decisions
+              {t.persona.decisions}
               <span className="muted">{decisions.length}</span>
             </div>
-            <KnowledgeTable
-              rows={decisions}
-              empty="no decisions on record — the bottleneck for a persona is capture, not query"
-            />
+            <KnowledgeTable rows={decisions} empty={t.persona.noDecisions} />
           </div>
           <div className="panel">
             <div className="panel-head">
-              other knowledge
+              {t.persona.otherKnowledge}
               <span className="muted">{facts.length}</span>
             </div>
-            <KnowledgeTable rows={facts} empty="none" />
+            <KnowledgeTable rows={facts} empty={t.common.none} />
           </div>
         </>
       )}

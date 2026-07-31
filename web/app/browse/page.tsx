@@ -7,6 +7,7 @@ import { CreateButton } from "../../components/CreateButton";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
+import { useT } from "../../lib/i18n";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -47,17 +48,15 @@ function BrowseBody() {
     router.replace(`/browse/${q.toString() ? `?${q}` : ""}`);
   };
 
+  const t = useT();
   const rows = page.data?.items ?? [];
   return (
     <>
       <div className="page-head">
-        <h1>Browse</h1>
+        <h1>{t.browse.heading}</h1>
         <CreateButton ontology={defs.data ?? []} onCreated={page.reload} />
       </div>
-      <p className="lede">
-        Every record in this namespace, newest last. Use it to see the shape of
-        what you have — orphans, stale corners, drafts nobody reviewed.
-      </p>
+      <p className="lede">{t.browse.lede}</p>
       <ErrorBanner error={page.error ?? defs.error} />
       <div className="controls">
         <select
@@ -65,7 +64,7 @@ function BrowseBody() {
           onChange={(e) => setFilter({ type: e.target.value })}
           aria-label="type"
         >
-          <option value="">all types</option>
+          <option value="">{t.browse.allTypes}</option>
           {(defs.data ?? [])
             .filter((d) => d.kind === "entity")
             .map((d) => (
@@ -79,22 +78,22 @@ function BrowseBody() {
           onChange={(e) => setFilter({ status: e.target.value })}
           aria-label="status"
         >
-          <option value="">any status</option>
+          <option value="">{t.browse.anyStatus}</option>
           <option value="draft">draft</option>
           <option value="verified">verified</option>
           <option value="deprecated">deprecated</option>
         </select>
         <span className="muted">
-          {rows.length} shown{page.data?.next ? " (more available)" : ""}
+          {t.browse.shown(rows.length, !!page.data?.next)}
         </span>
         {/* 'stale' is absent on purpose: it is computed at read time and never stored, so it cannot
             be a stored-status filter. It still shows in the status column. */}
       </div>
       <div className="panel">
         {page.loading ? (
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         ) : (
-          <KnowledgeTable rows={rows} empty="nothing matches that filter" />
+          <KnowledgeTable rows={rows} empty={t.browse.noMatch} />
         )}
       </div>
       <div className="controls" style={{ marginTop: 12 }}>
@@ -103,7 +102,7 @@ function BrowseBody() {
           disabled={cursors.length === 0}
           onClick={() => setCursors((c) => c.slice(0, -1))}
         >
-          ← previous
+          {t.browse.prev}
         </Button>
         <Button
           type="button"
@@ -112,7 +111,7 @@ function BrowseBody() {
             setCursors((c) => (page.data?.next ? [...c, page.data.next] : c))
           }
         >
-          next →
+          {t.browse.next}
         </Button>
       </div>
     </>

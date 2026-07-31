@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { recordLabel } from "../lib/citation";
+import { useT } from "../lib/i18n";
 import type { Knowledge } from "../lib/types";
 import { Actor } from "./Actor";
 import { Citation } from "./Citation";
@@ -22,18 +23,19 @@ export function KnowledgeTable({
   /** When given, renders a checkbox column for bulk governance actions. */
   select?: { chosen: Set<string>; toggle: (id: string) => void };
 }) {
+  const t = useT();
   if (rows.length === 0) return <div className="empty">{empty}</div>;
   return (
     <div className="scroll-x">
       <table>
         <thead>
           <tr>
-            {select && <th aria-label="select" />}
-            <th>type</th>
-            <th>summary</th>
-            <th>status</th>
-            <th>actor</th>
-            <th>source</th>
+            {select && <th aria-label={t.chrome.select} />}
+            <th>{t.common.type}</th>
+            <th>{t.chrome.summary}</th>
+            <th>{t.common.status}</th>
+            <th>{t.common.actor}</th>
+            <th>{t.common.source}</th>
           </tr>
         </thead>
         <tbody>

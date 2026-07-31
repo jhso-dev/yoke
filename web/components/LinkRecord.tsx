@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { api } from "../lib/api";
 import { recordLabel } from "../lib/citation";
+import { useT } from "../lib/i18n";
 import type { Knowledge, TypeDef } from "../lib/types";
 import { ErrorBanner } from "./ErrorBanner";
 
@@ -37,7 +38,8 @@ export function LinkRecord({
   record: Knowledge;
   onLinked: () => void;
 }) {
-  const relations = ontology.filter((t) => t.kind === "relation");
+  const tr = useT();
+  const relations = ontology.filter((d) => d.kind === "relation");
   const [type, setType] = useState(relations[0]?.name ?? "");
   const [outgoing, setOutgoing] = useState(true);
   const [other, setOther] = useState("");
@@ -74,13 +76,13 @@ export function LinkRecord({
         type="button"
         variant="secondary"
         onClick={() => setOutgoing((v) => !v)}
-        title="swap which end this record is"
-        aria-label={outgoing ? "points at the other record" : "is pointed at"}
+        title={tr.entity.swapDirection}
+        aria-label={outgoing ? tr.entity.pointsAt : tr.entity.isPointedAt}
       >
         {outgoing ? "→" : "←"}
       </Button>
       <Select value={type} onValueChange={setType}>
-        <SelectTrigger aria-label="relation" className="w-48">
+        <SelectTrigger aria-label={tr.common.relation} className="w-48">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -94,13 +96,13 @@ export function LinkRecord({
       <Input
         value={other}
         onChange={(e) => setOther(e.target.value)}
-        placeholder="other record id"
-        aria-label="other record id"
+        placeholder={tr.entity.otherRecordId}
+        aria-label={tr.entity.otherRecordId}
         className="w-72"
         required
       />
       <Button type="submit" disabled={busy || !other.trim() || !type}>
-        {busy ? "linking…" : "link"}
+        {busy ? tr.common.linking : tr.common.link}
       </Button>
       <ErrorBanner error={error} />
     </form>

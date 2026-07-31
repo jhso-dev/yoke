@@ -8,6 +8,7 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
+import { useT } from "../../lib/i18n";
 import { type ConflictPair, isMissing, type Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
@@ -41,8 +42,8 @@ export default function Conflicts() {
       return (
         <div className="panel" style={{ padding: 12 }}>
           <span className="muted">
-            <span className="mono">{shortId(s.id)}</span> — not in this
-            namespace
+            <span className="mono">{shortId(s.id)}</span> —{" "}
+            {t.common.notInNamespace}
           </span>
         </div>
       );
@@ -67,31 +68,28 @@ export default function Conflicts() {
             onClick={() => retire(k.id)}
           >
             {k.effectiveStatus === "deprecated"
-              ? "already retired"
-              : "deprecate this side"}
+              ? t.conflicts.alreadyRetired
+              : t.conflicts.deprecateSide}
           </Button>
         </div>
       </div>
     );
   };
 
+  const t = useT();
   const rows = pairs.data ?? [];
   return (
     <>
-      <h1>Conflicts</h1>
-      <p className="lede">
-        Verified records that contradict each other. yoke keeps both and never
-        picks a winner — deprecate one side, or leave them coexisting, which is
-        a real answer when the disagreement is the knowledge.
-      </p>
+      <h1>{t.conflicts.heading}</h1>
+      <p className="lede">{t.conflicts.lede}</p>
       <ErrorBanner error={pairs.error ?? actionError} />
       {pairs.loading ? (
         <div className="panel">
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         </div>
       ) : rows.length === 0 ? (
         <div className="panel">
-          <div className="empty">no contradictions recorded</div>
+          <div className="empty">{t.conflicts.empty}</div>
         </div>
       ) : (
         rows.map((p) => (

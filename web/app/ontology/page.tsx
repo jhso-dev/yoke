@@ -16,11 +16,13 @@ import {
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Modal } from "../../components/Modal";
 import { api } from "../../lib/api";
+import { useT } from "../../lib/i18n";
 import { useAsync } from "../../lib/useAsync";
 
 /** The schema, as data. Type defs are not versioned knowledge, so this is the one screen without
  * citations — and it says so rather than leaving the absence unexplained. */
 export default function Ontology() {
+  const t = useT();
   const defs = useAsync(() => api.ontology(), []);
   const rows = defs.data ?? [];
   const entities = rows.filter((d) => d.kind === "entity");
@@ -33,15 +35,15 @@ export default function Ontology() {
         <span className="muted">{list.length}</span>
       </div>
       {list.length === 0 ? (
-        <div className="empty">none</div>
+        <div className="empty">{t.common.none}</div>
       ) : (
         <div className="scroll-x">
           <table>
             <thead>
               <tr>
-                <th>name</th>
-                <th>attributes</th>
-                <th>freshness (ttl)</th>
+                <th>{t.ontology.name}</th>
+                <th>{t.common.attributes}</th>
+                <th>{t.ontology.freshness}</th>
                 <th />
               </tr>
             </thead>
@@ -56,14 +58,14 @@ export default function Ontology() {
                   </td>
                   <td className="num">
                     {d.ttl_days === undefined ? (
-                      <span title="never goes stale">∞</span>
+                      <span title={t.ontology.neverStale}>∞</span>
                     ) : (
-                      `${d.ttl_days} days`
+                      t.ontology.days(d.ttl_days)
                     )}
                   </td>
                   <td>
                     <Link href={`/browse/?type=${encodeURIComponent(d.name)}`}>
-                      browse
+                      {t.common.browse}
                     </Link>
                   </td>
                 </tr>
@@ -78,15 +80,10 @@ export default function Ontology() {
   return (
     <>
       <div className="page-head">
-        <h1>Ontology</h1>
+        <h1>{t.ontology.heading}</h1>
         <AddTypeButton onSaved={defs.reload} />
       </div>
-      <p className="lede">
-        The entity and relation types this namespace recognises. A{" "}
-        <code>*</code> marks a required attribute; the TTL is how long a
-        verified record of that type stays fresh before it is withheld again.
-        These are schema records, not knowledge, so they carry no citation.
-      </p>
+      <p className="lede">{t.ontology.lede}</p>
       <ErrorBanner error={defs.error} />
       {defs.loading ? (
         <div className="panel">
@@ -94,8 +91,8 @@ export default function Ontology() {
         </div>
       ) : (
         <>
-          {table("entity types", entities)}
-          {table("relation types", relations)}
+          {table(t.ontology.entityTypes, entities)}
+          {table(t.ontology.relationTypes, relations)}
           <Maintenance names={rows.map((d) => d.name)} onDone={defs.reload} />
         </>
       )}
@@ -105,16 +102,17 @@ export default function Ontology() {
 
 /** The title-row action: a button, and the declare form in a modal behind it. */
 function AddTypeButton({ onSaved }: { onSaved: () => void }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button type="button" onClick={() => setOpen(true)}>
-        declare a type
+        {t.ontology.declare}
       </Button>
       <Modal
         open={open}
-        title="declare a type"
-        description="An existing name saves a new version — the same append-only migration yoke ontology add-type performs."
+        title={t.ontology.declare}
+        description={t.ontology.declareNote}
         onClose={() => setOpen(false)}
       >
         <AddType onSaved={onSaved} />
@@ -125,6 +123,7 @@ function AddTypeButton({ onSaved }: { onSaved: () => void }) {
 
 /** `yoke ontology add-type`. Append-only per name, so declaring an existing name is a migration. */
 function AddType({ onSaved }: { onSaved: () => void }) {
+  const t = useT();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"entity" | "relation">("entity");
   // `k` or `k*` — the same shorthand the table above prints, so what you read is what you type.
@@ -171,7 +170,7 @@ function AddType({ onSaved }: { onSaved: () => void }) {
     >
       <div className="grid gap-4">
         <div className="grid gap-2">
-          <Label htmlFor="type-name">name</Label>
+          <Label htmlFor="type-name">{t.ontology.name}</Label>
           <Input
             id="type-name"
             value={name}
@@ -180,7 +179,7 @@ function AddType({ onSaved }: { onSaved: () => void }) {
           />
         </div>
         <div className="grid gap-2">
-          <Label htmlFor="type-kind">kind</Label>
+          <Label htmlFor="type-kind">{t.ontology.kind}</Label>
           <Select
             value={kind}
             onValueChange={(v) => setKind(v as "entity" | "relation")}
@@ -189,30 +188,30 @@ function AddType({ onSaved }: { onSaved: () => void }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="entity">entity</SelectItem>
-              <SelectItem value="relation">relation</SelectItem>
+              <SelectItem value="entity">{t.ontology.entity}</SelectItem>
+              <SelectItem value="relation">{t.ontology.relation}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div className="grid gap-2">
           <Label htmlFor="type-attrs">
-            attributes{" "}
+            {t.common.attributes}{" "}
             <span className="text-muted-foreground font-normal">
-              — comma separated, * = required
+              {t.ontology.attrsHint}
             </span>
           </Label>
           <Input
             id="type-attrs"
             value={attrs}
             onChange={(e) => setAttrs(e.target.value)}
-            placeholder="title*, owner"
+            placeholder={t.ontology.attrsExample}
           />
         </div>
         <div className="grid gap-2">
           <Label htmlFor="type-ttl">
-            freshness{" "}
+            {t.ontology.freshness}{" "}
             <span className="text-muted-foreground font-normal">
-              — days, blank = never goes stale
+              {t.ontology.ttlHint}
             </span>
           </Label>
           <Input
@@ -224,7 +223,7 @@ function AddType({ onSaved }: { onSaved: () => void }) {
         </div>
         <div>
           <Button type="submit" disabled={busy || !name.trim()}>
-            {busy ? "saving…" : "save type"}
+            {busy ? t.common.saving : t.ontology.saveType}
           </Button>
         </div>
       </div>
@@ -248,6 +247,7 @@ function Maintenance({
   names: string[];
   onDone: () => void;
 }) {
+  const t = useT();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -271,31 +271,29 @@ function Maintenance({
   return (
     <div className="panel">
       <div className="panel-head">
-        maintenance
-        <span className="muted">
-          namespace-wide repairs — the same two commands, same effects
-        </span>
+        {t.ontology.maintenance}
+        <span className="muted">{t.ontology.maintenanceNote}</span>
       </div>
       <div className="controls">
         <Button
           type="button"
           variant="secondary"
           disabled={busy}
-          title="re-derive authored_by edges for records committed before the gate made them"
+          title={t.ontology.backfillHint}
           onClick={() =>
             run(async () => {
               const r = await api.backfill();
-              return `scanned ${r.scanned} records, added ${r.created} authorship edges`;
+              return t.ontology.backfillDone(r.scanned, r.created);
             })
           }
         >
-          backfill authorship
+          {t.ontology.backfill}
         </Button>
       </div>
       <div className="controls">
         <Select value={from} onValueChange={setFrom}>
-          <SelectTrigger aria-label="rename from" className="w-56">
-            <SelectValue placeholder="rename a type…" />
+          <SelectTrigger aria-label={t.ontology.renameFrom} className="w-56">
+            <SelectValue placeholder={t.ontology.renamePlaceholder} />
           </SelectTrigger>
           <SelectContent>
             {names.map((n) => (
@@ -309,7 +307,7 @@ function Maintenance({
         <Input
           value={to}
           onChange={(e) => setTo(e.target.value)}
-          placeholder="new name"
+          placeholder={t.ontology.newName}
           aria-label="rename to"
           className="w-56"
         />
@@ -317,17 +315,17 @@ function Maintenance({
           type="button"
           variant="destructive"
           disabled={busy || !from || !to.trim() || from === to.trim()}
-          title="rewrites the declaration and every stored row, history included"
+          title={t.ontology.renameHint}
           onClick={() =>
             run(async () => {
               const r = await api.renameType({ from, to: to.trim() });
               setFrom("");
               setTo("");
-              return `renamed ${r.from} to ${r.to} — ${r.rows} rows rewritten`;
+              return t.ontology.renameDone(r.from, r.to, r.rows);
             })
           }
         >
-          rename
+          {t.ontology.rename}
         </Button>
       </div>
       {result && (

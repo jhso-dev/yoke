@@ -1,28 +1,31 @@
 "use client";
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { LOCALES, type Locale, useLocale } from "../lib/i18n";
 
-/**
- * The language control, in the top bar beside the actor.
- *
- * A plain `<select>` rather than shadcn's: it sits in the chrome next to the credential state, and
- * the Radix version renders a portal with a focus scope — a lot of machinery for two options that
- * fit in a native control the OS already knows how to present on a phone.
- */
+/** The language control, in the top bar beside the credential state. */
 export function LocaleSwitch() {
   const { locale, setLocale } = useLocale();
   return (
-    <select
-      value={locale}
-      onChange={(e) => setLocale(e.target.value as Locale)}
-      aria-label="language"
-      className="bg-card text-foreground border-border rounded-md border px-2 py-1 text-xs"
-    >
-      {Object.entries(LOCALES).map(([code, label]) => (
-        <option key={code} value={code}>
-          {label}
-        </option>
-      ))}
-    </select>
+    <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+      {/* Sized to the longest label rather than to content, so switching language does not shift
+          everything beside it in the top bar. */}
+      <SelectTrigger aria-label="language" size="sm" className="w-28">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {Object.entries(LOCALES).map(([code, label]) => (
+          <SelectItem key={code} value={code}>
+            {label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

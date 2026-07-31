@@ -19,6 +19,7 @@ export const ko: typeof en = {
     saving: "저장 중…",
     verify: "verify",
     reconfirm: "재확인",
+    verifyHint: "승격하거나, 오래된 레코드를 재확인합니다",
     deprecate: "deprecate",
     link: "연결",
     linking: "연결 중…",
@@ -62,10 +63,32 @@ export const ko: typeof en = {
     audit: "감사 로그",
     screens: "화면",
   },
+  chrome: {
+    connecting: "연결 중…",
+    readOnly: "읽기 전용",
+    readOnlyHint: "읽기 전용 복제본입니다: 쓰기는 원본으로 갑니다",
+    namespaceHint: "테넌트 네임스페이스",
+    signOut: "로그아웃",
+    signIn: "로그인",
+    ungated: "인증 없음",
+    authedAs: (actor: string) => `${actor}(으)로 인증됨`,
+    signOutHint:
+      "이 브라우저의 자격증명만 지웁니다. 토큰 자체는 `yoke token revoke`로 폐기하세요",
+    ungatedHint: "로컬 단일 사용자 모드 — 자격증명이 필요 없습니다",
+    select: "선택",
+    summary: "요약",
+  },
+  create: {
+    pickType: "타입 고르기",
+    noAttrs: "이 타입은 속성을 선언하지 않습니다 — 속성 없이 생성됩니다.",
+    duplicates: (n: number, names: string) =>
+      `생성했지만 비슷한 레코드가 이미 ${n}개 있습니다: ${names}`,
+  },
   review: {
     heading: "리뷰 대기열",
     lede: "올려두었지만 아직 믿기로 하지 않은 것들입니다. 여기 있는 것은 에이전트에 닿지 않습니다 — draft는 사람이 승격하기 전까지 주입에서 보류됩니다.",
     selectAll: "전체 선택",
+    empty: "draft 없음 — 대기열이 비었습니다",
     draftCount: (n: number) => `draft ${n}개`,
   },
   browse: {
@@ -73,13 +96,14 @@ export const ko: typeof en = {
     lede: "이 네임스페이스의 모든 레코드, 최신이 아래쪽입니다. 가진 것의 모양을 보는 용도입니다 — 고립된 것, 오래된 구석, 아무도 검토하지 않은 draft.",
     newRecord: "새 레코드",
     allTypes: "모든 타입",
-    allStatuses: "모든 상태",
-    empty: "이 네임스페이스에 기록된 것이 아직 없습니다",
-    more: "더 보기",
-    back: "이전",
+    anyStatus: "모든 상태",
+    shown: (n: number, more: boolean) =>
+      `${n}개 표시${more ? " (더 있음)" : ""}`,
+    noMatch: "이 필터에 맞는 것이 없습니다",
+    prev: "← 이전",
+    next: "다음 →",
   },
   entity: {
-    heading: "레코드",
     noId: "id가 없습니다 — 이 화면은 여기서 들어옵니다:",
     noTextAttributes: "(텍스트 속성 없음)",
     provenance: "출처 정보",
@@ -95,6 +119,7 @@ export const ko: typeof en = {
     swapDirection: "이 레코드가 어느 쪽인지 바꾸기",
     pointsAt: "상대 레코드를 가리킴",
     isPointedAt: "상대가 이 레코드를 가리킴",
+    copyId: "클릭하면 복사",
   },
   collaboration: {
     heading: "협업",
@@ -109,6 +134,7 @@ export const ko: typeof en = {
       "여기에는 보이지만 브리핑에는 일부러 넣지 않습니다 — 명단은 그 일에 대한 지식이 아닙니다",
     noMembers:
       "아직 아무도 연결되지 않았습니다 — 위에서 고르거나 다음을 실행하세요:",
+    person: "사람",
     addSomeone: "사람 추가…",
     addToWork: "이 일에 추가",
     everyoneAdded: "기록된 사람이 모두 이미 참여 중입니다",
@@ -126,9 +152,10 @@ export const ko: typeof en = {
   },
   conflicts: {
     heading: "모순",
-    lede: "게이트가 서로 모순된다고 판단한 쌍입니다. 양쪽 모두 보존됩니다 — yoke는 조용히 승자를 고르지 않습니다 — 그래서 해소는 누군가가 내리는 결정이고 추적에 남습니다.",
+    lede: "서로 모순되는 verified 레코드입니다. yoke는 양쪽을 모두 보존하고 승자를 고르지 않습니다 — 한쪽을 deprecate하거나, 공존시키세요. 불일치 자체가 지식일 때는 공존이 정답입니다.",
     empty: "기록된 모순이 없습니다",
-    keepBoth: "둘 다 유지",
+    alreadyRetired: "이미 폐기됨",
+    deprecateSide: "이쪽을 deprecate",
   },
   ontology: {
     heading: "온톨로지",
@@ -155,6 +182,8 @@ export const ko: typeof en = {
       "게이트가 엣지를 만들기 전에 커밋된 레코드의 authored_by를 다시 도출합니다",
     backfillDone: (scanned: number, created: number) =>
       `레코드 ${scanned}개 확인, authorship 엣지 ${created}개 추가`,
+    renameFrom: "이름 바꿀 타입",
+    attrsExample: "title*, owner",
     renamePlaceholder: "타입 이름 바꾸기…",
     newName: "새 이름",
     rename: "이름 바꾸기",
@@ -164,22 +193,34 @@ export const ko: typeof en = {
   },
   persona: {
     heading: "페르소나",
-    lede: "한 사람의 기록된 판단이 에이전트에게 무엇을 말할지입니다. 그 사람에게서 나온 verified 지식만이고, 추론은 없습니다.",
-    pick: "사람 고르기…",
-    decisions: "결정",
-    facts: "사실",
-    empty: "이 사람에게서 기록된 것이 아직 없습니다",
-    export: "스킬로 내보내기",
+    lede: "한 사람이 남긴 verified 지식입니다 — 에이전트가 '이 사람이라면 어떻게 결정할까'를 물을 때 받는 것입니다. 그 사람의 레코드와 출처이지, 그 사람 말투로 쓴 글이 아닙니다.",
+    choose: "사람 고르기…",
+    filter: "이 사람의 레코드 필터",
+    exportHint: (id: string) => `내보내기: yoke persona ${id} --out ./skills`,
+    prompt: "사람을 고르면 그가 기록으로 남긴 판단이 보입니다",
+    decisions: "판단의 근거가 되는 결정",
+    noDecisions:
+      "기록된 결정이 없습니다 — 페르소나의 병목은 조회가 아니라 포착입니다",
+    otherKnowledge: "그 밖의 지식",
   },
   inject: {
     heading: "주입 미리보기",
-    lede: "이 질문에 대해 에이전트가 받는 그대로입니다. 실제 yoke_inject와 같은 필터, 같은 순위, 같은 인용이며 — 미리보기로 표시된 같은 종류의 감사 기록을 남깁니다.",
-    query: "질문",
-    scope: "scope (선택 — 협업 또는 사람 id)",
-    includeDraft: "draft 포함",
+    ledeBefore: "이 질문에 대해 에이전트가 받는 그대로입니다 — 실제 ",
+    ledeAfter:
+      " 호출과 같은 필터, 같은 순서, 같은 인용입니다. stale·deprecated 레코드는 무엇을 요청하든 나오지 않습니다.",
+    queryPlaceholder: "에이전트가 무슨 일을 하고 있나요?",
+    scopePlaceholder: "scope (협업 또는 사람 id, 선택)",
     run: "미리보기",
-    empty: "이 질문에 맞는 verified 지식이 없습니다",
-    omitted: (n: number) => `주입 필터가 ${n}개를 보류했습니다`,
+    includeDraft: "draft 포함",
+    prompt: "질문을 입력하거나, scope만 입력해 그 맥락의 브리핑을 보세요",
+    draftsIncluded:
+      "draft가 포함되었습니다. 에이전트는 이것들을 받지 않습니다 — 검토를 기다리는 것이 무엇인지 보이도록 표시만 한 것입니다.",
+    wouldBeInjected: "주입될 내용",
+    scopeNote: (id: string) => `scope: ${id} (우선할 뿐 가두지 않습니다)`,
+    truncated: (shown: number, total: number) =>
+      `${total}개 중 ${shown}개 표시 — 에이전트도 같은 페이지를 받고, 나머지는 구체적으로 질문하라는 안내를 함께 받습니다. 더 보려면 limit을 올리세요.`,
+    empty:
+      "맞는 verified 지식이 없습니다 — 이 질문에 에이전트는 아무것도 받지 못합니다",
   },
   graph: {
     heading: "그래프",
@@ -198,7 +239,8 @@ export const ko: typeof en = {
   },
   audit: {
     heading: "감사 로그",
-    lede: "읽힌 지식과 수행된 거버넌스 행위의 append-only 추적입니다. 여기 필터는 불러온 구간을 좁힐 뿐 전체 이력을 좁히지 않습니다 — 전체를 훑으려면 yoke audit --json을 쓰세요.",
+    lede: "읽힌 지식과 수행된 거버넌스 행위의 append-only 추적입니다. 여기 필터는 불러온 구간만 좁힐 뿐 전체 이력을 좁히지 않습니다 — 전체를 훑으려면 ",
+    ledeAfter: "를 쓰세요.",
     since: "시작 시각",
     sinceHint: "현지 시각 기준",
     allActions: "모든 동작",
@@ -219,10 +261,16 @@ export const ko: typeof en = {
   },
   login: {
     heading: "로그인",
-    lede: "이 배포는 자격증명이 필요합니다. API 토큰이나 OIDC id_token을 붙여넣으세요.",
+    lede: "API 토큰이나 OIDC id_token을 붙여넣으세요. yoke는 비밀번호를 저장하지 않습니다 — 이미 발급해둔 자격증명입니다.",
     token: "토큰",
+    credential: "자격증명",
+    checking: "확인 중…",
     submit: "로그인",
-    signOut: "로그아웃",
+    rejected: "자격증명이 거부되었습니다",
+    noTokenBefore: "토큰이 없나요? yoke를 실행 중인 서버에서:",
+    noTokenAfter:
+      "를 스코프 목록에 더하면 draft 승격이 허용됩니다 — verify는 거버넌스 권한이라 부여되는 것이지 가정되지 않습니다.",
+    addPrefix: "",
   },
   errors: {
     forbiddenHint:
