@@ -619,6 +619,17 @@ describe("creating from the browser (WEB-UI amendment 2026-07-31)", () => {
     // write a verified record would route around the one human gate this product is built on.
     expect(created.status).toBe("draft");
 
+    // And not because the caller happened to omit it — asking for another state changes nothing.
+    // The gate assigns status; it is not an input, on any adapter.
+    const asked = await (
+      await postRaw("/api/entity", {
+        type: "fact",
+        status: "verified",
+        attributes: { title: "asked to be born verified" },
+      })
+    ).json();
+    expect(asked.status).toBe("draft");
+
     // The label is the whole trade — the ban went away, the ability to tell did not.
     const stored = await store.getEntity(created.id);
     expect(stored?.provenance.origin).toBe("web");

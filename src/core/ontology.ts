@@ -96,9 +96,15 @@ export function seedOntology(): TypeDef[] {
     {
       name: "collaboration",
       kind: "entity",
+      // `title` only. The seed also declared a free-text `status` attribute: nothing ever read it,
+      // no document said what it meant, and it collided with the word every record already carries —
+      // a lifecycle status, which is assigned by the gate and moved by verify/deprecate, never typed.
+      // A create form built from the ontology rendered the two side by side and invited exactly that
+      // confusion. Whether the work is under way is what its records and their freshness say; an org
+      // that wants a workflow field declares its own, with a name that does not already mean
+      // something here.
       attrs: {
         title: { type: "string", required: true },
-        status: { type: "string" },
       },
     },
     { name: "authored_by", kind: "relation", attrs: {} },

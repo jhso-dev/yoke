@@ -31,7 +31,7 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 
 ## Default ontology (seed)
 
-- entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`, `collaboration` (attributes: title (required), status) — a unit of collaborative work grouping people and knowledge (v4.0)
+- entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`, `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). It declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature
 - relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → collaboration, v4.0)
 - **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
