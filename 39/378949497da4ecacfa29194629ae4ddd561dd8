@@ -1,0 +1,15 @@
+web/app/globals.css
+  h_9aabb7d8448c0a 14-18,26-28,34,42,60,65,68,80,84,88-89,99-100,127,135,148,178,192,197,199,204,209,256,319,322,344,355-356,374,400
+web/app/theme.css
+  h_9aabb7d8448c0a 13-15,31-34
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "39378949497da4ecacfa29194629ae4ddd561dd8",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
