@@ -54,9 +54,14 @@ const INSTANTS = ["occurred_at", "last_confirmed", "at"];
  *
  * The prop test is `=` immediately before the brace, not the field's own name: `iso={e.at}` is a prop
  * position too, and a per-field name list would have flagged the fix as the defect.
+ *
+ * A dictionary lookup is excluded by the same reasoning. `{t.common.actor}` is the translated COLUMN
+ * LABEL for the actor column — the word "actor" — not an actor id, and the guard has no way to tell
+ * a field access from a key lookup except by what it is reading from. `t` and `tr` are the only
+ * bindings useT() is assigned to; if a third appears, it belongs in this pattern.
  */
 const renderedInText = (field: string) =>
-  new RegExp(`(?<![=$])\\{[\\w.]*\\.${field}\\}`);
+  new RegExp(`(?<![=$])\\{(?!t\\.|tr\\.)[\\w.]*\\.${field}\\}`);
 
 describe("no raw ids in human-facing renders", () => {
   it("scans a non-trivial number of screens", () => {
@@ -97,6 +102,15 @@ describe("no raw ids in human-facing renders", () => {
     // A prop position whose name is not the field's — the exact shape every one of these fixes takes.
     expect("<Instant iso={e.at} />").not.toMatch(renderedInText("at"));
     expect("title={row.citation}").not.toMatch(renderedInText("citation"));
+    // A translated label, not a value read off a record. Both of these shipped and both were
+    // flagged, which is what sent the guard looking at what it was reading FROM.
+    expect("<th>{t.common.actor}</th>").not.toMatch(renderedInText("actor"));
+    expect("<th>{t.entity.citation}</th>").not.toMatch(
+      renderedInText("citation"),
+    );
+    // ...and the exemption is narrow: a record still cannot be rendered raw.
+    expect("<td>{t.actor}</td>").not.toMatch(renderedInText("actor"));
+    expect("<td>{event.actor}</td>").toMatch(renderedInText("actor"));
     // The literal `${` is the fixture: this asserts the guard ignores a template interpolation, so
     // the placeholder must survive as source text rather than being evaluated.
     // biome-ignore lint/suspicious/noTemplateCurlyInString: source text under test, not a template.
