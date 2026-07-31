@@ -22,9 +22,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <header className="topbar">
               <span className="brand">YOKE</span>
               <Nav />
-              <div className="topbar-right">
-                <LocaleSwitch />
+              {/* Language last: it is the least-used control here and the one a reader looks for
+                  at the edge, while the credential state is what they scan on arrival. */}
+              <div className="topbar-end">
                 <AuthGate />
+                <LocaleSwitch />
               </div>
             </header>
             <main>{children}</main>

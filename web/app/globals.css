@@ -90,6 +90,19 @@ a:hover {
   font-weight: 600;
 }
 
+/* The right cluster. AuthGate renders its own `.topbar-right` inside this one, so the auto margin
+   would be declared twice on nested flex items — harmless but ambiguous about which one absorbs the
+   slack. This owns the alignment; the nested one keeps only its typography. */
+.topbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.topbar-end .topbar-right {
+  margin-left: 0;
+}
+
 .topbar-right {
   margin-left: auto;
   display: flex;
