@@ -81,20 +81,13 @@ export const ko: typeof en = {
     dark: "다크",
   },
   home: {
-    eyebrow: "사람과 AI를 위한 협업 CONTEXT",
-    heading: "사람과 AI가 같은 정보를 보고 함께 일하게 합니다",
-    lede: "YOKE는 사람과 AI가 같은 정보를 보고 일하게 하는 협업 도구입니다. 프로젝트의 사람, 결정, 사실, 자료, 용어를 하나의 협업 Context로 묶고, 사람이 검증한 정보만 공유합니다.",
-    openCollaboration: "협업 Context 열기",
-    flow: {
-      label: "YOKE의 협업 방식",
-      verified: "검증된 지식",
-      context: "협업 Context",
-      users: "팀원 + AI 에이전트",
-    },
+    eyebrow: "사람과 에이전트가 공유하는 협업 지식",
+    heading: "협업에 필요한 지식을 하나로",
+    lede: "YOKE는 함께 일하는 사람과 에이전트가 같은 맥락에서 협업할 수 있도록, 믿을 수 있는 정보를 한곳에 모아 공유합니다.\n누가 어떤 일을 하는지, 어떤 결정을 내렸는지, 어떤 사실과 자료를 참고해야 하는지 확인할 수 있습니다.\n에이전트에는 사람이 검증한 정보만 전달하고, 아직 검토하지 않은 draft는 제외합니다.",
     cards: {
       collaboration: {
-        title: "협업 Context",
-        body: "프로젝트를 열면 참여자, 연결된 지식, 현재 상황 브리핑을 한곳에서 확인할 수 있습니다. 팀과 에이전트가 함께 사용하는 맥락입니다.",
+        title: "협업",
+        body: "프로젝트마다 팀과 에이전트가 함께 사용하는 Context를 만듭니다. 참여자와 연결된 지식, 현재 상황을 정리한 브리핑을 한곳에서 확인할 수 있습니다.",
       },
       govern: {
         title: "검증",

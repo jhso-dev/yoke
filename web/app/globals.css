@@ -260,35 +260,11 @@ h1 {
 }
 
 .home-hero h1 {
-  font-size: 34px;
-  line-height: 1.2;
+  font-size: 24px;
   margin-bottom: 8px;
 }
 .home-hero .lede {
-  margin-bottom: 14px;
-}
-
-.home-context-flow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-}
-.home-context-flow span,
-.home-context-flow strong {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.home-context-flow strong {
-  color: var(--primary);
-}
-.home-context-flow svg {
-  width: 15px;
-  height: 15px;
-  flex: none;
+  white-space: pre-line;
 }
 
 .home-grid {
@@ -352,16 +328,6 @@ h1 {
 
   .home-tile-primary {
     grid-column: auto;
-  }
-
-  .home-context-flow {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .home-context-flow > svg {
-    margin-left: 5px;
-    transform: rotate(90deg);
   }
 }
 

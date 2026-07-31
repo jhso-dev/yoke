@@ -78,20 +78,13 @@ export const en = {
     dark: "dark",
   },
   home: {
-    eyebrow: "SHARED COLLABORATION CONTEXT",
-    heading: "People and AI, working together from one shared context",
-    lede: "YOKE is a collaboration tool that keeps people and AI working from the same information. It brings a project's people, decisions, facts, resources, and terms into one human-verified Context.",
-    openCollaboration: "Open Collaboration",
-    flow: {
-      label: "How YOKE supports collaboration",
-      verified: "Verified knowledge",
-      context: "Collaboration Context",
-      users: "Team + AI agents",
-    },
+    eyebrow: "collaboration knowledge shared by people and agents",
+    heading: "All the knowledge a collaboration needs, in one place",
+    lede: "YOKE gathers trusted information in one place so people and agents can collaborate with the same context.\nSee who is working on what, which decisions were made, which facts matter, and which resources to reference.\nAgents receive only human-verified information. Unreviewed drafts are excluded.",
     cards: {
       collaboration: {
-        title: "Collaboration Context",
-        body: "Open a project to see its participants, linked knowledge, and current briefing in one place. This is the shared context used by the team and its agents.",
+        title: "Collaborate",
+        body: "Create a shared Context for each project, used by both the team and its agents. See participants, linked knowledge, and a briefing of the current state in one place.",
       },
       govern: {
         title: "Govern",
