@@ -1,9 +1,14 @@
 // 한국어. `typeof en`으로 타입이 고정되어 있어 키를 빠뜨리면 컴파일이 실패한다 —
 // 번역 누락이 화면에 빈칸으로 나가는 대신 빌드에서 잡힌다.
 //
-// 제품 용어(collaboration, draft, verify, inject, persona, ontology)는 번역하지 않는다.
-// CLI·MCP·문서가 모두 그 단어를 쓰고, 화면에서만 다른 말을 쓰면 같은 것을 가리키는 이름이
-// 두 벌이 된다 — 이 저장소가 `workstream`을 `collaboration`으로 바꾸면서 정확히 피하려던 상태다.
+// 번역하지 않는 것은 '저장된 값'이다: 상태 이름(draft, verified, stale, deprecated), 감사 로그의
+// 동작 이름, 타입·관계 이름(authored_by), CLI 명령과 스코프 이름. 이것들은 DB와 CLI에 그대로
+// 들어 있는 문자열이라 화면에서 다른 말로 바꾸면 같은 것을 가리키는 이름이 두 벌이 된다.
+//
+// 사람에게 시키는 말은 번역한다. 처음에는 '제품 용어는 번역하지 않는다'로 잡았는데, 그 규칙이
+// verify·deprecate 버튼을 한국어 화면에 영어로 남겼다 — 버튼은 저장된 값이 아니라 지시문이다.
+// 그래서 동작으로 쓰인 verify는 '검증', deprecate는 '폐기'이고, 상태로 쓰인 verified·deprecated는
+// 그대로 둔다. 이 구분은 감사 로그가 이미 쓰고 있던 것과 같다: 이름은 사실이고, 뜻풀이는 번역한다.
 
 import type { en } from "./en";
 
@@ -15,10 +20,10 @@ export const ko: typeof en = {
     create: "생성",
     creating: "생성 중…",
     saving: "저장 중…",
-    verify: "verify",
+    verify: "검증",
     reconfirm: "재확인",
     verifyHint: "승격하거나, 오래된 레코드를 재확인합니다",
-    deprecate: "deprecate",
+    deprecate: "폐기",
     link: "연결",
     linking: "연결 중…",
     expand: "펼치기",
@@ -30,7 +35,7 @@ export const ko: typeof en = {
     notInNamespace: "이 네임스페이스에 없음",
     notFound: "이 네임스페이스에서 찾을 수 없음",
     required: "온톨로지가 필수로 선언한 속성",
-    draftNotice: "draft로 들어가며 verify가 필요합니다",
+    draftNotice: "draft로 들어가며 검증이 필요합니다",
     copyFull: "클릭하면 전체 복사",
     type: "타입",
     status: "상태",
@@ -78,7 +83,7 @@ export const ko: typeof en = {
   create: {
     newRecord: "새 레코드",
     draftNotice:
-      "에이전트가 커밋한 것과 똑같이, draft로 들어가고 verify가 필요합니다.",
+      "에이전트가 커밋한 것과 똑같이, draft로 들어가고 검증이 필요합니다.",
     pickType: "타입 고르기",
     noAttrs: "이 타입은 속성을 선언하지 않습니다 — 속성 없이 생성됩니다.",
     duplicates: (n: number, names: string) =>
@@ -144,14 +149,14 @@ export const ko: typeof en = {
     briefingEmpty: "이 일의 맥락에 아직 아무것도 없습니다",
     attached: "붙어 있는 레코드",
     attachedNote:
-      "← 이쪽을 가리킵니다: 링크는 레코드가 들고 있고, 이 일이 레코드를 담고 있는 것이 아닙니다. 이 일을 deprecate해도 저 레코드들은 그대로입니다",
+      "← 이쪽을 가리킵니다: 링크는 레코드가 들고 있고, 이 일이 레코드를 담고 있는 것이 아닙니다. 이 일을 폐기해도 저 레코드들은 그대로입니다",
     attachedEmpty: "없음 — --scope로 포착될 때 여기에 붙습니다",
     truncated: (shown: number, total: number, rest: number) =>
       `이 일의 레코드 ${total}개 중 ${shown}개, 최근 확인 순으로 표시했습니다. 나머지는 사라진 것이 아닙니다 — 에이전트가 구체적인 질문을 하면 이 일의 레코드를 먼저 놓고 전체를 검색합니다. (${rest}개 미표시)`,
   },
   conflicts: {
     heading: "모순",
-    lede: "서로 모순되는 verified 레코드입니다. yoke는 양쪽을 모두 보존하고 승자를 고르지 않습니다 — 한쪽을 deprecate하거나, 공존시키세요. 불일치 자체가 지식일 때는 공존이 정답입니다.",
+    lede: "서로 모순되는 verified 레코드입니다. yoke는 양쪽을 모두 보존하고 승자를 고르지 않습니다 — 한쪽을 폐기하거나, 공존시키세요. 불일치 자체가 지식일 때는 공존이 정답입니다.",
     empty: "기록된 모순이 없습니다",
     alreadyRetired: "이미 폐기됨",
   },

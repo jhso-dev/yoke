@@ -14,22 +14,22 @@ export const en = {
   common: {
     loading: "loading…",
     none: "none",
-    close: "close",
-    create: "create",
-    creating: "creating…",
+    close: "Close",
+    create: "Create",
+    creating: "Creating…",
     saving: "saving…",
-    verify: "verify",
-    reconfirm: "re-confirm",
+    verify: "Verify",
+    reconfirm: "Re-confirm",
     verifyHint: "promote, or re-confirm a stale record",
-    deprecate: "deprecate",
-    link: "link",
-    linking: "linking…",
-    expand: "expand",
+    deprecate: "Deprecate",
+    link: "Link",
+    linking: "Linking…",
+    expand: "Expand",
     browse: "browse",
     graph: "graph",
-    openRecord: "open record",
-    openInGraph: "open in graph",
-    openAsRecord: "open as record",
+    openRecord: "Open record",
+    openInGraph: "Open in graph",
+    openAsRecord: "Open as record",
     notInNamespace: "not in this namespace",
     notFound: "not found in this namespace",
     required: "required by the ontology",
@@ -68,8 +68,8 @@ export const en = {
     readOnly: "read-only",
     readOnlyHint: "read replica: writes go to the primary",
     namespaceHint: "tenant namespace",
-    signOut: "sign out",
-    signIn: "sign in",
+    signOut: "Sign out",
+    signIn: "Sign in",
     ungated: "ungated",
     authedAs: (actor: string) => `authenticated as ${actor}`,
     signOutHint:
@@ -79,7 +79,7 @@ export const en = {
     summary: "summary",
   },
   create: {
-    newRecord: "new record",
+    newRecord: "New record",
     draftNotice:
       "Enters as a draft and needs a verify, exactly like one an agent commits.",
     pickType: "pick a type",
@@ -90,7 +90,7 @@ export const en = {
   review: {
     heading: "Review queue",
     lede: "Everything staged and not yet believed. Nothing here reaches an agent: drafts are withheld from injection until a human promotes them.",
-    selectAll: "select all",
+    selectAll: "Select all",
     empty: "no drafts — the queue is clear",
     draftCount: (n: number) => `${n} draft(s)`,
   },
@@ -102,8 +102,8 @@ export const en = {
     shown: (n: number, more: boolean) =>
       `${n} shown${more ? " (more available)" : ""}`,
     noMatch: "nothing matches that filter",
-    prev: "← previous",
-    next: "next →",
+    prev: "← Previous",
+    next: "Next →",
   },
   entity: {
     noId: "no id — reach this screen from",
@@ -127,7 +127,7 @@ export const en = {
     heading: "Collaborations",
     headingOne: "Collaboration",
     lede: "One thing being worked on together, and the people and knowledge attached to it. Anchoring an injection here is what makes an agent answer from this work's context first.",
-    newOne: "new collaboration",
+    newOne: "New collaboration",
     all: "all collaborations",
     emptyList:
       "none yet — create one above, or let an agent do it via yoke_use_scope",
@@ -137,7 +137,7 @@ export const en = {
     noMembers: "nobody linked yet — pick someone above, or run",
     person: "person",
     addSomeone: "add someone…",
-    addToWork: "add to this work",
+    addToWork: "Add to this work",
     everyoneAdded: "everyone recorded is already on this",
     readJudgment: "read their recorded judgment",
     briefing: "the briefing an agent receives",
@@ -156,7 +156,7 @@ export const en = {
     heading: "Conflicts",
     lede: "Verified records that contradict each other. yoke keeps both and never picks a winner — deprecate one side, or leave them coexisting, which is a real answer when the disagreement is the knowledge.",
     empty: "no contradictions recorded",
-    alreadyRetired: "already retired",
+    alreadyRetired: "Already retired",
   },
   ontology: {
     heading: "Ontology",
@@ -166,7 +166,7 @@ export const en = {
     freshness: "freshness (ttl)",
     neverStale: "never goes stale",
     days: (n: number) => `${n} days`,
-    declare: "declare a type",
+    declare: "Declare a type",
     declareNote:
       "An existing name saves a new version — the same append-only migration yoke ontology add-type performs.",
     name: "name",
@@ -175,11 +175,11 @@ export const en = {
     relation: "relation",
     attrsHint: "— comma separated, * = required",
     ttlHint: "— days, blank = never goes stale",
-    saveType: "save type",
+    saveType: "Save type",
     maintenance: "maintenance",
     maintenanceNote:
       "namespace-wide repairs — the same two commands, same effects",
-    backfill: "backfill authorship",
+    backfill: "Backfill authorship",
     backfillHint:
       "re-derive authored_by edges for records committed before the gate made them",
     backfillDone: (scanned: number, created: number) =>
@@ -188,7 +188,7 @@ export const en = {
     attrsExample: "title*, owner",
     renamePlaceholder: "rename a type…",
     newName: "new name",
-    rename: "rename",
+    rename: "Rename",
     renameHint:
       "rewrites the declaration and every stored row, history included",
     renameDone: (from: string, to: string, rows: number) =>
@@ -214,7 +214,7 @@ export const en = {
       " call. Stale and deprecated records never appear, whatever you ask for.",
     queryPlaceholder: "what is the agent working on?",
     scopePlaceholder: "scope (collaboration or person id, optional)",
-    run: "preview",
+    run: "Preview",
     includeDraft: "include drafts",
     prompt: "enter a query, or a scope on its own for that context's briefing",
     draftsIncluded:
@@ -231,7 +231,7 @@ export const en = {
     ledeAnchored:
       "Two hops out from one record. Double-click any node to expand from it.",
     lede: "Every record and relation in this namespace. Double-click a node to pull in its neighbours.",
-    wholeNamespace: "whole namespace",
+    wholeNamespace: "Whole namespace",
     counts: (nodes: number, links: number) =>
       `${nodes} nodes · ${links} relations`,
     legend:
@@ -267,8 +267,8 @@ export const en = {
     lede: "Paste an API token or an OIDC id_token. yoke never stores a password — this is a credential you already minted.",
     token: "token",
     credential: "credential",
-    checking: "checking…",
-    submit: "sign in",
+    checking: "Checking…",
+    submit: "Sign in",
     rejected: "credential rejected",
     noTokenBefore: "No token yet? On the server running yoke:",
     noTokenAfter:
