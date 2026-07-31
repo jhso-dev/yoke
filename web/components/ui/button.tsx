@@ -22,6 +22,11 @@ const buttonVariants = cva(
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",
+        // yoke's own size, and the default — see the note above the component. Sits between
+        // shadcn's `xs` (24px, too small to hit) and `sm` (32px, taller than the 13px table text
+        // it labels). The 13px matches that table text exactly.
+        compact:
+          "h-7 gap-1.5 rounded-md px-2.5 text-[13px] has-[>svg]:px-2 [&_svg:not([class*='size-'])]:size-3.5",
         xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
         lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
@@ -34,22 +39,23 @@ const buttonVariants = cva(
     defaultVariants: {
       variant: "default",
       // Kept in step with the parameter default below, which is the one that actually decides.
-      size: "xs",
+      size: "compact",
     },
   },
 );
 
-// `size = "xs"` (h-6, 12px text), not shadcn's `"default"` (h-9): this is a dense workbench where
-// body text is 14px and table cells 13px, and a 36px button dominated every control bar. 24px is
-// below the 44px touch-target guideline, which is the deliberate trade — this is a desktop tool
-// driven by a mouse. Pass `size="sm"`/`"default"` at a call site that wants a larger target.
+// `size = "compact"` (h-7, 13px text), not shadcn's `"default"` (h-9): this is a dense workbench
+// where body text is 14px and table cells 13px, and a 36px button dominated every control bar.
+// 28px is under the 44px touch-target guideline — the deliberate trade for a desktop tool driven by
+// a mouse, with a keyboard path to every button. Pass `size="sm"`/`"default"` where a call site
+// wants a larger target.
 //
 // The parameter default is what decides, NOT cva's `defaultVariants` — an explicit value here means
 // cva never sees `undefined` and never applies its own. Editing only the cva block does nothing.
 function Button({
   className,
   variant = "default",
-  size = "xs",
+  size = "compact",
   asChild = false,
   ...props
 }: React.ComponentProps<"button"> &

@@ -273,13 +273,13 @@ td.num {
 
    `.btn` survives for <Link> elements that look like buttons — Button's `asChild` is the eventual
    home for those, and they move with their screens. */
-/* Boxed to match Button's `xs` (h-6, px-2, text-xs) so a link that looks like a button is the same
-   size as one — these sit in the same rows on entity, graph and collaboration. */
+/* Boxed to match Button's `compact` (h-7, px-2.5, 13px) so a link that looks like a button is the
+   same size as one — these sit in the same rows on entity, graph and collaboration. */
 .btn {
   font: inherit;
-  font-size: 12px;
-  height: 24px;
-  padding: 0 8px;
+  font-size: 13px;
+  height: 28px;
+  padding: 0 10px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--secondary);
