@@ -1,0 +1,13 @@
+web/app/globals.css
+  h_9aabb7d8448c0a 111-115
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "91877ea0db56196c3adb36bce2f547ed9f42e8f4",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
