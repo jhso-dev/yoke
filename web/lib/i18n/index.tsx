@@ -27,11 +27,13 @@ const LocaleContext = createContext<{
   setLocale: (l: Locale) => void;
 }>({ locale: "en", setLocale: () => {} });
 
-function detect(): Locale {
-  const stored = localStorage.getItem(STORAGE_KEY);
+export function chooseLocale(stored: string | null): Locale {
   if (stored === "en" || stored === "ko") return stored;
-  // `navigator.language` is "ko-KR" far more often than "ko"; match the primary subtag.
-  return navigator.language.split("-")[0] === "ko" ? "ko" : "en";
+  return "en";
+}
+
+function detect(): Locale {
+  return chooseLocale(localStorage.getItem(STORAGE_KEY));
 }
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {

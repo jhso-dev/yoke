@@ -17,6 +17,7 @@ const LINKS = [
   { href: "/inject/", key: "inject" },
   { href: "/graph/", key: "graph" },
   { href: "/audit/", key: "audit" },
+  { href: "/tokens/", key: "tokens" },
 ] as const;
 
 export function Nav() {

@@ -12,6 +12,7 @@ import { LinkRecord } from "../../components/LinkRecord";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
+import { copyText } from "../../lib/clipboard";
 import { useT } from "../../lib/i18n";
 import { isMissing } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
@@ -92,7 +93,7 @@ function EntityBody() {
             cursor: "copy",
             font: "inherit",
           }}
-          onClick={() => navigator.clipboard?.writeText(d.entity.id)}
+          onClick={() => copyText(d.entity.id, t.common.copied)}
         >
           {shortId(d.entity.id)}
         </button>

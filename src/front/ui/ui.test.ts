@@ -29,6 +29,8 @@ let personId: string;
 let byPersonId: string;
 let collaborationId: string;
 let scopedFactId: string;
+let termId: string;
+let resourceId: string;
 
 beforeAll(async () => {
   const ont = seedOntology();
@@ -113,6 +115,18 @@ beforeAll(async () => {
     now,
   );
   collaborationId = ws.entity.id;
+  await commit(
+    store,
+    ont,
+    {
+      type: "works_on",
+      attributes: {},
+      from: personId,
+      to: collaborationId,
+    },
+    prov,
+    now,
+  );
   const scoped = await commit(
     store,
     ont,
@@ -130,6 +144,43 @@ beforeAll(async () => {
       attributes: {},
       from: scopedFactId,
       to: collaborationId,
+    },
+    prov,
+    now,
+  );
+  const term = await commit(
+    store,
+    ont,
+    {
+      type: "term",
+      attributes: { title: "RTO", definition: "recovery time objective" },
+    },
+    prov,
+    now,
+  );
+  termId = term.entity.id;
+  const resource = await commit(
+    store,
+    ont,
+    {
+      type: "resource",
+      attributes: {
+        title: "incident handbook",
+        url: "https://example.test/handbook",
+      },
+    },
+    prov,
+    now,
+  );
+  resourceId = resource.entity.id;
+  await commit(
+    store,
+    ont,
+    {
+      type: "relates_to",
+      attributes: {},
+      from: resourceId,
+      to: termId,
     },
     prov,
     now,
@@ -160,6 +211,11 @@ const post = (p: string, body: unknown) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   }).then((r) => r.json());
+const del = (p: string) =>
+  fetch(base + p, { method: "DELETE" }).then(async (r) => ({
+    status: r.status,
+    body: await r.json(),
+  }));
 
 describe("ui API", () => {
   it("review lists drafts with citations, verify promotes, review then empties that row", async () => {
@@ -176,6 +232,30 @@ describe("ui API", () => {
 
     const after = await get("/api/review");
     expect(after.some((d: { id: string }) => d.id === factId)).toBe(false);
+  });
+
+  it("review lists newest drafts first", async () => {
+    const ont = store.loadOntology(null);
+    const older = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { title: "older draft" } },
+      { actor: "tester", origin: "cli", occurred_at: "2026-07-01T00:00:00Z" },
+      "2026-07-01T00:00:00Z",
+    );
+    const newer = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { title: "newer draft" } },
+      { actor: "tester", origin: "cli", occurred_at: "2026-07-31T00:00:00Z" },
+      "2026-07-31T00:00:00Z",
+    );
+
+    const drafts = await get("/api/review");
+    const ids = drafts.map((d: { id: string }) => d.id);
+    expect(ids.indexOf(newer.entity.id)).toBeLessThan(
+      ids.indexOf(older.entity.id),
+    );
   });
 
   it("verify wrote an audit row", () => {
@@ -203,6 +283,35 @@ describe("ui API", () => {
     expect(decision.kind).toBe("entity");
     expect(decision.ttl_days).toBe(365);
     expect(Object.keys(decision.attrs)).toContain("conclusion");
+  });
+
+  it("tokens can be created, listed without secret, and revoked", async () => {
+    const created = await post("/api/tokens", {
+      name: "ui-test",
+      scopes: ["read", "verify"],
+    });
+    expect(created.token).toMatch(/^yk_[0-9a-f]{64}$/);
+    expect(created.name).toBe("ui-test");
+
+    const listed = await get("/api/tokens");
+    const row = listed.find((t: { name: string }) => t.name === "ui-test");
+    expect(row).toEqual({
+      name: "ui-test",
+      scopes: ["read", "verify"],
+      created_at: now,
+    });
+    expect(JSON.stringify(listed)).not.toContain(created.token);
+
+    const revoked = await del("/api/tokens/ui-test");
+    expect(revoked).toEqual({
+      status: 200,
+      body: { name: "ui-test", revoked: true },
+    });
+    expect(
+      (await get("/api/tokens")).some(
+        (t: { name: string }) => t.name === "ui-test",
+      ),
+    ).toBe(false);
   });
 
   it("persona returns decisions/facts with citations", async () => {
@@ -249,7 +358,7 @@ describe("ui API", () => {
   });
 
   it("unknown route → 404", async () => {
-    const res = await fetch(base + "/api/nope");
+    const res = await fetch(`${base}/api/nope`);
     expect(res.status).toBe(404);
   });
 
@@ -311,7 +420,7 @@ describe("ui API", () => {
   });
 
   it("entity detail 404s an unknown id", async () => {
-    const res = await fetch(base + "/api/entity/nope");
+    const res = await fetch(`${base}/api/entity/nope`);
     expect(res.status).toBe(404);
   });
 
@@ -341,7 +450,7 @@ describe("ui API", () => {
     expect(events.some((e) => e.action === "inject")).toBe(false);
 
     // Neither q nor scope is a 400, not an accidental full dump.
-    const bad = await fetch(base + "/api/inject");
+    const bad = await fetch(`${base}/api/inject`);
     expect(bad.status).toBe(400);
   });
 
@@ -352,6 +461,25 @@ describe("ui API", () => {
     expect(whole.edges.length).toBeGreaterThan(0);
     expect(whole.truncated).toBe(false);
     expect(whole.edges[0].from).toBeTruthy();
+    const typed = await get("/api/graph?limit=6");
+    expect(new Set(typed.nodes.map((n: { type: string }) => n.type))).toEqual(
+      new Set([
+        "collaboration",
+        "decision",
+        "fact",
+        "person",
+        "resource",
+        "term",
+      ]),
+    );
+    const typedIds = new Set(typed.nodes.map((n: { id: string }) => n.id));
+    expect(
+      typed.edges.every(
+        (e: { from: string; to: string }) =>
+          typedIds.has(e.from) && typedIds.has(e.to),
+      ),
+    ).toBe(true);
+    expect(typed.edges.length).toBeGreaterThan(0);
 
     // A limit smaller than the graph reports truncation rather than drawing a partial graph
     // silently, and hands back cursors to continue with.
@@ -360,7 +488,7 @@ describe("ui API", () => {
     expect(cut.truncated).toBe(true);
     expect(cut.next.nodes).toBe(cut.nodes[0].id);
     // Over-max is an error, like every other limit.
-    expect((await fetch(base + "/api/graph?limit=5000")).status).toBe(400);
+    expect((await fetch(`${base}/api/graph?limit=5000`)).status).toBe(400);
 
     // Anchored: one hop from decision B reaches A (conflicts_with) and its author.
     const around = await get(`/api/graph?scope=${decisionBId}`);
@@ -374,14 +502,14 @@ describe("ui API", () => {
   });
 
   it("rejects an oversized or wrong-typed POST body", async () => {
-    const big = await fetch(base + "/api/verify", {
+    const big = await fetch(`${base}/api/verify`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ids: [`${"x".repeat(300 * 1024)}`] }),
     });
     expect(big.status).toBe(400);
     expect((await big.json()).error).toContain("too large");
-    const wrongType = await fetch(base + "/api/verify", {
+    const wrongType = await fetch(`${base}/api/verify`, {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: JSON.stringify({ ids: [] }),
@@ -725,7 +853,7 @@ describe("creating from the browser (WEB-UI amendment 2026-07-31)", () => {
   });
 
   it("refuses a body that is not JSON, and attributes that are not strings", async () => {
-    const notJson = await fetch(base + "/api/entity", {
+    const notJson = await fetch(`${base}/api/entity`, {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: "type=fact",

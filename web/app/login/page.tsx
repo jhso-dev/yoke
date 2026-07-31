@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { ApiError, api } from "../../lib/api";
 import { setCredential } from "../../lib/credential";
@@ -70,10 +71,10 @@ export default function Login() {
       <div className="banner" data-kind="info">
         {t.login.noTokenBefore}
         <br />
-        <code>yoke token create --name alex --scopes read</code>
+        <CopyCode value="yoke token create --name alex --scopes read" />
         <br />
         {t.login.addPrefix}
-        <code>,verify</code>
+        <CopyCode value="yoke token create --name alex --scopes read,verify" />
         {t.login.noTokenAfter}
       </div>
     </div>

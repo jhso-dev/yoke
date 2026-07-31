@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
+import { Pagination, usePage } from "../../components/Pagination";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
@@ -79,6 +80,7 @@ export default function Conflicts() {
 
   const t = useT();
   const rows = pairs.data ?? [];
+  const page = usePage(rows);
   return (
     <>
       <h1>{t.conflicts.heading}</h1>
@@ -93,37 +95,45 @@ export default function Conflicts() {
           <div className="empty">{t.conflicts.empty}</div>
         </div>
       ) : (
-        rows.map((p) => (
-          <div key={p.id} className="panel" style={{ marginBottom: 14 }}>
-            <div className="panel-head">
-              <span className="mono">conflicts_with</span>
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto 1fr",
-                gap: 10,
-                alignItems: "start",
-                padding: 12,
-              }}
-            >
-              {side(p.from)}
-              {/* Lucide rather than the ↔ character: a glyph renders at whatever weight the
+        <>
+          {page.items.map((p) => (
+            <div key={p.id} className="panel" style={{ marginBottom: 14 }}>
+              <div className="panel-head">
+                <span className="mono">conflicts_with</span>
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto 1fr",
+                  gap: 10,
+                  alignItems: "start",
+                  padding: 12,
+                }}
+              >
+                {side(p.from)}
+                {/* Lucide rather than the ↔ character: a glyph renders at whatever weight the
                   system font happens to give it, which is how this arrived hairline-thin and
                   invisible. An icon is a path, so it is the same on every machine.
                   `aria-hidden` because the panel head already says `conflicts_with` in text. */}
-              <ArrowLeftRightIcon
-                aria-hidden="true"
-                size={24}
-                style={{
-                  alignSelf: "center",
-                  color: "var(--muted-foreground)",
-                }}
-              />
-              {side(p.to)}
+                <ArrowLeftRightIcon
+                  aria-hidden="true"
+                  size={24}
+                  style={{
+                    alignSelf: "center",
+                    color: "var(--muted-foreground)",
+                  }}
+                />
+                {side(p.to)}
+              </div>
             </div>
-          </div>
-        ))
+          ))}
+          <Pagination
+            page={page.page}
+            pages={page.pages}
+            setPage={page.setPage}
+            total={rows.length}
+          />
+        </>
       )}
     </>
   );

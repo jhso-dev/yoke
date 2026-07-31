@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Actor } from "../../components/Actor";
+import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
+import { Pagination, usePage } from "../../components/Pagination";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
 import { useT } from "../../lib/i18n";
@@ -38,15 +40,14 @@ function Detail({ event }: { event: AuditEntry }) {
   const ids = all.slice(0, SHOW_REFS);
   const more = all.length - ids.length;
   const byId = new Map((event.refs ?? []).map((r) => [r.id, r]));
+  const subjectRef = byId.get(subject);
   return (
     <>
       {subject && (
         <>
           {/* A persona row's subject is a person id, and the server resolves it into refs — render
               the name when it is there rather than the ULID it was stored as. */}
-          <span>
-            {byId.has(subject) ? recordLabel(byId.get(subject)!) : subject}
-          </span>
+          <span>{subjectRef ? recordLabel(subjectRef) : subject}</span>
           <span className="muted"> → </span>
         </>
       )}
@@ -100,13 +101,15 @@ export default function Audit() {
       loaded.map((e) => [e.actor, e.actorName ?? e.actor] as const),
     ).entries(),
   ].sort((a, b) => a[1].localeCompare(b[1]));
+  const orderedRows = [...rows].reverse();
+  const page = usePage(orderedRows);
 
   return (
     <>
       <h1>{t.audit.heading}</h1>
       <p className="lede">
         {t.audit.lede}
-        <code>yoke audit --json</code>
+        <CopyCode value="yoke audit --json" />
         {t.audit.ledeAfter}
       </p>
       <ErrorBanner error={trail.error} />
@@ -167,7 +170,7 @@ export default function Audit() {
                 </tr>
               </thead>
               <tbody>
-                {[...rows].reverse().map((e, i) => (
+                {page.items.map((e, i) => (
                   // The index is part of the key because audit_log has no primary key: two identical
                   // events in the same second by the same actor are genuinely indistinguishable. The
                   // rule guards against reordering, and this list is append-only and never reordered.
@@ -192,6 +195,12 @@ export default function Audit() {
                 ))}
               </tbody>
             </table>
+            <Pagination
+              page={page.page}
+              pages={page.pages}
+              setPage={page.setPage}
+              total={rows.length}
+            />
           </div>
         )}
       </div>

@@ -47,3 +47,28 @@ export function clearCredential(): void {
     // nothing to clean up
   }
 }
+
+export function takeCredentialFromUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  const url = new URL(window.location.href);
+  const hash = new URLSearchParams(
+    url.hash.startsWith("#") ? url.hash.slice(1) : url.hash,
+  );
+  const token =
+    url.searchParams.get("token") ??
+    url.searchParams.get("access_token") ??
+    hash.get("token") ??
+    hash.get("access_token");
+  if (!token) return null;
+
+  setCredential(token);
+  url.searchParams.delete("token");
+  url.searchParams.delete("access_token");
+  hash.delete("token");
+  hash.delete("access_token");
+  const nextHash = hash.toString();
+  const next =
+    `${url.pathname}${url.search}${nextHash ? `#${nextHash}` : ""}` || "/";
+  window.history.replaceState(null, "", next);
+  return token;
+}

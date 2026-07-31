@@ -35,6 +35,8 @@ export const en = {
     required: "required by the ontology",
     draftNotice: "enters as a draft and needs a verify",
     copyFull: "click to copy",
+    copy: "Copy",
+    copied: "Copied",
     type: "type",
     status: "status",
     actor: "actor",
@@ -52,6 +54,8 @@ export const en = {
     otherEnd: "other end",
     prev: "← Previous",
     next: "Next →",
+    page: (page: number, pages: number, total: number) =>
+      `Page ${page} of ${pages} · ${total} total`,
   },
   nav: {
     review: "review",
@@ -63,7 +67,37 @@ export const en = {
     inject: "inject",
     graph: "graph",
     audit: "audit",
+    tokens: "tokens",
     screens: "screens",
+  },
+  theme: {
+    label: "theme",
+    system: "system",
+    light: "light",
+    dark: "dark",
+  },
+  home: {
+    eyebrow: "governed knowledge for agents",
+    heading: "YOKE keeps AI context reviewable, cited, and shareable.",
+    lede: "Capture company knowledge as records, keep drafts out of agent context until a human verifies them, then inject only trusted knowledge with citations, audit history, collaboration scope, personas, and graph navigation.",
+    cards: {
+      govern: {
+        title: "Govern",
+        body: "Review, verify, reconfirm, or retire records before agents can rely on them.",
+      },
+      inject: {
+        title: "Inject",
+        body: "See exactly what an agent receives for a query, with source citations.",
+      },
+      graph: {
+        title: "Explore",
+        body: "Move through people, facts, decisions, resources, terms, and collaborations as a graph.",
+      },
+      share: {
+        title: "Share",
+        body: "Create scoped tokens and copy login URLs for teammates or test users.",
+      },
+    },
   },
   chrome: {
     connecting: "connecting…",
@@ -203,7 +237,7 @@ export const en = {
     search: "Search their records",
     noMatch: "nothing they recorded matches that",
     matched: (shown: number, total: number) => `${shown} of ${total} match`,
-    exportHint: (id: string) => `export: yoke persona ${id} --out ./skills`,
+    exportHint: (id: string) => `yoke persona ${id} --out ./skills`,
     decisions: "guiding decisions",
     noDecisions:
       "no decisions on record — the bottleneck for a persona is capture, not query",
@@ -232,8 +266,8 @@ export const en = {
   graph: {
     heading: "Graph",
     ledeAnchored:
-      "Two hops out from one record. Double-click any node to expand from it.",
-    lede: "Every record and relation in this namespace. Double-click a node to pull in its neighbours.",
+      "Two hops out from one record. Click any node to center it and expand its neighbours.",
+    lede: "Every record and relation in this namespace. Click a node to center it and pull in its neighbours.",
     wholeNamespace: "Whole namespace",
     counts: (nodes: number, links: number) =>
       `${nodes} nodes · ${links} relations`,
@@ -265,6 +299,21 @@ export const en = {
       rename_type: "an ontology type was renamed in every stored row",
     } as Record<string, string>,
   },
+  tokens: {
+    heading: "Tokens",
+    lede: "API tokens for browser sharing and remote access. Secrets are shown once; revoke by name when access should end.",
+    create: "Create token",
+    name: "name",
+    namePlaceholder: "friend-readonly",
+    scopes: "scopes",
+    scopesHint: "comma separated",
+    created: "Token created",
+    createdNote: "Save it now. yoke stores only the hash.",
+    secret: "secret",
+    shareUrl: "share URL",
+    empty: "no tokens",
+    revoke: "Revoke",
+  },
   login: {
     heading: "Sign in",
     lede: "Paste an API token or an OIDC id_token. yoke never stores a password — this is a credential you already minted.",
@@ -275,8 +324,8 @@ export const en = {
     rejected: "credential rejected",
     noTokenBefore: "No token yet? On the server running yoke:",
     noTokenAfter:
-      " to that scope list to allow promoting drafts — verify is the governance permission, so it is granted, never assumed.",
-    addPrefix: "Add ",
+      "allows promoting drafts — verify is the governance permission, so it is granted, never assumed.",
+    addPrefix: "For promoting drafts:",
   },
   errors: {
     forbiddenHint:

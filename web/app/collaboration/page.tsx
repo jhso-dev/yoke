@@ -11,12 +11,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CopyCode } from "../../components/CopyCode";
 import { CreateButton } from "../../components/CreateButton";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
+import { Pagination, usePage } from "../../components/Pagination";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
-import { recordLabel, shortId } from "../../lib/citation";
+import { recordLabel } from "../../lib/citation";
 import { useT } from "../../lib/i18n";
 import { isMissing, type Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
@@ -94,9 +96,11 @@ function AddMember({
 function CollaborationBody() {
   const t = useT();
   const id = useSearchParams().get("id") ?? "";
+  const [cursors, setCursors] = useState<string[]>([]);
+  const after = cursors.at(-1);
   const list = useAsync(
-    () => api.entities({ type: "collaboration", limit: 200 }),
-    [],
+    () => api.entities({ type: "collaboration", after, limit: 20 }),
+    [after],
   );
   const detail = useAsync(
     () => (id ? api.entity(id) : Promise.resolve(null)),
@@ -117,6 +121,17 @@ function CollaborationBody() {
     () => api.entities({ type: "person", limit: 200 }),
     [],
   );
+  const d = detail.data;
+  const members = d
+    ? d.relations.in.filter((e) => e.type === "works_on").map((e) => e.other)
+    : [];
+  const attached = d
+    ? [...d.relations.in, ...d.relations.out].filter(
+        (e) => e.type !== "works_on" && e.type !== "authored_by",
+      )
+    : [];
+  const memberPage = usePage(members);
+  const attachedPage = usePage(attached);
 
   if (!id) {
     const rows = list.data?.items ?? [];
@@ -181,12 +196,31 @@ function CollaborationBody() {
             </div>
           )}
         </div>
+        <div className="controls" style={{ marginTop: 12 }}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={cursors.length === 0}
+            onClick={() => setCursors((c) => c.slice(0, -1))}
+          >
+            {t.common.prev}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!list.data?.next}
+            onClick={() =>
+              setCursors((c) => (list.data?.next ? [...c, list.data.next] : c))
+            }
+          >
+            {t.common.next}
+          </Button>
+        </div>
       </>
     );
   }
 
   if (detail.loading) return <p className="muted">{t.common.loading}</p>;
-  const d = detail.data;
   if (detail.error)
     return (
       <>
@@ -195,17 +229,6 @@ function CollaborationBody() {
       </>
     );
   if (!d) return <div className="empty">{t.common.notFound}</div>;
-
-  // works_on points person → collaboration, so the members are this record's incoming edges on that type.
-  const members = d.relations.in
-    .filter((e) => e.type === "works_on")
-    .map((e) => e.other);
-  // Both directions, and each row keeps its `dir` for the table to render. It is rendered because
-  // these edges point INWARD — that is the whole reason a briefing gathers knowledge rather than a
-  // collaboration holding it, and the panel that shows the edges was the one place not saying so.
-  const attached = [...d.relations.in, ...d.relations.out].filter(
-    (e) => e.type !== "works_on" && e.type !== "authored_by",
-  );
 
   return (
     <>
@@ -223,7 +246,7 @@ function CollaborationBody() {
         <Link className="btn" href={`/entity/?id=${encodeURIComponent(id)}`}>
           {t.common.openAsRecord}
         </Link>
-        <code>yoke inject --scope {id}</code>
+        <CopyCode value={`yoke inject --scope ${id}`} />
       </div>
 
       <div className="panel">
@@ -261,13 +284,13 @@ function CollaborationBody() {
         {members.length === 0 ? (
           <div className="empty">
             {t.collaboration.noMembers}{" "}
-            <code>yoke link &lt;person&gt; works_on {shortId(id)}</code>
+            <CopyCode value={`yoke link <person> works_on ${id}`} />
           </div>
         ) : (
           <div className="scroll-x">
             <table>
               <tbody>
-                {members.map((m) => (
+                {memberPage.items.map((m) => (
                   <tr key={m.id}>
                     <td>
                       {isMissing(m) ? (
@@ -285,6 +308,12 @@ function CollaborationBody() {
                 ))}
               </tbody>
             </table>
+            <Pagination
+              page={memberPage.page}
+              pages={memberPage.pages}
+              setPage={memberPage.setPage}
+              total={members.length}
+            />
           </div>
         )}
       </div>
@@ -313,6 +342,7 @@ function CollaborationBody() {
             <KnowledgeTable
               rows={briefing.data?.items ?? []}
               empty={t.collaboration.briefingEmpty}
+              paginate
             />
           </>
         )}
@@ -338,7 +368,7 @@ function CollaborationBody() {
                 </tr>
               </thead>
               <tbody>
-                {attached.map((e) => (
+                {attachedPage.items.map((e) => (
                   <tr key={e.id}>
                     <td className="mono">{e.dir === "out" ? "→" : "←"}</td>
                     <td className="mono">{e.type}</td>
@@ -357,6 +387,12 @@ function CollaborationBody() {
                 ))}
               </tbody>
             </table>
+            <Pagination
+              page={attachedPage.page}
+              pages={attachedPage.pages}
+              setPage={attachedPage.setPage}
+              total={attached.length}
+            />
           </div>
         )}
       </div>

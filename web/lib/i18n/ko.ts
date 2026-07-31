@@ -37,6 +37,8 @@ export const ko: typeof en = {
     required: "온톨로지가 필수로 선언한 속성",
     draftNotice: "draft로 들어가며 검증이 필요합니다",
     copyFull: "클릭하면 전체 복사",
+    copy: "복사",
+    copied: "복사됨",
     type: "타입",
     status: "상태",
     actor: "기록자",
@@ -54,6 +56,8 @@ export const ko: typeof en = {
     otherEnd: "상대편",
     prev: "← 이전",
     next: "다음 →",
+    page: (page: number, pages: number, total: number) =>
+      `${pages}페이지 중 ${page}페이지 · 총 ${total}개`,
   },
   nav: {
     review: "리뷰",
@@ -65,7 +69,38 @@ export const ko: typeof en = {
     inject: "주입",
     graph: "그래프",
     audit: "감사 로그",
+    tokens: "토큰",
     screens: "화면",
+  },
+  theme: {
+    label: "테마",
+    system: "시스템",
+    light: "라이트",
+    dark: "다크",
+  },
+  home: {
+    eyebrow: "에이전트를 위한 검증된 지식",
+    heading:
+      "YOKE는 AI가 받는 맥락을 검토 가능하고, 인용 가능하고, 공유 가능하게 만듭니다.",
+    lede: "회사 지식을 레코드로 저장하고, 사람이 검증하기 전의 draft는 에이전트 맥락에서 제외합니다. 검증된 지식만 인용, 감사 로그, 협업 scope, 페르소나, 그래프 탐색과 함께 주입합니다.",
+    cards: {
+      govern: {
+        title: "검증",
+        body: "레코드를 리뷰, 검증, 재확인, 폐기해 에이전트가 믿을 수 있는 범위를 관리합니다.",
+      },
+      inject: {
+        title: "주입",
+        body: "질문에 대해 에이전트가 실제로 받을 지식과 출처를 그대로 확인합니다.",
+      },
+      graph: {
+        title: "탐색",
+        body: "사람, 사실, 결정, 리소스, 용어, 협업을 그래프로 따라갑니다.",
+      },
+      share: {
+        title: "공유",
+        body: "scope가 있는 토큰을 만들고 팀원이나 테스트 사용자에게 로그인 URL을 복사합니다.",
+      },
+    },
   },
   chrome: {
     connecting: "연결 중…",
@@ -203,7 +238,7 @@ export const ko: typeof en = {
     search: "이 사람의 레코드 검색",
     noMatch: "이 사람이 남긴 것 중 맞는 것이 없습니다",
     matched: (shown: number, total: number) => `${total}개 중 ${shown}개 일치`,
-    exportHint: (id: string) => `내보내기: yoke persona ${id} --out ./skills`,
+    exportHint: (id: string) => `yoke persona ${id} --out ./skills`,
     decisions: "판단의 근거가 되는 결정",
     noDecisions:
       "기록된 결정이 없습니다 — 페르소나의 병목은 조회가 아니라 포착입니다",
@@ -231,8 +266,8 @@ export const ko: typeof en = {
   graph: {
     heading: "그래프",
     ledeAnchored:
-      "한 레코드에서 두 홉까지입니다. 노드를 더블클릭하면 거기서 더 펼칩니다.",
-    lede: "이 네임스페이스의 모든 레코드와 관계입니다. 노드를 더블클릭하면 이웃을 끌어옵니다.",
+      "한 레코드에서 두 홉까지입니다. 노드를 클릭하면 중심으로 옮기고 이웃을 펼칩니다.",
+    lede: "이 네임스페이스의 모든 레코드와 관계입니다. 노드를 클릭하면 중심으로 옮기고 이웃을 끌어옵니다.",
     wholeNamespace: "전체 네임스페이스",
     counts: (nodes: number, links: number) =>
       `노드 ${nodes}개 · 관계 ${links}개`,
@@ -265,6 +300,21 @@ export const ko: typeof en = {
       rename_type: "온톨로지 타입이 저장된 모든 행에서 변경되었습니다",
     } as Record<string, string>,
   },
+  tokens: {
+    heading: "토큰",
+    lede: "브라우저 공유와 원격 접근에 쓰는 API 토큰입니다. secret은 한 번만 보입니다. 접근을 끊으려면 이름으로 폐기하세요.",
+    create: "토큰 생성",
+    name: "이름",
+    namePlaceholder: "친구-readonly",
+    scopes: "스코프",
+    scopesHint: "쉼표로 구분",
+    created: "토큰 생성됨",
+    createdNote: "지금 저장하세요. yoke는 해시만 저장합니다.",
+    secret: "비밀 토큰",
+    shareUrl: "공유 URL",
+    empty: "토큰 없음",
+    revoke: "폐기",
+  },
   login: {
     heading: "로그인",
     lede: "API 토큰이나 OIDC id_token을 붙여넣으세요. yoke는 비밀번호를 저장하지 않습니다 — 이미 발급해둔 자격증명입니다.",
@@ -275,8 +325,8 @@ export const ko: typeof en = {
     rejected: "자격증명이 거부되었습니다",
     noTokenBefore: "토큰이 없나요? yoke를 실행 중인 서버에서:",
     noTokenAfter:
-      "를 스코프 목록에 더하면 draft 승격이 허용됩니다 — verify는 거버넌스 권한이라 부여되는 것이지 가정되지 않습니다.",
-    addPrefix: "",
+      "draft 승격을 허용합니다 — verify는 거버넌스 권한이라 부여되는 것이지 가정되지 않습니다.",
+    addPrefix: "draft를 승격해야 한다면:",
   },
   errors: {
     forbiddenHint:

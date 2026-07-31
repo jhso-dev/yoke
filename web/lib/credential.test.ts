@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearCredential, getCredential, setCredential } from "./credential";
+import {
+  clearCredential,
+  getCredential,
+  setCredential,
+  takeCredentialFromUrl,
+} from "./credential";
 
 // vitest runs in node, so `window` is absent unless a test provides it — which makes this the
 // natural place to pin the SSR guard: static export prerenders these modules in node at build time,
@@ -18,6 +23,24 @@ function fakeStorage(): Storage {
       return map.size;
     },
   } as Storage;
+}
+
+function fakeWindow(href: string) {
+  let current = href;
+  (globalThis as { window?: unknown }).window = {
+    location: {
+      get href() {
+        return current;
+      },
+    },
+    sessionStorage: fakeStorage(),
+    history: {
+      replaceState: (_state: unknown, _title: string, next: string) => {
+        current = `https://yoke.test${next}`;
+      },
+    },
+  };
+  return { href: () => current };
 }
 
 beforeEach(() => clearCredential());
@@ -54,5 +77,19 @@ describe("credential", () => {
     setCredential("tok-2");
     // A non-persistent session is degraded but usable; a thrown error would break the whole app.
     expect(getCredential()).toBe("tok-2");
+  });
+
+  it("accepts a shared URL token and removes it from the address bar", () => {
+    const w = fakeWindow("https://yoke.test/persona/?id=p1&token=tok-url");
+    expect(takeCredentialFromUrl()).toBe("tok-url");
+    expect(getCredential()).toBe("tok-url");
+    expect(w.href()).toBe("https://yoke.test/persona/?id=p1");
+  });
+
+  it("also accepts hash tokens so the token need not hit server logs", () => {
+    const w = fakeWindow("https://yoke.test/graph/#token=tok-hash&scope=x");
+    expect(takeCredentialFromUrl()).toBe("tok-hash");
+    expect(getCredential()).toBe("tok-hash");
+    expect(w.href()).toBe("https://yoke.test/graph/#scope=x");
   });
 });

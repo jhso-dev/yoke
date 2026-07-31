@@ -102,6 +102,14 @@ export function GraphCanvas({
   // Filled by the main effect with its `draw` closure, so a selection-only change can repaint
   // without going through that effect at all.
   const drawRef = useRef<(() => void) | null>(null);
+  const clickStart = useRef<{ id: string; x: number; y: number } | null>(null);
+  const panStart = useRef<{
+    x: number;
+    y: number;
+    viewX: number;
+    viewY: number;
+  } | null>(null);
+  const expanded = useRef(new Set<string>());
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -273,29 +281,54 @@ export function GraphCanvas({
       sim.alpha(Math.max(sim.alpha(), 0.35));
       resume();
     };
+    const focus = (n: GraphNode) => {
+      const k = Math.max(view.current.k, 1.7);
+      view.current = { k, x: -(n.x ?? 0) * k, y: -(n.y ?? 0) * k };
+      draw();
+    };
 
     const onPointerDown = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const n = hit(e.clientX - rect.left, e.clientY - rect.top);
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const n = hit(x, y);
       if (n) {
         dragging.current = n;
         n.fx = n.x;
         n.fy = n.y;
+        clickStart.current = { id: n.id, x, y };
+        panStart.current = null;
         onSelectRef.current(n.id);
         boost();
       } else {
+        clickStart.current = null;
+        panStart.current = {
+          x,
+          y,
+          viewX: view.current.x,
+          viewY: view.current.y,
+        };
         onSelectRef.current(null);
       }
       canvas.setPointerCapture(e.pointerId);
     };
     const onPointerMove = (e: PointerEvent) => {
-      const n = dragging.current;
-      if (!n) return;
       const rect = canvas.getBoundingClientRect();
-      const p = toSim(e.clientX - rect.left, e.clientY - rect.top);
-      n.fx = p.x;
-      n.fy = p.y;
-      boost();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const n = dragging.current;
+      if (n) {
+        const p = toSim(x, y);
+        n.fx = p.x;
+        n.fy = p.y;
+        boost();
+        return;
+      }
+      const pan = panStart.current;
+      if (!pan) return;
+      view.current.x = pan.viewX + x - pan.x;
+      view.current.y = pan.viewY + y - pan.y;
+      draw();
     };
     // Shared by pointerup, pointercancel, and lostpointercapture: whichever way the browser ends
     // the interaction, the pin must be released and the drag flag cleared, or a lost pointerup
@@ -310,16 +343,55 @@ export function GraphCanvas({
         n.fy = null;
       }
       dragging.current = null;
+      clickStart.current = null;
+      panStart.current = null;
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      const n = dragging.current;
+      const start = clickStart.current;
+      endDrag();
+      clickStart.current = null;
+      if (!n || !start || start.id !== n.id) return;
+      const rect = canvas.getBoundingClientRect();
+      const moved = Math.hypot(
+        e.clientX - rect.left - start.x,
+        e.clientY - rect.top - start.y,
+      );
+      if (moved > 4) return;
+      focus(n);
+      if (!expanded.current.has(n.id)) {
+        expanded.current.add(n.id);
+        onExpandRef.current(n.id);
+      }
     };
     const onDoubleClick = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       const n = hit(e.clientX - rect.left, e.clientY - rect.top);
-      if (n) onExpandRef.current(n.id);
+      if (n) {
+        focus(n);
+        if (!expanded.current.has(n.id)) {
+          expanded.current.add(n.id);
+          onExpandRef.current(n.id);
+        }
+      }
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const before = toSim(x, y);
       const f = Math.exp(-e.deltaY * 0.0016);
-      view.current.k = Math.min(4, Math.max(0.25, view.current.k * f));
+      const k = Math.min(4, Math.max(0.25, view.current.k * f));
+      view.current.k = k;
+      view.current.x = x - w / 2 - before.x * k;
+      view.current.y = y - h / 2 - before.y * k;
+      const n =
+        hit(x, y) ?? graph.nodes.find((n) => n.id === selectedRef.current);
+      if (e.deltaY < 0 && k > 1.25 && n && !expanded.current.has(n.id)) {
+        expanded.current.add(n.id);
+        onExpandRef.current(n.id);
+      }
       draw();
     };
     const onResize = () => {
@@ -334,7 +406,7 @@ export function GraphCanvas({
 
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
-    canvas.addEventListener("pointerup", endDrag);
+    canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", endDrag);
     canvas.addEventListener("lostpointercapture", endDrag);
     canvas.addEventListener("dblclick", onDoubleClick);
@@ -349,7 +421,7 @@ export function GraphCanvas({
       sim.stop();
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
-      canvas.removeEventListener("pointerup", endDrag);
+      canvas.removeEventListener("pointerup", onPointerUp);
       canvas.removeEventListener("pointercancel", endDrag);
       canvas.removeEventListener("lostpointercapture", endDrag);
       canvas.removeEventListener("dblclick", onDoubleClick);
