@@ -204,6 +204,9 @@ h1 {
   font-size: 24px;
   margin-bottom: 8px;
 }
+.home-hero .lede {
+  white-space: pre-line;
+}
 
 .home-grid {
   display: grid;

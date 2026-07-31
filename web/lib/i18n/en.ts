@@ -78,12 +78,12 @@ export const en = {
   },
   home: {
     eyebrow: "collaboration-scoped knowledge for agents",
-    heading: "YOKE shares trusted context for every collaboration.",
-    lede: "Give people and agents the same collaboration context: decisions, facts, resources, terms, and who is working on what. Agents receive the collaboration's verified context first, with citations and audit history, while drafts stay out until a human promotes them.",
+    heading: "All the knowledge a collaboration needs, in one place",
+    lede: "YOKE gathers trusted information in one place so people and agents can collaborate from the same context.\n\nSee who is working on what, which decisions were made, what facts matter, and which resources to reference.\n\nAgents receive only human-verified information, while unreviewed drafts are left out.",
     cards: {
       collaboration: {
         title: "Collaborate",
-        body: "Use a collaboration as the shared context for a team and its agents: people, attached knowledge, and the briefing for that work.",
+        body: "Create a shared Context for each project, used by both the team and its agents. See participants, linked knowledge, and a briefing of the current state in one place.",
       },
       govern: {
         title: "Govern",
@@ -99,7 +99,7 @@ export const en = {
       },
       share: {
         title: "Share",
-        body: "Create scoped tokens and copy login URLs for teammates or test users.",
+        body: "Create a token with the required permission scope, then share a login URL with teammates or test users.",
       },
     },
   },
