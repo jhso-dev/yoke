@@ -52,6 +52,8 @@ export const ko: typeof en = {
     action: "동작",
     detail: "내용",
     otherEnd: "상대편",
+    prev: "← 이전",
+    next: "다음 →",
   },
   nav: {
     review: "리뷰",
@@ -103,8 +105,6 @@ export const ko: typeof en = {
     shown: (n: number, more: boolean) =>
       `${n}개 표시${more ? " (더 있음)" : ""}`,
     noMatch: "이 필터에 맞는 것이 없습니다",
-    prev: "← 이전",
-    next: "다음 →",
   },
   entity: {
     noId: "id가 없습니다 — 이 화면은 여기서 들어옵니다:",
@@ -196,10 +196,14 @@ export const ko: typeof en = {
   persona: {
     heading: "페르소나",
     lede: "한 사람이 남긴 verified 지식입니다 — 에이전트가 '이 사람이라면 어떻게 결정할까'를 물을 때 받는 것입니다. 그 사람의 레코드와 출처이지, 그 사람 말투로 쓴 글이 아닙니다.",
-    choose: "사람 고르기…",
-    filter: "이 사람의 레코드 필터",
+    headingOne: "페르소나",
+    all: "전체 페르소나",
+    emptyList:
+      "아직 기록된 사람이 없습니다 — 페르소나는 그 사람이 남긴 것에 대한 질의라서, 무언가를 커밋하는 순간 시작됩니다",
+    search: "이 사람의 레코드 검색",
+    noMatch: "이 사람이 남긴 것 중 맞는 것이 없습니다",
+    matched: (shown: number, total: number) => `${total}개 중 ${shown}개 일치`,
     exportHint: (id: string) => `내보내기: yoke persona ${id} --out ./skills`,
-    prompt: "사람을 고르면 그가 기록으로 남긴 판단이 보입니다",
     decisions: "판단의 근거가 되는 결정",
     noDecisions:
       "기록된 결정이 없습니다 — 페르소나의 병목은 조회가 아니라 포착입니다",

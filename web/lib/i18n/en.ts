@@ -50,6 +50,8 @@ export const en = {
     action: "action",
     detail: "detail",
     otherEnd: "other end",
+    prev: "← Previous",
+    next: "Next →",
   },
   nav: {
     review: "review",
@@ -101,8 +103,6 @@ export const en = {
     shown: (n: number, more: boolean) =>
       `${n} shown${more ? " (more available)" : ""}`,
     noMatch: "nothing matches that filter",
-    prev: "← Previous",
-    next: "Next →",
   },
   entity: {
     noId: "no id — reach this screen from",
@@ -196,10 +196,14 @@ export const en = {
   persona: {
     heading: "Persona",
     lede: "The verified knowledge a person authored — what an agent receives when it asks how they would decide. Their records with their sources, never text written in their voice.",
-    choose: "choose a person…",
-    filter: "filter their records",
+    headingOne: "Persona",
+    all: "All personas",
+    emptyList:
+      "nobody on record yet — a persona is a query over what a person authored, so it begins when they commit something",
+    search: "Search their records",
+    noMatch: "nothing they recorded matches that",
+    matched: (shown: number, total: number) => `${shown} of ${total} match`,
     exportHint: (id: string) => `export: yoke persona ${id} --out ./skills`,
-    prompt: "pick a person to see the judgment they have on record",
     decisions: "guiding decisions",
     noDecisions:
       "no decisions on record — the bottleneck for a persona is capture, not query",

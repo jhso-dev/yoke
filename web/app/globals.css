@@ -301,6 +301,34 @@ td.num {
   margin-bottom: 12px;
 }
 
+/* A card grid: as many columns as fit at a readable width, no breakpoint list to maintain.
+   `auto-fill` rather than `auto-fit` so two cards stay card-width instead of stretching to half the
+   screen each. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* The whole card is the click target. The underline belongs to prose links, not to a card, so it is
+   removed here and the border carries the hover state instead. */
+.card-link {
+  color: inherit;
+  text-decoration: none;
+}
+.card-link:hover {
+  text-decoration: none;
+}
+.card-link:hover [data-slot="card"] {
+  border-color: var(--primary);
+}
+.card-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
 /* The native `<input>`/`<select>` still used on browse, audit, inject, persona and login, given the
    same 32px box as a `sm` Button so a control row is one height instead of three — UA defaults were
    19-21px beside a 32px button, which is what made the button look oversized rather than the button

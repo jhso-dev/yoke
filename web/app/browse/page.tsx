@@ -99,19 +99,21 @@ function BrowseBody() {
       <div className="controls" style={{ marginTop: 12 }}>
         <Button
           type="button"
+          variant="secondary"
           disabled={cursors.length === 0}
           onClick={() => setCursors((c) => c.slice(0, -1))}
         >
-          {t.browse.prev}
+          {t.common.prev}
         </Button>
         <Button
           type="button"
+          variant="secondary"
           disabled={!page.data?.next}
           onClick={() =>
             setCursors((c) => (page.data?.next ? [...c, page.data.next] : c))
           }
         >
-          {t.browse.next}
+          {t.common.next}
         </Button>
       </div>
     </>
