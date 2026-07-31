@@ -47,6 +47,11 @@ export default function Review() {
   }
 
   const rows = drafts.data ?? [];
+
+  // The header checkbox. Over the rows on screen rather than every draft, so it keeps meaning the
+  // moment this queue grows a filter.
+  const setAll = (next: boolean) =>
+    setChosen(next ? new Set(rows.map((r) => r.id)) : new Set());
   return (
     <>
       <h1>{t.review.heading}</h1>
@@ -68,23 +73,16 @@ export default function Review() {
         >
           {t.common.deprecate} {chosen.size || ""}
         </Button>
-        <Button
-          type="button"
-          disabled={rows.length === 0}
-          onClick={() => setChosen(new Set(rows.map((r) => r.id)))}
-        >
-          {t.review.selectAll}
-        </Button>
         <span className="muted">{t.review.draftCount(rows.length)}</span>
       </div>
       <div className="panel">
         {drafts.loading ? (
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         ) : (
           <KnowledgeTable
             rows={rows}
             empty={t.review.empty}
-            select={{ chosen, toggle }}
+            select={{ chosen, toggle, setAll }}
           />
         )}
       </div>

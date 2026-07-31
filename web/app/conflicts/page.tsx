@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowLeftRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import { useAsync } from "../../lib/useAsync";
 /**
  * Contradiction pairs, side by side.
  *
- * The only actions are "deprecate this side" or leave both — never merge, never auto-resolve. A
+ * The only actions are deprecating one side or leaving both — never merge, never auto-resolve. A
  * disagreement is itself knowledge (KNOWLEDGE-POLICY), so coexisting is a legitimate outcome and the
  * screen says so instead of pressuring a decision.
  */
@@ -107,20 +108,18 @@ export default function Conflicts() {
               }}
             >
               {side(p.from)}
-              {/* The glyph carries the whole "these two disagree, neither wins" reading, so it is
-                  sized to be seen rather than set in the body scale it disappeared at. */}
-              <div
+              {/* Lucide rather than the ↔ character: a glyph renders at whatever weight the
+                  system font happens to give it, which is how this arrived hairline-thin and
+                  invisible. An icon is a path, so it is the same on every machine.
+                  `aria-hidden` because the panel head already says `conflicts_with` in text. */}
+              <ArrowLeftRightIcon
                 aria-hidden="true"
+                size={24}
                 style={{
                   alignSelf: "center",
-                  padding: "0 4px",
-                  fontSize: 28,
-                  lineHeight: 1,
-                  color: "var(--foreground)",
+                  color: "var(--muted-foreground)",
                 }}
-              >
-                ↔
-              </div>
+              />
               {side(p.to)}
             </div>
           </div>

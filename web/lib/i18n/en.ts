@@ -75,7 +75,6 @@ export const en = {
     signOutHint:
       "clears this browser's credential; revoke the token itself with `yoke token revoke`",
     ungatedHint: "local single-user mode — no credential required",
-    select: "select",
     summary: "summary",
   },
   create: {

@@ -77,7 +77,6 @@ export const ko: typeof en = {
     signOutHint:
       "이 브라우저의 자격증명만 지웁니다. 토큰 자체는 `yoke token revoke`로 폐기하세요",
     ungatedHint: "로컬 단일 사용자 모드 — 자격증명이 필요 없습니다",
-    select: "선택",
     summary: "요약",
   },
   create: {
