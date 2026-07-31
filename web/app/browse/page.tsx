@@ -9,48 +9,76 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
+import type { Knowledge, Page, SearchResult } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /**
- * Enumerate what is stored.
+ * Enumerate what is stored, and search it.
  *
- * This is reachability, not retrieval: it shows the shape of the corpus — what types exist, what is
- * still draft, what has gone stale — so a human can govern it. It is not a search box for reading
- * knowledge; that boundary is drawn in WEB-UI.md, and asking questions of the knowledge is the AI's
- * job over MCP.
+ * Enumeration shows the shape of the corpus — what types exist, what is still draft, what has gone
+ * stale — so a human can govern it. The text box narrows that to matching records, and stays on the
+ * governing side of WEB-UI.md's line by construction (second 2026-07-31 amendment):
+ *
+ * - it calls the storage port's own `search()`, the one `inject` falls back to, so there is no
+ *   second ranker in the product;
+ * - results come back through the same `KnowledgeTable` as the listing, so a draft hit reads as a
+ *   draft rather than as an answer;
+ * - it is a bounded top-N with no cursor, and says so when the cap bites.
+ *
+ * Asking questions *of* the knowledge is still the AI's job over MCP. This finds records.
  */
 function BrowseBody() {
   const params = useSearchParams();
   const router = useRouter();
   const type = params.get("type") ?? "";
   const status = params.get("status") ?? "";
+  const query = params.get("q") ?? "";
   const [cursors, setCursors] = useState<string[]>([]);
   const after = cursors.at(-1);
+  // What the box shows while you type. Separate from `query`, which is what has been submitted —
+  // firing a request per keystroke would write an audit row per keystroke, and the trail would
+  // record fragments nobody searched for.
+  const [draft, setDraft] = useState(query);
 
   const defs = useAsync(() => api.ontology(), []);
-  const page = useAsync(
+  // One of two sources, never both: with text it is `search` (ranked by the port, bounded, no
+  // cursor), without it the enumeration. Keeping the cursor out of the search path is deliberate —
+  // `search` has no `after`, so a stale cursor could not be honoured and would silently do nothing.
+  const page = useAsync<SearchResult | Page<Knowledge>>(
     () =>
-      api.entities({
-        type: type || undefined,
-        status: status || undefined,
-        after,
-        limit: 50,
-      }),
-    [type, status, after],
+      query
+        ? api.search({
+            q: query,
+            type: type || undefined,
+            status: status || undefined,
+          })
+        : api.entities({
+            type: type || undefined,
+            status: status || undefined,
+            after,
+            limit: 50,
+          }),
+    [query, type, status, after],
   );
 
-  const setFilter = (next: { type?: string; status?: string }) => {
-    const q = new URLSearchParams();
+  const setFilter = (next: { type?: string; status?: string; q?: string }) => {
+    const p = new URLSearchParams();
     const t = next.type ?? type;
     const s = next.status ?? status;
-    if (t) q.set("type", t);
-    if (s) q.set("status", s);
+    const q = next.q ?? query;
+    if (t) p.set("type", t);
+    if (s) p.set("status", s);
+    if (q) p.set("q", q);
     setCursors([]); // a new filter restarts paging; keeping a cursor would skip rows
-    router.replace(`/browse/${q.toString() ? `?${q}` : ""}`);
+    router.replace(`/browse/${p.toString() ? `?${p}` : ""}`);
   };
 
   const t = useT();
   const rows = page.data?.items ?? [];
+  // The two sources return different shapes, so narrow once and let both the banner and its number
+  // read off the same value — `truncated` and `limit` only exist on the search arm.
+  const found =
+    query && page.data && "truncated" in page.data ? page.data : null;
   return (
     <>
       <div className="page-head">
@@ -84,20 +112,63 @@ function BrowseBody() {
           <option value="verified">verified</option>
           <option value="deprecated">deprecated</option>
         </select>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setFilter({ q: draft.trim() });
+          }}
+          style={{ display: "flex", gap: 8 }}
+        >
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={t.browse.search}
+            title={t.browse.searchHint}
+            aria-label="search"
+            style={{ minWidth: 240 }}
+          />
+          {query && (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setDraft("");
+                setFilter({ q: "" });
+              }}
+            >
+              {t.browse.clear}
+            </Button>
+          )}
+        </form>
         <span className="muted">
           {t.browse.shown(rows.length, !!page.data?.next)}
         </span>
         {/* 'stale' is absent on purpose: it is computed at read time and never stored, so it cannot
             be a stored-status filter. It still shows in the status column. */}
       </div>
+      {/* Never a silent cap. The listing says "more available" through its cursor; search has no
+          cursor, so the cap has to be said in words. */}
+      {found?.truncated && (
+        <div className="banner" data-kind="warn">
+          {t.browse.searchTruncated(found.limit)}
+        </div>
+      )}
       <div className="panel">
         {page.loading ? (
           <div className="empty">{t.common.loading}</div>
         ) : (
-          <KnowledgeTable rows={rows} empty={t.browse.noMatch} />
+          <KnowledgeTable
+            rows={rows}
+            empty={query ? t.browse.noSearchMatch : t.browse.noMatch}
+          />
         )}
       </div>
-      <div className="controls" style={{ marginTop: 12 }}>
+      {/* Hidden while searching, rather than disabled: `search` takes no cursor, so a Next here
+          would be a control that cannot do anything. */}
+      <div
+        className="controls"
+        style={{ marginTop: 12, display: query ? "none" : undefined }}
+      >
         <Button
           type="button"
           variant="secondary"

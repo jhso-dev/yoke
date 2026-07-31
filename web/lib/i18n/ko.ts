@@ -145,6 +145,13 @@ export const ko: typeof en = {
     shown: (n: number, more: boolean) =>
       `${n}개 표시${more ? " (더 있음)" : ""}`,
     noMatch: "이 필터와 일치하는 레코드가 없습니다",
+    search: "레코드 본문 검색",
+    searchHint:
+      "yoke 자신이 폴백으로 쓰는 그 전문 검색입니다 — 답이 아니라 상태가 붙은 레코드를 돌려줍니다",
+    clear: "지우기",
+    noSearchMatch: "그 텍스트와 일치하는 레코드가 없습니다",
+    searchTruncated: (limit: number) =>
+      `일치하는 것 중 앞의 ${limit}개만 표시합니다. 검색은 전체가 아니라 상한이 있는 집합을 돌려줍니다 — 검색어를 좁히거나, 에이전트가 받을 것은 yoke inject로 확인하세요.`,
   },
   entity: {
     noId: "레코드 ID가 없습니다. 다음 화면에서 레코드를 선택하세요:",
@@ -304,6 +311,8 @@ export const ko: typeof en = {
       verify: "레코드가 승격되었습니다",
       deprecate: "레코드가 폐기되었습니다",
       rename_type: "온톨로지 타입이 저장된 모든 행에서 변경되었습니다",
+      read: "레코드 하나를 전부 열어 봤습니다 — 속성·버전·관계",
+      search: "누군가 텍스트로 질의해 일치하는 레코드를 받았습니다",
     } as Record<string, string>,
   },
   tokens: {

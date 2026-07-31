@@ -144,6 +144,13 @@ export const en = {
     shown: (n: number, more: boolean) =>
       `${n} shown${more ? " (more available)" : ""}`,
     noMatch: "no records match this filter",
+    search: "Search text in records",
+    searchHint:
+      "the same full-text search yoke itself falls back to — records with their status, never an answer",
+    clear: "Clear",
+    noSearchMatch: "no records match that text",
+    searchTruncated: (limit: number) =>
+      `showing the first ${limit} matches. Search returns a bounded set, not the whole corpus — narrow the text, or use yoke inject for what an agent would receive.`,
   },
   entity: {
     noId: "No record ID was provided. Select a record from",
@@ -300,6 +307,8 @@ export const en = {
       verify: "records were promoted",
       deprecate: "records were retired",
       rename_type: "an ontology type was renamed in every stored row",
+      read: "a record was opened in full — attributes, versions, relations",
+      search: "someone queried for text and received matching records",
     } as Record<string, string>,
   },
   tokens: {

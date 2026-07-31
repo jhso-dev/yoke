@@ -409,21 +409,33 @@ async function cmdGet(
     return 1;
   }
   const version = v.version === undefined ? undefined : Number(v.version);
+  const actor = resolveActor(v, env);
+  const getNs = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     const e = await store.getEntity(id, version);
     if (!e) {
       console.error(`not found: ${id}`);
       return 1;
     }
+    // A read of full attributes, which is where SPEC draws the audit line — and the twin of
+    // `GET /api/entity/:id`. The rule is per front ADAPTER: if only the browser wrote this row,
+    // "who read this record" would be unanswerable for every read done the normal way, which is
+    // exactly how `verify` drifted before v5.0.
+    store.logAudit({
+      actor,
+      action: "read",
+      detail: e.id,
+      at: now(),
+      ns: getNs,
+    });
     if (!v.relations) {
       emit(v, formatEntity(e), e);
       return 0;
     }
     // Relations are reachable from no other command — the entity-detail screen needs them, so the
     // CLI must be able to show them too.
-    const ns = resolveNs(v.ns, env);
     const rels = (await store.neighbors(id)).filter(
-      (r) => normalizeNs(r.ns) === normalizeNs(ns),
+      (r) => normalizeNs(r.ns) === normalizeNs(getNs),
     );
     const edges = rels.map((r) => ({
       ...r,
@@ -506,16 +518,31 @@ async function cmdSearch(
 ): Promise<number> {
   const query = positionals[0];
   if (!query) {
-    console.error("usage: yoke search <query> [--type t] [--limit n]");
+    console.error(
+      "usage: yoke search <query> [--type t] [--status s] [--limit n]",
+    );
     return 1;
   }
   const limit = v.limit === undefined ? undefined : Number(v.limit);
   const ns = resolveNs(v.ns, env);
+  const actor = resolveActor(v, env);
   return withStore(v, env, async (store) => {
     const results = await store.search({
       text: query,
       type: v.type,
+      // `--status` exists so this command and `/api/search` can express the same query. Without it
+      // the browser could ask a question the CLI could not, which is the parity rule broken.
+      status: v.status,
       limit,
+      ns,
+    });
+    // The query is the subject, not just the ids: `search` records what someone was looking for,
+    // which is the fact an enumeration row does not carry.
+    store.logAudit({
+      actor,
+      action: "search",
+      detail: `${query} -> ${results.map((e) => e.id).join(" ")}`,
+      at: now(),
       ns,
     });
     emit(v, results.map(formatEntity).join("\n"), results);

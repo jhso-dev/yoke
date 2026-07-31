@@ -387,6 +387,91 @@ describe("ui API", () => {
     expect((await bad.json()).error).toContain("limit must be <=");
   });
 
+  it("search returns matching records, bounded, and says when the cap bit", async () => {
+    // The port's own FTS, exposed as-is: same row shape as the listing, so a draft hit reads as a
+    // draft rather than as an answer (WEB-UI second 2026-07-31 amendment).
+    const hits = await get("/api/search?q=mysql");
+    expect(hits.items.length).toBeGreaterThan(0);
+    expect(hits.items.some((r: { id: string }) => r.id === decisionBId)).toBe(
+      true,
+    );
+    for (const r of hits.items) {
+      expect(r.citation).toContain(r.id);
+      expect(r.effectiveStatus).toBeTruthy();
+      // A summary row, NOT full attributes — that is what keeps this on the listing side of
+      // SPEC's audit line and out of the "returns attributes" category.
+      expect(r.attributes).toBeUndefined();
+    }
+    // No cursor: search is a top-N, so `next` is always null and the cap is reported instead.
+    expect(hits.next).toBeNull();
+    expect(hits.truncated).toBe(false);
+
+    // The type filter doubles as the RBAC key, exactly as on /api/entities.
+    const typed = await get("/api/search?q=mysql&type=decision");
+    expect(
+      typed.items.every((r: { type: string }) => r.type === "decision"),
+    ).toBe(true);
+
+    // limit + 1 is read, so truncation is a fact rather than a guess. Asserted against a query with
+    // more than one match, so the flag has something to be true about — `expect(x).toBe(cond ? true
+    // : x)` would pass whatever the code did.
+    const ont = store.loadOntology(null);
+    for (const n of [1, 2, 3]) {
+      await commit(
+        store,
+        ont,
+        { type: "fact", attributes: { title: `quokka sighting ${n}` } },
+        { actor: "tester", origin: "cli", occurred_at: "2026-07-31T00:00:00Z" },
+        "2026-07-31T00:00:00Z",
+      );
+    }
+    const many = await get("/api/search?q=quokka");
+    expect(many.items.length).toBeGreaterThan(1);
+    const capped = await get("/api/search?q=quokka&limit=1");
+    expect(capped.items).toHaveLength(1);
+    expect(capped.limit).toBe(1);
+    expect(capped.truncated).toBe(true);
+
+    // No text is a 400, not an empty result set: an empty query would otherwise return the
+    // adapter's idea of "match nothing" and read as "you have no knowledge".
+    const empty = await fetch(`${base}/api/search?q=%20%20`);
+    expect(empty.status).toBe(400);
+    // Over-max is a 400 here too.
+    const over = await fetch(`${base}/api/search?q=mysql&limit=9999`);
+    expect(over.status).toBe(400);
+  });
+
+  it("a search writes an audit row naming the query, not just the ids", async () => {
+    await get("/api/search?q=mysql");
+    const row = store
+      .listAudit()
+      .filter((e) => e.action === "search")
+      .at(-1);
+    expect(row).toBeDefined();
+    // `<subject> -> <ids>`, the shape every other action uses, so rows are comparable. The subject
+    // is the point: `search` records WHAT was looked for, which an enumeration row cannot.
+    expect(row?.detail.startsWith("mysql -> ")).toBe(true);
+    expect(row?.detail).toContain(decisionBId);
+  });
+
+  it("opening a record in full writes a read row — the rule SPEC has claimed since v5.0", async () => {
+    const before = store.listAudit().filter((e) => e.action === "read").length;
+    await get(`/api/entity/${decisionBId}`);
+    const rows = store.listAudit().filter((e) => e.action === "read");
+    expect(rows.length).toBe(before + 1);
+    // Only the record whose attributes were returned. The versions and resolved ends come back as
+    // summary rows, so naming them would overstate what the response disclosed.
+    expect(rows.at(-1)?.detail).toBe(decisionBId);
+  });
+
+  it("a listing writes no read row — summary rows are not an attribute read", async () => {
+    // The other half of the same rule, and the reason it is not "audit every route": /api/entities
+    // returns truncated summaries, so auditing it would drown the governance rows in page loads.
+    const before = store.listAudit().length;
+    await get("/api/entities");
+    expect(store.listAudit().length).toBe(before);
+  });
+
   it("entity detail returns full attributes, version history and both relation sides", async () => {
     const detail = await get(`/api/entity/${decisionBId}`);
     // Full attributes, not the 60-char summary the list rows carry.
@@ -652,6 +737,40 @@ describe("ui API namespace isolation", () => {
     expect(summaries.some((s: string) => s.includes("globex"))).toBe(false);
     // The resolved side is a real row, not a "missing" stub — the ns check must not over-reject.
     expect([pairs[0].from.id, pairs[0].to.id]).toContain(acmeDecision);
+  });
+
+  it("search never crosses a namespace, and neither does its audit row", async () => {
+    // The case that matters for a NEW retrieval path: the seeds differ only by their ns prefix, so
+    // a query matching both tenants' text must still answer with one tenant's rows. `search` is the
+    // fourth global listing added to this server, and the first three all leaked at least once.
+    const hits = await fetch(`${tenantBase}/api/search?q=decision`).then((r) =>
+      r.json(),
+    );
+    expect(hits.items.length).toBeGreaterThan(0);
+    expect(
+      hits.items.every((r: { summary: string }) =>
+        r.summary.startsWith("acme"),
+      ),
+    ).toBe(true);
+    expect(
+      hits.items.some((r: { summary: string }) => r.summary.includes("globex")),
+    ).toBe(false);
+
+    // And the trail is per-tenant too: a row stamped with the wrong ns would show one tenant's
+    // queries on another's audit screen.
+    // Queried BY ns, which is also the assertion: `listAudit({})` reads the default namespace only,
+    // so a row stamped with the wrong ns would simply not be here.
+    const row = tenantStore
+      .listAudit({ ns: "acme" })
+      .filter((e) => e.action === "search")
+      .at(-1);
+    expect(row?.ns).toBe("acme");
+    expect(tenantStore.listAudit().some((e) => e.action === "search")).toBe(
+      false,
+    );
+    expect(
+      hits.items.every((r: { id: string }) => row?.detail.includes(r.id)),
+    ).toBe(true);
   });
 });
 

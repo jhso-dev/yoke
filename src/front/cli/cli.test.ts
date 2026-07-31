@@ -906,6 +906,27 @@ describe("runCli", () => {
     // A persona read is an injection, and this one also writes a SKILL.md into someone's prompt.
     expect(byAction.get("persona")?.actor).toBe("reader");
     expect(byAction.get("persona")?.detail).toContain(person);
+
+    // A read names the record whose attributes it handed over; a search names what was asked for.
+    // Those are different facts, which is why they are different actions and not one `read`.
+    expect(await runCli(["get", fact, "--db", db, "--actor", "curious"])).toBe(
+      0,
+    );
+    expect(
+      await runCli(["search", "governed", "--db", db, "--actor", "searcher"]),
+    ).toBe(0);
+    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    const after = JSON.parse(logs.at(-1) as string) as Array<{
+      actor: string;
+      action: string;
+      detail: string;
+    }>;
+    const read = after.find((e) => e.action === "read");
+    expect(read?.actor).toBe("curious");
+    expect(read?.detail).toBe(fact);
+    const searched = after.find((e) => e.action === "search");
+    expect(searched?.actor).toBe("searcher");
+    expect(searched?.detail.startsWith("governed -> ")).toBe(true);
   });
 
   it("audits the same action names in the CLI as the web tier does", async () => {
@@ -939,6 +960,25 @@ describe("runCli", () => {
         (e) => e.action,
       ),
     );
+    // Reads too, and they are the ones that were missing. SPEC has said since v5.0 opened that a
+    // route returning full attributes writes a row; `yoke get` and its web twin both wrote nothing.
+    expect(await runCli(["get", id, "--db", db])).toBe(0);
+    expect(await runCli(["search", "parity", "--db", db])).toBe(0);
+    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    const seen2 = new Set(
+      (JSON.parse(logs.at(-1) as string) as Array<{ action: string }>).map(
+        (e) => e.action,
+      ),
+    );
+    for (const a of [
+      "verify",
+      "inject",
+      "deprecate",
+      "rename_type",
+      "read",
+      "search",
+    ])
+      expect(seen2, `${a} must be audited`).toContain(a);
     for (const a of ["verify", "inject", "deprecate", "rename_type"])
       expect(seen, `${a} must be audited`).toContain(a);
     // inject_preview is the web tier's alone on purpose: it records that a HUMAN looked, without
