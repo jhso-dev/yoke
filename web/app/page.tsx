@@ -1,13 +1,16 @@
 "use client";
 
 import {
+  ArrowRightIcon,
   GitBranchIcon,
   HandshakeIcon,
   KeyRoundIcon,
   SearchIcon,
   ShieldCheckIcon,
+  UsersRoundIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { useT } from "../lib/i18n";
 
 export default function Home() {
@@ -19,6 +22,32 @@ export default function Home() {
           <p className="eyebrow">{t.home.eyebrow}</p>
           <h1>{t.home.heading}</h1>
           <p className="lede">{t.home.lede}</p>
+          <div
+            className="home-context-flow"
+            role="img"
+            aria-label={t.home.flow.label}
+          >
+            <span>
+              <ShieldCheckIcon />
+              {t.home.flow.verified}
+            </span>
+            <ArrowRightIcon aria-hidden="true" />
+            <strong>
+              <HandshakeIcon />
+              {t.home.flow.context}
+            </strong>
+            <ArrowRightIcon aria-hidden="true" />
+            <span>
+              <UsersRoundIcon />
+              {t.home.flow.users}
+            </span>
+          </div>
+          <Button asChild size="sm">
+            <Link href="/collaboration/">
+              <HandshakeIcon />
+              {t.home.openCollaboration}
+            </Link>
+          </Button>
         </div>
         <span className="home-art">
           {/* biome-ignore lint/performance/noImgElement: static export forbids next/image in this app. */}
