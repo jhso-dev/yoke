@@ -10,6 +10,7 @@ import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
+  DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   type Page,
   page,
@@ -335,24 +336,52 @@ export class SqliteStorage implements StoragePort {
     if (tokens.length === 0) return [];
     const match = tokens.map((t) => `"${t.replace(/"/g, '""')}"*`).join(" ");
     const typeClause = q.type === undefined ? "" : " AND e.type = @type";
+    // A list of statuses becomes IN (...) with positional binds, since named binds cannot hold an
+    // array. Inlined as placeholders, never as values — the statuses are from a closed set, but
+    // building SQL from caller data is how the first injection bug always starts.
+    const statuses =
+      q.status === undefined
+        ? []
+        : Array.isArray(q.status)
+          ? q.status
+          : [q.status];
     const statusClause =
-      q.status === undefined ? "" : " AND e.status = @status";
-    const limitClause = q.limit === undefined ? "" : " LIMIT @limit";
+      statuses.length === 0
+        ? ""
+        : ` AND e.status IN (${statuses.map(() => "?").join(", ")})`;
+    // ORDER BY rank is FTS5's bm25, ascending (lower is more relevant). Without it FTS5 returns
+    // rowid order — insertion order — so `limit` meant "the oldest N matches". Measured at 1M rows,
+    // the top 50 by insertion order and the top 50 by bm25 shared ONE record (docs/SCALE.md).
+    //
+    // ponytail: ranking costs O(matches), because FTS5 has no top-k early termination (no block-max
+    // WAND) — it must score every match to know the best 50. Measured at 10M entities: 3.2 s for a
+    // term in EVERY document, 3.2 ms at 1% selectivity, 0.1 ms at 0.01%. So the cost is confined to
+    // terms so common that ranking on them is nearly meaningless. Upgrade path if a corpus ever
+    // needs it: an engine with WAND (Tantivy, Lucene) behind this same port — which is what the port
+    // is for. Not worth doing on a guess.
+    //
+    // The filters sit in this WHERE, so they apply BEFORE the limit. That ordering is the fix for
+    // "asked for 50, received 29": inject used to cap here and filter afterwards in JS.
+    const limitClause = " LIMIT @limit";
     // Namespace isolation (PLAN-V2 10.1): `IS @ns` handles NULL (default ns sees only default rows).
     const rows = this.db
       .prepare(
         `SELECT e.* FROM entities_fts f
          JOIN entities e ON e.id = f.id
            AND e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)
-         WHERE f.text MATCH @match AND e.ns IS @ns${typeClause}${statusClause}${limitClause}`,
+         WHERE f.text MATCH @match AND e.ns IS @ns${typeClause}${statusClause}
+         ORDER BY f.rank${limitClause}`,
       )
-      .all({
-        match,
-        ns: normalizeNs(q.ns),
-        type: q.type,
-        status: q.status,
-        limit: q.limit,
-      }) as EntityRow[];
+      // Named binds for the fixed parameters, then the status placeholders positionally.
+      .all(
+        {
+          match,
+          ns: normalizeNs(q.ns),
+          type: q.type,
+          limit: q.limit ?? DEFAULT_SEARCH_LIMIT,
+        },
+        ...statuses,
+      ) as EntityRow[];
     return rows.map(rowToEntity);
   }
 

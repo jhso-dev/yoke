@@ -8,8 +8,10 @@ import kuzu from "kuzu";
 import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
+import { rankByRelevance, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
+  DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   type Page,
   page,
@@ -234,11 +236,17 @@ export class KuzuStorage implements StoragePort {
         // "" sentinel normalizes to null so the default ns sees only default rows (10.1 isolation).
         (r.ns || null) === wantNs &&
         (q.type === undefined || r.type === q.type) &&
-        (q.status === undefined || r.status === q.status),
+        (q.status === undefined ||
+          (Array.isArray(q.status)
+            ? q.status.includes(r.status)
+            : r.status === q.status)),
     );
-    return (q.limit === undefined ? filtered : filtered.slice(0, q.limit)).map(
-      rowToEntity,
-    );
+    // Best match first, then cut — the slice used to take whatever order the scan produced, so
+    // `limit` meant an arbitrary N. Kuzu has no ranker, so this is core's BM25 over the rows this
+    // method has already materialized and tokenized (its documented full-scan ceiling), which makes
+    // the ordering free rather than an extra pass.
+    const ranked = rankByRelevance(filtered, q.text, (r) => r.txt);
+    return ranked.slice(0, q.limit ?? DEFAULT_SEARCH_LIMIT).map(rowToEntity);
   }
 
   /** Enumerate latest-version entities, ascending by id.
@@ -331,13 +339,4 @@ export class KuzuStorage implements StoragePort {
     )) as unknown as { def: string }[];
     return rows.map((r) => JSON.parse(r.def) as TypeDef);
   }
-}
-
-// Lowercase, then split on any run of non-letter/non-number characters (unicode-aware).
-// Hangul are letters, so "parseArgs로" stays one token; JSON quotes/braces/colons separate.
-function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean);
 }

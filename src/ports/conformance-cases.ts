@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import type { Entity, Relation } from "../core/types.js";
-import type { StoragePort } from "./storage.js";
+import { DEFAULT_SEARCH_LIMIT, type StoragePort } from "./storage.js";
 
 let seq = 0;
 function nextId(): string {
@@ -190,6 +190,79 @@ export const conformanceCases: ConformanceCase[] = [
       eq(await port.search({ text: "slack rate" }), [e]); // non-consecutive terms
       eq(await port.search({ text: "retries slack" }), [e]); // reversed order
       eq(await port.search({ text: "slack missingword" }), []); // AND, not OR
+    },
+  },
+  {
+    // (6d) search returns the BEST match first, not the first-stored match. Before this, sqlite
+    // returned FTS5's rowid order and kuzu/qdrant sliced whatever order their scan produced, so
+    // `limit` silently meant "an arbitrary N" — measured at 1M rows, the top 50 by insertion order
+    // and the top 50 by relevance shared ONE record (docs/SCALE.md).
+    //
+    // Asserted on something every sane ranker agrees about rather than on an exact ordering, since
+    // FTS5's bm25 and core's are not required to produce identical scores: the term is rare in the
+    // candidate set, and the record that is ABOUT it beats the one that merely mentions it among
+    // fifty other words. Both the stored order and the reverse of the expected order are exercised,
+    // so the case cannot pass by accident of insertion sequence.
+    name: "search returns the best match first, not the first stored",
+    async run(port) {
+      // Nonsense filler on purpose. The first draft used "alpha beta gamma …", and "beta" is what
+      // case 7c searches for — so this case silently broke that one, but only under the kuzu runner,
+      // which shares ONE database across cases (see the header). Every token a case introduces has
+      // to be unique to it.
+      const filler = "zqfill1 zqfill2 zqfill3 zqfill4 zqfill5 zqfill6 zqfill7";
+      // Stored FIRST and deliberately the worse match: one mention, buried in filler.
+      const mentions = makeEntity({
+        attributes: { title: `${filler} tapir ${filler}` },
+      });
+      // Stored SECOND and the better match: short, and about the term.
+      const about = makeEntity({ attributes: { title: "tapir tapir" } });
+      await port.putEntity(mentions);
+      await port.putEntity(about);
+
+      const hits = await port.search({ text: "tapir" });
+      assert.equal(hits.length, 2, "both records match the term");
+      assert.equal(
+        hits[0].id,
+        about.id,
+        "the record about the term must outrank the one that mentions it",
+      );
+
+      // And the limit cuts from the TOP. This is the clause injection depends on: a capped search
+      // must hand back the best k, because the caller filters after and cannot recover what the
+      // cap dropped.
+      const one = await port.search({ text: "tapir", limit: 1 });
+      assert.equal(one.length, 1);
+      assert.equal(one[0].id, about.id, "limit 1 must return the best match");
+    },
+  },
+  {
+    // (6e) search is bounded even when the caller names no limit. A resource bound, not a policy
+    // cap: at 10M entities the unbounded call materialized ten million row objects and the process
+    // died of heap exhaustion (docs/SCALE.md). Asserted by count rather than by timing, so it holds
+    // on every backend and in CI.
+    name: "search is bounded when no limit is given",
+    async run(port) {
+      // A type of its own, so the thousand rows this case needs cannot reach another case's
+      // type-filtered assertion — the shared-database rule again.
+      const type = "capybara-bound";
+      const n = DEFAULT_SEARCH_LIMIT + 5;
+      for (let i = 0; i < n; i++)
+        await port.putEntity(
+          makeEntity({ type, attributes: { title: `capybara sighting ${i}` } }),
+        );
+      const all = await port.search({ text: "capybara" });
+      assert.equal(
+        all.length,
+        DEFAULT_SEARCH_LIMIT,
+        "an omitted limit must apply DEFAULT_SEARCH_LIMIT, not return every match",
+      );
+      // Enumeration keeps the OPPOSITE default on purpose — a cursor walk is driven by its caller.
+      const listed = await port.listEntities({ type });
+      assert.equal(
+        listed.items.length,
+        n,
+        "listEntities must stay unbounded when no limit is given",
+      );
     },
   },
   {

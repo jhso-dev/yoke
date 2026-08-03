@@ -133,6 +133,78 @@ Surveyed 2026-08-02, and the finding was the opposite of the intuition that scal
 So the FTS-first design is the right one on current evidence. What was wrong was how it was being
 called, not what it was calling.
 
+## After the fixes (2026-08-03)
+
+Same corpora, same shipped code, re-measured:
+
+| | before | after |
+|---|---|---|
+| asked for 50 injectable records, received (10M) | 29 | **50**, all verified |
+| asked for 50 injectable records, received (1M) | 29 | **50** |
+| `inject({scope})` briefing, 1M + 3M relations | 567 ms | 74 ms |
+| `inject(query, {scope})` at 10M | **heap crash** | 4.0 s, 50 items |
+| `listEntities({type})` at 10M | 14,953 ms | 0.1 ms |
+| `neighbors(id)` at 3M relations | 232 ms | 0.1 ms |
+
+And the cost of relevance ordering, which is the trade this bought. `inject(query, {limit: 50})` at
+10M, by how much of the corpus the query term matches:
+
+| selectivity | matches | inject |
+|---|---|---|
+| 0.01% | 1,000 | 1.5 ms |
+| 1% | 100,000 | 60 ms |
+| ~7% | 714,000 | 288 ms |
+| two-term AND | small intersection | 47 ms |
+| 100% | 10,000,000 | **5.4 s** |
+
+Roughly 0.5 µs per matched document scored, which is what O(matches) looks like. The broad end got
+**slower** than before — 132 ms to 5.4 s — because the old path did not rank at all. That is not a
+like-for-like regression (the old 132 ms returned the wrong 29 records), but it is a real number and
+a real tail.
+
+Two honest caveats on the table above:
+
+- **These numbers are cache-sensitive.** The same 7% query measured 288 ms warm and ~2.5 s cold in a
+  fresh process. The comparison that survives both is the *ratio* between ordering strategies, not
+  any single figure.
+- **The ordering improvement cannot be demonstrated on this corpus.** Every document contains the
+  query term exactly once at near-identical length, so bm25 scores tie everywhere and FTS5 breaks
+  ties by rowid — which means the results are still in insertion order even after the fix. That is
+  correct behaviour for genuinely tied relevance, not a residual bug, and the reordering is proven
+  instead by conformance case 6d on constructed data (a record *about* a term outranks one that
+  merely mentions it among filler). A synthetic corpus with no relevance signal cannot show a
+  relevance fix; saying so is more useful than a table implying otherwise.
+
+## The decision left open: what to rank, and over what window
+
+`ORDER BY rank` scores every match, which is where the 5.4 s comes from. A bounded alternative was
+measured on the same 10M corpus — take the most recently indexed window and rank inside it:
+
+| ordering, at 10M | term in 100% of docs | term in ~7% |
+|---|---|---|
+| `ORDER BY rank` (shipped) | 6,221 ms | 2,534 ms |
+| `ORDER BY rowid DESC`, then bm25 over 150 rows | **162 ms** | **9 ms** |
+
+38x to 272x cheaper, and still relevance-ordered — just relevance among recent matches rather than
+among all matches. For a store whose knowledge has a TTL, whose briefings already order by
+`last_confirmed`, and which withholds stale records anyway, preferring recent knowledge is arguably
+the better prior rather than a compromise.
+
+It is **not** shipped, for two reasons worth stating rather than deciding quietly:
+
+1. It is a product-semantics choice — "the best matches" becomes "the best of the recent matches" —
+   and that belongs to whoever owns what injection means, not to a latency measurement.
+2. The window would be selected by FTS5 `rowid`, which is insert order, which changes when `verify`
+   rewrites a row. That happens to make it a decent recency signal for a governed store, but it is
+   an implementation detail of the index standing in for a semantic field, and `last_confirmed`
+   cannot serve instead without sorting every match — the cost we are trying to avoid.
+
+The principled version of the same idea is selectivity-aware: probe term frequency with an
+`fts5vocab` table (an indexed lookup per term), rank globally when the match set is small enough to
+afford it, and fall back to a bounded window when it is not. That is more code and one more
+threshold, and it is worth building on a real corpus that has hit the tail — not on this synthetic
+one, where the expensive case is a term in literally every document.
+
 ## The ceiling that remains
 
 Ranking a query whose terms match a large fraction of the corpus costs O(matches): ~3.2 s at 10M

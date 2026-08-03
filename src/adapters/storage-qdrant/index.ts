@@ -15,8 +15,10 @@ import { createHash } from "node:crypto";
 import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
+import { rankByRelevance, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
+  DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   type Page,
   page,
@@ -34,15 +36,6 @@ function pointId(key: string): string {
   const h = createHash("sha1").update(key).digest("hex");
   // Format 8-4-4-4-12 with valid version(5)/variant(8) nibbles.
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
-}
-
-// Lowercase, split on any run of non-letter/non-number chars (unicode-aware). Hangul are letters,
-// so "parseArgs로" stays one token while JSON punctuation separates — see kuzu adapter / case 6b.
-function tokenize(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean);
 }
 
 function latestByVersion<T extends { id: string; version: number }>(
@@ -328,11 +321,17 @@ export class QdrantStorage implements StoragePort {
         // null-normalized ns so the default ns sees only default rows (10.1 isolation).
         (r.ns ?? null) === wantNs &&
         (q.type === undefined || r.type === q.type) &&
-        (q.status === undefined || r.status === q.status),
+        (q.status === undefined ||
+          (Array.isArray(q.status)
+            ? q.status.includes(r.status)
+            : r.status === q.status)),
     );
-    return (q.limit === undefined ? filtered : filtered.slice(0, q.limit)).map(
-      payloadToEntity,
-    );
+    // Best match first, then cut. Same reasoning as kuzu: the rows are already materialized by the
+    // full scan above, so ranking them costs nothing on top and the slice stops being arbitrary.
+    const ranked = rankByRelevance(filtered, q.text, (r) => r.txt);
+    return ranked
+      .slice(0, q.limit ?? DEFAULT_SEARCH_LIMIT)
+      .map(payloadToEntity);
   }
 
   /** Enumerate latest-version entities, ascending by id.
