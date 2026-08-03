@@ -11,7 +11,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { fileURLToPath } from "node:url";
-import { backfillAuthorship } from "../../core/backfill.js";
+import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
@@ -919,7 +919,7 @@ export function createUiHandler(
           sendJson(res, 201, await asRelRow()(entity as Relation));
           return;
         }
-        const { entity, duplicates } = await commit(
+        const { entity, duplicates, duplicateDetection } = await commit(
           store,
           ontology,
           { type, attributes },
@@ -946,9 +946,14 @@ export function createUiHandler(
         }
         // Duplicates travel with the response: the gate found them, and a form that discards them
         // is a form that helps someone create the thing they were warned about.
+        //
+        // So does WHY the list is empty. "no duplicates found" and "nobody looked" are different
+        // facts, and only the gate knows which one happened (SPEC gate stage 3) — a form that shows
+        // neither lets someone believe their record was checked when it was not.
         sendJson(res, 201, {
           ...(await asRow()(entity)),
           duplicates: await Promise.all(duplicates.map(asRow())),
+          duplicateDetection,
         });
         return;
       } catch (e) {
@@ -999,6 +1004,24 @@ export function createUiHandler(
       const ontology = store.loadOntology(ns);
       if (ontology.length === 0) {
         sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
+        return;
+      }
+      const body = await readBody(req);
+      // The other repair: the vector index rather than the authorship graph. Still `write` and still
+      // unaudited — an embedding is a derived index, not knowledge, so there is no disclosure and no
+      // trust change to record (SPEC "The vector index").
+      if (body.embeddings === true) {
+        sendJson(
+          res,
+          200,
+          await backfillEmbeddings(store, {
+            embedder: deps.embedder ?? (async () => null),
+            ns,
+            limit: intParam(url, "limit", 500, 5000),
+            after: typeof body.after === "string" ? body.after : undefined,
+            rebuild: body.rebuild === true,
+          }),
+        );
         return;
       }
       sendJson(

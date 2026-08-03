@@ -89,4 +89,19 @@ describe("CLI surface", () => {
     ).toEqual([]);
     expect(missingFromSpec, "in usage() but undocumented in SPEC").toEqual([]);
   });
+
+  // The same drift guard, one clause deeper. SPEC said gate stage 3 fell back to FTS for duplicate
+  // detection from v1 and the code never did — `commit.ts` skips on purpose, because treating every
+  // FTS candidate as a duplicate is mostly false positives. The contract described an intention, and
+  // the danger of that is the reverse direction: someone later "makes the code match SPEC" and builds
+  // the fallback the code deliberately refused.
+  it("SPEC does not promise an FTS fallback for duplicate detection", () => {
+    const spec = readFileSync("docs/SPEC.md", "utf8").replace(/\r\n/g, "\n");
+    const gate = /## Commit gate[\s\S]*?\n## /.exec(spec)?.[0] ?? "";
+    // Non-vacuity: the section has to have been found and has to be about stage 3.
+    expect(gate).toContain("Similar-entity lookup");
+    expect(gate).not.toMatch(/otherwise FTS/i);
+    // And it must state what actually happens instead, so the correction is not just a deletion.
+    expect(gate).toMatch(/skipped/i);
+  });
 });

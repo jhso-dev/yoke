@@ -200,21 +200,73 @@ export class SqliteStorage implements StoragePort {
     }
   }
 
+  /** The declared width of the existing vector index, or null when there is no index yet. Read from
+   * the stored DDL rather than tracked in memory, so it is right for a database this process did not
+   * create. */
+  private vecDim(): number | null {
+    const row = this.db
+      .prepare(
+        `SELECT sql FROM sqlite_master WHERE type='table' AND name='entity_vec'`,
+      )
+      .get() as { sql: string } | undefined;
+    if (!row) return null;
+    const m = /float\[(\d+)\]/.exec(row.sql);
+    return m ? Number(m[1]) : null;
+  }
+
   // The vec0 table is created lazily on the first embedding insert. Its dimension (N) is fixed to
   // the first vector's length — providers differ in dimension and it is unknown before insertion,
   // which is more robust than fixing it via env.
-  // ponytail: dimension is pinned to the first embedding. Switching to a provider with a different dimension requires rebuilding the vector table.
-  private ensureVecTable(dim: number): void {
-    const exists = this.db
-      .prepare(
-        `SELECT 1 FROM sqlite_master WHERE type='table' AND name='entity_vec'`,
-      )
-      .get();
-    if (!exists) {
+  //
+  // A LATER vector of a different width is a changed embedding model, and it is checked here rather
+  // than left to sqlite-vec. Its own error says "query vector" even on a write and names no way out,
+  // and a mixed vector space would return confidently wrong neighbours forever — so this is the one
+  // place the product deliberately stops a write over an embedding problem (SPEC "The vector index").
+  private ensureVecTable(dim: number, rebuild = false): void {
+    const current = this.vecDim();
+    if (current !== null && rebuild) {
+      this.db.exec(`DROP TABLE entity_vec`);
+      this.ensureVecTable(dim);
+      return;
+    }
+    if (current !== null && current !== dim) {
+      throw new Error(
+        `embedding dimension changed: the vector index holds ${current}-dimension vectors and this one is ${dim}. ` +
+          `A database has one vector space — re-index every record with the new model: ` +
+          `yoke backfill --embeddings --rebuild`,
+      );
+    }
+    if (current === null) {
       this.db.exec(
         `CREATE VIRTUAL TABLE entity_vec USING vec0(id TEXT PRIMARY KEY, embedding float[${dim}])`,
       );
     }
+  }
+
+  /** The vector half of a write, keyed by id like the FTS row. Shared by `putEntity` and
+   * `putEmbedding` so a backfilled vector is byte-identical to one written at commit time. */
+  private indexEmbedding(
+    id: string,
+    embedding: Float32Array,
+    rebuild = false,
+  ): void {
+    this.ensureVecTable(embedding.length, rebuild);
+    this.db.prepare(`DELETE FROM entity_vec WHERE id = ?`).run(id);
+    this.db
+      .prepare(`INSERT INTO entity_vec (id, embedding) VALUES (?, ?)`)
+      .run(
+        id,
+        Buffer.from(
+          embedding.buffer,
+          embedding.byteOffset,
+          embedding.byteLength,
+        ),
+      );
+  }
+
+  async putEmbedding(e: Entity, opts?: { rebuild?: boolean }): Promise<void> {
+    if (!e.embedding) return;
+    this.indexEmbedding(e.id, e.embedding, opts?.rebuild);
   }
 
   close(): void {
@@ -251,20 +303,7 @@ export class SqliteStorage implements StoragePort {
     // Keep only the latest version's vector too (same delete+insert as FTS). Touch it only when an
     // embedding is present — re-putting a version without an embedding leaves the existing vector in
     // place (entities has no vector column, so the latest vector cannot be reconstructed).
-    if (e.embedding) {
-      this.ensureVecTable(e.embedding.length);
-      this.db.prepare(`DELETE FROM entity_vec WHERE id = ?`).run(e.id);
-      this.db
-        .prepare(`INSERT INTO entity_vec (id, embedding) VALUES (?, ?)`)
-        .run(
-          e.id,
-          Buffer.from(
-            e.embedding.buffer,
-            e.embedding.byteOffset,
-            e.embedding.byteLength,
-          ),
-        );
-    }
+    if (e.embedding) this.indexEmbedding(e.id, e.embedding);
   }
 
   async getEntity(id: string, version?: number): Promise<Entity | null> {
@@ -435,12 +474,17 @@ export class SqliteStorage implements StoragePort {
   /** KNN-nearest entities. Empty array if the vec0 table was never created (no embedding ever inserted).
    * Returned entities carry a restored .embedding — the gate computes cosine similarity to apply the threshold. */
   async similar(embedding: Float32Array, k: number): Promise<Entity[]> {
-    const exists = this.db
-      .prepare(
-        `SELECT 1 FROM sqlite_master WHERE type='table' AND name='entity_vec'`,
-      )
-      .get();
-    if (!exists) return [];
+    const dim = this.vecDim();
+    if (dim === null) return [];
+    // Reads get the same dimension check as writes. Without it a model change would answer queries
+    // out of the OLD index — a plausible-looking neighbour list computed in a different vector space,
+    // which is exactly the silent wrongness the loud failure exists to prevent.
+    if (dim !== embedding.length) {
+      throw new Error(
+        `embedding dimension changed: the vector index holds ${dim}-dimension vectors and this query is ${embedding.length}. ` +
+          `Re-index every record with the current model: yoke backfill --embeddings --rebuild`,
+      );
+    }
     const query = Buffer.from(
       embedding.buffer,
       embedding.byteOffset,

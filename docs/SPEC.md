@@ -51,6 +51,8 @@ interface StoragePort {
   listRelations(q: ListQuery): Promise<Page<Relation>>
   // optional capability — if absent, core falls back to keyword search
   similar?(embedding: Float32Array, k: number): Promise<Entity[]>
+  // optional (v5.2) — index a vector without writing a version. See "The vector index" below.
+  putEmbedding?(e: Entity, opts?: { rebuild?: boolean }): Promise<void>
 }
 
 interface ListQuery {
@@ -63,6 +65,26 @@ interface ListQuery {
 
 interface Page<T> { items: T[]; next: string | null }
 ```
+
+### The vector index (v5.2)
+
+**The embedding is not knowledge — it is a derived index, keyed by `id`, exactly like the FTS row.**
+`entities` has no vector column, and only the latest version's vector is kept. Three consequences,
+each of them load-bearing:
+
+- **A backfill creates no version and changes no citation.** `putEmbedding` writes the index and
+  nothing else, which is what makes repairing coverage possible at all — `putEntity` cannot be reused,
+  since re-putting an existing `(id, version)` is a primary-key conflict.
+- **A row with no vector is a complete knowledge row.** Coverage is a property of the index, not of the
+  knowledge, and it is legitimately incomplete whenever a commit ran without a working embedder.
+- **One dimension per database.** The index is created with the first vector's width and every later
+  vector must match it. Changing the embedding model therefore requires rebuilding the index, which is
+  `putEmbedding(e, { rebuild: true })` on the first row of a backfill.
+
+**A dimension mismatch must fail loudly, on reads and writes alike**, naming both widths and the
+command that fixes it. This is the one deliberate exception to "an embedding failure never blocks a
+commit": a provider being down costs you one vector, whereas a mixed vector space returns confidently
+wrong neighbours forever, and a silent wrong answer is worse than a stopped write.
 
 Enumeration is the only port method that can return the whole database, so its contract
 is tighter than the rest. Each clause below is a conformance case:
@@ -116,7 +138,7 @@ The `commit(input, provenance)` pipeline — fixed order:
 
 1. Ontology validation (type + attributes schema) → reject on failure
 2. Provenance required-field validation → reject on failure
-3. Similar-entity lookup (embedding if `similar` exists, otherwise FTS)
+3. Similar-entity lookup **by embedding, or not at all**
    → return duplicate candidates (no auto-merge; propose to the caller)
 4. On contradiction, create a `conflicts_with` relation (keep both sides)
 4b. Record authorship as an `authored_by` relation (entity → `provenance.actor`), so provenance is
@@ -125,6 +147,22 @@ The `commit(input, provenance)` pipeline — fixed order:
    must never fail the caller's own commit. `verify`/`deprecate` do not pass through the gate, so
    promoting is not authoring.
 5. Set status='draft', assign a version, and store
+
+**Stage 3 has no FTS fallback, deliberately** (corrected 2026-08-03; this document said "otherwise
+FTS" from v1 and the code never did it). When there is no embedder, the embedding request fails, or
+the backend has no `similar`, duplicate detection is **skipped entirely** — every FTS candidate would
+have to be treated as a duplicate, which yields far too many false positives to put in front of a
+person. The code chose this on purpose and only the contract was stale.
+
+Skipping is a fact the caller is told: `commit()` returns
+`duplicateDetection: "embedding" | "skipped"`. A front adapter that discards it leaves a person
+believing their record was checked for duplicates when it was not — so every adapter that can create
+a record must surface `"skipped"`.
+
+The same applies to the vector: a commit with no embedding **still stores the knowledge**. An
+embedding provider being down must never reject a record (see "Embedder contract"), so a row can
+legitimately exist with no vector, and coverage is repaired by backfill rather than by refusing the
+write.
 
 ## Injection (context injection)
 
@@ -289,7 +327,7 @@ endpoint shares it at `POST /mcp`.
 | `POST /api/deprecate` | `deprecate` | verify | yes |
 | `POST /api/entity` | `commit({type, attributes})` (+ a `relates_to` commit when `scope` is given) | write (typed) | no — the v1 row records it |
 | `POST /api/link` | `commit({type, attributes, from, to})` | write (typed) | no — same |
-| `POST /api/backfill` | `backfillAuthorship` | write | no — the edges it creates record it |
+| `POST /api/backfill` | `backfillAuthorship`, or `backfillEmbeddings` with `{embeddings:true, rebuild?}` | write | no — the edges it creates record it, and a vector is not knowledge |
 | `POST /api/ontology` | `saveOntology([def], ns)` | **verify** | no |
 | `POST /api/rename-type` | `renameType(from, to, ns)` | **verify** | **yes** (`rename_type`) |
 
@@ -412,6 +450,7 @@ yoke audit [--since ts] [--limit n]   # the injection / governance audit trail
 yoke ontology <subcmd>     # inspect types / migrate
 yoke persona <person>      # generate/export a persona skill (SKILL.md)
 yoke backfill              # derive missing authored_by edges (upgrade path, idempotent)
+yoke backfill --embeddings [--rebuild] [--limit n] [--after id]   # repair vector coverage; --rebuild changes dimension
 yoke rename-type <from> <to>   # rename an ontology type in the declaration AND every stored row
 yoke connect <github-pr|slack|notes|rdb>   # external sources → draft knowledge
 yoke mcp                   # start the MCP server (stdio)
@@ -446,6 +485,15 @@ persona works on every conformant backend (sqlite, kuzu, qdrant, sharded).
 re-derives them through the gate from each version's recorded provenance, skipping `origin:
 'lifecycle'` rows so the author is credited rather than the promoter. Idempotent.
 
+**The other backfill** (`--embeddings`, v5.2) repairs the vector index instead of the graph, and it
+exists because coverage was a function of which interface wrote the row: `.mcp.json` configures the
+embedder for the MCP server's process only, so records created through the CLI or the web tier got no
+vector at all. Both backfills are cursor walks with a resumable `after` and a truthful count of what
+they examined — the shape `staleEntities` uses, for the same reason: cost is proportional to the corpus
+rather than to the answer. `--embeddings` re-embeds every row it reaches rather than skipping ones that
+already have a vector, because `getEntity` does not return embeddings and the port therefore cannot be
+asked which rows are covered; `putEmbedding` is keyed by `id`, so re-running is idempotent.
+
 ### consumption paths
 
 **Primary path — real-time MCP injection**: the `yoke_persona` tool. At call time it runs a person-anchored injection over the verified knowledge and returns text with citations — the same flow as ordinary knowledge injection. Since every call is a regeneration, the derivative principle is satisfied automatically.
@@ -458,9 +506,17 @@ re-derives them through the gate from each version's recorded provenance, skippi
 type Embedder = (text: string) => Promise<Float32Array | null>
 ```
 
-- The core receives this function type by injection (a fetch-based implementation is provided by core/embedding.ts, while tests inject a deterministic stub). null = unavailable → FTS fallback.
+- The core receives this function type by injection (a fetch-based implementation is provided by core/embedding.ts, while tests inject a deterministic stub).
 - The text to embed uses the same serialization function as FTS (type + attributes).
 - An embedding failure does not block a commit (warn and proceed — it is not a hard rule).
+- **`null` means retrieval falls back to FTS. It does NOT mean duplicate detection falls back to
+  anything** (corrected 2026-08-03 — the two were conflated here and in gate stage 3). Retrieval has a
+  keyword path to fall back to; duplicate detection does not, and is skipped. Which happened is
+  reported as `duplicateDetection`.
+- **An unconfigured provider is a FUNCTION, not `undefined`.** `makeFetchEmbedder` with no
+  `YOKE_EMBED_URL`/`YOKE_EMBED_MODEL` returns `async () => null`, so a `if (embedder)` guard passes
+  and the null arrives one step later. Anything deciding "do we have embeddings" must test the
+  returned vector, never the presence of the function.
 
 ## Time injection
 
@@ -469,4 +525,14 @@ Any core function that needs time (commit, verify, isFresh, persona export) take
 ## Tech stack
 
 TypeScript, Node ≥ 20, better-sqlite3, sqlite-vec, the MCP SDK (@modelcontextprotocol/sdk).
-Embedding: no default local model — v1 has one provider configuration (e.g. an OpenAI/Anthropic-compatible endpoint); if unconfigured, `similar` is disabled and it falls back to FTS.
+Embedding: **no model ships with yoke, and none will.** One provider configuration — an
+OpenAI-compatible `/embeddings` endpoint — which is why a single implementation reaches OpenAI, Azure,
+Ollama, vLLM, TEI and LiteLLM. An in-process ONNX runtime was considered and rejected in v5.2:
+`onnxruntime-node` is 258MB, ships all three platforms' binaries in one package with no per-platform
+split, and its only multilingual model in `fastembed` adds a further 562MB — for a CLI installed with
+`npm i -g`. Every practice surveyed (hosted API, or self-hosted TEI/Ollama behind a provider
+abstraction) keeps the model out of the application process.
+
+Recommended local model: **`bge-m3`** (`ollama pull bge-m3` — 1.2GB in Ollama's shared cache, 0 bytes
+in this package; 100+ languages, 8192-token context, 1024 dimensions, MIT). `nomic-embed-text` is
+English-centric, so a corpus with substantial non-English knowledge should not use it.

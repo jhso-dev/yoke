@@ -129,6 +129,9 @@ export const ko: typeof en = {
     noAttrs: "이 타입에는 선언된 속성이 없어 속성 없이 생성됩니다.",
     duplicates: (n: number, names: string) =>
       `생성했지만 비슷한 레코드가 이미 ${n}개 있습니다: ${names}`,
+    // "중복이 없다"가 아니라 "비교를 안 했다" — 이 구분이 요점입니다.
+    notChecked:
+      "생성했습니다. 다만 무엇과도 비교하지 않았습니다: 이 작업 공간에 임베딩 제공자가 설정되지 않아 중복 탐지가 실행되지 않았습니다.",
   },
   review: {
     heading: "리뷰 대기열",
