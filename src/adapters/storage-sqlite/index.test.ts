@@ -210,6 +210,89 @@ describe("sqlite-vec similar", () => {
     expect(hits[0].attributes).toEqual({ n: "v2" });
     store.close();
   });
+
+  // The shared conformance case for putEmbedding SKIPS when the capability is absent — correct for an
+  // optional method, and useless as a non-vacuity check. This is where "sqlite has it" is asserted, so
+  // deleting the method fails a test instead of quietly passing everywhere.
+  it("implements putEmbedding (the conformance case skips without it)", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    expect(typeof store.putEmbedding).toBe("function");
+    store.close();
+  });
+
+  describe("one vector space per database", () => {
+    it("refuses a different dimension and names the way out", async () => {
+      const store = new SqliteStorage(":memory:");
+      await store.init();
+      await store.putEntity({
+        ...base,
+        id: "a",
+        attributes: { n: "a" },
+        embedding: emb([1, 0, 0]),
+      });
+      // A changed embedding model. Left to sqlite-vec this said "query vector" on a WRITE and named no
+      // remedy; a mixed space would return confidently wrong neighbours forever, so this is the one
+      // place an embedding problem is allowed to stop a write (SPEC "The vector index").
+      await expect(
+        store.putEntity({
+          ...base,
+          id: "b",
+          attributes: { n: "b" },
+          embedding: emb([1, 0, 0, 0]),
+        }),
+      ).rejects.toThrow(
+        /dimension changed.*3.*4.*backfill --embeddings --rebuild/s,
+      );
+      store.close();
+    });
+
+    it("refuses a READ in the wrong dimension too", async () => {
+      const store = new SqliteStorage(":memory:");
+      await store.init();
+      await store.putEntity({
+        ...base,
+        id: "a",
+        attributes: { n: "a" },
+        embedding: emb([1, 0, 0]),
+      });
+      // Without this the old index would answer the new model's queries — a neighbour list computed in
+      // a different vector space, which looks like a result and is not one.
+      await expect(store.similar(emb([1, 0, 0, 0]), 3)).rejects.toThrow(
+        /dimension changed/,
+      );
+      store.close();
+    });
+
+    it("rebuild is how a model change is applied", async () => {
+      const store = new SqliteStorage(":memory:");
+      await store.init();
+      await store.putEntity({
+        ...base,
+        id: "a",
+        attributes: { n: "a" },
+        embedding: emb([1, 0, 0]),
+      });
+      await store.putEmbedding(
+        {
+          ...base,
+          id: "a",
+          attributes: { n: "a" },
+          embedding: emb([1, 0, 0, 0]),
+        },
+        { rebuild: true },
+      );
+      // The index is now 4-wide: the old vectors are gone (which is why a backfill re-embeds every
+      // row rather than only the ones it thinks are missing) and the new width is queryable.
+      const hits = await store.similar(emb([1, 0, 0, 0]), 3);
+      expect(hits.map((h) => h.id)).toEqual(["a"]);
+      // ...and the 3-wide query that used to work is now the one that is refused.
+      await expect(store.similar(emb([1, 0, 0]), 3)).rejects.toThrow(
+        /dimension changed/,
+      );
+      store.close();
+    });
+  });
 });
 
 describe("audit extensions (PLAN 8.4)", () => {

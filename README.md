@@ -126,23 +126,59 @@ Tools exposed:
 - `yoke_persona` — person-scoped injection ("how would a teammate decide?")
 - `yoke_use_scope` — pin the current collaboration so the whole session shares one working context
 
-Configure the embedding provider (which enables duplicate/contradiction detection)
-through environment variables. If unset, yoke falls back to FTS:
+## Embeddings
+
+**No model ships with yoke, and none will.** One provider setting — an OpenAI-compatible
+`/embeddings` endpoint — which is why the same three lines reach OpenAI, Azure, Ollama, vLLM, TEI and
+LiteLLM. Bundling an ONNX runtime would add 258MB of platform binaries and a second cross-platform
+prebuild trap to a CLI people install globally; every practice we surveyed keeps the model out of the
+application process.
+
+Free, local, and keyless via [Ollama](https://ollama.com):
 
 ```bash
-export YOKE_EMBED_URL=https://api.example.com/v1   # OpenAI-compatible /embeddings
-export YOKE_EMBED_MODEL=text-embedding-3-small
+ollama pull bge-m3
+export YOKE_EMBED_URL=http://localhost:11434/v1
+export YOKE_EMBED_MODEL=bge-m3                      # no key needed
+```
+
+`bge-m3` is the recommended default: 100+ languages in one model, 8192-token context, 1024
+dimensions, MIT. **If your knowledge is not mostly English, do not use `nomic-embed-text`** — it is
+English-centric, so semantic matching on other languages quietly degrades to roughly what keyword
+search already gave you, which looks like a working setup and is not.
+
+A hosted provider instead:
+
+```bash
+export YOKE_EMBED_URL=https://api.openai.com/v1
+export YOKE_EMBED_MODEL=text-embedding-3-large
 export YOKE_EMBED_KEY=sk-...
 ```
 
-Free, local, and keyless via [Ollama](https://ollama.com) (verified live —
-duplicate warnings and `conflicts_with` detection both fire):
+**Set it in the shell, not only in `.mcp.json`.** MCP server env applies to that process alone, so a
+`.mcp.json`-only setup leaves `yoke add`, `yoke ui` and every connector writing records with no
+vector — measured at 1 of 3 entities in this repo's own database before it was fixed.
+
+### What embeddings do, and what happens without them
+
+| | with a provider | without |
+|---|---|---|
+| Knowledge is stored | yes | **yes** — a provider being down never rejects a record |
+| Duplicate candidates on commit | yes | **no, and `yoke add` says so** — there is no keyword fallback for this, because treating every FTS hit as a duplicate is mostly false positives |
+| `conflicts_with` auto-detection | yes | no |
+| Keyword search / injection | yes | yes, unaffected |
+
+Coverage is repairable at any time — the vector is a derived index, not knowledge, so this writes no
+new version and changes no citation:
 
 ```bash
-ollama pull nomic-embed-text
-export YOKE_EMBED_URL=http://localhost:11434/v1
-export YOKE_EMBED_MODEL=nomic-embed-text            # no key needed
+yoke backfill --embeddings                 # index every record with the current model
+yoke backfill --embeddings --rebuild       # after CHANGING model (dimension differs)
 ```
+
+A database holds one vector space. Switching models without `--rebuild` fails loudly with the
+dimension it found and the command above — a mixed space would return confidently wrong neighbours
+instead.
 
 ## Web UI
 

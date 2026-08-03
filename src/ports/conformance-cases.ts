@@ -306,6 +306,51 @@ export const conformanceCases: ConformanceCase[] = [
       assert.equal(cap === undefined || typeof cap === "function", true);
     },
   },
+  {
+    // (8b) putEmbedding (v5.2): indexing a vector is NOT a knowledge write. It creates no version and
+    // touches no citation, which is the clause that makes `yoke backfill --embeddings` possible —
+    // `putEntity` cannot be reused for it, since re-putting an existing (id, version) is a PK conflict.
+    //
+    // Runs only where BOTH halves exist: writing a vector is unobservable without a reader.
+    name: "putEmbedding indexes a vector without writing a version",
+    async run(port) {
+      if (!port.putEmbedding || !port.similar) return;
+      const dim = 8;
+      const vec = (fill: number) => {
+        const v = new Float32Array(dim);
+        v.fill(fill);
+        // A distinct first component so two vectors are not identical, and the nearest is knowable.
+        v[0] = fill;
+        return v;
+      };
+      const e = makeEntity({ type: "vecIdx1" });
+      await port.putEntity(e);
+
+      // The knowledge row is v1 and has no vector yet — the state every record written without a
+      // working embedder is in.
+      assert.equal((await port.getEntity(e.id))?.version, 1);
+
+      await port.putEmbedding({ ...e, embedding: vec(1) });
+
+      // Still v1: no version was created, so the citation a briefing already emitted stays valid.
+      const after = await port.getEntity(e.id);
+      assert.equal(after?.version, 1);
+      assert.equal(after?.provenance.occurred_at, e.provenance.occurred_at);
+
+      // And the vector is now findable.
+      const hits = await port.similar(vec(1), 5);
+      assert.equal(
+        hits.some((h) => h.id === e.id),
+        true,
+      );
+
+      // Keyed by id, so re-indexing replaces rather than accumulating — which is what makes the
+      // backfill idempotent and lets it re-embed every row it reaches.
+      await port.putEmbedding({ ...e, embedding: vec(1) });
+      const again = await port.similar(vec(1), 5);
+      assert.equal(again.filter((h) => h.id === e.id).length, 1);
+    },
+  },
   // (9) Enumeration (v5.0). Enumeration is the one method that can return the whole database, so
   // every clause of its contract is pinned here. Note each case scopes its assertions to a
   // case-unique type and/or ns: the kuzu runner shares ONE database across all cases, so a case

@@ -142,6 +142,12 @@ export class ShardedStorage implements YokeStore {
     await this.ownerOf(e.ns).store.putEntity(e);
   }
 
+  /** Routed by ns like every other write — which is why the port method takes the entity rather than a
+   * bare id. Optional-chained: a member backend without vector support simply indexes nothing. */
+  async putEmbedding(e: Entity, opts?: { rebuild?: boolean }): Promise<void> {
+    await this.ownerOf(e.ns).store.putEmbedding?.(e, opts);
+  }
+
   async putRelation(r: Relation): Promise<void> {
     await this.ownerOf(r.ns).store.putRelation(r);
   }

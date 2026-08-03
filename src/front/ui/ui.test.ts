@@ -1253,3 +1253,33 @@ describe("the stale queue over HTTP (SPEC's unimplemented clause)", () => {
     for (const d of drafts) expect(d.effectiveStatus).toBe("draft");
   });
 });
+
+// The gate tells the caller WHY the duplicate list is empty, and the web tier discarded it — so a form
+// showed the same thing (nothing) for "checked, nothing similar" and "nobody looked".
+describe("creating from the browser says whether anything was compared", () => {
+  it("reports duplicateDetection on the created record", async () => {
+    const created = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "the pool drains at midnight" },
+    });
+    // This suite constructs the server with no embedder, which is the same state a `yoke ui` run has
+    // unless YOKE_EMBED_* is exported — so "skipped" is the honest answer here.
+    expect(created.duplicateDetection).toBe("skipped");
+    expect(created.duplicates).toEqual([]);
+  });
+});
+
+describe("POST /api/backfill --embeddings", () => {
+  it("switches repair by body flag, and the authorship shape is untouched", async () => {
+    const authorship = await post("/api/backfill", {});
+    expect(authorship).toHaveProperty("created");
+    expect(authorship).not.toHaveProperty("embedded");
+
+    const vectors = await post("/api/backfill", { embeddings: true });
+    // No embedder on this server, so every row is skipped — reported, not thrown, because a repair
+    // that cannot run is not an error (SPEC "The vector index").
+    expect(vectors).toMatchObject({ embedded: 0 });
+    expect(vectors.scanned).toBeGreaterThan(0);
+    expect(vectors.skipped).toBe(vectors.scanned);
+  });
+});

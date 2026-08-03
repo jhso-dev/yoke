@@ -8,6 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -1102,5 +1103,133 @@ describe("inject --as-of", () => {
       .at(-1);
     check.close();
     expect(entry?.detail).toContain("@2026-07-15T00:00:00Z");
+  });
+});
+
+describe("the duplicate check says when it did not run", () => {
+  it("yoke add reports a skipped check instead of implying a clean one", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    // No YOKE_EMBED_* in this env, which is the state every CLI user is in unless they exported it —
+    // `.mcp.json` only reaches the MCP server's process.
+    expect(
+      await runCli(
+        ["add", "fact", "--db", db, "--attr", "note=the cache warms on boot"],
+        {},
+      ),
+    ).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("no duplicate check ran");
+    expect(out).toContain("YOKE_EMBED_URL");
+    // The remedy is named, not left to the reader.
+    expect(out).toContain("yoke backfill --embeddings");
+  });
+
+  it("--json output is unchanged — the notice is human text only", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli(
+        ["add", "fact", "--db", db, "--json", "--attr", "note=json contract"],
+        {},
+      ),
+    ).toBe(0);
+    const parsed = JSON.parse(logs.at(-1) as string) as { id: string };
+    // Still exactly the entity: a script parsing this must not start seeing prose.
+    expect(parsed.id).toBeTruthy();
+    expect(logs.at(-1)).not.toContain("no duplicate check");
+  });
+});
+
+describe("backfill --embeddings", () => {
+  it("reports what it scanned, and says so when no provider answered", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    for (const n of ["one", "two"])
+      expect(
+        await runCli(["add", "fact", "--db", db, "--attr", `note=${n}`], {}),
+      ).toBe(0);
+
+    // No embedder in env: every row is skipped, and that is exit 0 — a repair that cannot run is not
+    // a failure, but it must not look like success either.
+    expect(await runCli(["backfill", "--embeddings", "--db", db], {})).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toMatch(/scanned \d+ entities, embedded 0, skipped \d+/);
+    expect(out).toContain("nothing was embedded");
+  });
+
+  it("plain backfill still does authorship — the flag is what switches repairs", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await runCli(["backfill", "--db", db, "--json"], {})).toBe(0);
+    const r = JSON.parse(logs.at(-1) as string) as Record<string, unknown>;
+    expect(r).toHaveProperty("created");
+    expect(r).not.toHaveProperty("embedded");
+  });
+
+  it("embeds for real against a configured provider, and is idempotent", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli(
+        ["add", "fact", "--db", db, "--attr", "note=vector coverage"],
+        {},
+      ),
+    ).toBe(0);
+
+    // A local stub endpoint rather than a real provider: this asserts the CLI wiring (env → embedder →
+    // core → index), not a model. Fixed 6-dim vectors, so the index width is knowable.
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => {
+        body += c;
+      });
+      req.on("end", () => {
+        const { input } = JSON.parse(body) as { input: string };
+        const v = Array.from({ length: 6 }, (_, i) => (input.length + i) / 100);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ data: [{ embedding: v }] }));
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, r));
+    const port = (server.address() as { port: number }).port;
+    const env = {
+      YOKE_EMBED_URL: `http://127.0.0.1:${port}/v1`,
+      YOKE_EMBED_MODEL: "stub",
+    };
+    try {
+      expect(
+        await runCli(["backfill", "--embeddings", "--db", db, "--json"], env),
+      ).toBe(0);
+      const first = JSON.parse(logs.at(-1) as string) as {
+        embedded: number;
+        skipped: number;
+      };
+      expect(first.embedded).toBeGreaterThan(0);
+      expect(first.skipped).toBe(0);
+
+      const vecRows = () => {
+        const d = new Database(db, { readonly: true });
+        try {
+          return (
+            d.prepare("SELECT count(*) c FROM entity_vec_rowids").get() as {
+              c: number;
+            }
+          ).c;
+        } finally {
+          d.close();
+        }
+      };
+      const after = vecRows();
+      expect(after).toBe(first.embedded);
+
+      // Idempotent: keyed by id, so running it again replaces rather than accumulates.
+      expect(
+        await runCli(["backfill", "--embeddings", "--db", db, "--json"], env),
+      ).toBe(0);
+      expect(vecRows()).toBe(after);
+    } finally {
+      server.close();
+    }
   });
 });

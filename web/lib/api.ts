@@ -154,7 +154,14 @@ export const api = {
     attributes: Record<string, string | string[]>;
     scope?: string;
   }) =>
-    request<Knowledge & { duplicates: Knowledge[] }>("/api/entity", {
+    request<
+      Knowledge & {
+        duplicates: Knowledge[];
+        /** Why `duplicates` is empty. `"skipped"` means nothing was compared — no embedding
+         * provider — which is a different fact from "nothing similar was found". */
+        duplicateDetection: "embedding" | "skipped";
+      }
+    >("/api/entity", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(p),

@@ -52,6 +52,9 @@ export function CreateRecord({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [duplicates, setDuplicates] = useState<Knowledge[]>([]);
+  // Whether anything was actually compared. An empty duplicate list has two very different causes and
+  // the form showed the same thing (nothing) for both.
+  const [unchecked, setUnchecked] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +68,7 @@ export function CreateRecord({
       );
       const created = await api.create({ type: active, attributes, scope });
       setDuplicates(created.duplicates ?? []);
+      setUnchecked(created.duplicateDetection === "skipped");
       setValues({});
       onCreated(created);
     } catch (e) {
@@ -154,6 +158,13 @@ export function CreateRecord({
               duplicates.map((d) => recordLabel(d)).join(" · "),
             )}
           </AlertDescription>
+        </Alert>
+      )}
+      {unchecked && duplicates.length === 0 && (
+        // The record was saved; nothing was compared against it. Saying nothing here let someone read
+        // the absence of a warning as "checked, and it is fine" — which it is not.
+        <Alert>
+          <AlertDescription>{tr.create.notChecked}</AlertDescription>
         </Alert>
       )}
     </form>

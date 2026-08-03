@@ -128,6 +128,9 @@ export const en = {
       "This type has no declared attributes, so the record will be created without them.",
     duplicates: (n: number, names: string) =>
       `Created, but ${n} similar record${n > 1 ? "s" : ""} already exist: ${names}`,
+    // Not "no duplicates found" — nothing was compared. The distinction is the point.
+    notChecked:
+      "Created. Nothing was compared against it: this workspace has no embedding provider configured, so duplicate detection did not run.",
   },
   review: {
     heading: "Review queue",

@@ -122,4 +122,23 @@ export interface StoragePort {
 
   /** Optional capability — without it, core falls back to keyword search. */
   similar?(embedding: Float32Array, k: number): Promise<Entity[]>;
+
+  /**
+   * Optional capability — index (or replace) the vector for `e.embedding`, keyed by `e.id`.
+   *
+   * **Not a knowledge write.** The embedding is a derived index like the FTS row: `entities` has no
+   * vector column and only the latest version's vector is kept, so this creates no version and
+   * changes no citation. That is what makes repairing coverage possible at all — `putEntity` cannot
+   * be reused, because re-putting an existing `(id, version)` is a primary-key conflict.
+   *
+   * Reads `id`, `ns` and `embedding` only; everything else on the entity is ignored.
+   *
+   * `rebuild` drops the index before writing, which is the only way to change dimension: the index is
+   * created with the first vector's width and every later vector must match it. Callers pass it on
+   * the FIRST row of a backfill and never after, or each row would wipe the previous one.
+   *
+   * Absent on backends with no vector support (kuzu), so callers feature-detect — the same shape as
+   * `similar` and the `listHistory` extension.
+   */
+  putEmbedding?(e: Entity, opts?: { rebuild?: boolean }): Promise<void>;
 }

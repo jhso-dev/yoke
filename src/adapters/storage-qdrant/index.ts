@@ -174,16 +174,57 @@ export class QdrantStorage implements StoragePort {
     return true;
   }
 
-  private async ensureVectorCollection(dim: number): Promise<void> {
-    if (this.vectorDim !== null) return;
-    // ponytail: dimension pinned to the first embedding (same as sqlite). A provider with a
-    // different dim needs the entity_vectors collection rebuilt.
+  // Dimension is pinned to the first embedding (same as sqlite), and `init()` reads the real width off
+  // an existing collection so the cached value is right for a database this process did not create.
+  //
+  // A later vector of a different width is a changed embedding model. Checked here rather than left to
+  // qdrant's own rejection: a mixed vector space returns confidently wrong neighbours, so this is the
+  // one place the product deliberately stops a write over an embedding problem, and the message has to
+  // name the way out (SPEC "The vector index").
+  private async ensureVectorCollection(
+    dim: number,
+    rebuild = false,
+  ): Promise<void> {
+    if (rebuild && (await this.collectionExists(ENTITY_VECTORS))) {
+      await this.req("DELETE", `/collections/${ENTITY_VECTORS}`);
+      this.vectorDim = null;
+    }
+    if (this.vectorDim !== null) {
+      if (this.vectorDim !== dim) {
+        throw new Error(
+          `embedding dimension changed: the vector index holds ${this.vectorDim}-dimension vectors and this one is ${dim}. ` +
+            `A database has one vector space — re-index every record with the new model: ` +
+            `yoke backfill --embeddings --rebuild`,
+        );
+      }
+      return;
+    }
     if (!(await this.collectionExists(ENTITY_VECTORS))) {
       await this.req("PUT", `/collections/${ENTITY_VECTORS}`, {
         vectors: { size: dim, distance: "Cosine" },
       });
     }
     this.vectorDim = dim;
+  }
+
+  /** The vector half of a write, keyed by entity id. Shared by `putEntity` and `putEmbedding` so a
+   * backfilled vector is identical to one written at commit time. */
+  private async indexEmbedding(
+    id: string,
+    embedding: Float32Array,
+    rebuild = false,
+  ): Promise<void> {
+    await this.ensureVectorCollection(embedding.length, rebuild);
+    await this.req("PUT", `/collections/${ENTITY_VECTORS}/points`, {
+      points: [
+        { id: pointId(id), payload: { id }, vector: Array.from(embedding) },
+      ],
+    });
+  }
+
+  async putEmbedding(e: Entity, opts?: { rebuild?: boolean }): Promise<void> {
+    if (!e.embedding) return;
+    await this.indexEmbedding(e.id, e.embedding, opts?.rebuild);
   }
 
   // Page through a collection under an optional filter (conformance scale — 256/page is plenty).
@@ -238,18 +279,7 @@ export class QdrantStorage implements StoragePort {
     // Keep only the latest version's vector: one point per entity id (re-upsert overwrites).
     // Touched only when an embedding is present — a versionless re-put leaves the old vector,
     // same as sqlite (payload has no vector to reconstruct from).
-    if (e.embedding) {
-      await this.ensureVectorCollection(e.embedding.length);
-      await this.req("PUT", `/collections/${ENTITY_VECTORS}/points`, {
-        points: [
-          {
-            id: pointId(e.id),
-            payload: { id: e.id },
-            vector: Array.from(e.embedding),
-          },
-        ],
-      });
-    }
+    if (e.embedding) await this.indexEmbedding(e.id, e.embedding);
   }
 
   async getEntity(id: string, version?: number): Promise<Entity | null> {
@@ -371,6 +401,14 @@ export class QdrantStorage implements StoragePort {
    * Restores each hit's .embedding (the gate applies the cosine threshold). */
   async similar(embedding: Float32Array, k: number): Promise<Entity[]> {
     if (this.vectorDim === null) return [];
+    // Reads get the same dimension check as writes: querying the old index with a new model's vector
+    // would answer out of a different vector space, which looks like a result and is not one.
+    if (this.vectorDim !== embedding.length) {
+      throw new Error(
+        `embedding dimension changed: the vector index holds ${this.vectorDim}-dimension vectors and this query is ${embedding.length}. ` +
+          `Re-index every record with the current model: yoke backfill --embeddings --rebuild`,
+      );
+    }
     const res = (await this.req(
       "POST",
       `/collections/${ENTITY_VECTORS}/points/search`,

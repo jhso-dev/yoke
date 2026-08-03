@@ -26,7 +26,7 @@ import {
 } from "../../connectors/rdb-mapping.js";
 import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
-import { backfillAuthorship } from "../../core/backfill.js";
+import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, inject } from "../../core/inject.js";
@@ -81,6 +81,8 @@ type Values = {
   status?: string;
   "as-of"?: string;
   stale?: boolean;
+  embeddings?: boolean;
+  rebuild?: boolean;
 };
 
 const OPTIONS = {
@@ -118,6 +120,8 @@ const OPTIONS = {
   status: { type: "string" },
   "as-of": { type: "string" },
   stale: { type: "boolean" },
+  embeddings: { type: "boolean" },
+  rebuild: { type: "boolean" },
 } as const;
 
 type Env = Record<string, string | undefined>;
@@ -218,9 +222,20 @@ async function withStore<T>(
   }
 }
 
+/** The recommended local model, and the reason it is this one.
+ *
+ * `bge-m3` covers 100+ languages in one 1024-dimension model (MIT, 8192-token context) and lives in
+ * Ollama's shared cache — 0 bytes in this package, which is why no model ships with yoke (SPEC "Tech
+ * stack"). `nomic-embed-text` was suggested here before and is English-centric: on a corpus with
+ * substantial non-English knowledge it makes the vector half of retrieval quietly useless, which is
+ * indistinguishable from having no embedder at all. */
+const SUGGESTED_EMBED_MODEL = "bge-m3";
+
 // Ollama auto-detect (TTY init only): a reachable local Ollama with no embedder
 // configured means duplicate/contradiction detection is silently off. Suggest the
-// two env vars that enable it. Never blocks (300ms timeout) and never fails init.
+// two env vars that enable it — and never write them, because a tool that edits the
+// environment behind you is worse than one that tells you what to type.
+// Never blocks (300ms timeout) and never fails init.
 async function suggestOllamaIfIdle(env: Env): Promise<void> {
   if (env.YOKE_EMBED_URL) return;
   const ac = new AbortController();
@@ -229,15 +244,23 @@ async function suggestOllamaIfIdle(env: Env): Promise<void> {
     const res = await fetch("http://localhost:11434/api/tags", {
       signal: ac.signal,
     });
-    if (res.ok) {
-      console.log(
-        log.warn(
-          "embedding provider not configured — Ollama detected; export " +
-            "YOKE_EMBED_URL=http://localhost:11434/v1 YOKE_EMBED_MODEL=nomic-embed-text " +
-            "to enable duplicate/contradiction detection",
-        ),
-      );
-    }
+    if (!res.ok) return;
+    // The same response already lists the installed models, so the advice can be exact instead of
+    // sending someone to configure a model they do not have.
+    const body = (await res.json().catch(() => null)) as {
+      models?: { name?: string }[];
+    } | null;
+    const has = (body?.models ?? []).some((m) =>
+      (m.name ?? "").startsWith(SUGGESTED_EMBED_MODEL),
+    );
+    console.log(
+      log.warn(
+        "embedding provider not configured — Ollama detected; " +
+          (has ? "" : `run 'ollama pull ${SUGGESTED_EMBED_MODEL}', then `) +
+          `export YOKE_EMBED_URL=http://localhost:11434/v1 YOKE_EMBED_MODEL=${SUGGESTED_EMBED_MODEL} ` +
+          "to enable duplicate/contradiction detection",
+      ),
+    );
   } catch {
     // unreachable / timed out — stay silent
   } finally {
@@ -317,7 +340,7 @@ async function cmdAdd(
     const ts = now();
     try {
       const prov = { actor, origin: "cli", occurred_at: ts };
-      const { entity, duplicates } = await commit(
+      const { entity, duplicates, duplicateDetection } = await commit(
         store,
         ontology,
         { type, attributes },
@@ -337,12 +360,21 @@ async function cmdAdd(
           { ns },
         );
       }
-      const human =
-        duplicates.length > 0
-          ? `${formatEntity(entity)}\nsimilar knowledge (${duplicates.length}): ${duplicates.map((d) => d.id).join(" ")}`
-          : formatEntity(entity);
-      // --json emits the entity as-is (preserving the existing contract). The similar-knowledge warning is human text only.
-      emit(v, human, entity);
+      const lines = [formatEntity(entity)];
+      if (duplicates.length > 0)
+        lines.push(
+          `similar knowledge (${duplicates.length}): ${duplicates.map((d) => d.id).join(" ")}`,
+        );
+      // The gate returns WHY duplicates is empty, and nothing read it — so a person adding a record
+      // with no embedder configured was told nothing and reasonably assumed it had been checked.
+      // "no similar knowledge" and "nobody looked" are different facts (SPEC gate stage 3).
+      else if (duplicateDetection === "skipped")
+        lines.push(
+          "no duplicate check ran: no embedding provider configured. " +
+            "Set YOKE_EMBED_URL and YOKE_EMBED_MODEL (see README), then: yoke backfill --embeddings",
+        );
+      // --json emits the entity as-is (preserving the existing contract). Both notices are human text only.
+      emit(v, lines.join("\n"), entity);
       return 0;
     } catch (e) {
       if (e instanceof CommitRejected) {
@@ -877,9 +909,38 @@ async function cmdRenameType(
 // author rather than whoever runs the backfill. Idempotent: a second run creates nothing.
 async function cmdBackfill(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
+  const limit = v.limit === undefined ? undefined : Number(v.limit);
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
+    // The other repair: the vector index rather than the authorship graph. Same command because both
+    // are "re-derive something that was computed from knowledge", and both are idempotent.
+    if (v.embeddings) {
+      const { scanned, embedded, skipped, next } = await backfillEmbeddings(
+        store,
+        {
+          embedder: makeFetchEmbedder(env),
+          ns,
+          limit,
+          after: v.after,
+          rebuild: v.rebuild,
+        },
+      );
+      const lines = [
+        `scanned ${scanned} entities, embedded ${embedded}, skipped ${skipped}`,
+      ];
+      // Skipped everything means the provider is not configured — the single most likely reason
+      // someone runs this and sees nothing happen.
+      if (skipped > 0 && embedded === 0)
+        lines.push(
+          "nothing was embedded: no embedding provider answered. " +
+            "Set YOKE_EMBED_URL and YOKE_EMBED_MODEL (see README) and run this again",
+        );
+      // The walk is bounded, so an unfinished scan is said rather than implied.
+      if (next !== null) lines.push(`more to scan: --after ${next}`);
+      emit(v, lines.join("\n"), { scanned, embedded, skipped, next });
+      return 0;
+    }
     const { scanned, created } = await backfillAuthorship(
       store,
       ontology,
