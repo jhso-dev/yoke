@@ -19,6 +19,114 @@ describeStoragePort("temp file", async () => {
 });
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
+// The runnable check behind the indexes. A timing assertion would be flaky and a row-count
+// assertion would pass on a full scan — the plan is the only thing that fails the moment an index
+// stops being used. These four queries are the ones measured in docs/SCALE.md, where the same
+// filters cost 15 s, 232 ms, 567 ms and 202 ms with no index to use.
+/** The private handle, reached structurally rather than through `any` — a plan test needs the
+ * connection, and naming the one field it wants keeps the cast honest and lint-clean. */
+const handleOf = (store: SqliteStorage): Database.Database =>
+  (store as unknown as { db: Database.Database }).db;
+
+describe("the hot reads use an index, not a scan", () => {
+  const plan = (db: Database.Database, sql: string) =>
+    (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as { detail: string }[])
+      .map((r) => r.detail)
+      .join(" | ");
+
+  const LATEST = (t: string, a: string) =>
+    `${a}.version = (SELECT MAX(version) FROM ${t} WHERE id = ${a}.id)`;
+
+  it("plans a scan of nothing", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    const db = handleOf(store);
+
+    const cases: [string, string, string][] = [
+      [
+        "listEntities({type})",
+        `SELECT e.* FROM entities e WHERE ${LATEST("entities", "e")}
+           AND e.ns IS NULL AND e.type = 'fact' ORDER BY e.id LIMIT 51`,
+        "idx_entities_ns_type_id",
+      ],
+      [
+        "listEntities({status}) — the review queue",
+        `SELECT e.* FROM entities e WHERE ${LATEST("entities", "e")}
+           AND e.ns IS NULL AND e.status = 'draft' ORDER BY e.id LIMIT 51`,
+        "idx_entities_ns_status_id",
+      ],
+      [
+        "listRelations({type}) — conflicts",
+        `SELECT r.* FROM relations r WHERE ${LATEST("relations", "r")}
+           AND r.ns IS NULL AND r.type = 'conflicts_with' ORDER BY r.id LIMIT 51`,
+        "idx_relations_ns_type_id",
+      ],
+    ];
+    for (const [name, sql, index] of cases)
+      expect(plan(db, sql), name).toContain(index);
+
+    // neighbors' disjunction needs BOTH single-column indexes, via MULTI-INDEX OR. Asserting the
+    // OR strategy too, because one index alone would still read "USING INDEX" while scanning for
+    // the other side.
+    const nb = plan(
+      db,
+      `SELECT r.* FROM relations r WHERE ${LATEST("relations", "r")}
+         AND (r.from_id = 'x' OR r.to_id = 'x')`,
+    );
+    expect(nb).toContain("MULTI-INDEX OR");
+    expect(nb).toContain("idx_relations_from");
+    expect(nb).toContain("idx_relations_to");
+
+    store.close();
+  });
+
+  it("would fail if the index were dropped", async () => {
+    // Non-vacuity, and it corrected the assertion it was written to guard. Dropping the type index
+    // does NOT produce a plain "SCAN": SQLite falls back to the status index for its `ns` prefix,
+    // filters type per row, and then needs a temp B-tree because the ordering is no longer free.
+    // So the regression to detect is the loss of the ORDERED index read, not the appearance of the
+    // word SCAN — a test asserting "SCAN" would have failed here for the wrong reason and a test
+    // asserting only "some index is named" would never fail at all.
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    const db = handleOf(store);
+    const sql = `SELECT e.* FROM entities e WHERE ${LATEST("entities", "e")}
+      AND e.ns IS NULL AND e.type = 'fact' ORDER BY e.id LIMIT 51`;
+    expect(plan(db, sql)).toContain("idx_entities_ns_type_id");
+    expect(plan(db, sql)).not.toContain("TEMP B-TREE");
+
+    db.exec("DROP INDEX idx_entities_ns_type_id");
+    expect(plan(db, sql)).not.toContain("idx_entities_ns_type_id");
+    expect(plan(db, sql)).toContain("TEMP B-TREE");
+    store.close();
+  });
+
+  it("adds the indexes to a database created before they existed", async () => {
+    // init() is the upgrade path: CREATE INDEX IF NOT EXISTS runs on every open, so an existing
+    // 5 GB database gets them without a migration step. Simulated by dropping and re-opening.
+    const path = join(
+      dir,
+      `upgrade-${Math.random().toString(36).slice(2)}.sqlite`,
+    );
+    const first = new SqliteStorage(path);
+    await first.init();
+    handleOf(first).exec("DROP INDEX idx_relations_from");
+    first.close();
+
+    const reopened = new SqliteStorage(path);
+    await reopened.init();
+    const names = (
+      handleOf(reopened)
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%'",
+        )
+        .all() as { name: string }[]
+    ).map((r) => r.name);
+    expect(names).toContain("idx_relations_from");
+    reopened.close();
+  });
+});
+
 describe("ontology save/load", () => {
   it("round-trips the seed ontology", async () => {
     const store = new SqliteStorage(":memory:");

@@ -77,6 +77,35 @@ CREATE TABLE IF NOT EXISTS tokens (
   scopes TEXT NOT NULL,              -- JSON string[] (scope grammar parsed at the RBAC tier)
   created_at TEXT NOT NULL           -- ISO 8601
 );
+
+-- Indexes. There were none until 2026-08-02, and the primary key alone is only enough while the
+-- corpus is small: every filtered read degraded into a scan of it. Measured at 10M entities /
+-- 3M relations (docs/SCALE.md), with the query each one exists for:
+--
+--   listEntities({type})   14,953 ms -> 3 ms    a type filter matching nothing scanned everything
+--   neighbors(id)             232 ms -> 0 ms    a node with THREE edges cost the same as one with
+--                                              5,000 — the signature of a full table scan
+--   inject({scope})           567 ms -> 48 ms   a briefing walks neighbors
+--   listRelations({type})     202 ms -> 0 ms    same shape as the entity type filter
+--
+-- ns leads the composites because every read is namespace-scoped, so it is the one column always
+-- in the predicate. from_id and to_id are SEPARATE single-column indexes, not a composite: neighbors
+-- asks from_id = ? OR to_id = ?, which SQLite resolves with MULTI-INDEX OR — a composite would
+-- never be used. And on a WITHOUT ROWID table every index already carries the primary key, so
+-- naming id in these adds nothing (checked: (from_id) and (from_id, id) are byte-identical) —
+-- it is spelled out only where it is also the sort column.
+--
+-- No backticks anywhere in this block: SCHEMA is a template literal, and one would end the string.
+--
+-- The price, stated because it is not small: ~29% database growth (494 MB of index against 1.69 GB
+-- of data at 1M entities + 3M relations).
+CREATE INDEX IF NOT EXISTS idx_entities_ns_type_id ON entities(ns, type, id);
+CREATE INDEX IF NOT EXISTS idx_entities_ns_status_id ON entities(ns, status, id);
+CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_id);
+CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_id);
+CREATE INDEX IF NOT EXISTS idx_relations_ns_type_id ON relations(ns, type, id);
+-- The audit viewer filters by time, and the trail is the one table that only ever grows.
+CREATE INDEX IF NOT EXISTS idx_audit_ns_at ON audit_log(ns, at);
 `;
 
 /** One audit_log row. 'who saw what when' (ENTERPRISE.md) — inject/persona reads at the front tier. */
