@@ -55,7 +55,12 @@ port capabilities, etc. See SPEC).
 
 ## v2.0 — backend expansion + traditional-DB compatibility
 
-- [x] Graph DB adapter (KuzuDB embedded first, Neo4j next) — passes conformance
+- [x] Graph DB adapter (KuzuDB embedded) — passes conformance
+- [x] **Neo4j adapter (v5.2)** — the "Neo4j next" half of the line above, and the first backend a
+      company can point at its own server. Native full-text index, native vector index and native
+      traversal in one engine. It also uncovered why kuzu and qdrant were never reachable from the
+      CLI: `YokeStore`'s extension surface is synchronous, so a remote backend has to be composed
+      (`storage-composite`) rather than substituted — see docs/BACKENDS.md
 - [x] Vector DB adapter (Qdrant) — a similar-capability implementation
 - [x] **RDB read-mapping**: Postgres/MySQL tables → read-only entity mapping
       (a table-to-ontology mapping declaration file; the enterprise wedge — MARKET strategy 3)

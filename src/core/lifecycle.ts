@@ -82,12 +82,19 @@ export function effectiveStatus(
 }
 
 /**
- * Every stored version of `id`, newest-first-or-any-order (callers select, they do not assume).
+ * Every stored version of `id`, **ascending by version**.
  *
- * `listHistory` is a YokeStore extension rather than a port method, so it is feature-detected. The
- * fallback walks `getEntity(id, version)` down from the latest — versions are a dense 1..n sequence
- * because `transition` and the commit gate both increment by one, so counting down reaches all of them
- * using only port methods.
+ * The order is part of this function's contract now, and that is a fix rather than a tightening: it
+ * used to say "any order", sqlite's `listHistory` returned `ORDER BY version ASC`, and the fallback
+ * below counted DOWN from the latest. Two implementations obeying "any order" differently is a display
+ * bug waiting for whichever backend the reader happens to be on — `yoke history` and the entity screen
+ * both print this list as a timeline.
+ *
+ * `listHistory` is a YokeStore extension rather than a port method, so it is feature-detected — and it
+ * is genuinely absent on a remote backend, because it is synchronous and the rows are across a network
+ * (SPEC "Remote backends"). The fallback walks `getEntity(id, version)`, which is in the port and
+ * therefore async; versions are a dense 1..n sequence because `transition` and the commit gate both
+ * increment by one, so counting reaches all of them.
  *
  * One copy: `backfillAuthorship` had its own feature-detect that settled for the latest version alone
  * on a backend without the extension, which credited a promoter as the author of everything they
@@ -101,7 +108,11 @@ export async function listVersions(
   const ext = port as StoragePort & {
     listHistory?: (id: string) => Entity[];
   };
-  if (ext.listHistory) return ext.listHistory(id);
+  // Sorted even on the extension path: the contract is this function's, not the adapter's, so a
+  // backend whose extension returns another order cannot change what a caller sees.
+  const byVersion = (rows: Entity[]) =>
+    [...rows].sort((a, b) => a.version - b.version);
+  if (ext.listHistory) return byVersion(ext.listHistory(id));
   const latest = await port.getEntity(id);
   if (!latest) return [];
   const out: Entity[] = [latest];
@@ -109,7 +120,7 @@ export async function listVersions(
     const e = await port.getEntity(id, v);
     if (e) out.push(e);
   }
-  return out;
+  return byVersion(out);
 }
 
 /**

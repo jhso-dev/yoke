@@ -1,0 +1,221 @@
+// storage-composite (v5.2) — knowledge in a remote backend, yoke's own bookkeeping in a local sqlite.
+//
+// This exists because of one fact about the interface above the port: `openStore` returns a
+// `YokeStore`, and **10 of that interface's 12 extension methods are synchronous** — they were shaped
+// by better-sqlite3, which is. A network-backed store cannot implement a synchronous signature. That,
+// not a missing adapter, is why kuzu and qdrant were never reachable from the CLI: kuzu's own
+// `saveOntology`/`loadOntology` are async, so kuzu does not satisfy `YokeStore`.
+//
+// So a remote backend is COMPOSED rather than substituted, and the split is a decision rather than a
+// workaround (SPEC "Remote backends"):
+//
+//   remote  entities, relations, search, neighbors, vectors, and the ontology
+//   local   the audit trail (what THIS client was told) and API tokens (yoke's own credentials, which
+//           do not belong in someone else's database)
+//
+// `loadOntology` stays synchronous by being served from a cache the async `init()` fills. It has to be
+// remote — a shared graph with per-client schemas means two people validating against different
+// schemas — and it has to be sync because 28 call sites read it inside synchronous code.
+//
+// ponytail: that cache is read once per init(). The CLI opens/inits/closes per command so every
+// invocation is fresh; a long-running `yoke ui`/`serve` will not see an ontology another client
+// changed. Add invalidation when it bites, not before.
+//
+// Delegation-as-composition is not new here: ShardedStorage already implements YokeStore by forwarding
+// to member stores. This is the same shape with a different split.
+
+import type { TypeDef } from "../../core/ontology.js";
+import type { Entity, Relation } from "../../core/types.js";
+import type {
+  ListQuery,
+  Page,
+  StoragePort,
+  TextQuery,
+} from "../../ports/storage.js";
+import type { YokeStore } from "../storage-sharded/index.js";
+import type {
+  AuditEvent,
+  AuditQuery,
+  SqliteStorage,
+  TokenInfo,
+} from "../storage-sqlite/index.js";
+
+/** The remote half: a StoragePort plus async ontology methods. Structural, so any future remote
+ * adapter (postgres was always the other candidate) satisfies it without importing this file. */
+export interface RemoteStore extends StoragePort {
+  saveOntology(defs: TypeDef[], ns?: string | null): Promise<void>;
+  loadOntology(ns?: string | null): Promise<TypeDef[]>;
+  renameType(from: string, to: string, ns?: string | null): Promise<number>;
+}
+
+/** Ontology cache key. The default namespace and a tenant namespace are different ontologies, and
+ * `null` is not a usable Map key alongside strings. */
+const nsKey = (ns?: string | null) => ns ?? "";
+
+// Not `implements YokeStore`: this class deliberately omits `listHistory` (see the note near the
+// bottom), so the gap is declared once at `makeCompositeStore` instead of being asserted here and
+// then contradicted. Everything else it does implement is checked by the port type below.
+export class CompositeStorage implements StoragePort {
+  /** Present only when the remote backend has the capability, so `typeof store.similar === "function"`
+   * still reflects reality — commit() and the conformance suite both branch on it. */
+  similar?: (embedding: Float32Array, k: number) => Promise<Entity[]>;
+  putEmbedding?: (e: Entity, opts?: { rebuild?: boolean }) => Promise<void>;
+
+  /** Filled by init(), read synchronously by loadOntology. */
+  private ontology = new Map<string, TypeDef[]>();
+
+  constructor(
+    private readonly remote: RemoteStore,
+    /** Local sqlite for audit + tokens. Concrete rather than an interface: this half is the
+     * sqlite-shaped extension surface, and pretending otherwise would invite someone to make it
+     * pluggable when there is nothing to plug in. */
+    private readonly local: SqliteStorage,
+  ) {
+    if (typeof remote.similar === "function") {
+      // Bound through a non-optional local so the return type stays Promise<Entity[]>; the guard
+      // above is what makes the assertion true.
+      const impl = remote.similar.bind(remote);
+      this.similar = (embedding, k) => impl(embedding, k);
+    }
+    if (typeof remote.putEmbedding === "function") {
+      const impl = remote.putEmbedding.bind(remote);
+      this.putEmbedding = (e, opts) => impl(e, opts);
+    }
+  }
+
+  async init(): Promise<void> {
+    await Promise.all([this.remote.init(), this.local.init()]);
+    await this.refreshOntology();
+  }
+
+  /** Re-read every namespace's ontology we know about, plus the default one. Called at init() and
+   * after a write, so the synchronous reader never serves something this process has changed. */
+  private async refreshOntology(): Promise<void> {
+    const keys = new Set<string>([...this.ontology.keys(), ""]);
+    for (const k of keys) {
+      this.ontology.set(k, await this.remote.loadOntology(k === "" ? null : k));
+    }
+  }
+
+  close(): void {
+    this.remote.close();
+    this.local.close();
+  }
+
+  // --- knowledge: straight through to the remote backend ------------------------------------------
+
+  putEntity(e: Entity): Promise<void> {
+    return this.remote.putEntity(e);
+  }
+  getEntity(id: string, version?: number): Promise<Entity | null> {
+    return this.remote.getEntity(id, version);
+  }
+  putRelation(r: Relation): Promise<void> {
+    return this.remote.putRelation(r);
+  }
+  neighbors(
+    id: string,
+    relType?: string,
+    dir?: "in" | "out",
+  ): Promise<Relation[]> {
+    return this.remote.neighbors(id, relType, dir);
+  }
+  search(q: TextQuery): Promise<Entity[]> {
+    return this.remote.search(q);
+  }
+  listEntities(q: ListQuery): Promise<Page<Entity>> {
+    return this.remote.listEntities(q);
+  }
+  listRelations(q: ListQuery): Promise<Page<Relation>> {
+    return this.remote.listRelations(q);
+  }
+
+  // --- ontology: remote, with a synchronous reader over a cache -----------------------------------
+
+  async saveOntology(defs: TypeDef[], ns?: string | null): Promise<void> {
+    await this.remote.saveOntology(defs, ns);
+    // Ensure the key exists so refresh picks it up even for a namespace seen for the first time.
+    if (!this.ontology.has(nsKey(ns))) this.ontology.set(nsKey(ns), []);
+    await this.refreshOntology();
+  }
+
+  loadOntology(ns?: string | null): TypeDef[] {
+    return this.ontology.get(nsKey(ns)) ?? [];
+  }
+
+  async renameType(
+    from: string,
+    to: string,
+    ns?: string | null,
+  ): Promise<number> {
+    const n = await this.remote.renameType(from, to, ns);
+    // A rename changes the declaration too, so the cache is stale until this runs.
+    await this.refreshOntology();
+    return n;
+  }
+
+  // --- audit + tokens: the local sqlite -----------------------------------------------------------
+
+  logAudit(event: AuditEvent): void {
+    this.local.logAudit(event);
+  }
+  listAudit(q?: AuditQuery): AuditEvent[] {
+    return this.local.listAudit(q);
+  }
+  createToken(spec: { name: string; scopes: string[]; created_at: string }): {
+    token: string;
+  } {
+    return this.local.createToken(spec);
+  }
+  verifyToken(secret: string): { name: string; scopes: string[] } | null {
+    return this.local.verifyToken(secret);
+  }
+  revokeToken(name: string): boolean {
+    return this.local.revokeToken(name);
+  }
+  listTokens(): TokenInfo[] {
+    return this.local.listTokens();
+  }
+
+  // --- deliberately absent / refused --------------------------------------------------------------
+
+  /**
+   * NOT implemented, and that is the contract.
+   *
+   * `listHistory` is synchronous and it is about entities, which are remote. Callers use
+   * `listVersions(port, id)` (core/lifecycle.ts), which feature-detects this extension and otherwise
+   * walks `getEntity(id, version)` — a port method, therefore async. Declaring it here and throwing
+   * would be worse: `listVersions` probes for the property, so a present-but-throwing method would
+   * break the fallback it is supposed to trigger.
+   */
+  // listHistory: intentionally not declared.
+
+  /** A file copy of a database this process does not own. The remote backend's own tooling does this
+   * (`neo4j-admin dump`), and pretending otherwise would produce a backup missing the knowledge. */
+  async backupTo(_dest: string): Promise<void> {
+    throw new Error(
+      "backup is not available on a remote backend: the knowledge lives in the remote database, " +
+        "so use its own tooling (for Neo4j: neo4j-admin database dump). The local sqlite holds only " +
+        "this client's audit trail and tokens.",
+    );
+  }
+
+  /** Same reason as backupTo — an export that silently covered only the local half would be worse
+   * than an error, because it would look like a complete one. */
+  async exportUntil(_ts: string, _destPath: string): Promise<void> {
+    throw new Error(
+      "export is not available on a remote backend: the knowledge lives in the remote database. " +
+        "Use its own tooling, or run the export against a local sqlite deployment.",
+    );
+  }
+}
+
+/** `YokeStore` requires `listHistory`; this composite deliberately omits it (see above), so the cast
+ * is where that gap is stated once rather than silenced at every call site. `listVersions` is the
+ * reason it is safe: it probes for the method and falls back to port methods when it is absent. */
+export function makeCompositeStore(
+  remote: RemoteStore,
+  local: SqliteStorage,
+): YokeStore {
+  return new CompositeStorage(remote, local) as unknown as YokeStore;
+}

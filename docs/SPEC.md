@@ -86,6 +86,38 @@ command that fixes it. This is the one deliberate exception to "an embedding fai
 commit": a provider being down costs you one vector, whereas a mixed vector space returns confidently
 wrong neighbours forever, and a silent wrong answer is worse than a stopped write.
 
+### Remote backends (v5.2)
+
+`StoragePort` is fully async and always was, so a network-backed backend implements it with no
+interface change. The obstacle is one layer up: the CLI, web and serve tiers hold a **`YokeStore`** —
+the port plus sqlite-shaped extensions — and **10 of those 12 extension methods are synchronous**,
+because `better-sqlite3` is. A network call cannot satisfy a synchronous signature. That, not a missing
+adapter, is why kuzu and qdrant were never reachable from `openStore`: kuzu's own
+`saveOntology`/`loadOntology` are `async` and so it does not satisfy `YokeStore`.
+
+**A remote backend is therefore composed, not substituted.** `storage-composite` delegates the port to
+the remote store and the synchronous extensions to a local sqlite. The split is deliberate:
+
+- **Remote:** entities, relations, search, neighbors, the ontology, and embedding vectors. The ontology
+  is remote because a shared graph with per-client schemas means two clients validating against
+  different schemas.
+- **Local:** the audit trail (what THIS client was told) and API tokens (yoke's own credentials, which
+  do not belong in someone else's database). Centralising them is the v3.0 `serve --auth` story.
+
+Two methods became async because they touch remote rows — **`renameType`** (it rewrites entity rows)
+and **`saveOntology`** (a synchronous fire-and-forget would discard the error). `loadOntology` stays
+synchronous, served from a cache the async `init()` fills.
+
+> ponytail: that cache is read once per `init()`. The CLI opens, inits and closes per command so every
+> invocation is fresh, but a long-running `yoke ui`/`serve` will not see an ontology another client
+> changed. Add invalidation when that actually bites, not before.
+
+`listHistory` stays optional and is **absent** on the composite: it is synchronous and it is about
+entities, which are remote. Callers use `listVersions(port, id)` (`core/lifecycle.ts`), which
+feature-detects the extension and otherwise walks `getEntity(id, version)` — a port method, therefore
+async. Its order is **ascending by version**, matching sqlite's `listHistory`; before v5.2 the two
+disagreed while the contract said "any order", which is a latent display bug rather than a freedom.
+
 Enumeration is the only port method that can return the whole database, so its contract
 is tighter than the rest. Each clause below is a conformance case:
 

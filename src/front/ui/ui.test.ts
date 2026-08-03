@@ -36,7 +36,7 @@ beforeAll(async () => {
   const ont = seedOntology();
   store = new SqliteStorage(join(dir, "ui.sqlite"));
   await store.init();
-  store.saveOntology(ont);
+  await store.saveOntology(ont);
 
   // One draft fact (for the review queue), plus two decisions with a conflicts_with relation.
   const fact = await commit(
@@ -672,7 +672,7 @@ describe("ui API namespace isolation", () => {
     tenantStore = s;
     await s.init();
     for (const ns of ["acme", "globex"]) {
-      s.saveOntology(ont, ns);
+      await s.saveOntology(ont, ns);
       const a = await commit(
         s,
         ont,

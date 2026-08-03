@@ -155,9 +155,9 @@ describe("sharded routing (2 sqlite members)", () => {
     expect(scoped.items.map((e) => e.id)).toEqual(["n1"]);
   });
 
-  it("keeps ontology per shard (owner overlay), default separate", () => {
-    store.saveOntology([{ name: "note", kind: "entity", attrs: {} }]); // → default
-    store.saveOntology(
+  it("keeps ontology per shard (owner overlay), default separate", async () => {
+    await store.saveOntology([{ name: "note", kind: "entity", attrs: {} }]); // → default
+    await store.saveOntology(
       [{ name: "secret", kind: "entity", attrs: {} }],
       "tenant-a",
     ); // → a
