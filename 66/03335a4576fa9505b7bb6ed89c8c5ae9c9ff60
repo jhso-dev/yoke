@@ -1,0 +1,48 @@
+web/app/review/page.tsx
+  8ecaf4f60771d7f1 3-4,30-33,35,37-40,99-101,194-202
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "6603335a4576fa9505b7bb6ed89c8c5ae9c9ff60",
+  "prompts": {
+    "8ecaf4f60771d7f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6be58b6e-c23c-416f-bf9c-06f007cfd72a",
+        "model": "claude-opus-5"
+      },
+      "skills": [
+        {
+          "id": "compact",
+          "ts": "2026-07-31T03:55:01.200Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:40.704Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:46.790Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-03T05:31:28.931Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 452,
+        "Edit": 95,
+        "Write": 26,
+        "Read": 54,
+        "SendUserFile": 6,
+        "AskUserQuestion": 2,
+        "ToolSearch": 2,
+        "WebSearch": 4,
+        "WebFetch": 2
+      },
+      "total_additions": 50,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
