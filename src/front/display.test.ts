@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { seedOntology } from "../core/ontology.js";
-import { injectDetail, summarize, ULID } from "./display.js";
+import { injectDetail, injectShape, summarize, ULID } from "./display.js";
 
 const ont = seedOntology();
 
@@ -118,5 +118,49 @@ describe("injectDetail", () => {
       asOf: "2026-07-15T00:00:00Z",
     }).split(" -> ")[0];
     expect(withAsOf.split(" ").filter((t) => ULID.test(t))).toEqual([A]);
+  });
+});
+
+describe("injectShape", () => {
+  const A = "01KZ0000000000000000000001";
+  const ids = ["01KZ000000000000000000000A"];
+
+  it("reads back every shape injectDetail can write", () => {
+    // The round trip is the contract: whatever the four legal writes produce, this must classify.
+    // Written as a loop over the formatter rather than over hand-typed strings, so a change to the
+    // subject layout fails here instead of silently reclassifying the whole trail.
+    const cases = [
+      [{ query: "caching" }, "plain", false],
+      [{ query: "caching", scope: A }, "anchored", false],
+      [{ scope: A }, "briefing", false],
+      [
+        { query: "caching", scope: A, asOf: "2026-07-15T00:00:00Z" },
+        "anchored",
+        true,
+      ],
+      // as-of is orthogonal: a historical read is still one of the three, never a fourth shape.
+      [{ scope: A, asOf: "2026-07-15T00:00:00Z" }, "briefing", true],
+      [{ query: "caching", asOf: "2026-07-15T00:00:00Z" }, "plain", true],
+    ] as const;
+    for (const [opts, shape, asOf] of cases) {
+      expect(
+        injectShape(injectDetail(ids, opts)),
+        JSON.stringify(opts),
+      ).toEqual({ shape, asOf });
+    }
+  });
+
+  it("counts a multi-word query as one query, not as a missing anchor", () => {
+    // The subject is a token list, so an unanchored multi-word query is the case where a naive
+    // positional read ("token 2 is the query") would call this anchored and inflate the ratio the
+    // whole measurement exists to produce.
+    expect(injectShape(`${A} redis vs memcached -> ${ids[0]}`)).toEqual({
+      shape: "anchored",
+      asOf: false,
+    });
+    expect(injectShape(`redis vs memcached -> ${ids[0]}`)).toEqual({
+      shape: "plain",
+      asOf: false,
+    });
   });
 });

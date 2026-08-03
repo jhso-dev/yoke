@@ -9,10 +9,13 @@
 // matters more now: the driver is 3.8MB of code the common case has no use for.
 
 // Type-only: erased at compile time, so the sqlite path pays no runtime import cost for these.
-import type { YokeStore } from "../adapters/storage-sharded/index.js";
+import type {
+  AuditEvent,
+  YokeStore,
+} from "../adapters/storage-sharded/index.js";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 
-export type { YokeStore };
+export type { AuditEvent, YokeStore };
 
 type Env = Record<string, string | undefined>;
 

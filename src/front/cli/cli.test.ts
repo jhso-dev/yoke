@@ -609,6 +609,58 @@ describe("runCli", () => {
     expect(logs.at(-1)).toBe("no audit events");
   });
 
+  it("audit --shape counts the workload composition, and only of real injections", async () => {
+    // docs/RESEARCH.md §5: the ratio of anchored/temporal reads to plain lookups is what decides
+    // whether graph expansion is worth building on, and it has to come out of the trail. The write
+    // side recorded it from v5.2 and nothing read it — this is the read.
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "collaboration",
+        "--db",
+        db,
+        "--attr",
+        "title=payments",
+        "--json",
+      ]),
+    ).toBe(0);
+    const anchor = JSON.parse(logs.at(-1) as string).id as string;
+    expect(await runCli(["verify", anchor, "--db", db])).toBe(0);
+
+    // one of each shape: plain query, anchored query, briefing (anchor, no query)
+    expect(await runCli(["inject", "payments", "--db", db])).toBe(0);
+    expect(
+      await runCli(["inject", "payments", "--db", db, "--scope", anchor]),
+    ).toBe(0);
+    expect(await runCli(["inject", "--db", db, "--scope", anchor])).toBe(0);
+    // and one as-of read, which is a shape PLUS a clock, not a fourth shape
+    expect(
+      await runCli([
+        "inject",
+        "payments",
+        "--db",
+        db,
+        "--as-of",
+        "2099-01-01T00:00:00Z",
+      ]),
+    ).toBe(0);
+
+    expect(await runCli(["audit", "--db", db, "--shape", "--json"])).toBe(0);
+    const shapes = JSON.parse(logs.at(-1) as string);
+    expect(shapes).toMatchObject({
+      total: 4,
+      plain: 2,
+      anchored: 1,
+      briefing: 1,
+      asOf: 1,
+    });
+    // The `verify` and `add` rows above are audited too — they must not land in the denominator,
+    // and must not vanish from the report either.
+    expect(shapes.skipped.other).toBeGreaterThan(0);
+  });
+
   it("connect notes ingests transcript chunks as drafts, idempotently (PLAN 8.5)", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

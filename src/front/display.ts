@@ -81,3 +81,28 @@ export function injectDetail(
     .join(" ");
   return `${subject} -> ${ids.join(" ")}`;
 }
+
+/**
+ * `injectDetail` read back: which workload shape one injection row was.
+ *
+ * This is the read side of the measurement that clause exists for. The ratio of anchored (a relation
+ * hop) and as-of (a clock) reads to plain lookups is what decides whether graph expansion is worth
+ * building on, and docs/RESEARCH.md §5 says it must come out of the trail rather than a guess — the
+ * write side has been recording it since v5.2 and nothing read it.
+ *
+ * `asOf` is orthogonal, not a fourth shape: a historical read is still one of the three.
+ */
+export function injectShape(detail: string): {
+  shape: "anchored" | "briefing" | "plain";
+  asOf: boolean;
+} {
+  const tokens = (detail.split(" -> ")[0] ?? "").split(" ").filter(Boolean);
+  const anchored = ULID.test(tokens[0] ?? "");
+  const rest = tokens.slice(anchored ? 1 : 0);
+  const asOf = !!rest[0]?.startsWith("@");
+  const query = rest.slice(asOf ? 1 : 0);
+  return {
+    shape: anchored ? (query.length ? "anchored" : "briefing") : "plain",
+    asOf,
+  };
+}
