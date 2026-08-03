@@ -1,0 +1,33 @@
+docs/SCALE.md
+  h_9aabb7d8448c0a 136-207
+src/adapters/storage-kuzu/index.ts
+  h_9aabb7d8448c0a 11,14,239-242,244-249
+src/adapters/storage-qdrant/index.ts
+  h_9aabb7d8448c0a 18,21,324-327,329-334
+src/adapters/storage-sharded/index.ts
+  h_9aabb7d8448c0a 9-10,46,172-184
+src/adapters/storage-sqlite/index.ts
+  h_9aabb7d8448c0a 13,339-347,349-365,372-373,375-384
+src/core/inject.test.ts
+  h_9aabb7d8448c0a 321-404
+src/core/inject.ts
+  h_9aabb7d8448c0a 31-60,132-136,151-154,183-185,187-191
+src/core/rank.ts
+  h_9aabb7d8448c0a 1-79
+src/ports/conformance-cases.ts
+  h_9aabb7d8448c0a 9,195-267
+src/ports/conformance.self.test.ts
+  h_9aabb7d8448c0a 4,8,70-72,74,77,85-93
+src/ports/storage.ts
+  h_9aabb7d8448c0a 7-20,25-29,104-115
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "b13824da5e22f0c309ac7be96ee6cd6d6aa11842",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
