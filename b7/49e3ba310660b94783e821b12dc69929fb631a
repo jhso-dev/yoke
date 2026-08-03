@@ -1,0 +1,29 @@
+src/front/store.ts
+  763e2f1124b9c1bd 12-15,18
+src/front/cli/index.ts
+  763e2f1124b9c1bd 47,50,91,129,131-134,191,194,824,827,833-868
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "b749e3ba310660b94783e821b12dc69929fb631a",
+  "prompts": {
+    "763e2f1124b9c1bd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7510c516-b4ed-4a8d-8786-345629379390",
+        "model": "claude-opus-5"
+      },
+      "skills": [],
+      "tool_counts": {
+        "ToolSearch": 1,
+        "Bash": 48,
+        "WebFetch": 1,
+        "Read": 9,
+        "Edit": 16
+      },
+      "total_additions": 86,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
