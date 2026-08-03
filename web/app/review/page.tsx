@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Actor } from "../../components/Actor";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -26,10 +27,17 @@ import { useAsync } from "../../lib/useAsync";
  * other reviewers' pending approvals. Seeing that a colleague already approved something anchors your
  * own judgment, so aggregation belongs AFTER each reviewer commits, not before. There is deliberately
  * no endpoint exposing peers' pending decisions, and there must not be one.
+ *
+ * The queue lives in the URL (`?queue=stale`), like every other filter in this app. Not consistency
+ * for its own sake: this screen's whole purpose is getting an aged-out record in front of the person
+ * who recorded it, and a tab held in component state cannot be sent to them.
  */
-export default function Review() {
+function ReviewBody() {
   const t = useT();
-  const [tab, setTab] = useState<"drafts" | "stale">("drafts");
+  const params = useSearchParams();
+  const router = useRouter();
+  const tab: "drafts" | "stale" =
+    params.get("queue") === "stale" ? "stale" : "drafts";
   const drafts = useAsync(() => api.review(), []);
   // Fetched independently of the tab so the counts on both tabs are real before you click either one —
   // a queue you cannot see the size of is a queue you forget exists, which is how staleness got here.
@@ -88,7 +96,9 @@ export default function Review() {
     // Selection is per queue: carrying ids across would let a Verify aimed at drafts land on stale
     // records the reader is no longer looking at.
     setChosen(new Set());
-    setTab(next);
+    // `replace`, not `push` — flipping a tab is not a navigation step someone wants to walk back
+    // through, and the audit and browse screens make the same choice for their filters.
+    router.replace(next === "stale" ? "/review/?queue=stale" : "/review/");
   };
 
   return (
@@ -179,5 +189,14 @@ export default function Review() {
         )}
       </div>
     </>
+  );
+}
+
+export default function Review() {
+  // `useSearchParams` needs a Suspense boundary under static export, the same as the inject screen.
+  return (
+    <Suspense fallback={<p className="muted">loading…</p>}>
+      <ReviewBody />
+    </Suspense>
   );
 }
