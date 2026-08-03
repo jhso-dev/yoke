@@ -1,9 +1,11 @@
 // conformance suite self-check — verify the contract with an in-memory fake adapter.
 // The fake exists only as a test helper (inside a .test.ts, not production code under src).
 
+import { rankByRelevance, tokenize } from "../core/rank.js";
 import type { Entity, Relation } from "../core/types.js";
 import { describeStoragePort } from "./conformance.js";
 import {
+  DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   page,
   type StoragePort,
@@ -65,17 +67,14 @@ function makeFake(): StoragePort {
 
     async search(q: TextQuery) {
       // AND-of-prefix-tokens — the port's search semantics (matches sqlite/kuzu/qdrant).
-      const queryTokens = q.text
-        .toLowerCase()
-        .split(/[^\p{L}\p{N}]+/u)
-        .filter(Boolean);
+      // Core's tokenizer, not a second copy: a fake with its own could satisfy cases the real
+      // adapters cannot, which would make this self-check worse than nothing.
+      const queryTokens = tokenize(q.text);
       if (queryTokens.length === 0) return [];
+      const textOf = (e: Entity) => `${e.type} ${JSON.stringify(e.attributes)}`;
       const wantNs = q.ns == null || q.ns === "" ? null : q.ns;
       let out = [...latestById().values()].filter((e) => {
-        const textTokens = `${e.type} ${JSON.stringify(e.attributes)}`
-          .toLowerCase()
-          .split(/[^\p{L}\p{N}]+/u)
-          .filter(Boolean);
+        const textTokens = tokenize(textOf(e));
         return queryTokens.every((qt) =>
           textTokens.some((tt) => tt.startsWith(qt)),
         );
@@ -83,9 +82,15 @@ function makeFake(): StoragePort {
       // Namespace isolation (PLAN-V2 10.1): default ns sees only default-ns rows.
       out = out.filter((e) => (e.ns ?? null) === wantNs);
       if (q.type) out = out.filter((e) => e.type === q.type);
-      if (q.status) out = out.filter((e) => e.status === q.status);
-      if (q.limit !== undefined) out = out.slice(0, q.limit);
-      return out;
+      if (q.status) {
+        const want = Array.isArray(q.status) ? q.status : [q.status];
+        out = out.filter((e) => want.includes(e.status));
+      }
+      // Search clauses 6 and 7: rank BEFORE cutting, and cut even when no limit was named. Spelled
+      // out here because this fake is what shows the contract is satisfiable by the minimum honest
+      // implementation — if it can only be met with FTS5, it is not a port contract.
+      out = rankByRelevance(out, q.text, textOf);
+      return out.slice(0, q.limit ?? DEFAULT_SEARCH_LIMIT);
     },
 
     async listEntities(q) {

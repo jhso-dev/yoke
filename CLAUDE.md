@@ -34,6 +34,7 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 - `docs/ENTERPRISE.md` — multi-tenancy, auth, RBAC, and distribution design, plus the backward-compatibility constraints that hold from v0.1
 - `docs/BACKENDS.md` — backend adapter extension and the RDB read-mapping design
 - `docs/WEB-UI.md` — the governance workbench UI design
+- `docs/SCALE.md` — what breaks at 10M records, measured, and the ceiling that remains
 - `docs/RESEARCH.md` — outside findings that bear on decisions not yet made (multi-reviewer verify, dissent preservation). Nothing in it is implemented
 
 ## Commands

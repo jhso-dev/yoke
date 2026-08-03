@@ -28,6 +28,36 @@ export interface InjectItem {
  */
 export const BRIEFING_LIMIT = 50;
 
+/**
+ * What injection asks the store for, so the cap lands after the filter rather than before it.
+ *
+ * Two parts, and the first is the one that matters:
+ *
+ * `status` is pushed DOWN. Injection wants stored-verified rows (plus stored-draft when asked), and
+ * `search` can now express that, so deprecated rows never occupy the window. Over-fetching alone was
+ * tried and does not work: `verify` rewrites the FTS row, so on tied relevance the verified records
+ * sort LAST, and a 4x window over a corpus with a review backlog can contain none of them. The test
+ * written to prove over-fetching sufficient is what disproved it.
+ *
+ * The multiplier remains for the one filter that cannot be pushed: `stale` is computed from the
+ * ontology's TTL at read time and is never stored (lifecycle.ts), so a stored-verified row may still
+ * be dropped here. 3x covers a corpus where two thirds of verified knowledge has gone stale, and
+ * when it does not the answer is a short page, not a silent one — `omitted` reports the shortfall.
+ *
+ * ponytail: fixed multiplier, no adaptive re-query. Add the second round trip when a real corpus is
+ * measured returning short pages, not on the strength of this comment.
+ */
+const STALE_HEADROOM = 3;
+const candidateQuery = (opts?: {
+  includeDraft?: boolean;
+  limit?: number;
+  ns?: string | null;
+}) => ({
+  ns: opts?.ns,
+  status: opts?.includeDraft ? ["verified", "draft"] : "verified",
+  limit: opts?.limit === undefined ? undefined : opts.limit * STALE_HEADROOM,
+});
+
 /** `[{type}:{id}@v{version}] {actor}, {occurred_at}` — the audit citation format. */
 export function citation(e: Entity): string {
   return `[${e.type}:${e.id}@v${e.version}] ${e.provenance.actor}, ${e.provenance.occurred_at}`;
@@ -99,7 +129,11 @@ export async function inject(
     if (query) {
       // Full query results, scope-linked ones first (stable partition) — the
       // working context leads, org-wide matches still included.
-      const hits = await port.search({ text: query, ns: opts?.ns });
+      //
+      // BOUNDED, and status-filtered. This call used to pass no limit at all, and at 10M entities
+      // it killed the process: the adapter built ten million row objects and the heap ran out
+      // (docs/SCALE.md). See candidateQuery for why the bound is a multiple of the caller's limit.
+      const hits = await port.search({ text: query, ...candidateQuery(opts) });
       candidates = [
         ...hits.filter((e) => hopIds.has(e.id)),
         ...hits.filter((e) => !hopIds.has(e.id)),
@@ -114,11 +148,10 @@ export async function inject(
       }
     }
   } else {
-    candidates = await port.search({
-      text: query,
-      limit: opts?.limit,
-      ns: opts?.ns,
-    });
+    // See candidateQuery. Asking the store for exactly `limit` meant the caller got `limit` minus
+    // however many were draft, stale or deprecated: measured at every corpus size from 10k to 10M, a
+    // request for 50 returned 29 while 589,285 injectable records sat unreturned (docs/SCALE.md).
+    candidates = await port.search({ text: query, ...candidateQuery(opts) });
   }
   const items: InjectItem[] = [];
   for (const entity of candidates) {
@@ -147,11 +180,14 @@ export async function inject(
         a.entity.id.localeCompare(b.entity.id),
     );
   }
-  // Scope path caps after filtering; the non-scope path already capped in search().
+  // BOTH paths cap here now, after filtering — that is the fix. `search` is asked for a superset and
+  // core cuts to what the caller wanted once only injectable records remain, so `limit` finally means
+  // "up to N records you can use" rather than "N candidates, then however many survive".
   const limited =
-    scope && opts?.limit !== undefined ? items.slice(0, opts.limit) : items;
-  // How many the anchor's own limit dropped. Knowable only on the scope path, which fetches the whole
-  // hop set before filtering; the unscoped path is capped inside search() and cannot count what the
-  // backend never returned, so it reports 0 rather than guessing.
+    opts?.limit === undefined ? items : items.slice(0, opts.limit);
+  // How many the caller's limit dropped, out of what was retrieved. On the unscoped path this counts
+  // within the over-fetched window rather than the whole corpus: `search` is a top-k, so a number
+  // for "everything that matched" is not knowable without materializing it, which is the thing that
+  // crashed. Under-reporting a truncation the reader can see is better than a guess they cannot.
   return { items: limited, omitted: items.length - limited.length };
 }

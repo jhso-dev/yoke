@@ -155,6 +155,12 @@ port capabilities, etc. See SPEC).
       clean machine is on the human-verification list below)
 - [x] Regression closed: a check that *executes* the shipped client bundle, not one
       that greps the HTML for markers (see the v2.5 note)
+- [ ] Scale: injection stays correct and bounded at 10M records. Five defects, all measured
+      in `docs/SCALE.md` — the cap applied before the freshness filter (50 asked, 29 returned at
+      every scale), no relevance order at all (the 50 oldest matches, sharing 1 record in 50 with
+      the 50 best), an unbounded `search` on the scope path that heap-crashed at 10M, no secondary
+      indexes (a selective type filter took 15 s, `neighbors` was a full scan at 232 ms per call),
+      and `search` unbounded when the caller omits a limit
 - [ ] Text query on browse, and the audit rule made true: `GET /api/search` over the
       port's existing `search()`, plus the `read` row that `GET /api/entity/:id` and
       `yoke get` were supposed to write since v5.0 opened and never did. The ban on a

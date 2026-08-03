@@ -6,7 +6,8 @@
 //     unlisted/null ns).
 //   - point reads (getEntity, neighbors) fan out to every shard (ids are globally unique ULIDs):
 //     getEntity returns the first non-null; neighbors concat-merges.
-//   - search: ns-scoped → owner shard only; un-scoped → fan out, concat, apply q.limit post-merge.
+//   - search: ns-scoped → owner shard only; un-scoped → fan out and INTERLEAVE the per-shard ranked
+//     lists before applying the limit (concatenating gave shard 0 the whole page).
 //     Each member self-filters by ns (see the adapters), so isolation holds per shard.
 //   - similar: fan out to members that have the capability, concat, re-rank the merged hits by cosine
 //     to the query embedding, slice k. Exposed ONLY if at least one member implements it.
@@ -42,6 +43,7 @@ import type {
   StoragePort,
   TextQuery,
 } from "../../ports/storage.js";
+import { DEFAULT_SEARCH_LIMIT } from "../../ports/storage.js";
 import type {
   AuditEvent,
   AuditQuery,
@@ -167,8 +169,19 @@ export class ShardedStorage implements YokeStore {
     const groups = await Promise.all(
       this.members.map((m) => m.store.search(q)),
     );
-    const merged = groups.flat();
-    return q.limit === undefined ? merged : merged.slice(0, q.limit);
+    // Each shard returns ITS best first (SPEC search clause 6). Concatenating and slicing gave
+    // shard 0 the whole page and shard 1 nothing, so a record could be the best match in the
+    // namespace and never appear. Interleaving takes shard 0's best, then shard 1's best, and so on,
+    // so every shard's head is represented in the merged head.
+    //
+    // ponytail: this is not a globally ranked merge, because `search` returns entities and not
+    // scores — there is nothing to merge ON. Round-robin is the best available approximation, and it
+    // is exact for one shard, which is every deployment until someone shards. Upgrade path: a scored
+    // search on the port, a contract change worth making when a sharded corpus needs it.
+    const merged: Entity[] = [];
+    for (let i = 0; groups.some((g) => i < g.length); i++)
+      for (const g of groups) if (i < g.length) merged.push(g[i]);
+    return merged.slice(0, q.limit ?? DEFAULT_SEARCH_LIMIT);
   }
 
   listEntities(q: ListQuery): Promise<Page<Entity>> {

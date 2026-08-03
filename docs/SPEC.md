@@ -83,6 +83,29 @@ is tighter than the rest. Each clause below is a conformance case:
    `listByStatus` already had, so single-call CLI paths stay single-call); the HTTP tier
    is where a maximum is clamped, and over-max is an error, never a silent cap.
 
+### search (tightened v5.1)
+
+`search` was specified only as "keyword (FTS)", and three adapters read that as "any N
+matching rows". Measured against a ten-million-entity corpus, that is what they returned: the
+oldest N, because FTS5 yields rowid order unless asked otherwise and the other two `slice()` a
+scan. The top 50 by insertion order and the top 50 by relevance shared **one** record out of
+fifty (measured at 1M; `docs/SCALE.md`). Two clauses, both conformance cases:
+
+6. **Relevance order, not storage order.** Results are ordered best-match first. An adapter
+   with a native ranker uses it (FTS5's bm25); one without ranks over the rows it already
+   materialized. What is forbidden is returning insertion order and calling it a result set,
+   because then `limit` silently means "oldest N" and injection hands an agent the wrong
+   knowledge without any symptom.
+7. **Bounded even when the caller forgets.** `limit` omitted applies
+   `DEFAULT_SEARCH_LIMIT`, not "every match". This is a resource bound, not a policy cap:
+   at 10M entities an unbounded `search` materialized ten million row objects and the process
+   died of heap exhaustion. `listEntities` keeps the opposite default (clause 5) because
+   enumeration is a cursor walk the caller drives; search is a top-k the caller consumes.
+
+`status`/`type`/`ns` filters are applied **before** the limit, not after. Injection's freshness
+filter is the caller's and still runs after, so front adapters over-fetch — see the gate note in
+"context injection".
+
 Every implementation must pass the shared `ports/conformance/` test suite.
 v1 implementation: `storage-sqlite` (better-sqlite3 + FTS5 + sqlite-vec).
 v5.0 implementations that must pass: sqlite, kuzu, qdrant, sharded.

@@ -318,6 +318,90 @@ describe("inject scoped: a briefing is knowledge, in a defined order", () => {
   });
 });
 
+describe("limit means injectable records, not candidates", () => {
+  // The defect this closes was invisible at every scale because the ratio was constant: `limit` went
+  // into search(), the verified/freshness filter ran afterwards in core, and a request for 50 came
+  // back as 29 whether the corpus held ten thousand records or ten million — while 589,285
+  // injectable ones sat unreturned (docs/SCALE.md). Nothing failed; the agent was simply told less
+  // than it asked for, with no symptom.
+  it("returns the full limit even when most matches are not injectable", async () => {
+    // 20 verified, 60 draft, 20 deprecated: 20% injectable, so capping before filtering would
+    // return about a fifth of any limit.
+    const verified: string[] = [];
+    for (let i = 0; i < 20; i++)
+      verified.push(await addFact(`quorum drift ${i}`));
+    await verify(port, verified, "reviewer", now);
+    for (let i = 0; i < 60; i++) await addFact(`quorum drift draft ${i}`);
+    const retired: string[] = [];
+    for (let i = 0; i < 20; i++)
+      retired.push(await addFact(`quorum drift old ${i}`));
+    await verify(port, retired, "reviewer", now);
+    for (const id of retired) {
+      const e = await port.getEntity(id);
+      if (e)
+        await port.putEntity({
+          ...e,
+          version: e.version + 1,
+          status: "deprecated",
+        });
+    }
+
+    const out = await inject(port, ont, "quorum", now, { limit: 10 });
+    expect(out.items).toHaveLength(10);
+    expect(out.items.every((i) => i.effectiveStatus === "verified")).toBe(true);
+
+    // And asking for more than exist is a short answer, not a wrong one.
+    const all = await inject(port, ont, "quorum", now, { limit: 50 });
+    expect(all.items).toHaveLength(20);
+  });
+
+  it("caps the scoped query path instead of materializing every match", async () => {
+    // The same call shape that heap-crashed at 10M: scope + query. The assertion here is that the
+    // limit reaches the store at all — a scope-anchored query must not become an unbounded read.
+    const { entity: work } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "quorum work" } },
+      prov,
+      now,
+    );
+    await verify(port, [work.id], "reviewer", now);
+    const attached: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      const id = await addFact(`quorum attached ${i}`);
+      await link(id, work.id);
+      attached.push(id);
+    }
+    for (let i = 0; i < 30; i++) await addFact(`quorum elsewhere ${i}`);
+    await verify(port, attached, "reviewer", now);
+
+    let asked: number | undefined = -1;
+    // A Proxy, not `{...port}`: the adapter's methods live on the prototype, so a spread produced an
+    // object with no `neighbors` and the failure looked like a core bug.
+    const spy = new Proxy(port, {
+      get(target, prop) {
+        if (prop === "search")
+          return (q: Parameters<typeof port.search>[0]) => {
+            asked = q.limit;
+            return target.search(q);
+          };
+        const v = Reflect.get(target, prop, target);
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+
+    const out = await inject(spy, ont, "quorum", now, {
+      scope: work.id,
+      limit: 5,
+    });
+    expect(asked).not.toBeUndefined();
+    expect(asked).toBeGreaterThanOrEqual(5);
+    expect(out.items).toHaveLength(5);
+    // Scope still leads: the attached records come first, which is what the anchor is for.
+    expect(out.items.every((i) => attached.includes(i.entity.id))).toBe(true);
+  });
+});
+
 describe("inject reports what its limit dropped", () => {
   async function bigScene(n: number) {
     const { entity: ws } = await commit(

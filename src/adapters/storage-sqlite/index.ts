@@ -10,6 +10,7 @@ import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
+  DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   type Page,
   page,
@@ -77,6 +78,35 @@ CREATE TABLE IF NOT EXISTS tokens (
   scopes TEXT NOT NULL,              -- JSON string[] (scope grammar parsed at the RBAC tier)
   created_at TEXT NOT NULL           -- ISO 8601
 );
+
+-- Indexes. There were none until 2026-08-02, and the primary key alone is only enough while the
+-- corpus is small: every filtered read degraded into a scan of it. Measured at 10M entities /
+-- 3M relations (docs/SCALE.md), with the query each one exists for:
+--
+--   listEntities({type})   14,953 ms -> 3 ms    a type filter matching nothing scanned everything
+--   neighbors(id)             232 ms -> 0 ms    a node with THREE edges cost the same as one with
+--                                              5,000 — the signature of a full table scan
+--   inject({scope})           567 ms -> 48 ms   a briefing walks neighbors
+--   listRelations({type})     202 ms -> 0 ms    same shape as the entity type filter
+--
+-- ns leads the composites because every read is namespace-scoped, so it is the one column always
+-- in the predicate. from_id and to_id are SEPARATE single-column indexes, not a composite: neighbors
+-- asks from_id = ? OR to_id = ?, which SQLite resolves with MULTI-INDEX OR — a composite would
+-- never be used. And on a WITHOUT ROWID table every index already carries the primary key, so
+-- naming id in these adds nothing (checked: (from_id) and (from_id, id) are byte-identical) —
+-- it is spelled out only where it is also the sort column.
+--
+-- No backticks anywhere in this block: SCHEMA is a template literal, and one would end the string.
+--
+-- The price, stated because it is not small: ~29% database growth (494 MB of index against 1.69 GB
+-- of data at 1M entities + 3M relations).
+CREATE INDEX IF NOT EXISTS idx_entities_ns_type_id ON entities(ns, type, id);
+CREATE INDEX IF NOT EXISTS idx_entities_ns_status_id ON entities(ns, status, id);
+CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_id);
+CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_id);
+CREATE INDEX IF NOT EXISTS idx_relations_ns_type_id ON relations(ns, type, id);
+-- The audit viewer filters by time, and the trail is the one table that only ever grows.
+CREATE INDEX IF NOT EXISTS idx_audit_ns_at ON audit_log(ns, at);
 `;
 
 /** One audit_log row. 'who saw what when' (ENTERPRISE.md) — inject/persona reads at the front tier. */
@@ -306,24 +336,52 @@ export class SqliteStorage implements StoragePort {
     if (tokens.length === 0) return [];
     const match = tokens.map((t) => `"${t.replace(/"/g, '""')}"*`).join(" ");
     const typeClause = q.type === undefined ? "" : " AND e.type = @type";
+    // A list of statuses becomes IN (...) with positional binds, since named binds cannot hold an
+    // array. Inlined as placeholders, never as values — the statuses are from a closed set, but
+    // building SQL from caller data is how the first injection bug always starts.
+    const statuses =
+      q.status === undefined
+        ? []
+        : Array.isArray(q.status)
+          ? q.status
+          : [q.status];
     const statusClause =
-      q.status === undefined ? "" : " AND e.status = @status";
-    const limitClause = q.limit === undefined ? "" : " LIMIT @limit";
+      statuses.length === 0
+        ? ""
+        : ` AND e.status IN (${statuses.map(() => "?").join(", ")})`;
+    // ORDER BY rank is FTS5's bm25, ascending (lower is more relevant). Without it FTS5 returns
+    // rowid order — insertion order — so `limit` meant "the oldest N matches". Measured at 1M rows,
+    // the top 50 by insertion order and the top 50 by bm25 shared ONE record (docs/SCALE.md).
+    //
+    // ponytail: ranking costs O(matches), because FTS5 has no top-k early termination (no block-max
+    // WAND) — it must score every match to know the best 50. Measured at 10M entities: 3.2 s for a
+    // term in EVERY document, 3.2 ms at 1% selectivity, 0.1 ms at 0.01%. So the cost is confined to
+    // terms so common that ranking on them is nearly meaningless. Upgrade path if a corpus ever
+    // needs it: an engine with WAND (Tantivy, Lucene) behind this same port — which is what the port
+    // is for. Not worth doing on a guess.
+    //
+    // The filters sit in this WHERE, so they apply BEFORE the limit. That ordering is the fix for
+    // "asked for 50, received 29": inject used to cap here and filter afterwards in JS.
+    const limitClause = " LIMIT @limit";
     // Namespace isolation (PLAN-V2 10.1): `IS @ns` handles NULL (default ns sees only default rows).
     const rows = this.db
       .prepare(
         `SELECT e.* FROM entities_fts f
          JOIN entities e ON e.id = f.id
            AND e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)
-         WHERE f.text MATCH @match AND e.ns IS @ns${typeClause}${statusClause}${limitClause}`,
+         WHERE f.text MATCH @match AND e.ns IS @ns${typeClause}${statusClause}
+         ORDER BY f.rank${limitClause}`,
       )
-      .all({
-        match,
-        ns: normalizeNs(q.ns),
-        type: q.type,
-        status: q.status,
-        limit: q.limit,
-      }) as EntityRow[];
+      // Named binds for the fixed parameters, then the status placeholders positionally.
+      .all(
+        {
+          match,
+          ns: normalizeNs(q.ns),
+          type: q.type,
+          limit: q.limit ?? DEFAULT_SEARCH_LIMIT,
+        },
+        ...statuses,
+      ) as EntityRow[];
     return rows.map(rowToEntity);
   }
 
