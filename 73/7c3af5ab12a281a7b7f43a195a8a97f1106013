@@ -1,0 +1,39 @@
+src/front/display.ts
+  763e2f1124b9c1bd 84-108
+src/front/cli/index.ts
+  763e2f1124b9c1bd 42,45,84,122,182,781-784,790-825
+src/front/store.ts
+  763e2f1124b9c1bd 6-9,12
+src/front/display.test.ts
+  763e2f1124b9c1bd 3,123-165
+src/front/cli/cli.test.ts
+  763e2f1124b9c1bd 611-662
+docs/SPEC.md
+  763e2f1124b9c1bd 379-384,411,416
+docs/RESEARCH.md
+  763e2f1124b9c1bd 153-155
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "737c3af5ab12a281a7b7f43a195a8a97f1106013",
+  "prompts": {
+    "763e2f1124b9c1bd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7510c516-b4ed-4a8d-8786-345629379390",
+        "model": "claude-opus-5"
+      },
+      "skills": [],
+      "tool_counts": {
+        "ToolSearch": 1,
+        "Bash": 27,
+        "WebFetch": 1,
+        "Read": 8,
+        "Edit": 14
+      },
+      "total_additions": 409,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
