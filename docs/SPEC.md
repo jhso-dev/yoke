@@ -137,6 +137,60 @@ The `commit(input, provenance)` pipeline — fixed order:
   we don't inject a decay signal. Viewing stale is the job of review/CLI)
 - Returns: a list of entities, each with its provenance (an auditable citation format)
 
+### As-of injection (v5.2 — "what was true then")
+
+`inject(query, { asOf })` answers the question the version history already holds the data for and had
+no way to ask: **what would this query have injected at time T.**
+
+- `asOf` **replaces the read clock** for the whole filter. Freshness is evaluated against `asOf`
+  (a record inside its TTL then, expired now, was injectable then), and so is the status.
+- Each candidate is **rewound to the version that was current at `asOf`** — the highest version whose
+  `provenance.occurred_at <= asOf`. This is the clause that matters: a decision deprecated last week
+  was verified a month ago, and without the rewind an as-of read would answer with today's status and
+  be wrong in exactly the case the question is asked about. A record with no version at or before
+  `asOf` did not exist yet and is excluded.
+- Rewinding uses the `listHistory` extension when the backend has one and falls back to walking
+  `getEntity(id, version)` down from the latest — no new port method, and the same feature-detect
+  `backfillAuthorship` already uses. Both are in the port or documented as an extension, so this adds
+  no adapter work and no conformance case.
+- **Stated ceiling: as-of narrows what today's index found; it does not re-index the past.** Candidate
+  selection is still `search()` over the current FTS rows, so a record whose text was rewritten such
+  that it no longer matches the query is not a candidate, even if its older text did match. What
+  changes on a `decision` is overwhelmingly its *status*, which is what this does answer; re-indexing
+  history would mean a second FTS table per version and is not worth that.
+- Available on `yoke inject --as-of` and `GET /api/inject?asOf=`. Deliberately **not** on
+  `yoke_inject`: it is a governance question a person asks about the record, and every MCP parameter
+  is contract surface an agent must be taught. Add it when an agent needs it, not before.
+
+### The stale queue (v5.2 — implementing a clause that was written and never built)
+
+"Viewing stale is the job of review/CLI" has been in the filter rule above since v1, and neither
+`yoke review` nor `/review` ever showed a stale record — both listed `status: 'draft'` only. Stale
+knowledge therefore left injection **silently**: no agent received it and no person was told it had
+aged out. That is worse than a flag, not better, and it is the one failure mode
+docs/RESEARCH.md's freshness findings converge on.
+
+- `staleEntities(port, ontology, now, opts)` returns the records whose **stored** status is `verified`
+  but whose `effectiveStatus` is `stale`. `stale` is computed from the ontology's TTL at read time and
+  is never persisted, so this cannot be a `listEntities({status})` filter — it is a walk plus the
+  read-time computation, which is why it is a named function and not a query parameter.
+- **It is a bounded walk with a truthful cursor, not a corpus scan.** The walk pages
+  `listEntities({status:'verified'})` and stops once it has `limit` stale rows, returning `next` (the
+  cursor to *resume the scan* — the last row examined, not the last stale row, or resuming would skip
+  everything in between) and `scanned` (how many verified rows it had to look at to find them). A
+  screen that says "12 stale among the first 5,000 verified records" is honest; one that says "12
+  stale" after silently giving up is not.
+- **The owner is `provenance.actor`**, and it is the point of the surface: a stale record's fix is a
+  person re-confirming or retiring it, so the queue is read owner-first. Front adapters resolve the
+  actor to a display name like every other surface (no bare ULID where a person reads for meaning).
+- **The two actions are the existing ones**: `verify` re-confirms (it refreshes `last_confirmed`, so a
+  still-true record leaves the queue with no new verb) and `deprecate` retires. No third lifecycle
+  transition is introduced — a stale record is not a new state, it is a verified record that needs a
+  human to say whether it still holds.
+- Exposed as `yoke review --stale` and `GET /api/review?stale=1` — the same command and route as the
+  draft queue, because the contract clause names `review` and because both queues take the same two
+  actions. `--type` narrows either queue.
+
 ### Anchored injection (v4.0 — shared working context, and persona)
 
 `inject(query, { scope })` where `scope` is an entity id to anchor on. **One mechanism, two named
@@ -221,12 +275,12 @@ endpoint shares it at `POST /mcp`.
 |---|---|---|---|
 | `GET /` and the static bundle | — (no knowledge) | ungated, even under `--auth` | no |
 | `GET /api/meta` | — | ungated | no |
-| `GET /api/review` | `listEntities({status:'draft', ns})` | read | no |
+| `GET /api/review` | `listEntities({status:'draft', ns})`, or `staleEntities` with `?stale=1` | read | no |
 | `GET /api/conflicts` | `listRelationsByType('conflicts_with', ns)` | read | no |
 | `GET /api/ontology` | `loadOntology(ns)` | read | no |
 | `GET /api/entities` | `listEntities` | read (typed when `?type=`) | no |
 | `GET /api/entity/:id` | `getEntity` + `listHistory` + `neighbors` | read (typed) | **yes** (`read`) |
-| `GET /api/inject` | `inject(query, {scope, ns})` | read | **yes** (`inject_preview`) |
+| `GET /api/inject` | `inject(query, {scope, asOf, ns})` | read | **yes** (`inject_preview`) |
 | `GET /api/persona/:id` | `personaQuery` | read | **yes** (`persona`) |
 | `GET /api/search` | `search({text, type, status, limit, ns})` | read (typed when `?type=`) | **yes** (`search`) |
 | `GET /api/graph` | `listEntities` + `listRelations` | read | no |
@@ -303,6 +357,26 @@ Rules that hold for every route:
   `detail` uses the same shape in both (`<subject> -> <id> <id> …`, or a bare id list for a
   lifecycle transition) so rows from different adapters are comparable. A parity test in
   `cli.test.ts` asserts the CLI writes the actions it owns and never writes `inject_preview`.
+
+  **The subject is a space-separated token list** (amended v5.2), not one opaque string. A token
+  shaped like a ULID names a record and is resolved for reading; anything else is literal text. That
+  generalises what the audit route already did for a `persona` row — whose whole subject is a person
+  id — and it is what lets an injection say which anchor it used:
+
+  | shape of `detail` | what it records |
+  |---|---|
+  | `<query> -> <ids>` | an unscoped query |
+  | `<anchorId> <query> -> <ids>` | a query with a working-context anchor |
+  | `<anchorId> -> <ids>` | a briefing (anchor, no query) |
+  | `<anchorId> @<asOf> <query> -> <ids>` | an as-of read — without the timestamp the trail cannot tell a historical read from a current one |
+
+  Three adapters were formatting this string themselves and only the shapes above are legal, so the
+  formatter is **one function** in `src/front/display.ts` (where `summarize` already lives for the
+  same reason: two copies had drifted and one carried a bug fix the other did not).
+
+  This is what makes the workload composition measurable — which of briefing / plain query / anchored
+  query the injections actually are. docs/RESEARCH.md records why that number decides the retrieval
+  design and why it must be measured before anything is built on a guess about it.
 - **Every row carries a citation**, source and version, on every screen (since v2.5).
 - **Namespace isolation holds on every route**, including the global listings. `getEntity`
   is id-based and deliberately not ns-filtered, so a route that resolves an id re-checks
@@ -328,10 +402,10 @@ yoke search <text> [--type t] [--status s] [--limit n]   # the port's FTS; what 
 yoke link <from> <relation> <to>   # record a relation — the only creation path for one
 yoke list [--type t] [--status s] [--limit n] [--after id]   # enumerate (keyset paging)
 yoke graph [--limit n]     # the entity/relation graph, bounded, truncation reported
-yoke review                # list drafts
-yoke verify <id...>        # promote (batch), refresh last_confirmed
+yoke review [--stale] [--type t]   # list drafts; --stale lists verified records past their TTL
+yoke verify <id...>        # promote (batch), refresh last_confirmed — also how a stale record is re-confirmed
 yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction)
-yoke inject <query> [--include-draft] [--limit n] [--scope id]   # retrieve, with citations
+yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]   # retrieve, with citations
 yoke conflicts             # list conflicts_with
 yoke history <id>          # every version of one id (the append-only rows)
 yoke audit [--since ts] [--limit n]   # the injection / governance audit trail

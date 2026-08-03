@@ -30,7 +30,7 @@ import { backfillAuthorship } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, inject } from "../../core/inject.js";
-import { deprecate, verify } from "../../core/lifecycle.js";
+import { deprecate, staleEntities, verify } from "../../core/lifecycle.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import { seedOntology, type TypeDef } from "../../core/ontology.js";
 import {
@@ -39,7 +39,7 @@ import {
   safeName,
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
-import { summarize } from "../display.js";
+import { injectDetail, summarize } from "../display.js";
 import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
 import { openStore, type YokeStore } from "../store.js";
@@ -79,6 +79,8 @@ type Values = {
   relations?: boolean;
   after?: string;
   status?: string;
+  "as-of"?: string;
+  stale?: boolean;
 };
 
 const OPTIONS = {
@@ -114,6 +116,8 @@ const OPTIONS = {
   relations: { type: "boolean" },
   after: { type: "string" },
   status: { type: "string" },
+  "as-of": { type: "string" },
+  stale: { type: "boolean" },
 } as const;
 
 type Env = Record<string, string | undefined>;
@@ -552,8 +556,36 @@ async function cmdSearch(
 
 async function cmdReview(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
+  const limit = v.limit === undefined ? undefined : Number(v.limit);
   return withStore(v, env, async (store) => {
     const ontology = store.loadOntology(ns);
+    // --stale is the OTHER queue: verified records past their type's TTL. SPEC has said since v1 that
+    // viewing stale is review's job, and this command listed drafts only — so knowledge left injection
+    // with nobody told. The rows carry the owner because the fix is a person, not a flag.
+    if (v.stale) {
+      const { items, next, scanned } = await staleEntities(
+        store,
+        ontology,
+        now(),
+        { ns, type: v.type, limit, after: v.after },
+      );
+      if (items.length === 0) {
+        emit(v, `no stale records (scanned ${scanned} verified)`, []);
+        return 0;
+      }
+      const lines = items.map(
+        (e) =>
+          `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${e.provenance.actor}  last confirmed ${e.last_confirmed}`,
+      );
+      // The scan is bounded, so say what it covered — "3 stale" alone reads as "3 stale in the whole
+      // corpus", which is a claim this walk did not make.
+      lines.push(
+        `-- ${items.length} stale among ${scanned} verified records scanned` +
+          (next === null ? "" : `; more to scan: --after ${next}`),
+      );
+      emit(v, lines.join("\n"), items);
+      return 0;
+    }
     const drafts = (
       await store.listEntities({ status: "draft", ns, type: v.type })
     ).items;
@@ -652,8 +684,9 @@ async function cmdInject(
   // adapter a human uses unable to reproduce what an agent receives (the CLI-achievable rule).
   if (!query && v.scope === undefined) {
     console.error(
-      "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id]\n" +
-        "       yoke inject --scope <id>            briefing of that working context",
+      "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]\n" +
+        "       yoke inject --scope <id>            briefing of that working context\n" +
+        "       yoke inject <query> --as-of <ts>    what this would have injected then",
     );
     return 1;
   }
@@ -673,12 +706,16 @@ async function cmdInject(
       // The MCP tool has always passed a scope; the CLI never did, so the two front ends could not
       // reproduce each other's results (WEB-UI's CLI-achievable rule).
       scope: v.scope,
+      asOf: v["as-of"],
     });
     // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core stays pure.
     store.logAudit({
       actor: resolveActor(v, env),
       action: "inject",
-      detail: `${query} -> ${items.map((it) => it.entity.id).join(" ")}`,
+      detail: injectDetail(
+        items.map((it) => it.entity.id),
+        { query, scope: v.scope, asOf: v["as-of"] },
+      ),
       at: ts,
       ns,
     });

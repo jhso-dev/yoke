@@ -8,6 +8,7 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
+import { isoFromLocalInput, localTime } from "../../lib/time";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -25,6 +26,11 @@ function InjectBody() {
   const q = params.get("q") ?? "";
   const scope = params.get("scope") ?? "";
   const includeDraft = params.get("draft") === "1";
+  // The control's own vocabulary is local wall time (`2026-07-30T16:43`) and that is what stays in the
+  // URL, so a shared link reopens the same field. The ISO instant is derived at request time — the
+  // audit screen learned the hard way that round-tripping ISO through `value` blanks the field.
+  const asOfLocal = params.get("asOf") ?? "";
+  const asOf = isoFromLocalInput(asOfLocal);
   const [draft, setDraft] = useState(q);
   const [draftScope, setDraftScope] = useState(scope);
 
@@ -36,19 +42,27 @@ function InjectBody() {
             scope: scope || undefined,
             includeDraft,
             limit: 50,
+            asOf: asOf || undefined,
           })
         : Promise.resolve(null),
-    [q, scope, includeDraft],
+    [q, scope, includeDraft, asOf],
   );
 
-  const run = (next: { q?: string; scope?: string; draft?: boolean }) => {
+  const run = (next: {
+    q?: string;
+    scope?: string;
+    draft?: boolean;
+    asOf?: string;
+  }) => {
     const u = new URLSearchParams();
     const nq = next.q ?? draft;
     const ns = next.scope ?? draftScope;
     const nd = next.draft ?? includeDraft;
+    const na = next.asOf ?? asOfLocal;
     if (nq) u.set("q", nq);
     if (ns) u.set("scope", ns);
     if (nd) u.set("draft", "1");
+    if (na) u.set("asOf", na);
     router.replace(`/inject/${u.toString() ? `?${u}` : ""}`);
   };
 
@@ -94,6 +108,25 @@ function InjectBody() {
           />
           {t.inject.includeDraft}
         </label>
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {t.inject.asOf}
+          <input
+            type="datetime-local"
+            value={asOfLocal}
+            onChange={(e) => run({ asOf: e.target.value })}
+            aria-label="asOf"
+            title={t.inject.asOfHint}
+          />
+        </label>
+        {asOfLocal && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => run({ asOf: "" })}
+          >
+            {t.inject.asOfClear}
+          </Button>
+        )}
       </form>
 
       {!q && !scope ? (
@@ -109,6 +142,16 @@ function InjectBody() {
           {includeDraft && (
             <div className="banner" data-kind="warn">
               {t.inject.draftsIncluded}
+            </div>
+          )}
+          {/* Flagged from the SERVER's echo, not from the local field: if the two ever disagree, what
+              matters is which clock actually produced these rows. A historical result that read as a
+              current one would be worse than not offering the view at all. */}
+          {result.data?.asOf && (
+            <div className="banner" data-kind="warn">
+              {t.inject.asOfActive(localTime(result.data.asOf))}
+              <br />
+              <span className="muted">{t.inject.asOfCeiling}</span>
             </div>
           )}
           <div className="panel">

@@ -15,12 +15,17 @@ import { backfillAuthorship } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
-import { deprecate, effectiveStatus, verify } from "../../core/lifecycle.js";
+import {
+  deprecate,
+  effectiveStatus,
+  staleEntities,
+  verify,
+} from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
-import { summarize } from "../display.js";
+import { injectDetail, summarize, ULID } from "../display.js";
 import { openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
 
@@ -374,6 +379,31 @@ export function createUiHandler(
 
     if (method === "GET" && path === "/api/review") {
       if (!authorize("read") && deny(res)) return;
+      // The other queue: verified records past their type's TTL. SPEC's injection filter has said
+      // since v1 that "viewing stale is the job of review/CLI" and neither showed one, so stale
+      // knowledge left injection with nobody told — the failure docs/RESEARCH.md's freshness findings
+      // all land on. Same route because it takes the same two actions.
+      if (url.searchParams.get("stale") === "1") {
+        const { items, next, scanned } = await staleEntities(
+          store,
+          store.loadOntology(ns),
+          now(),
+          {
+            ns,
+            type: url.searchParams.get("type") ?? undefined,
+            limit: intParam(url, "limit", 100, 1000),
+            after: url.searchParams.get("after") ?? undefined,
+          },
+        );
+        // `scanned` travels with the rows: the walk is bounded, so a screen that printed only the
+        // count would be claiming a corpus-wide number this did not compute.
+        sendJson(res, 200, {
+          items: await Promise.all(items.map(asRow())),
+          next,
+          scanned,
+        });
+        return;
+      }
       // Every draft in the namespace. It carries no peer approval state — not because it is
       // filtered out, but because none exists: verify is immediate and per-actor, so there is no
       // pending approval to leak. The Delphi independence constraint (docs/RESEARCH.md §2–3) binds
@@ -538,6 +568,14 @@ export function createUiHandler(
         throw new Error("q or scope is required (scope alone is a briefing)");
       const ts = now();
       const includeDraft = url.searchParams.get("includeDraft") === "true";
+      // As-of: what this query would have injected then. Rejected here rather than passed through, so
+      // a typo produces a 400 instead of Date.parse's NaN quietly excluding every record — a screen
+      // showing "0 records" for a bad date reads as "we knew nothing then", which is a lie.
+      const asOfParam = url.searchParams.get("asOf") ?? undefined;
+      if (asOfParam !== undefined && Number.isNaN(Date.parse(asOfParam))) {
+        sendJson(res, 400, { error: "asOf must be an ISO instant" });
+        return;
+      }
       const { items, omitted } = await inject(
         store,
         store.loadOntology(ns),
@@ -550,12 +588,16 @@ export function createUiHandler(
           limit: intParam(url, "limit", BRIEFING_LIMIT, 500),
           ns,
           scope,
+          asOf: asOfParam,
         },
       );
       store.logAudit({
         actor,
         action: "inject_preview",
-        detail: `${query} -> ${items.map((it) => it.entity.id).join(" ")}`,
+        detail: injectDetail(
+          items.map((it) => it.entity.id),
+          { query, scope, asOf: asOfParam },
+        ),
         at: ts,
         ns,
       });
@@ -563,6 +605,7 @@ export function createUiHandler(
       sendJson(res, 200, {
         query,
         scope: scope ?? null,
+        asOf: asOfParam ?? null,
         includeDraft,
         omitted,
         items: await Promise.all(items.map((it) => asR(it.entity))),
@@ -690,11 +733,14 @@ export function createUiHandler(
             .split(" ")
             .filter(Boolean)
             .slice(0, AUDIT_REFS);
-          // A `persona` row's subject is the person whose judgment was read, so it is an id too and
-          // was rendering as one. An `inject` row's subject is a query string; only try the ones
-          // shaped like a ULID, so a query never costs a pointless point read.
+          // The subject is a TOKEN LIST, not one opaque string (SPEC "HTTP API"): a persona row's
+          // subject is a person id, an anchored injection's is an anchor id followed by the query
+          // text. Testing the whole head against the ULID shape only resolved the first case, so an
+          // anchored injection would have rendered its anchor as a raw ULID. Only ULID-shaped tokens
+          // are looked up, so query words never cost a point read.
           const head = after.length > 1 ? (after[0] ?? "") : "";
-          if (/^[0-9A-HJKMNP-TV-Z]{26}$/.test(head)) ids.unshift(head);
+          for (const token of head.split(" ").filter(Boolean))
+            if (ULID.test(token)) ids.unshift(token);
           const refs = (
             await Promise.all(
               ids.map(async (id) => {

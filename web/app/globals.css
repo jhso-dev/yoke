@@ -489,6 +489,53 @@ td.num {
   margin-bottom: 12px;
 }
 
+/* A choice between two or three views of the same screen — the review queues.
+   Native radios, visually hidden but still the thing focus and screen readers land on: the state IS
+   a radio group, so borrowing buttons would mean re-announcing it with aria by hand. Height matches
+   .btn (28px) so it sits level in a .controls row. */
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.segmented label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  background: var(--background);
+  cursor: pointer;
+}
+
+.segmented label + label {
+  border-left: 1px solid var(--border);
+}
+
+.segmented label[data-active] {
+  background: var(--secondary);
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+/* Off-screen rather than display:none — a hidden input cannot be focused, and this one must be. */
+.segmented input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented label:focus-within {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 .copy-code {
   display: inline-flex;
   align-items: center;

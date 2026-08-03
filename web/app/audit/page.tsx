@@ -33,22 +33,42 @@ function Detail({ event }: { event: AuditEntry }) {
   // Two shapes: `<subject> -> <id> …` for a read, a bare id list for verify/deprecate. Returning the
   // raw text when there is no arrow is what made a verify row a column of ULIDs.
   const [head, right] = event.detail.split(" -> ");
-  // With an arrow the head is the query or person that was read; without one the whole string is the
-  // id list, and printing it as a subject would put the ULIDs back beside their resolved form.
+  // With an arrow the head is the subject; without one the whole string is the id list, and printing
+  // it as a subject would put the ULIDs back beside their resolved form.
   const subject = right === undefined ? "" : head;
   const all = (right ?? head ?? "").split(" ").filter(Boolean);
   if (all.length === 0) return <span className="muted">{t.audit.nothing}</span>;
   const ids = all.slice(0, SHOW_REFS);
   const more = all.length - ids.length;
   const byId = new Map((event.refs ?? []).map((r) => [r.id, r]));
-  const subjectRef = byId.get(subject);
+  // The subject is a TOKEN LIST (SPEC "HTTP API"): a persona row's is one person id, an anchored
+  // injection's is an anchor id then the query text, and an as-of read prefixes `@<instant>`. Treating
+  // it as one opaque string resolved only the single-token case, so an anchored injection would print
+  // its anchor as a raw ULID next to the resolved names of everything it returned.
+  const subjectTokens = subject.split(" ").filter(Boolean);
   return (
     <>
-      {subject && (
+      {subjectTokens.length > 0 && (
         <>
-          {/* A persona row's subject is a person id, and the server resolves it into refs — render
-              the name when it is there rather than the ULID it was stored as. */}
-          <span>{subjectRef ? recordLabel(subjectRef) : subject}</span>
+          {subjectTokens.map((tok, i) => {
+            const ref = byId.get(tok);
+            return (
+              // The index is part of the key because a subject can legitimately repeat a token — a
+              // query is free text and "cache cache" is a query. This list is derived from one
+              // immutable string and is never reordered.
+              // biome-ignore lint/suspicious/noArrayIndexKey: tokens are not unique; the detail is immutable.
+              <span key={`${tok}-${i}`}>
+                {i > 0 && " "}
+                {ref ? (
+                  <Link href={`/entity/?id=${encodeURIComponent(tok)}`}>
+                    {recordLabel(ref)}
+                  </Link>
+                ) : (
+                  <span>{tok}</span>
+                )}
+              </span>
+            );
+          })}
           <span className="muted">
             {" "}
             <DirectionIcon direction="right" />{" "}

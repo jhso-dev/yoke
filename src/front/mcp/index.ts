@@ -17,6 +17,7 @@ import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity, EntityInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
+import { injectDetail } from "../display.js";
 import { openStore } from "../store.js";
 
 const ORIGIN = "mcp";
@@ -195,10 +196,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         scope: anchor,
       });
       // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
+      // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
+      // unscoped one, and which of the two agents actually do is the measurement that decides whether
+      // graph expansion is worth investing in at all (docs/RESEARCH.md).
       store.logAudit?.({
         actor: defaultActor,
         action: "inject",
-        detail: `${query} -> ${items.map((it) => it.entity.id).join(" ")}`,
+        detail: injectDetail(
+          items.map((it) => it.entity.id),
+          { query, scope: anchor },
+        ),
         at: ts,
         ns,
       });

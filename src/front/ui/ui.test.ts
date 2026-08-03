@@ -1095,3 +1095,161 @@ describe("schema and maintenance from the browser", () => {
     expect((await postRaw("/api/rename-type", { from: "a" })).status).toBe(400);
   });
 });
+
+// The measurement that decides whether graph expansion is worth investing in: which of briefing /
+// plain query / anchored query the injections actually are (docs/RESEARCH.md). It was unrecordable —
+// all three shapes wrote the query alone, so an anchored injection was indistinguishable from an
+// unscoped one in the trail.
+describe("an injection records WHICH shape it was", () => {
+  const subjectOf = (detail: string) => detail.split(" -> ")[0];
+
+  it("names the anchor in the subject, and resolves it for reading", async () => {
+    await get(
+      `/api/inject?scope=${encodeURIComponent(collaborationId)}&q=tokens`,
+    );
+    const entry = store
+      .listAudit()
+      .filter((a) => a.action === "inject_preview")
+      .at(-1);
+    // The anchor leads the subject, the query follows it.
+    expect(subjectOf(entry?.detail ?? "").split(" ")).toEqual([
+      collaborationId,
+      "tokens",
+    ]);
+
+    // And the route resolves it, so the audit screen shows the collaboration's name rather than a
+    // ULID. Testing the WHOLE head against the ULID shape only ever resolved a single-token subject,
+    // which is why this needed the token-list parser.
+    const shown = (await get("/api/audit")).items
+      .filter((e: { action: string }) => e.action === "inject_preview")
+      .at(-1);
+    expect(shown.refs?.map((r: { id: string }) => r.id)).toContain(
+      collaborationId,
+    );
+  });
+
+  it("a briefing's subject is the anchor alone, so it is attributable too", async () => {
+    await get(`/api/inject?scope=${encodeURIComponent(collaborationId)}`);
+    const entry = store
+      .listAudit()
+      .filter((a) => a.action === "inject_preview")
+      .at(-1);
+    expect(subjectOf(entry?.detail ?? "")).toBe(collaborationId);
+  });
+
+  it("an unscoped query still writes the query alone — the old rows stay comparable", async () => {
+    await get(`/api/inject?q=${encodeURIComponent("tokens")}`);
+    const entry = store
+      .listAudit()
+      .filter((a) => a.action === "inject_preview")
+      .at(-1);
+    expect(subjectOf(entry?.detail ?? "")).toBe("tokens");
+  });
+});
+
+describe("as-of injection over HTTP", () => {
+  it("records the instant in the trail, so a historical read is not mistaken for a current one", async () => {
+    const out = await get(
+      `/api/inject?q=${encodeURIComponent("tokens")}&asOf=2026-07-15T00:00:00Z`,
+    );
+    // Echoed back: the screen banners off the SERVER's value, because what matters is which clock
+    // produced these rows.
+    expect(out.asOf).toBe("2026-07-15T00:00:00Z");
+    const entry = store
+      .listAudit()
+      .filter((a) => a.action === "inject_preview")
+      .at(-1);
+    expect(entry?.detail).toContain("@2026-07-15T00:00:00Z");
+  });
+
+  it("asOf is null on a normal read", async () => {
+    expect(
+      (await get(`/api/inject?q=${encodeURIComponent("tokens")}`)).asOf,
+    ).toBeNull();
+  });
+
+  it("rejects an unparseable instant instead of silently returning nothing", async () => {
+    // Date.parse gives NaN, every comparison then fails, and the screen would show "0 records" —
+    // which reads as "we knew nothing then". A 400 is the honest answer to a typo.
+    const res = await fetch(`${base}/api/inject?q=tokens&asOf=last-tuesday`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/ISO instant/);
+  });
+});
+
+describe("the stale queue over HTTP (SPEC's unimplemented clause)", () => {
+  /** The same store and routes, read from a clock far enough ahead that a `fact` has aged out.
+   * Freshness is computed against the request's clock, so moving the clock is the only way to make a
+   * record stale — there is no stored flag to set. */
+  const laterServer = async (when: string) => {
+    const s = createUiServer({
+      store,
+      actor: "reviewer",
+      now: () => when,
+      webRoot: null,
+    });
+    await new Promise<void>((r) => s.listen(0, r));
+    const at = `http://localhost:${(s.address() as AddressInfo).port}`;
+    return {
+      get: (p: string) => fetch(at + p).then((r) => r.json()),
+      close: () => s.close(),
+    };
+  };
+
+  it("returns verified records past their TTL, and not the ones that cannot age", async () => {
+    // `fact` declares ttl_days; `term` declares none. Both verified at the suite's clock.
+    await post("/api/verify", { ids: [factId, termId] });
+
+    // Non-vacuity first: at the suite's own clock nothing has aged, so the route is not merely
+    // returning every verified row.
+    const fresh = await get("/api/review?stale=1");
+    expect(fresh.items).toEqual([]);
+    expect(fresh.scanned).toBeGreaterThan(0);
+
+    // A year on, the fact is past its window and the term still is not.
+    const late = await laterServer("2027-09-01T00:00:00Z");
+    try {
+      const aged = await late.get("/api/review?stale=1");
+      const ids = aged.items.map((i: { id: string }) => i.id);
+      expect(ids).toContain(factId);
+      expect(ids).not.toContain(termId);
+      // Rendered as stale, and the row carries the owner — the whole point of the screen is routing
+      // it to a person, so the actor has to survive to the client.
+      const row = aged.items.find((i: { id: string }) => i.id === factId);
+      expect(row.effectiveStatus).toBe("stale");
+      expect(row.actor).toBeTruthy();
+      // The walk is bounded, so it says what it examined.
+      expect(aged.scanned).toBeGreaterThanOrEqual(aged.items.length);
+    } finally {
+      late.close();
+    }
+  });
+
+  it("limit pages the queue and hands back a cursor that resumes the scan", async () => {
+    const late = await laterServer("2027-09-01T00:00:00Z");
+    try {
+      const first = await late.get("/api/review?stale=1&limit=1");
+      expect(first.items.length).toBe(1);
+      // With more stale rows behind it the cursor is non-null; the union of the pages is what a
+      // screen paging through would see, and core's own test pins that it loses nothing.
+      if (first.next !== null) {
+        const rest = await late.get(
+          `/api/review?stale=1&after=${encodeURIComponent(first.next)}`,
+        );
+        expect(
+          [...first.items, ...rest.items].map((i: { id: string }) => i.id),
+        ).toContain(first.items[0].id);
+      }
+    } finally {
+      late.close();
+    }
+  });
+
+  it("the draft queue is unaffected by the parameter it does not get", async () => {
+    const drafts = await get("/api/review");
+    // Still an array, not the {items,next,scanned} envelope — the two shapes are different on
+    // purpose and a screen switching tabs must not get one where it expects the other.
+    expect(Array.isArray(drafts)).toBe(true);
+    for (const d of drafts) expect(d.effectiveStatus).toBe("draft");
+  });
+});
