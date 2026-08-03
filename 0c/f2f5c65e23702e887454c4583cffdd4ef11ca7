@@ -1,0 +1,15 @@
+src/adapters/storage-sqlite/index.test.ts
+  h_9aabb7d8448c0a 22-129
+src/adapters/storage-sqlite/index.ts
+  h_9aabb7d8448c0a 80-108
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "0cf2f5c65e23702e887454c4583cffdd4ef11ca7",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
