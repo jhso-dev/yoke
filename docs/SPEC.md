@@ -446,7 +446,12 @@ Rules that hold for every route:
 
   This is what makes the workload composition measurable — which of briefing / plain query / anchored
   query the injections actually are. docs/RESEARCH.md records why that number decides the retrieval
-  design and why it must be measured before anything is built on a guess about it.
+  design and why it must be measured before anything is built on a guess about it. **`yoke audit
+  --shape` is the read**: it classifies `inject` rows by the table above and reports as-of separately,
+  since a historical read is still one of the three shapes and not a fourth. It counts `inject` only —
+  `inject_preview` is a human looking at a screen, and averaging the two would answer what people
+  click when the question is what agents ask — and reports the rows it skipped rather than narrowing
+  the denominator in silence.
 - **Every row carries a citation**, source and version, on every screen (since v2.5).
 - **Namespace isolation holds on every route**, including the global listings. `getEntity`
   is id-based and deliberately not ns-filtered, so a route that resolves an id re-checks
@@ -478,7 +483,7 @@ yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction)
 yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]   # retrieve, with citations
 yoke conflicts             # list conflicts_with
 yoke history <id>          # every version of one id (the append-only rows)
-yoke audit [--since ts] [--limit n]   # the injection / governance audit trail
+yoke audit [--since ts] [--limit n] [--shape]   # the injection / governance audit trail; --shape counts workload composition
 yoke ontology <subcmd>     # inspect types / migrate
 yoke persona <person>      # generate/export a persona skill (SKILL.md)
 yoke backfill              # derive missing authored_by edges (upgrade path, idempotent)

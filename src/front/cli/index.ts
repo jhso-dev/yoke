@@ -44,10 +44,10 @@ import {
   safeName,
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
-import { injectDetail, summarize } from "../display.js";
+import { injectDetail, injectShape, summarize } from "../display.js";
 import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
-import { openStore, type YokeStore } from "../store.js";
+import { type AuditEvent, openStore, type YokeStore } from "../store.js";
 import { runUi } from "../ui/server.js";
 import { banner, decorated, getStartedBlock, log } from "./banner.js";
 
@@ -88,6 +88,7 @@ type Values = {
   stale?: boolean;
   embeddings?: boolean;
   rebuild?: boolean;
+  shape?: boolean;
 };
 
 const OPTIONS = {
@@ -127,6 +128,7 @@ const OPTIONS = {
   stale: { type: "boolean" },
   embeddings: { type: "boolean" },
   rebuild: { type: "boolean" },
+  shape: { type: "boolean" },
 } as const;
 
 type Env = Record<string, string | undefined>;
@@ -186,6 +188,7 @@ knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, p
 capture:    connect github-pr|slack|notes|rdb
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
 data:       backup, restore, export, audit, backfill, rename-type
+  audit --shape             workload composition: anchored / briefing / plain injections
 
 common options: --db <path> --ns <namespace> --actor <id> --json
 run 'yoke <command>' with missing args to see its usage`;
@@ -818,12 +821,46 @@ async function cmdAudit(v: Values, env: Env): Promise<number> {
       ns,
       limit: v.limit === undefined ? undefined : Number(v.limit),
     });
+    if (v.shape) return emitShapes(v, events);
     const lines = events.map(
       (e) => `${e.at}  ${e.actor}  ${e.action}  ${e.detail}`,
     );
     emit(v, events.length ? lines.join("\n") : "no audit events", events);
     return 0;
   });
+}
+
+/** `yoke audit --shape` — the workload composition of what models were actually given.
+ *
+ * Counts `inject` only: `inject_preview` is a human looking at a screen, and mixing the two would
+ * answer "what do people click" when the question is "what do agents ask" (docs/RESEARCH.md §5).
+ * The other actions are counted too but only as a skipped total, so the denominator is never silent. */
+function emitShapes(v: Values, events: AuditEvent[]): number {
+  const counts = { anchored: 0, briefing: 0, plain: 0 };
+  let asOf = 0;
+  let previews = 0;
+  let other = 0;
+  for (const e of events) {
+    if (e.action === "inject_preview") previews++;
+    else if (e.action !== "inject") other++;
+    else {
+      const s = injectShape(e.detail);
+      counts[s.shape]++;
+      if (s.asOf) asOf++;
+    }
+  }
+  const total = counts.anchored + counts.briefing + counts.plain;
+  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+  const human = [
+    `inject rows: ${total}`,
+    ...Object.entries(counts).map(
+      ([k, n]) => `  ${k.padEnd(9)} ${String(n).padStart(5)}  ${pct(n)}%`,
+    ),
+    `  as-of     ${String(asOf).padStart(5)}  ${pct(asOf)}%  (orthogonal — also counted above)`,
+    `skipped: ${previews} inject_preview, ${other} other`,
+  ].join("\n");
+  emit(v, human, { total, ...counts, asOf, skipped: { previews, other } });
+  return 0;
 }
 
 async function cmdConflicts(v: Values, env: Env): Promise<number> {

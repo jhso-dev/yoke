@@ -150,7 +150,9 @@ query / anchored query distinguishable in the trail (SPEC "HTTP API", the `detai
 
 **Nothing further should be built on a guess about that ratio.** Read it out of the audit log first —
 that is this section's operative conclusion, and it is the source document's own argument turned on
-us.
+us. The read is `yoke audit --shape` (SPEC "HTTP API", the `detail` shape table): it was instrumented
+in v5.2 and nothing consumed it, so the number existed and was still unknown. **Having the command is
+not having the answer** — this note stays open until a real trail has been read.
 
 ### Measured 2026-08-03: the vector half was missing, and then it was misconfigured
 
