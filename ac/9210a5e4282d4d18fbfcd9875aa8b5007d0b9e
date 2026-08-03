@@ -1,0 +1,19 @@
+CLAUDE.md
+  h_9aabb7d8448c0a 37
+docs/ROADMAP.md
+  h_9aabb7d8448c0a 158-163
+docs/SCALE.md
+  h_9aabb7d8448c0a 1-147
+docs/SPEC.md
+  h_9aabb7d8448c0a 86-108
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "ac9210a5e4282d4d18fbfcd9875aa8b5007d0b9e",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
