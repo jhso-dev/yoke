@@ -3,9 +3,9 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { en } from "./en";
 import { ko } from "./ko";
+import { chooseLocale, LOCALES, type Locale } from "./locale";
 
-export const LOCALES = { en: "English", ko: "한국어" } as const;
-export type Locale = keyof typeof LOCALES;
+export { chooseLocale, LOCALES, type Locale };
 
 const DICTS = { en, ko };
 const STORAGE_KEY = "yoke.locale";
@@ -26,11 +26,6 @@ const LocaleContext = createContext<{
   locale: Locale;
   setLocale: (l: Locale) => void;
 }>({ locale: "en", setLocale: () => {} });
-
-export function chooseLocale(stored: string | null): Locale {
-  if (stored === "en" || stored === "ko") return stored;
-  return "en";
-}
 
 function detect(): Locale {
   return chooseLocale(localStorage.getItem(STORAGE_KEY));
