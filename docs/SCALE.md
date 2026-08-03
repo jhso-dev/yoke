@@ -1,0 +1,147 @@
+# yoke — what breaks at scale, measured
+
+Measured 2026-08-02 on one machine (darwin, node 22, better-sqlite3, WAL). Synthetic corpora of
+10k / 100k / 1M / 10M `fact` entities and, separately, 3M relations over the 1M corpus. Status mix
+70% verified / 20% draft / 10% deprecated; `last_confirmed` spread over Jan–Aug 2026 against a
+`fact` TTL of 180 days, so roughly a sixth of the corpus is `stale`. Numbers are medians of 3–5
+runs. Every measurement drove the **shipped** `SqliteStorage` and the **shipped** `inject()` —
+nothing was reimplemented for the benchmark, so a bad number here was a bad number in production.
+
+The seeder and benchmarks are not in the repo: they exist to produce this table, and a 4 GB fixture
+is not something to check in. What matters is reproducible from the numbers and the queries quoted
+below.
+
+## The headline
+
+**Injection did not get slow first. It got wrong first, at every scale.**
+
+| | 10k | 100k | 1M | 10M |
+|---|---|---|---|---|
+| `inject(query, {limit: 50})` | 0.2 ms | 1.0 ms | 10.3 ms | 131.6 ms |
+| items an agent asked 50 for, and received | 29 | 29 | 29 | **29** |
+| `listEntities({limit: 50})` (first page) | 0.1 ms | 0.1 ms | 0.1 ms | 0.1 ms |
+
+Two independent defects produce that 29:
+
+1. **The cap was applied before the filter.** `inject` passed `limit` into `search()` and then ran
+   the verified/freshness filter in JS. 58.9% of the corpus was injectable, so a request for 50
+   candidates yielded 29 survivors — while 589,285 injectable records sat unreturned.
+2. **There was no relevance order at all.** FTS5 returns rowid order unless asked for `rank`, and
+   rowid order here is insertion order. So the 50 were the 50 **oldest** matches. At 1M, the top 50
+   by insertion order and the top 50 by bm25 shared **1 record out of 50**.
+
+Keyset enumeration, by contrast, was flat at every scale — clause 3 of the enumeration contract
+(`ORDER BY id` over a `WITHOUT ROWID` primary key) does what it was designed to do.
+
+## Where the time went
+
+At 10M entities, the same query under every combination (median ms):
+
+| | storage order | relevance order (`ORDER BY rank`) |
+|---|---|---|
+| exact token, no filter | 0.0 | 3,239 |
+| exact token, `status` pushed into SQL | 0.1 | 3,371 |
+| starred token (as shipped), no filter | 106.9 | 5,089 |
+| starred token, `status` pushed into SQL | 114.7 | 5,645 |
+
+The query term was present in **all ten million** documents — deliberately the worst case. At 1%
+selectivity (100k matches) relevance order cost 3.2 ms, and at 0.01% it cost 0.1 ms. **Selective
+queries were never the problem.** Only terms so common that ranking on them is close to meaningless
+are expensive, because bm25 has to score every match: FTS5 has no top-k early termination
+(no block-max WAND), so there is no way to ask it for "the best 50" without paying for all of them.
+
+### Missing indexes — the largest single number in this document
+
+The schema had **no secondary indexes at all**. Consequences, and what one index each does:
+
+| query | before | after | index |
+|---|---|---|---|
+| `listEntities({type})` on a type with no rows, 10M | **14,953 ms** | 3 ms | `entities(ns, type, id)` |
+| `neighbors(id)`, 3M relations, ordinary node with 3 edges | **232 ms** | 0 ms | `relations(from_id)` + `relations(to_id)` |
+| `neighbors(id)`, high-degree anchor (5,000 edges) | 231 ms | 5 ms | same |
+| `inject({scope})` — a briefing, which walks neighbors | **567 ms** | 48 ms | same |
+| `listRelations({type})` on a type with no rows, 3M | 202 ms | 0 ms | `relations(ns, type, id)` |
+
+`neighbors` was the one that mattered most and the one hardest to see: it cost the same 232 ms for a
+node with three edges as for one with five thousand, which is the signature of a full table scan.
+Entity detail calls it once, the graph screen calls it per expansion, every briefing walks it.
+
+SQLite resolves the `from_id = ? OR to_id = ?` disjunction with `MULTI-INDEX OR`, so two
+single-column indexes are the right shape — a composite would not be used. On a `WITHOUT ROWID`
+table every index implicitly carries the primary key, so `(from_id, id)` and `(from_id)` are
+byte-identical (178,593,792 bytes each, checked) and the shorter spelling is the honest one.
+
+**The price:** on the 1M-entity + 3M-relation database, 494 MB of index against 1.69 GB of data —
+about 29% growth. That is the cost of the fix and it is not small. It buys 46× on `neighbors` and
+5000× on a selective type filter.
+
+### The crash
+
+At 10M entities, `inject(query, {scope})` **killed the process** with a heap out-of-memory, in
+`Statement::JS_all` → `RowBuilder::GetRowJS`. The scope-with-query branch called
+`port.search({text, ns})` with no limit, so it tried to build ten million row objects. At 1M the
+same path took 3.6 s; at 10M there is no number, only a core dump. This was the flagship v4.0 path.
+
+## Two things that were **not** problems
+
+Recorded because the temptation is to fix them anyway:
+
+- **The briefing's N+1 `getEntity` loop.** 300 sequential point reads over the 1M corpus: 2.1 ms
+  total. `better-sqlite3` is synchronous, so the `await` in that loop is not a round trip. Batching
+  it would add code and change nothing.
+- **The `MAX(version)` correlated subquery** in every read query. It shows in the plan as
+  `CORRELATED SCALAR SUBQUERY` but resolves as `SEARCH entities USING PRIMARY KEY (id=?)` — a
+  primary-key seek per candidate row, which is what the `(id, version)` primary key is for.
+
+## A negative result worth keeping
+
+The adapter appends `*` to every query token, so `"system"` is issued as `"system"*`. Measured at
+1M, that star was the entire cost of the capped path (9.9 ms starred vs 0.0 ms exact) — a starred
+term forces FTS5 to materialize the whole matching doclist before returning a row, where an exact
+term streams and stops at the cap.
+
+**Adding an FTS5 prefix index (`prefix='2 3 4'`) did not help.** It grew the index from 173 MB to
+305 MB (+76%) and moved the query from 9.9 ms to 10.3 ms. The cost is the doclist merge, not the
+vocabulary lookup, so a prefix index has nothing to fix.
+
+And the star is not removable anyway: it is what makes a query token match a stem carrying an
+agglutinative suffix (searching `parseArgs` finds `parseArgs로`), which is a pinned conformance case.
+Once results are ordered by relevance the star's cost is dominated by the ranking pass — 5,089 ms
+starred vs 3,239 ms exact at the worst case, 36% rather than 100× — so the right call is to keep it
+and record why, not to trade Korean matching for a fraction of a degenerate query.
+
+## What the literature says about the shape of the fix
+
+Surveyed 2026-08-02, and the finding was the opposite of the intuition that scale means vectors:
+
+- **[BM25 Wins at Scale](https://arxiv.org/html/2607.26497)** (arXiv 2607.26497, 2026-07) varies
+  corpus size across 28 nested tiers to 511,959 documents / 600M tokens. BM25 overtakes agentic
+  file search at roughly 10M corpus tokens and leads by ~20 points at full scale (50.5% vs 30.7%).
+  **Dense retrieval is consistently below both** (58.1% → 29.9%). Graph-based indexing becomes
+  prohibitive to construct: LightRAG extrapolates to ~102B tokens, about four instance-years. The
+  authors' recommendation is that "BM25 is the appropriate default" at enterprise scale.
+- **Filtered ANN is not a solved problem.** yoke filters on `ns`, `status` and `type` on *every*
+  read, which is precisely the hard case — see the 2026 benchmarks
+  ([2507.21989](https://arxiv.org/html/2507.21989v3),
+  [2509.07789](https://arxiv.org/html/2509.07789v1)) and
+  [ACORN](https://dl.acm.org/doi/10.1145/3654923), whose approach is to ignore predicates at build
+  time and traverse the induced subgraph at query time.
+- **`sqlite-vec` is brute force**, which caps it in the low millions
+  ([release notes](https://alexgarcia.xyz/blog/2024/sqlite-vec-stable-release/index.html)). The
+  port's optional `similar?()` is therefore not a scale answer as it stands.
+
+So the FTS-first design is the right one on current evidence. What was wrong was how it was being
+called, not what it was calling.
+
+## The ceiling that remains
+
+Ranking a query whose terms match a large fraction of the corpus costs O(matches): ~3.2 s at 10M
+for a term in every document. There is no fix inside FTS5, because top-k early termination is an
+index feature it does not have. The upgrade path, if a corpus ever needs it, is an engine with
+block-max WAND (Tantivy, Lucene) behind the same port — which is exactly the shape the port exists
+to allow, and a decision to take on evidence rather than in advance.
+
+Not measured, and worth measuring before anyone relies on it: whether the *injectable* subset
+(verified, fresh, in-namespace) is small enough in a real governed corpus to be worth indexing
+separately. In this synthetic mix it was 58.9%, which is a 1.7× win and not worth the complexity.
+A real corpus with years of superseded knowledge could be very different.
