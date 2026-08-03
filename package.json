@@ -1,7 +1,7 @@
 {
   "name": "yoke",
   "version": "0.1.0",
-  "description": "Knowledge your AI can trust \u2014 ontology-based knowledge DB with governed context injection for AI agents",
+  "description": "Knowledge your AI can trust — ontology-based knowledge DB with governed context injection for AI agents",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -45,6 +45,7 @@
     "better-sqlite3": "^12.2.0",
     "jose": "^6.2.3",
     "kuzu": "^0.11.3",
+    "neo4j-driver-lite": "^6.2.0",
     "pg": "^8.16.0",
     "sqlite-vec": "^0.1.9",
     "ulid": "^3.0.1",

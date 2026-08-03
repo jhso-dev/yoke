@@ -30,7 +30,12 @@ import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, inject } from "../../core/inject.js";
-import { deprecate, staleEntities, verify } from "../../core/lifecycle.js";
+import {
+  deprecate,
+  listVersions,
+  staleEntities,
+  verify,
+} from "../../core/lifecycle.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import { seedOntology, type TypeDef } from "../../core/ontology.js";
 import {
@@ -284,7 +289,7 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
       return 0;
     }
     const ontology = seedOntology();
-    store.saveOntology(ontology);
+    await store.saveOntology(ontology);
     // Seed the yoke:system person — no gate bypass (putEntity). Use commit with a well-known id.
     // A nonexistent id creates version 1, so it passes the gate normally (bootstrap).
     const ts = now();
@@ -788,7 +793,10 @@ async function cmdHistory(
   }
   return withStore(v, env, async (store) => {
     const ontology = store.loadOntology(resolveNs(v.ns, env));
-    const versions = store.listHistory(id);
+    // Core's helper, not `store.listHistory` — that extension is synchronous and therefore absent on a
+    // remote backend (SPEC "Remote backends"). `listVersions` feature-detects it and otherwise walks
+    // `getEntity(id, version)`, so this command works on every backend.
+    const versions = await listVersions(store, id);
     if (versions.length === 0) {
       console.error(`not found: ${id}`);
       return 1;
@@ -874,7 +882,7 @@ async function cmdRenameType(
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     if (!requireOntology(store, ns, v, env)) return 1;
-    const rows = store.renameType(from, to, ns);
+    const rows = await store.renameType(from, to, ns);
     if (rows === 0) {
       // Not an error: nothing carried that name, so the database is already where the caller wants
       // it. Saying so beats an exit code that reads like a failure.
@@ -989,7 +997,7 @@ async function cmdOntology(
       // (e.g. shard tenant) ontology gets seeded — requiring one is a chicken-and-egg.
       // An existing name means a new version = a migration (same append-only model as entities).
       // ns targets a tenant ontology (overlaid on the shared base); omitted = shared.
-      store.saveOntology([def], ns);
+      await store.saveOntology([def], ns);
       emit(v, `saved type: ${def.name}`, def);
       return 0;
     });

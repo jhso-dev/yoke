@@ -18,6 +18,7 @@ import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
 import {
   deprecate,
   effectiveStatus,
+  listVersions,
   staleEntities,
   verify,
 } from "../../core/lifecycle.js";
@@ -523,7 +524,9 @@ export function createUiHandler(
           origin: e.provenance.origin,
           ...(e.ns != null ? { ns: e.ns } : {}),
         },
-        history: await Promise.all(store.listHistory(id).map(asR)),
+        // Core's helper, not `store.listHistory` — that extension is synchronous and therefore absent
+        // on a remote backend (SPEC "Remote backends"), and it is what makes this screen work there.
+        history: await Promise.all((await listVersions(store, id)).map(asR)),
         relations: {
           out: edges.filter((x) => x.dir === "out"),
           in: edges.filter((x) => x.dir === "in"),
@@ -991,7 +994,7 @@ export function createUiHandler(
       // and `resource` both are), and the CLI's JSON-file path allows omitting the key.
       const incoming = def as TypeDef;
       const typeDef: TypeDef = { ...incoming, attrs: incoming.attrs ?? {} };
-      store.saveOntology([typeDef], ns);
+      await store.saveOntology([typeDef], ns);
       sendJson(res, 201, typeDef);
       return;
     }
@@ -1048,7 +1051,7 @@ export function createUiHandler(
         return;
       }
       const ts = now();
-      const rows = store.renameType(from, to, ns);
+      const rows = await store.renameType(from, to, ns);
       if (rows > 0)
         store.logAudit({
           actor,

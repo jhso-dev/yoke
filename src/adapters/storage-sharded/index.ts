@@ -56,10 +56,13 @@ export type { AuditEvent, AuditQuery, TokenInfo };
 /** The full storage surface CLI/UI/serve rely on: the port plus the sqlite-shaped extension methods.
  *  SqliteStorage satisfies it structurally; ShardedStorage implements it by delegation. */
 export interface YokeStore extends StoragePort {
-  saveOntology(defs: TypeDef[], ns?: string | null): void;
+  /** async since v5.2: a remote backend writes over a network, and a synchronous
+   * fire-and-forget would discard the error (SPEC "Remote backends"). */
+  saveOntology(defs: TypeDef[], ns?: string | null): Promise<void>;
   loadOntology(ns?: string | null): TypeDef[];
   listHistory(id: string): Entity[];
-  renameType(from: string, to: string, ns?: string | null): number;
+  /** async since v5.2: it rewrites entity rows, and on a remote backend those are across a network. */
+  renameType(from: string, to: string, ns?: string | null): Promise<number>;
   logAudit(event: AuditEvent): void;
   listAudit(q?: AuditQuery): AuditEvent[];
   createToken(spec: { name: string; scopes: string[]; created_at: string }): {
@@ -247,8 +250,8 @@ export class ShardedStorage implements YokeStore {
 
   // --- Extension surface (delegation). ns-scoped → owner shard; un-scoped → fan-out concat. ---
 
-  saveOntology(defs: TypeDef[], ns?: string | null): void {
-    (this.ownerOf(ns).store as ExtStore).saveOntology?.(defs, ns);
+  async saveOntology(defs: TypeDef[], ns?: string | null): Promise<void> {
+    await (this.ownerOf(ns).store as ExtStore).saveOntology?.(defs, ns);
   }
 
   loadOntology(ns?: string | null): TypeDef[] {
@@ -265,11 +268,18 @@ export class ShardedStorage implements YokeStore {
 
   /** Every member renames its own rows — a vocabulary change is not per-shard the way a backup file
    * is, and leaving one shard on the old name is exactly the split a rename exists to prevent. */
-  renameType(from: string, to: string, ns?: string | null): number {
-    return this.members.reduce(
-      (n, m) => n + ((m.store as ExtStore).renameType?.(from, to, ns) ?? 0),
-      0,
+  async renameType(
+    from: string,
+    to: string,
+    ns?: string | null,
+  ): Promise<number> {
+    const counts = await Promise.all(
+      this.members.map(
+        async (m) =>
+          (await (m.store as ExtStore).renameType?.(from, to, ns)) ?? 0,
+      ),
     );
+    return counts.reduce((n, c) => n + c, 0);
   }
 
   // Audit + tokens: a single stream on the default shard.

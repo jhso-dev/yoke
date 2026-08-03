@@ -40,6 +40,50 @@ jobs:
       - run: npm ci
       - run: npm run test:kuzu
 
+  # storage-neo4j against a REAL Neo4j. Its test file skips itself when YOKE_TEST_NEO4J_URL is unset,
+  # which keeps `npm test` green on a laptop with no docker — and would keep it green here too, so
+  # this job exists to make sure the adapter is never only skipped. There is deliberately no fake:
+  # faking Cypher means the fake encodes the adapter's own assumptions and conformance proves nothing.
+  neo4j-adapter:
+    runs-on: ubuntu-latest
+    services:
+      neo4j:
+        image: neo4j:5
+        env:
+          NEO4J_AUTH: neo4j/testtest
+        ports:
+          - 7687:7687
+          - 7474:7474
+        # cypher-shell rather than a port probe: bolt accepts connections before the database is
+        # ready to answer, so a TCP check passes and the first query fails.
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p testtest 'RETURN 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run src/adapters/storage-neo4j
+        env:
+          YOKE_TEST_NEO4J_URL: bolt://localhost:7687
+          YOKE_TEST_NEO4J_USER: neo4j
+          YOKE_TEST_NEO4J_PASSWORD: testtest
+      # Non-vacuity: the suite above must not have been skipped. Without this the job is green either
+      # way, which is exactly the failure mode the windows job taught us (a silent skip reads as a pass).
+      - name: the neo4j suite actually ran
+        run: |
+          npx vitest run src/adapters/storage-neo4j --reporter=json --outputFile=/tmp/n4j.json
+          node -e "const r=require('/tmp/n4j.json');if(!r.numPassedTests)throw new Error('neo4j suite ran 0 tests — it skipped');console.log(r.numPassedTests+' neo4j tests ran')"
+        env:
+          YOKE_TEST_NEO4J_URL: bolt://localhost:7687
+          YOKE_TEST_NEO4J_USER: neo4j
+          YOKE_TEST_NEO4J_PASSWORD: testtest
+
   # Windows native-binary check: better-sqlite3 / sqlite-vec prebuilds must
   # install and pass the main suite (the most common cross-platform trap).
   windows:

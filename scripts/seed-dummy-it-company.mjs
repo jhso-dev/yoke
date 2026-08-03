@@ -274,7 +274,7 @@ async function add(store, ontology, input, actor, existingId, scope) {
 const store = await openStore({ db }, {});
 await store.init();
 const ontology = seedOntology();
-store.saveOntology(ontology);
+await store.saveOntology(ontology);
 
 await add(
   store,

@@ -516,7 +516,9 @@ export class SqliteStorage implements StoragePort {
    * ns targets a tenant ontology (PLAN-V2 10.1); omitted = the shared base ontology.
    * Version numbering stays global per name (across namespaces) so the (name, version) primary
    * key never collides between a shared def and a tenant def of the same name. */
-  saveOntology(defs: TypeDef[], ns?: string | null): void {
+  // `async` only to satisfy the interface — better-sqlite3 is synchronous, so the body is too.
+  // The signature exists for the remote backends (SPEC "Remote backends").
+  async saveOntology(defs: TypeDef[], ns?: string | null): Promise<void> {
     const n = normalizeNs(ns);
     const nextVersion = this.db.prepare(
       `SELECT COALESCE(MAX(version), 0) + 1 AS v FROM ontology_types WHERE name = ?`,
@@ -547,7 +549,12 @@ export class SqliteStorage implements StoragePort {
    * records them. This is the one mutation it CANNOT record, so the caller writes the row that does —
    * see `yoke rename-type`. Returns rows rewritten (declaration included) so it can be reported.
    */
-  renameType(from: string, to: string, ns?: string | null): number {
+  // `async` for the same reason as saveOntology: the interface has to fit a networked backend.
+  async renameType(
+    from: string,
+    to: string,
+    ns?: string | null,
+  ): Promise<number> {
     const n = normalizeNs(ns);
     return this.db.transaction(() => {
       let rows = 0;

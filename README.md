@@ -60,7 +60,7 @@ Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server requir
 |---|---|
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
-| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `kuzu` (embedded graph) · `qdrant` (vector search) · `sharded` (multi-backend federation by tenant). All pass one conformance suite. |
+| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `neo4j` (native full-text + vectors + traversal; point it at the server your company already runs) · `kuzu` (embedded graph) · `qdrant` (vector search) · `sharded` (multi-backend federation by tenant). All pass one conformance suite. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
 | **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
@@ -179,6 +179,35 @@ yoke backfill --embeddings --rebuild       # after CHANGING model (dimension dif
 A database holds one vector space. Switching models without `--rebuild` fails loudly with the
 dimension it found and the command above — a mixed space would return confidently wrong neighbours
 instead.
+
+## Using your company's Neo4j
+
+Point yoke at a Neo4j you already run. The knowledge goes there; **this client's audit trail and API
+tokens stay in a local sqlite** — yoke's own bookkeeping does not belong in someone else's database,
+and asking for a place to put it would get a no.
+
+```bash
+export YOKE_NEO4J_URL=bolt://localhost:7687      # or neo4j+s://… for Aura
+export YOKE_NEO4J_USER=neo4j
+export YOKE_NEO4J_PASSWORD=…
+export YOKE_NEO4J_DATABASE=neo4j                 # optional
+
+yoke init                                        # creates constraints + indexes, seeds the ontology
+```
+
+`--db` still names the local sqlite. Everything else is unchanged — `add`, `review`, `verify`,
+`inject`, `yoke ui`, MCP. Neo4j is the only backend with **native full-text search, native vectors and
+native traversal in one engine**, so search is ranked by the index itself rather than app-level, and
+`similar` needs no second service.
+
+What lives where, and why: `docs/BACKENDS.md`. The short version is that `YokeStore`'s extension
+surface is synchronous (better-sqlite3 shaped it), so a networked backend is *composed* with a local
+sqlite rather than swapped in — which is also why `kuzu` and `qdrant` were never selectable from the
+CLI despite passing conformance.
+
+```bash
+docker run -d --rm --name yoke-neo4j -p 7687:7687 -e NEO4J_AUTH=neo4j/testtest neo4j:5
+```
 
 ## Web UI
 

@@ -132,7 +132,7 @@ describe("ontology save/load", () => {
     const store = new SqliteStorage(":memory:");
     await store.init();
     const seed = seedOntology();
-    store.saveOntology(seed);
+    await store.saveOntology(seed);
     expect(store.loadOntology()).toEqual(seed);
     store.close();
   });
@@ -399,7 +399,7 @@ describe("renameType", () => {
   it("leaves the old name nowhere — declaration, every version, and the search index", async () => {
     const store = new SqliteStorage(":memory:");
     await store.init();
-    store.saveOntology([
+    await store.saveOntology([
       { name: "old", kind: "entity", attrs: {} },
       { name: "fact", kind: "entity", attrs: {} },
     ]);
@@ -407,7 +407,7 @@ describe("renameType", () => {
     await store.putEntity(ent("e1", "old", 2));
     await store.putEntity(ent("keep", "fact"));
 
-    expect(store.renameType("old", "new")).toBe(3); // 2 versions + 1 declaration
+    expect(await store.renameType("old", "new")).toBe(3); // 2 versions + 1 declaration
 
     // Every version, not just the latest: a rename that only fixes the head leaves `yoke history`
     // reading in the old vocabulary, which is the half-rename this command exists to prevent.
@@ -445,7 +445,7 @@ describe("renameType", () => {
       from: "a",
       to: "b",
     });
-    expect(store.renameType("works_on", "assigned_to")).toBe(1);
+    expect(await store.renameType("works_on", "assigned_to")).toBe(1);
     expect((await store.neighbors("a")).map((r) => r.type)).toEqual([
       "assigned_to",
     ]);
@@ -453,7 +453,7 @@ describe("renameType", () => {
     // One tenant renaming does not touch another's rows — the same guarantee every other query has.
     await store.putEntity(ent("t1", "shared", 1, "acme"));
     await store.putEntity(ent("t2", "shared", 1, "globex"));
-    expect(store.renameType("shared", "common", "acme")).toBe(1);
+    expect(await store.renameType("shared", "common", "acme")).toBe(1);
     expect((await store.getEntity("t1"))?.type).toBe("common");
     expect((await store.getEntity("t2"))?.type).toBe("shared");
     store.close();
@@ -464,10 +464,10 @@ describe("renameType", () => {
     // beside the old one. Rewriting the old row's name would collide with the live one.
     const store = new SqliteStorage(":memory:");
     await store.init();
-    store.saveOntology([{ name: "old", kind: "entity", attrs: {} }]);
-    store.saveOntology([{ name: "new", kind: "entity", attrs: {} }]);
+    await store.saveOntology([{ name: "old", kind: "entity", attrs: {} }]);
+    await store.saveOntology([{ name: "new", kind: "entity", attrs: {} }]);
     await store.putEntity(ent("e", "old"));
-    expect(store.renameType("old", "new")).toBe(2); // 1 version + 1 dropped declaration
+    expect(await store.renameType("old", "new")).toBe(2); // 1 version + 1 dropped declaration
     expect(store.loadOntology().map((d) => d.name)).toEqual(["new"]);
     expect((await store.getEntity("e"))?.type).toBe("new");
     store.close();
@@ -476,7 +476,7 @@ describe("renameType", () => {
   it("reports zero rather than failing when nothing carries the name", async () => {
     const store = new SqliteStorage(":memory:");
     await store.init();
-    expect(store.renameType("absent", "whatever")).toBe(0);
+    expect(await store.renameType("absent", "whatever")).toBe(0);
     store.close();
   });
 });
@@ -492,7 +492,7 @@ describe("durability (PLAN-V2 11.1)", () => {
     const srcPath = join(dir, `pitr-${Math.random().toString(36).slice(2)}.db`);
     const store = new SqliteStorage(srcPath);
     await store.init();
-    store.saveOntology(seedOntology());
+    await store.saveOntology(seedOntology());
     // v1 draft, v2 verified — same id, append-only.
     await store.putEntity({
       id: "e",
@@ -547,7 +547,7 @@ describe("durability (PLAN-V2 11.1)", () => {
     const srcPath = join(dir, `bak-${Math.random().toString(36).slice(2)}.db`);
     const store = new SqliteStorage(srcPath);
     await store.init();
-    store.saveOntology(seedOntology());
+    await store.saveOntology(seedOntology());
     await store.putEntity({
       id: "k",
       version: 1,
