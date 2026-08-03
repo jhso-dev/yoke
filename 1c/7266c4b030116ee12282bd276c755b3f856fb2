@@ -1,0 +1,90 @@
+docs/SPEC.md
+  8ecaf4f60771d7f1 140-193,278,283,360-379,405-406,408
+src/core/lifecycle.ts
+  8ecaf4f60771d7f1 83-190
+src/core/backfill.ts
+  8ecaf4f60771d7f1 15
+src/core/inject.ts
+  8ecaf4f60771d7f1 6,55,58-68,86-90,97-101,104,108-110,115,119-121,177-185
+src/front/cli/index.ts
+  8ecaf4f60771d7f1 33,42,82-83,119-120,559,562-588,655-661,677,679,681,683-690,709,715-718
+src/front/mcp/index.ts
+  8ecaf4f60771d7f1 20,198-201,204-208
+src/front/ui/server.ts
+  8ecaf4f60771d7f1 18-23,28,377-406,566-578,586,591-595,597-600,603,608,731-740,742-743
+web/lib/types.ts
+  8ecaf4f60771d7f1 119-122,129-137
+web/lib/api.ts
+  8ecaf4f60771d7f1 21,95-99,118-120
+web/lib/i18n/en.ts
+  8ecaf4f60771d7f1 19,138-154,291-303
+web/lib/i18n/ko.ts
+  8ecaf4f60771d7f1 139-152,292-299
+web/app/review/page.tsx
+  8ecaf4f60771d7f1 5,13,15-28,32,34-36,55-57,59,67-92,97-100,102-122,127,129-130,137-163,165,167,169-177
+web/app/globals.css
+  8ecaf4f60771d7f1 492-538
+web/app/inject/page.tsx
+  8ecaf4f60771d7f1 11,29-33,45,48,51-56,61,65,111-129,147-156
+web/app/audit/page.tsx
+  8ecaf4f60771d7f1 36-37,44-48,51,53-71
+src/core/lifecycle.test.ts
+  8ecaf4f60771d7f1 7-14,103-228
+src/front/display.test.ts
+  8ecaf4f60771d7f1 3,67-118
+src/front/ui/ui.test.ts
+  8ecaf4f60771d7f1 1098-1251
+src/front/cli/banner.ts
+  8ecaf4f60771d7f1 75
+web/lib/i18n/button-case.test.ts
+  8ecaf4f60771d7f1 28-35,55-56,63-67
+docs/RESEARCH.md
+  8ecaf4f60771d7f1 3-5,94-156,163-167
+CLAUDE.md
+  8ecaf4f60771d7f1 38
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "1c7266c4b030116ee12282bd276c755b3f856fb2",
+  "prompts": {
+    "8ecaf4f60771d7f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6be58b6e-c23c-416f-bf9c-06f007cfd72a",
+        "model": "claude-opus-5"
+      },
+      "skills": [
+        {
+          "id": "compact",
+          "ts": "2026-07-31T03:55:01.200Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:40.704Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:46.790Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-03T05:31:28.931Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 428,
+        "Edit": 91,
+        "Write": 25,
+        "Read": 52,
+        "SendUserFile": 6,
+        "AskUserQuestion": 1,
+        "ToolSearch": 2,
+        "WebSearch": 4,
+        "WebFetch": 2
+      },
+      "total_additions": 2194,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
