@@ -14,6 +14,7 @@ import Database from "better-sqlite3";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
+import { deprecate, verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
 import { runCli } from "./index.js";
@@ -984,5 +985,122 @@ describe("runCli", () => {
     // inject_preview is the web tier's alone on purpose: it records that a HUMAN looked, without
     // polluting "what the AI actually saw". The CLI has no preview, so it must never write one.
     expect(seen).not.toContain("inject_preview");
+  });
+});
+
+describe("review --stale (the queue SPEC promised and nothing built)", () => {
+  it("lists verified records past their TTL and says what it examined", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+
+    // Freshness is computed from `last_confirmed` + the type's ttl_days against the wall clock, and
+    // the CLI uses the real clock — so the record is seeded with an OLD confirmation rather than the
+    // clock being moved. `fact` declares 180 days; 2020 is well past that and stays past it.
+    const store = new SqliteStorage(db);
+    await store.init();
+    const ont = store.loadOntology(null);
+    const old: Provenance = {
+      actor: "alice",
+      origin: "cli",
+      occurred_at: "2020-01-01T00:00:00Z",
+    };
+    const { entity } = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { note: "zqstaleone" } },
+      old,
+      "2020-01-01T00:00:00Z",
+    );
+    await verify(store, [entity.id], "alice", "2020-01-01T00:00:00Z");
+    // A `term` has no ttl_days, so it can never age — the contrast that keeps this from passing on a
+    // route that simply returns every verified row.
+    const { entity: term } = await commit(
+      store,
+      ont,
+      {
+        type: "term",
+        attributes: { title: "RPO", definition: "recovery point" },
+      },
+      old,
+      "2020-01-01T00:00:00Z",
+    );
+    await verify(store, [term.id], "alice", "2020-01-01T00:00:00Z");
+    store.close();
+
+    expect(await runCli(["review", "--stale", "--db", db, "--json"])).toBe(0);
+    const rows = JSON.parse(logs.at(-1) as string) as { id: string }[];
+    expect(rows.map((r) => r.id)).toContain(entity.id);
+    expect(rows.map((r) => r.id)).not.toContain(term.id);
+
+    // Human output states the bound: a bare count would read as a corpus-wide number.
+    expect(await runCli(["review", "--stale", "--db", db])).toBe(0);
+    expect(logs.at(-1)).toMatch(/1 stale among \d+ verified records scanned/);
+
+    // ...and the plain queue is untouched: this record is verified, so it is not a draft.
+    expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
+    expect(
+      (JSON.parse(logs.at(-1) as string) as { id: string }[]).map((r) => r.id),
+    ).not.toContain(entity.id);
+  });
+
+  it("says how many it scanned even when nothing aged out", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await runCli(["review", "--stale", "--db", db])).toBe(0);
+    expect(logs.at(-1)).toMatch(/no stale records \(scanned \d+ verified\)/);
+  });
+});
+
+describe("inject --as-of", () => {
+  it("returns what was verified then, not what is verified now", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+
+    const store = new SqliteStorage(db);
+    await store.init();
+    const ont = store.loadOntology(null);
+    const t0 = "2026-07-12T00:00:00Z";
+    const { entity } = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { note: "zqasofcli" } },
+      { actor: "alice", origin: "cli", occurred_at: t0 },
+      t0,
+    );
+    await verify(store, [entity.id], "alice", "2026-07-13T00:00:00Z");
+    await deprecate(store, [entity.id], "alice", "2026-07-20T00:00:00Z");
+    store.close();
+
+    // Now: deprecated, so nothing comes back.
+    expect(await runCli(["inject", "zqasofcli", "--db", db, "--json"])).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toEqual([]);
+
+    // As of the 15th: it was the answer.
+    expect(
+      await runCli([
+        "inject",
+        "zqasofcli",
+        "--as-of",
+        "2026-07-15T00:00:00Z",
+        "--db",
+        db,
+        "--json",
+      ]),
+    ).toBe(0);
+    const items = JSON.parse(logs.at(-1) as string) as {
+      entity: { id: string };
+    }[];
+    expect(items.map((i) => i.entity.id)).toEqual([entity.id]);
+
+    // The trail records WHICH clock answered — otherwise a historical read is indistinguishable from
+    // a current one in the audit log, and the row would misrepresent what was injected.
+    const check = new SqliteStorage(db);
+    await check.init();
+    const entry = check
+      .listAudit()
+      .filter((a) => a.action === "inject")
+      .at(-1);
+    check.close();
+    expect(entry?.detail).toContain("@2026-07-15T00:00:00Z");
   });
 });

@@ -4,7 +4,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { commit } from "./commit.js";
-import { deprecate, effectiveStatus, isFresh, verify } from "./lifecycle.js";
+import {
+  deprecate,
+  effectiveStatus,
+  isFresh,
+  staleEntities,
+  verify,
+  versionAsOf,
+} from "./lifecycle.js";
 import { seedOntology } from "./ontology.js";
 import type { Provenance } from "./types.js";
 
@@ -91,5 +98,133 @@ describe("lifecycle", () => {
 
   it("throws on unknown id (no silent skip)", async () => {
     await expect(verify(port, ["nope"], "alice", now)).rejects.toThrow(/nope/);
+  });
+});
+
+describe("versionAsOf", () => {
+  it("returns the version that was current then, not the latest", async () => {
+    const id = await addFact("the answer");
+    const verifiedAt = "2026-07-13T00:00:00Z";
+    const retiredAt = "2026-07-20T00:00:00Z";
+    await verify(port, [id], "alice", verifiedAt);
+    await deprecate(port, [id], "alice", retiredAt);
+
+    // This is the whole point: today it is deprecated, and a question about the 15th must not be
+    // answered with today's status. Reading the latest row would say "deprecated" and be wrong.
+    expect((await port.getEntity(id))?.status).toBe("deprecated");
+    const then = await versionAsOf(port, id, "2026-07-15T00:00:00Z");
+    expect(then?.status).toBe("verified");
+    expect(then?.version).toBe(2);
+    // At the boundary the transition has happened — `<=`, not `<`.
+    expect((await versionAsOf(port, id, retiredAt))?.status).toBe("deprecated");
+  });
+
+  it("returns null before the record existed", async () => {
+    const id = await addFact("later knowledge");
+    expect(await versionAsOf(port, id, "2020-01-01T00:00:00Z")).toBeNull();
+  });
+
+  it("walks getEntity when the backend has no listHistory extension", async () => {
+    const id = await addFact("portable");
+    await verify(port, [id], "alice", "2026-07-13T00:00:00Z");
+    // A Proxy rather than a spread: spreading loses the prototype methods, and `listHistory` has to
+    // be genuinely ABSENT for this to test the fallback rather than the extension.
+    const bare = new Proxy(port, {
+      get: (t, p, r) =>
+        p === "listHistory" ? undefined : Reflect.get(t, p, r),
+      has: (t, p) => (p === "listHistory" ? false : Reflect.has(t, p)),
+    }) as unknown as SqliteStorage;
+    expect((await versionAsOf(bare, id, "2026-07-12T12:00:00Z"))?.version).toBe(
+      1,
+    );
+    expect((await versionAsOf(bare, id, "2026-07-14T00:00:00Z"))?.version).toBe(
+      2,
+    );
+  });
+});
+
+describe("staleEntities", () => {
+  const aged = "2027-01-10T00:00:00Z"; // past fact's 180-day TTL
+
+  it("finds verified records past their TTL and leaves fresh ones alone", async () => {
+    const old = await addFact("aged out");
+    const fresh = await addFact("still good");
+    await verify(port, [old], "alice", now);
+    await verify(port, [fresh], "alice", "2026-12-20T00:00:00Z");
+    // A draft is not stale — it was never verified, so it belongs in the other queue.
+    await addFact("never verified");
+
+    const r = await staleEntities(port, ont, aged);
+    expect(r.items.map((e) => e.id)).toEqual([old]);
+    expect(r.next).toBeNull();
+    // Only the two VERIFIED rows were examined; the draft never entered the walk.
+    expect(r.scanned).toBe(2);
+  });
+
+  it("a type with no ttl_days never goes stale", async () => {
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "term", attributes: {} },
+      prov,
+      now,
+    );
+    await verify(port, [entity.id], "alice", now);
+    expect(
+      (await staleEntities(port, ont, "2099-01-01T00:00:00Z")).items,
+    ).toEqual([]);
+  });
+
+  it("limit cuts the queue and next resumes the SCAN, so paging loses nothing", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i++) ids.push(await addFact(`aged ${i}`));
+    await verify(port, ids, "alice", now);
+
+    const first = await staleEntities(port, ont, aged, { limit: 2 });
+    expect(first.items.length).toBe(2);
+    expect(first.next).not.toBeNull();
+    // The cursor is the last row EXAMINED. Paging from the last hit would be the same value here
+    // (every row is stale), so the case that distinguishes them is the mixed one below.
+    const rest = await staleEntities(port, ont, aged, {
+      after: first.next ?? undefined,
+    });
+    // Union of the pages is every stale record, with no duplicate and nothing skipped.
+    expect([...first.items, ...rest.items].map((e) => e.id).sort()).toEqual(
+      [...ids].sort(),
+    );
+  });
+
+  it("next is the row examined, so a stopped page resumes exactly where it stopped", async () => {
+    // The walk is `ORDER BY id` and ULIDs are only creation-ordered to the millisecond, so which of
+    // these sorts first is not knowable from the order they were written — derive it rather than
+    // assume it, or this passes or fails on how fast the machine is.
+    const written = [await addFact("stale a"), await addFact("stale b")];
+    await verify(port, written, "alice", now);
+    const [first, second] = [...written].sort();
+
+    const page = await staleEntities(port, ont, aged, { limit: 1 });
+    expect(page.items.map((e) => e.id)).toEqual([first]);
+    // The cursor is the row it stopped ON, not the row after it — that is what makes resuming lose
+    // nothing when the stop lands mid-page with fresh rows still unexamined behind it.
+    expect(page.next).toBe(first);
+    const next = await staleEntities(port, ont, aged, {
+      after: page.next ?? undefined,
+    });
+    expect(next.items.map((e) => e.id)).toEqual([second]);
+  });
+
+  it("type narrows the walk", async () => {
+    const f = await addFact("aged fact");
+    const { entity: t } = await commit(
+      port,
+      ont,
+      { type: "term", attributes: {} },
+      prov,
+      now,
+    );
+    await verify(port, [f, t.id], "alice", now);
+    const r = await staleEntities(port, ont, aged, { type: "fact" });
+    expect(r.items.map((e) => e.id)).toEqual([f]);
+    expect(r.scanned).toBe(1);
   });
 });

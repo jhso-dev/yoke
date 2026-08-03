@@ -1,8 +1,8 @@
 # yoke — Research notes
 
-Findings from outside this codebase that bear on design decisions not yet made. Nothing here is
-implemented. It exists so that when the version that needs it starts, the argument is already made
-and sourced instead of re-derived from memory.
+Findings from outside this codebase that bear on design decisions not yet made. §1–4 are not
+implemented; §5 partly is, and says which SPEC clauses it produced. It exists so that when the version
+that needs it starts, the argument is already made and sourced instead of re-derived from memory.
 
 **Provenance of this file.** It was written from a research brief handed to the project on
 2026-07-31, not from reading the primary sources. Paper titles and venues below are given as
@@ -91,9 +91,77 @@ strictly downstream of (1) — it needs the same data.
 
 ---
 
+## 5. GraphRAG and enterprise knowledge platforms — where yoke actually sits
+
+Added 2026-08-03, from an outside research summary dated 2026-07-08 (12 named companies, plus a
+survey of GraphRAG implementation variants and enterprise-platform decision axes). Same provenance
+caveat as the rest of this file: **the effect sizes below are quoted as that summary reported them and
+have not been checked against the papers.** The summary itself flagged three of its numbers as
+competitor-sourced or vendor-benchmarked, which is recorded here rather than dropped. Benchmarks it
+cited: arXiv 2502.11371, 2604.09666, 2404.17723, 2506.06331.
+
+**The finding that matters to us.** Graph retrieval wins on exactly three question shapes —
+**multi-hop, temporal, and global aggregation** — and *loses* on single-hop factoid lookup, where
+plain vector RAG scored higher (NQ: 64.78 vs 63.01). The reported temporal gain is +19–28pt; the
+factoid loss is 1.7pt on one benchmark. **Those are different orders of magnitude and should not be
+weighed equally**, which the source document's own layout does by giving each side an equal box.
+
+**Why that puts yoke in the winning quadrant rather than the losing one.** A `decision` with
+`supersedes` and rejected alternatives is a multi-hop, temporal record by construction: "what
+replaced this" is a hop, "what was true then" is a clock. Across the 12 companies surveyed, graph
+retrieval was actually deployed only where **the relation IS the answer** in a narrow domain (Uber
+config consistency; LinkedIn ticket lineage, reported −28.6% median resolution time); general
+document QA stayed vector or hybrid everywhere. That is the shape yoke has, and it is not the shape
+the negative result is about.
+
+**Where we were already on the cheap side.** The survey's construction axis runs from deriving
+relations out of existing structure (no LLM cost) to extracting everything with an LLM (reported
+40–57× the indexing cost of plain RAG), and it records the industry moving *toward* the cheap end
+(LazyGraphRAG, Hebbia, Slack's federated no-index approach). yoke's relations enter explicitly
+through the commit gate and are never LLM-extracted, so it starts at that end. **No change follows
+from this** — it is recorded so nobody later proposes adding extraction as an improvement.
+
+**Two gaps it named that were real, and are now closed:**
+
+- **Temporal was stored but not queryable.** Append-only versions meant the data for "what was true
+  then" was already there; there was no way to ask. Implemented as as-of injection (SPEC "As-of
+  injection"). The survey's own framing of this — *invalidate, never delete* — is what yoke's
+  append-only schema and `deprecate` already did.
+- **Stale knowledge left injection silently.** The survey's sharpest operational claim is that
+  flagging staleness does not fix it — routing it to a named owner for re-confirmation does. yoke did
+  not even flag: `effectiveStatus` computed `stale` and dropped the record from injection with nobody
+  told, while SPEC had promised a review surface since v1. Implemented as the stale queue (SPEC "The
+  stale queue"), owner-first, because the owner was already recorded in `provenance.actor`.
+
+**What we deliberately did NOT take from it.** The three-pipeline enterprise model (content ingest,
+identity/permissions, governance) is a description of a product yoke is not: connectors are
+peripheral here, and permissions activate only under `yoke serve --auth` (CLAUDE.md invariant 4). Its
+buy-vs-build finding (76% buy) has a denominator of companies adopting an enterprise platform, which
+is not the local-first single-user default. The five "axes" are also **not independent** — choosing
+proposition-level granularity largely determines the retrieval-combination strategy — so treating
+them as five free dials overstates the design space.
+
+**The measurement this creates, and why it comes before any retrieval work.** The survey's central
+claim is that *workload composition* decides whether graph investment pays: the ratio of multi-hop /
+temporal / aggregate questions to simple lookups. **yoke has never measured its own.** docs/SCALE.md
+measured size, not shape. Injection already writes an audit row, so the instrumentation was one
+string: the `detail` subject now names the anchor and the as-of instant, which makes briefing / plain
+query / anchored query distinguishable in the trail (SPEC "HTTP API", the `detail` shape table).
+
+**Nothing further should be built on a guess about that ratio.** Read it out of the audit log first —
+that is this section's operative conclusion, and it is the source document's own argument turned on
+us.
+
+---
+
 ## How to use this file
 
 Cite it from the design document that owns the decision, rather than copying the argument. Current
 hooks: `ENTERPRISE.md` (the verify permission model) and `WEB-UI.md` (the review screen's
 independence constraint). When a claim here is checked against its primary source, replace the
 "unverified" marker with the page reference — the marker is a debt, not a disclaimer.
+
+Amended 2026-08-03: §5 is the first section here that is **partly implemented**, which changes what
+this file is for. The header still says "nothing here is implemented" about §1–4, and that stays
+true. Where a section drives code, say which code — §5 names the two SPEC clauses it produced, so the
+next reader can tell the argument from the artifact.

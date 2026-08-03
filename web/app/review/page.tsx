@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Actor } from "../../components/Actor";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
@@ -9,17 +10,30 @@ import { useT } from "../../lib/i18n";
 import { useAsync } from "../../lib/useAsync";
 
 /**
- * The draft queue — the screen WEB-UI.md calls the core one, because promotion friction is what
- * decides whether governance actually happens.
+ * The two governance queues, one screen.
  *
- * Delphi independence guard (carried over from the v2.5 design): this shows only the raw draft list,
- * never other reviewers' pending approvals. Seeing that a colleague already approved something
- * anchors your own judgment, so aggregation belongs AFTER each reviewer commits, not before. There is
- * deliberately no endpoint exposing peers' pending decisions, and there must not be one.
+ * Drafts were never trusted. Stale records were verified and then aged past their type's freshness
+ * window — and SPEC has said since v1 that "viewing stale is the job of review/CLI" while neither
+ * showed one, so stale knowledge left injection with nobody told. A record vanishing from what agents
+ * receive, silently, is the failure docs/RESEARCH.md's freshness findings converge on: flagging alone
+ * does not fix anything, routing it to the person who recorded it does.
+ *
+ * Same two buttons in both tabs, because both queues take the same two acts — but `verify` MEANS
+ * something different in each (first promotion vs re-confirmation), which is why these are tabs and
+ * not one merged list.
+ *
+ * Delphi independence guard (carried over from the v2.5 design): this shows only the raw queues, never
+ * other reviewers' pending approvals. Seeing that a colleague already approved something anchors your
+ * own judgment, so aggregation belongs AFTER each reviewer commits, not before. There is deliberately
+ * no endpoint exposing peers' pending decisions, and there must not be one.
  */
 export default function Review() {
   const t = useT();
+  const [tab, setTab] = useState<"drafts" | "stale">("drafts");
   const drafts = useAsync(() => api.review(), []);
+  // Fetched independently of the tab so the counts on both tabs are real before you click either one —
+  // a queue you cannot see the size of is a queue you forget exists, which is how staleness got here.
+  const stale = useAsync(() => api.stale({ limit: 100 }), []);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
@@ -38,7 +52,11 @@ export default function Review() {
       const ids = [...chosen];
       await (kind === "verify" ? api.verify(ids) : api.deprecate(ids));
       setChosen(new Set());
+      // Both queues: verifying a draft can only remove it from drafts, but re-confirming a stale
+      // record removes it from stale, and a deprecate acts on whichever list you were looking at.
+      // Reloading one would leave the other showing a row that no longer belongs in it.
       drafts.reload();
+      stale.reload();
     } catch (e) {
       setActionError(e);
     } finally {
@@ -46,24 +64,70 @@ export default function Review() {
     }
   }
 
-  const rows = drafts.data ?? [];
+  const staleRows = stale.data?.items ?? [];
+  const rows = tab === "drafts" ? (drafts.data ?? []) : staleRows;
+  const loading = tab === "drafts" ? drafts.loading : stale.loading;
 
-  // The header checkbox. Over the rows on screen rather than every draft, so it keeps meaning the
-  // moment this queue grows a filter.
-  const setAll = (next: boolean) =>
-    setChosen(next ? new Set(rows.map((r) => r.id)) : new Set());
+  // Who to ask, most-owed first. This is the whole point of the stale tab: the fix for an aged-out
+  // record is a person re-confirming it, so the screen names them instead of only counting rows.
+  // Keyed by actor id — two people can share a display name, and the id is what the record stored.
+  const owners = [
+    ...staleRows
+      .reduce(
+        (m, r) =>
+          m.set(r.actor, {
+            name: r.actorName,
+            n: (m.get(r.actor)?.n ?? 0) + 1,
+          }),
+        new Map<string, { name?: string; n: number }>(),
+      )
+      .entries(),
+  ].sort((a, b) => b[1].n - a[1].n);
+
+  const switchTo = (next: "drafts" | "stale") => {
+    // Selection is per queue: carrying ids across would let a Verify aimed at drafts land on stale
+    // records the reader is no longer looking at.
+    setChosen(new Set());
+    setTab(next);
+  };
+
   return (
     <>
       <h1>{t.review.heading}</h1>
-      <p className="lede">{t.review.lede}</p>
-      <ErrorBanner error={drafts.error ?? actionError} />
+      <p className="lede">
+        {tab === "drafts" ? t.review.lede : t.review.staleLede}
+      </p>
+      <ErrorBanner error={drafts.error ?? stale.error ?? actionError} />
       <div className="controls">
+        {/* Radios, not buttons: this is one choice between two states, and a radio group is what a
+            screen reader announces as such without any aria bookkeeping. */}
+        <div className="segmented" role="radiogroup" aria-label={t.nav.review}>
+          {(["drafts", "stale"] as const).map((k) => (
+            <label key={k} data-active={tab === k ? "" : undefined}>
+              <input
+                type="radio"
+                name="review-queue"
+                checked={tab === k}
+                onChange={() => switchTo(k)}
+              />
+              {k === "drafts" ? t.review.tabDrafts : t.review.tabStale}
+              <span className="muted">
+                {k === "drafts" ? (drafts.data?.length ?? 0) : staleRows.length}
+              </span>
+            </label>
+          ))}
+        </div>
+        {/* Same act, different word — and the vocabulary already existed: the entity detail screen has
+            relabelled this "Re-confirm" for a stale record since it shipped. Calling it Verify in the
+            aged-out queue would say "promote this" about a record that was already promoted. */}
         <Button
           type="button"
           disabled={busy || chosen.size === 0}
           onClick={() => act("verify")}
+          title={t.common.verifyHint}
         >
-          {t.common.verify} {chosen.size || ""}
+          {tab === "stale" ? t.common.reconfirm : t.common.verify}{" "}
+          {chosen.size || ""}
         </Button>
         <Button
           type="button"
@@ -73,17 +137,44 @@ export default function Review() {
         >
           {t.common.deprecate} {chosen.size || ""}
         </Button>
-        <span className="muted">{t.review.draftCount(rows.length)}</span>
+        <span className="muted">
+          {tab === "drafts"
+            ? t.review.draftCount(rows.length)
+            : t.review.staleScanned(rows.length, stale.data?.scanned ?? 0)}
+        </span>
       </div>
+      {/* The walk is bounded, so an unfinished scan is said in words rather than implied by a count. */}
+      {tab === "stale" && stale.data?.next && (
+        <div className="banner" data-kind="warn">
+          {t.review.staleMore}
+        </div>
+      )}
+      {tab === "stale" && owners.length > 0 && (
+        <div className="panel" style={{ padding: "10px 14px" }}>
+          <span className="muted">{t.review.staleOwners}</span>{" "}
+          {owners.map(([id, o], i) => (
+            <span key={id}>
+              {i > 0 && <span className="muted">, </span>}
+              <Actor actor={id} actorName={o.name} />
+              <span className="muted"> {t.review.staleOwnerCount(o.n)}</span>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="panel">
-        {drafts.loading ? (
+        {loading ? (
           <div className="empty">{t.common.loading}</div>
         ) : (
           <KnowledgeTable
             rows={rows}
-            empty={t.review.empty}
+            empty={tab === "drafts" ? t.review.empty : t.review.staleEmpty}
             paginate
-            select={{ chosen, toggle, setAll }}
+            select={{
+              chosen,
+              toggle,
+              setAll: (next: boolean) =>
+                setChosen(next ? new Set(rows.map((r) => r.id)) : new Set()),
+            }}
           />
         )}
       </div>

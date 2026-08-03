@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { commit } from "./commit.js";
 import { inject } from "./inject.js";
-import { verify } from "./lifecycle.js";
+import { deprecate, verify } from "./lifecycle.js";
 import { seedOntology } from "./ontology.js";
 import type { Provenance } from "./types.js";
 
@@ -461,5 +461,71 @@ describe("inject reports what its limit dropped", () => {
       limit: 1,
     });
     expect(items.map((i) => i.entity.id)).toContain(target);
+  });
+});
+
+describe("as-of injection", () => {
+  const verifiedAt = "2026-07-13T00:00:00Z";
+  const retiredAt = "2026-07-20T00:00:00Z";
+  const between = "2026-07-15T00:00:00Z";
+  const after = "2026-07-25T00:00:00Z";
+
+  it("returns a record that was verified then and is deprecated now", async () => {
+    const id = await addFact("quokkatoken was the answer");
+    await verify(port, [id], "alice", verifiedAt);
+    await deprecate(port, [id], "alice", retiredAt);
+
+    // Today it is excluded, which is correct and is also why the as-of read has to bypass the status
+    // push-down: asking the store for verified rows only would filter this record out BEFORE the
+    // rewind could restore what it was. The cap-before-filter bug, one clock further back.
+    const nowRead = await inject(port, ont, "quokkatoken", after);
+    expect(nowRead.items).toEqual([]);
+
+    const then = await inject(port, ont, "quokkatoken", after, {
+      asOf: between,
+    });
+    expect(then.items.map((it) => it.entity.id)).toEqual([id]);
+    expect(then.items[0].effectiveStatus).toBe("verified");
+    // The REWOUND version is what comes back, so the citation names the version that was current
+    // then — an as-of read that cited today's version would be unquotable.
+    expect(then.items[0].entity.version).toBe(2);
+  });
+
+  it("excludes a record that did not exist yet", async () => {
+    const id = await addFact("zqfuture");
+    await verify(port, [id], "alice", verifiedAt);
+    const before = await inject(port, ont, "zqfuture", after, {
+      asOf: "2020-01-01T00:00:00Z",
+    });
+    expect(before.items).toEqual([]);
+  });
+
+  it("judges freshness against asOf, not the wall clock", async () => {
+    const id = await addFact("zqfreshness");
+    await verify(port, [id], "alice", verifiedAt); // fact TTL = 180 days
+    // Long past the TTL now, so a normal read drops it as stale...
+    const late = "2027-06-01T00:00:00Z";
+    expect((await inject(port, ont, "zqfreshness", late)).items).toEqual([]);
+    // ...but it was inside its window then, which is what the question asks.
+    const then = await inject(port, ont, "zqfreshness", late, {
+      asOf: between,
+    });
+    expect(then.items.map((it) => it.entity.id)).toEqual([id]);
+  });
+
+  it("a record still draft at that instant stays excluded", async () => {
+    const id = await addFact("zqdraftthen");
+    await verify(port, [id], "alice", retiredAt);
+    // Verified on the 20th; as of the 15th it was a draft, so an as-of read must not hand it over
+    // merely because it is verified today.
+    const then = await inject(port, ont, "zqdraftthen", after, {
+      asOf: between,
+    });
+    expect(then.items).toEqual([]);
+    // ...and it IS returned once the clock passes the promotion.
+    const later = await inject(port, ont, "zqdraftthen", after, {
+      asOf: "2026-07-21T00:00:00Z",
+    });
+    expect(later.items.map((it) => it.entity.id)).toEqual([id]);
   });
 });

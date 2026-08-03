@@ -18,6 +18,7 @@ import type {
   Page,
   Persona,
   SearchResult,
+  StaleQueue,
   TokenInfo,
   TypeDef,
 } from "./types";
@@ -92,6 +93,10 @@ const qs = (params: Record<string, string | number | boolean | undefined>) => {
 export const api = {
   meta: () => request<Meta>("/api/meta"),
   review: () => request<Knowledge[]>("/api/review"),
+  /** The stale queue — verified records past their TTL. A different return shape from `review()` on
+   * purpose: this one carries how much of the corpus the walk examined. */
+  stale: (p: { type?: string; limit?: number; after?: string } = {}) =>
+    request<StaleQueue>(`/api/review${qs({ ...p, stale: 1 })}`),
   conflicts: () => request<ConflictPair[]>("/api/conflicts"),
   ontology: () => request<TypeDef[]>("/api/ontology"),
   persona: (id: string) =>
@@ -111,6 +116,8 @@ export const api = {
     scope?: string;
     includeDraft?: boolean;
     limit?: number;
+    /** An ISO instant: what this query would have injected then. */
+    asOf?: string;
   }) => request<InjectPreview>(`/api/inject${qs(p)}`),
   graph: (p: { limit?: number; scope?: string; depth?: number }) =>
     request<GraphData>(`/api/graph${qs(p)}`),

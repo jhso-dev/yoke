@@ -136,6 +136,18 @@ export const ko: typeof en = {
     selectAll: "전체 선택",
     empty: "대기 중인 draft가 없습니다",
     draftCount: (n: number) => `draft ${n}개`,
+    // draft/verified/stale은 저장되는 상태 이름이라 영어를 유지하고, 탭 이름은 사람에게 하는
+    // 설명이므로 번역합니다 — 같은 Verify 버튼이 두 대기열에서 다른 뜻이라 어느 쪽인지가 분명해야 합니다.
+    tabDrafts: "검증 안 됨",
+    tabStale: "기한 지남",
+    staleLede:
+      "verified였다가 타입에 정해둔 신선도 기간을 넘긴 레코드입니다. 기간이 지난 순간부터 주입에서 빠졌지만 아무에게도 알리지 않았습니다 — 이 화면이 그걸 위해 있습니다. Verify는 여전히 맞다고 재확인하는 것이고, Deprecate는 폐기합니다.",
+    staleEmpty: "기한이 지난 verified 레코드가 없습니다",
+    staleScanned: (n: number, scanned: number) =>
+      `살펴본 verified 레코드 ${scanned}개 중 ${n}개가 기한을 넘겼습니다`,
+    staleMore: "아직 살펴보지 않은 레코드가 남아 있습니다",
+    staleOwners: "이 레코드를 기록한 사람에게 물어보세요:",
+    staleOwnerCount: (n: number) => `${n}`,
   },
   browse: {
     heading: "둘러보기",
@@ -275,6 +287,14 @@ export const ko: typeof en = {
       `${total}개 중 ${shown}개를 표시합니다. 에이전트도 같은 내용을 받고, 나머지 정보를 찾으려면 더 구체적으로 질문하라는 안내를 함께 받습니다. 더 많이 미리 보려면 limit을 늘리세요.`,
     empty:
       "이 질문과 일치하는 verified 지식이 없어 에이전트에 전달할 내용이 없습니다",
+    asOf: "기준 시점",
+    asOfHint:
+      "그 시점이었다면 어떻게 답했을지 보여줍니다. 각 레코드를 그때 유효했던 버전으로 되돌리고, 신선도도 그 날짜로 판단합니다",
+    asOfClear: "현재",
+    asOfActive: (when: string) =>
+      `과거 시점 보기입니다. ${when} 기준으로 주입됐을 내용이며, 지금 주입되는 내용이 아닙니다.`,
+    asOfCeiling:
+      "후보는 여전히 현재 검색 인덱스에서 가져오므로, 그 뒤에 본문이 바뀐 레코드는 빠질 수 있습니다. 과거에 바뀐 것은 대부분 상태이고 그건 반영합니다.",
   },
   graph: {
     heading: "그래프",

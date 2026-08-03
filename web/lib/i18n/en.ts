@@ -16,7 +16,7 @@ export const en = {
     close: "Close",
     create: "Create",
     creating: "Creating…",
-    saving: "saving…",
+    saving: "Saving…",
     verify: "Verify",
     reconfirm: "Re-confirm",
     verifyHint: "promote a record or re-confirm a stale one",
@@ -135,6 +135,21 @@ export const en = {
     selectAll: "Select all",
     empty: "no drafts are waiting for review",
     draftCount: (n: number) => `${n} draft(s)`,
+    // The two queues. Named for what a record in each needs, not for its status: a draft was never
+    // trusted, a stale record was and has aged out, and the same Verify button means something
+    // different in each — so the tab has to make which queue you are in unmissable.
+    tabDrafts: "Never verified",
+    tabStale: "Aged out",
+    staleLede:
+      "These were verified, then passed their type's freshness window. They stopped being injected the moment they aged out, and nobody was told — that is what this screen is for. Verify re-confirms one as still true; Deprecate retires it.",
+    staleEmpty: "no verified records have aged out",
+    // Bounded walk, so say what it covered. A bare count reads as a corpus-wide number.
+    staleScanned: (n: number, scanned: number) =>
+      `${n} aged out among the ${scanned} verified record(s) examined`,
+    staleMore: "more records left to examine",
+    // The point of the screen: a stale record's fix is a person, so name them.
+    staleOwners: "Ask the people who recorded these:",
+    staleOwnerCount: (n: number) => `${n}`,
   },
   browse: {
     heading: "Browse",
@@ -273,6 +288,17 @@ export const en = {
       `Showing ${shown} of ${total}. An agent receives the same results and a note to ask a more specific question for the rest. Raise the limit to preview more.`,
     empty:
       "No verified knowledge matches this query, so nothing will be sent to the agent",
+    // As-of. Labelled as a question about the past rather than as a filter, because that is what it
+    // answers, and banner-flagged whenever it is on: a historical result that looked like a current
+    // one would be worse than not offering this at all.
+    asOf: "As of",
+    asOfHint:
+      "Answer as if it were this moment: each record is rewound to the version current then, and freshness is judged against that date",
+    asOfClear: "Now",
+    asOfActive: (when: string) =>
+      `Historical view: this is what the query would have injected on ${when}, not what it injects now.`,
+    asOfCeiling:
+      "Candidates still come from today's search index, so a record whose text was rewritten since may be missing. What changed in the past is mostly status, which this does account for.",
   },
   graph: {
     heading: "Graph",

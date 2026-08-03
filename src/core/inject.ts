@@ -3,7 +3,7 @@
 // The citation format is the smallest unit of the audit trail — pinned by tests.
 
 import type { StoragePort } from "../ports/storage.js";
-import { effectiveStatus } from "./lifecycle.js";
+import { effectiveStatus, versionAsOf } from "./lifecycle.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity, Status } from "./types.js";
@@ -52,9 +52,20 @@ const candidateQuery = (opts?: {
   includeDraft?: boolean;
   limit?: number;
   ns?: string | null;
+  asOf?: string;
 }) => ({
   ns: opts?.ns,
-  status: opts?.includeDraft ? ["verified", "draft"] : "verified",
+  // An as-of read must NOT push status down. The stored status is today's; the question is what the
+  // status was THEN, and a record retired since is exactly the one such a question is asked about.
+  // Pushing `verified` down would filter it out before the rewind could restore it — the same
+  // cap-before-filter mistake this function exists to fix, one clock further back.
+  //
+  // ponytail: that leaves the 3x window as the only bound on an as-of read, so over a corpus that is
+  // mostly deprecated it can return a short page. Widen the multiplier when a real corpus shows it,
+  // not on the strength of this comment.
+  ...(opts?.asOf
+    ? {}
+    : { status: opts?.includeDraft ? ["verified", "draft"] : "verified" }),
   limit: opts?.limit === undefined ? undefined : opts.limit * STALE_HEADROOM,
 });
 
@@ -83,6 +94,11 @@ export function citation(e: Entity): string {
  *   everything attached to the work. A persona passes authored_by/'in' instead: presenting knowledge
  *   a person merely touched as their own judgment would be impersonation, so the strict anchor is
  *   part of that entry point, not a different mechanism.
+ * @param asOf answer as of a past instant: "what would this query have injected then". Replaces the
+ *   read clock for freshness AND rewinds every candidate to the version current at that time, so a
+ *   record retired since still reads as what it was. See SPEC "As-of injection" for the stated
+ *   ceiling — candidate selection is still today's index, so this narrows the past rather than
+ *   re-searching it.
  */
 export async function inject(
   port: StoragePort,
@@ -96,9 +112,13 @@ export async function inject(
     scope?: string;
     scopeRel?: string;
     scopeDir?: "in" | "out";
+    asOf?: string;
   },
 ): Promise<{ items: InjectItem[]; omitted: number }> {
   const scope = opts?.scope;
+  // Every freshness and status decision below is made at this instant. `now` stays the parameter so
+  // the clock is still injected (SPEC "Time injection"); `asOf` overrides it for one read.
+  const readAt = opts?.asOf ?? now;
   const ns = normalizeNs(opts?.ns);
   let candidates: Entity[];
   if (scope) {
@@ -154,8 +174,15 @@ export async function inject(
     candidates = await port.search({ text: query, ...candidateQuery(opts) });
   }
   const items: InjectItem[] = [];
-  for (const entity of candidates) {
-    const status = effectiveStatus(entity, ontology, now);
+  for (const found of candidates) {
+    // Under as-of, rewind to the version that was current then before judging it. A record with no
+    // version at or before that instant did not exist yet, so it is not knowledge the question can
+    // have been answered with.
+    const entity = opts?.asOf
+      ? await versionAsOf(port, found.id, opts.asOf)
+      : found;
+    if (!entity) continue;
+    const status = effectiveStatus(entity, ontology, readAt);
     const pass =
       status === "verified" || (opts?.includeDraft && status === "draft");
     if (!pass) continue;

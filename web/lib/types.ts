@@ -116,10 +116,23 @@ export interface GraphData {
 export interface InjectPreview {
   query: string;
   scope: string | null;
+  /** The instant this was answered as of, or null for "now". Echoed back so the screen states which
+   * clock produced the rows — a historical read that looked like a current one would be worse than
+   * no feature at all. */
+  asOf: string | null;
   includeDraft: boolean;
   /** How many records the limit dropped. >0 means this is a page, not the whole context. */
   omitted: number;
   items: Knowledge[];
+}
+
+/** GET /api/review?stale=1. Verified records past their type's TTL.
+ *
+ * `scanned` is not decoration: freshness is computed at read time from the ontology's TTL, so finding
+ * these is a bounded walk over verified rows rather than an indexed query. The screen has to say what
+ * the walk covered, because "12 stale" alone reads as a corpus-wide count it never computed. */
+export interface StaleQueue extends Page<Knowledge> {
+  scanned: number;
 }
 
 export interface Persona {

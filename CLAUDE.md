@@ -35,7 +35,7 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 - `docs/BACKENDS.md` — backend adapter extension and the RDB read-mapping design
 - `docs/WEB-UI.md` — the governance workbench UI design
 - `docs/SCALE.md` — what breaks at 10M records, measured, and the ceiling that remains
-- `docs/RESEARCH.md` — outside findings that bear on decisions not yet made (multi-reviewer verify, dissent preservation). Nothing in it is implemented
+- `docs/RESEARCH.md` — outside findings that bear on decisions not yet made (multi-reviewer verify, dissent preservation, and where GraphRAG's measured wins do and do not apply to us). §1–4 are unimplemented; §5 names the SPEC clauses it produced
 
 ## Commands
 

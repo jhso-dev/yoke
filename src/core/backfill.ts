@@ -12,8 +12,8 @@
 
 import type { StoragePort } from "../ports/storage.js";
 import { commit } from "./commit.js";
+import { listVersions } from "./lifecycle.js";
 import type { TypeDef } from "./ontology.js";
-import type { Entity } from "./types.js";
 
 /** Idempotent: a second run creates nothing, because it skips authors already linked. */
 export async function backfillAuthorship(
@@ -52,15 +52,4 @@ export async function backfillAuthorship(
     }
   }
   return { scanned, created };
-}
-
-/** `listHistory` is a YokeStore extension, not a port method, so it is feature-detected: on a backend
- * that lacks it the latest version is still worth repairing, which beats refusing to run at all. */
-async function listVersions(port: StoragePort, id: string) {
-  const ext = port as StoragePort & {
-    listHistory?: (id: string) => Entity[];
-  };
-  if (ext.listHistory) return ext.listHistory(id);
-  const latest = await port.getEntity(id);
-  return latest ? [latest] : [];
 }

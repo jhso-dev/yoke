@@ -25,8 +25,14 @@ function sources(dir: string): string[] {
   return out;
 }
 
-/** `{t.common.verify}` as a child, never `title={t.common.verifyHint}` as a prop. */
-const CHILD = /(?<![=$])\{(?:t|tr)\.([\w.]+)\}/g;
+/** A JSX child expression container: `{…}` NOT preceded by `=` (an attribute) or `$` (a template
+ * hole). Nested braces are deliberately not crossed — `[^{}]*` keeps this to the simple containers a
+ * label actually lives in rather than turning into a parser. */
+const CHILD_SLOT = /(?<![=$])\{([^{}]*)\}/g;
+/** Every dictionary reference inside one such container. There can be more than one: a label whose
+ * word depends on state is a ternary, and matching only `{t.x.y}` in full missed both arms — which is
+ * how `common.verify` stopped being checked here the day the review queue grew a second tab. */
+const DICT_REF = /\b(?:t|tr)\.([\w.]+)/g;
 const CONTROL =
   /<Button[\s\S]*?<\/Button>|<Link[^>]*className="btn"[\s\S]*?<\/Link>/g;
 
@@ -46,13 +52,19 @@ describe("English button labels", () => {
     .filter((f) => !f.includes(`components${"/"}ui${"/"}`))) {
     const src = readFileSync(f, "utf8");
     for (const control of src.match(CONTROL) ?? [])
-      for (const m of control.matchAll(CHILD)) labels.add(m[1]);
+      for (const slot of control.matchAll(CHILD_SLOT))
+        for (const ref of slot[1].matchAll(DICT_REF)) labels.add(ref[1]);
   }
 
   it("finds the labels at all", () => {
     // Non-vacuity: an extractor that matched nothing would pass every assertion below.
     expect(labels.size).toBeGreaterThan(10);
     expect(labels.has("common.verify")).toBe(true);
+    // Both arms of a conditional label, which is what the review queue's Verify/Re-confirm button is.
+    // Matching only a container that is entirely one reference checked neither.
+    expect(labels.has("common.reconfirm")).toBe(true);
+    // ...and an attribute is still not a label: this one is a sentence in `title=`.
+    expect(labels.has("common.verifyHint")).toBe(false);
   });
 
   it("start with a capital", () => {
