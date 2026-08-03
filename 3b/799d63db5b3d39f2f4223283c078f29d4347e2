@@ -1,0 +1,54 @@
+web/lib/i18n/locale.ts
+  8ecaf4f60771d7f1 1-16
+web/lib/i18n/index.tsx
+  8ecaf4f60771d7f1 6,8
+web/lib/i18n/default.test.ts
+  8ecaf4f60771d7f1 2-4
+web/lib/react-free-tests.test.ts
+  8ecaf4f60771d7f1 1-89
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "3b799d63db5b3d39f2f4223283c078f29d4347e2",
+  "prompts": {
+    "8ecaf4f60771d7f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6be58b6e-c23c-416f-bf9c-06f007cfd72a",
+        "model": "claude-opus-5"
+      },
+      "skills": [
+        {
+          "id": "compact",
+          "ts": "2026-07-31T03:55:01.200Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:40.704Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:46.790Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-03T05:31:28.931Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 342,
+        "Edit": 34,
+        "Write": 24,
+        "Read": 19,
+        "SendUserFile": 6,
+        "AskUserQuestion": 1,
+        "ToolSearch": 2,
+        "WebSearch": 4,
+        "WebFetch": 2
+      },
+      "total_additions": 201,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
