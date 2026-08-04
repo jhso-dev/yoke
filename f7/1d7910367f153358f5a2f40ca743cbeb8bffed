@@ -1,0 +1,75 @@
+docs/BACKENDS.md
+  8ecaf4f60771d7f1 22,39,93-116
+src/adapters/storage-opensearch/index.ts
+  8ecaf4f60771d7f1 1-674
+src/adapters/storage-opensearch/index.test.ts
+  8ecaf4f60771d7f1 1-360
+src/front/store.ts
+  8ecaf4f60771d7f1 5,10-16,42-65
+.github/workflows/ci.yml
+  8ecaf4f60771d7f1 87-129
+docs/SPEC.md
+  8ecaf4f60771d7f1 89,115-131
+docs/ROADMAP.md
+  8ecaf4f60771d7f1 64-73
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "f71d7910367f153358f5a2f40ca743cbeb8bffed",
+  "prompts": {
+    "8ecaf4f60771d7f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6be58b6e-c23c-416f-bf9c-06f007cfd72a",
+        "model": "claude-opus-5"
+      },
+      "skills": [
+        {
+          "id": "compact",
+          "ts": "2026-07-31T03:55:01.200Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:40.704Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:46.790Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-03T05:31:28.931Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-03T13:59:21.596Z"
+        },
+        {
+          "id": "goal",
+          "ts": "2026-08-04T10:05:00.761Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 923,
+        "Edit": 189,
+        "Write": 46,
+        "Read": 101,
+        "SendUserFile": 8,
+        "AskUserQuestion": 10,
+        "ToolSearch": 7,
+        "WebSearch": 7,
+        "WebFetch": 2,
+        "EnterPlanMode": 2,
+        "ExitPlanMode": 5,
+        "mcp__openviking__health": 1,
+        "mcp__openviking__search": 1,
+        "TaskCreate": 12,
+        "TaskUpdate": 23,
+        "Agent": 10
+      },
+      "total_additions": 1523,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
