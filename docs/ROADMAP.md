@@ -160,17 +160,29 @@ port capabilities, etc. See SPEC).
       clean machine is on the human-verification list below)
 - [x] Regression closed: a check that *executes* the shipped client bundle, not one
       that greps the HTML for markers (see the v2.5 note)
-- [ ] Scale: injection stays correct and bounded at 10M records. Five defects, all measured
+- [x] Scale: injection stays correct and bounded at 10M records. Five defects, all measured
       in `docs/SCALE.md` — the cap applied before the freshness filter (50 asked, 29 returned at
       every scale), no relevance order at all (the 50 oldest matches, sharing 1 record in 50 with
       the 50 best), an unbounded `search` on the scope path that heap-crashed at 10M, no secondary
       indexes (a selective type filter took 15 s, `neighbors` was a full scan at 232 ms per call),
       and `search` unbounded when the caller omits a limit
-- [ ] Text query on browse, and the audit rule made true: `GET /api/search` over the
+- [x] Text query on browse, and the audit rule made true: `GET /api/search` over the
       port's existing `search()`, plus the `read` row that `GET /api/entity/:id` and
       `yoke get` were supposed to write since v5.0 opened and never did. The ban on a
       human query box is narrowed, not deleted — WEB-UI.md's second 2026-07-31 amendment
       states what replaced it and what stays forbidden
+
+> Note (2026-08-04): the two boxes above were left unchecked after their code merged. The
+> convention in this file is that `[ ]` means the work is open — the one exception right above
+> them says so in its own text ("code done — … on the human-verification list below"), and these
+> two carried no such note, so the file read as if scale and browse-search were unbuilt while
+> `docs/SCALE.md` reported the measurements and `/api/search` was answering. Checked after
+> verifying the code: `DEFAULT_SEARCH_LIMIT` and the six secondary indexes are in the sqlite
+> adapter, and the `read` audit row is written by both `yoke get` and `GET /api/entity/:id`.
+> **An unchecked box is a claim about the code, so it needs the same reconciling as a prose
+> sentence** — this is the sixth doc-vs-code mismatch found in this repo, and the first where the
+> document understated what shipped rather than overstating it.
+
 
 Human-verification list (the docs/BACKENDS.md pattern) — **one of four done**, and the
 boxes above are checked for what automation proves, not for this:
@@ -215,6 +227,9 @@ boxes above are checked for what automation proves, not for this:
       message naming the scope
 - [ ] one graph-explorer open against a ≥100k-row DB, confirming the truncation banner and
       that `POST /mcp` keeps answering while it is open
+      (the banner half is now seen daily — a 301-entity Neo4j corpus trips it at the 200-node cap
+      and reads `showing 200 of 201+`. What is still unverified is the ≥100k part and whether MCP
+      keeps answering underneath it, which is the half this item exists for)
 - [ ] `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
       after, and a forced web-build failure still leaving a working CLI
 
@@ -226,6 +241,43 @@ reports 0% contamination / 0% missed contradictions.
 Screens are now ten: `collaboration` was added in the browser pass above, because v4.0's shared
 working context had no web surface at all — first-class in core, MCP and the CLI, and a
 placeholder string in the inject box on the web.
+
+## v5.3 — retrieval gets its second half, and long knowledge becomes readable
+
+- [x] **Hybrid retrieval in `inject`** — the Embedder contract had promised since v0.4 that `null`
+      means "retrieval falls back to FTS", and there was no vector path to fall back *from*: every
+      injection was keyword-only however the embedder was configured. `search()` and
+      `similar(embedder(query), k)` are now fused by Reciprocal Rank Fusion — rank-based, because
+      BM25 and cosine are not commensurable. Measured through `inject()` on twelve Korean records
+      with four lexical decoys and eight questions worded differently from their answer: keyword-only
+      **0/8** accuracy@1, hybrid **7/8** (docs/RESEARCH.md, 2026-08-04). The keyword half returned
+      nothing because `search` is AND-of-prefix-tokens and a question is a sentence — not because of
+      Korean; an English sentence fails identically
+- [x] **A stored document reads as one** — the entity screen rendered every attribute as raw text in
+      a table cell, where HTML collapses newlines: a 2,809-character postmortem with 40 line breaks
+      and 6 sections came out as one paragraph, and `rejected_alternatives` as `["안 1","안 2"]`. A
+      hand-rolled markdown subset (the constructs counted in a real corpus, nothing else) rendered to
+      elements rather than `dangerouslySetInnerHTML`, since the input is stored knowledge and no
+      writer of it is trusted to emit HTML
+- [x] **A person whose id has a colon is still a person** — actor→name resolution skipped any id
+      containing one, reading it as a machine identifier, while this repo's own corpus generator mints
+      `person:platform-manager`. Every author in every seeded database rendered as a slug on the
+      screens whose purpose is keeping ids away from readers
+
+Open, and in this order — the first is the gate on the third by docs/RESEARCH.md's own argument:
+
+- [ ] **Read a real `yoke audit --shape` trail.** The command shipped in v5.2 and nothing has consumed
+      it, so the workload ratio that decides whether graph expansion pays is instrumented and still
+      unknown. Having the command is not having the answer
+- [ ] **A gold set, and retrieval metrics over it** (recall@k, nDCG). `eval/inject-quality.ts`
+      measures safety only — contamination and missed contradictions — so nothing in the repo can say
+      whether a retrieval change helped. v5.3's own ceiling is the argument: when one half of the
+      hybrid returns nothing, RRF degenerates to the other half's order, and eight hand-written
+      queries cannot tell you how often that happens
+- [ ] **Multi-hop traversal** (`inject` walks exactly one relation hop) and **global aggregation** —
+      both gated on the trail above, not on appetite
+- [ ] **Identity resolution across connector sources** — the same person arriving from Slack, GitHub
+      and an RDB mapping is three `person` records today
 
 ## Version-promotion rule
 
