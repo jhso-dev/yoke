@@ -49,6 +49,7 @@ import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
+  orderByIds,
   type Page,
   page,
   type StoragePort,
@@ -402,12 +403,10 @@ export class OpenSearchStorage implements StoragePort {
         _source: ["id"],
       },
     );
-    const out: Entity[] = [];
-    for (const h of res.hits.hits) {
-      const e = await this.getEntity(h._source.id);
-      if (e) out.push(e);
-    }
-    return out;
+    // One batch read, NOT one per hit: `similar` is on the hybrid-retrieval path, so it runs on
+    // every query injection with k = limit x 3 — the largest N+1 in the read paths (v5.5).
+    // getEntities preserves the id order it is given, which is why score order survives.
+    return this.getEntities(res.hits.hits.map((h) => h._source.id));
   }
 
   // --- reads ---------------------------------------------------------------------------------
@@ -460,6 +459,30 @@ export class OpenSearchStorage implements StoragePort {
     );
     const hit = res.hits.hits[0];
     return hit ? this.toEntity(hit._source) : null;
+  }
+
+  /** Batch point read (v5.5) — one search instead of one per id. The stored `latest` flag is what
+   * makes it a single call: without it the query would have to sort per id, which a `terms` filter
+   * cannot do. `size` is exactly the number asked for, since `latest` leaves one doc per id. */
+  async getEntities(ids: string[]): Promise<Entity[]> {
+    if (ids.length === 0) return [];
+    await this.ready(this.idx(ENTITIES));
+    const res = await this.req<SearchResponse<EntityDoc>>(
+      "POST",
+      `/${this.idx(ENTITIES)}/_search`,
+      {
+        size: ids.length,
+        query: {
+          bool: {
+            filter: [{ terms: { id: ids } }, { term: { latest: true } }],
+          },
+        },
+      },
+    );
+    return orderByIds(
+      res.hits.hits.map((h) => this.toEntity(h._source)),
+      ids,
+    );
   }
 
   async neighbors(

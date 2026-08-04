@@ -3,15 +3,22 @@
 // path rather than the commit gate. The only direct putEntity calls live in this file.
 // Time is injected — never call new Date() in core (SPEC: inject the clock).
 
-import type { StoragePort } from "../ports/storage.js";
+import { readEntities, type StoragePort } from "../ports/storage.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity, Status } from "./types.js";
 
 const DAY_MS = 86_400_000;
 
 /**
- * Shared transition path. Reads with getEntity, then appends a new version row (append-only).
- * Provenance is refreshed to record the promote/retire action itself (origin: 'lifecycle').
+ * Shared transition path. Reads every row in ONE batch, then appends a new version row each
+ * (append-only). Provenance is refreshed to record the promote/retire action itself
+ * (origin: 'lifecycle').
+ *
+ * The batch read replaced a `getEntity` per id (v5.5): a bulk verify of 54 rows from the review queue
+ * was 54 round trips before the first write. It also moved the unknown-id refusal to BEFORE any write
+ * — the loop used to throw partway through, leaving the ids it had already reached promoted, which is
+ * a half-applied governance action nobody asked for. Writes stay one call each; the port has no batch
+ * write, and append-only means each is a distinct new row.
  */
 async function transition(
   port: StoragePort,
@@ -20,9 +27,15 @@ async function transition(
   now: string,
   status: Status,
 ): Promise<Entity[]> {
+  const found = new Map(
+    (await readEntities(port, ids)).map((e) => [e.id, e] as const),
+  );
   const out: Entity[] = [];
-  for (const id of ids) {
-    const prev = await port.getEntity(id);
+  // Distinct: the read is now a batch, so a repeated id would apply the same `prev` twice and write
+  // (id, version+1) twice. The old loop re-read between writes and produced version+2 instead, which
+  // is two governance rows for one action — not a behaviour worth preserving.
+  for (const id of new Set(ids)) {
+    const prev = found.get(id);
     // Do not silently skip unknown ids — promote/retire are explicit actions.
     if (!prev) throw new Error(`cannot transition unknown entity: ${id}`);
     const next: Entity = {

@@ -30,14 +30,21 @@ the code pointed at a table that said the opposite. Its FTS row was also wrong i
 direction: kuzu answers `search` app-level (materialize every row, tokenize, rank with
 `core/rank.ts`), which is a real implementation with a real ceiling, not an absence.
 
-| | FTS | similar | graph traversal | embedded |
-|---|---|---|---|---|
-| sqlite | ✓ (FTS5 bm25) | ✓ (sqlite-vec) | app-level | ✓ |
-| kuzu | app-level | **—** | ✓ (native) | ✓ |
-| qdrant | app-level | ✓ | — | — |
-| **neo4j** | **✓ (native full-text index, scored)** | **✓ (native vector index)** | **✓ (native)** | — |
-| **opensearch** | **✓ (native BM25, scored)** | **✓ (native k-NN, HNSW)** | app-level (term query) | — |
-| postgres | ✓ | ✓ (pgvector) | app-level | — |
+| | FTS | similar | graph traversal | batch read | embedded |
+|---|---|---|---|---|---|
+| sqlite | ✓ (FTS5 bm25) | ✓ (sqlite-vec) | app-level | ✓ (`IN`) | ✓ |
+| kuzu | app-level | **—** | ✓ (native) | — (nothing to gain) | ✓ |
+| qdrant | app-level | ✓ | — | ✓ (`match: any`) | — |
+| **neo4j** | **✓ (native full-text index, scored)** | **✓ (native vector index)** | **✓ (native)** | ✓ (`IN $ids`) | — |
+| **opensearch** | **✓ (native BM25, scored)** | **✓ (native k-NN, HNSW)** | app-level (term query) | ✓ (`terms` + `latest`) | — |
+| postgres | ✓ | ✓ (pgvector) | app-level | ✓ (`IN`) | — |
+
+**Batch read** is `getEntities` (v5.5, SPEC "Batch point reads"), and it is the one column where an
+*embedded* backend is right to have a dash: a point read there is a prepared statement, so kuzu's
+absence costs it nothing and core's `getEntity` fallback covers it. On a remote backend the same loop
+was one network round trip per id — a briefing of one collaboration cost 56 of them and now costs 2.
+sqlite implements it anyway, because otherwise the conformance case would only ever run against a
+live server and `npm test` would never execute the contract.
 
 "app-level" is not a synonym for "absent": those adapters materialize candidates and rank them with
 `core/rank.ts`'s BM25, which is why every backend can satisfy the same "best match first" conformance

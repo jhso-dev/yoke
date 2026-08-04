@@ -2,7 +2,7 @@
 // search → compute effectiveStatus → by default only verified passes (stale/draft/deprecated excluded).
 // The citation format is the smallest unit of the audit trail — pinned by tests.
 
-import type { StoragePort } from "../ports/storage.js";
+import { readEntities, type StoragePort } from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
 import { effectiveStatus, versionAsOf } from "./lifecycle.js";
 import { normalizeNs } from "./namespace.js";
@@ -241,12 +241,14 @@ export async function inject(
       ];
     } else {
       // No query: a briefing of the working context — the hop set only.
-      candidates = [];
-      for (const id of hopIds) {
-        const e = await port.getEntity(id);
-        // ns is not a point-read filter (getEntity is id-based), so enforce it here to match search().
-        if (e && normalizeNs(e.ns) === ns) candidates.push(e);
-      }
+      //
+      // ONE batch read, not one per hop id. This loop was the most-run N+1 in the product: every
+      // collaboration screen is a briefing, and against the live OpenSearch demo a single one at
+      // limit 6 cost 55 round trips (v5.5). Ordering does not matter here — the sort below owns it.
+      candidates = (await readEntities(port, hopIds)).filter(
+        // ns is not a point-read filter (ids are globally unique), so enforce it here to match search().
+        (e) => normalizeNs(e.ns) === ns,
+      );
     }
   } else {
     // See candidateQuery. Asking the store for exactly `limit` meant the caller got `limit` minus

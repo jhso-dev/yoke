@@ -12,6 +12,7 @@ import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
+  orderByIds,
   type Page,
   page,
   type StoragePort,
@@ -320,6 +321,21 @@ export class SqliteStorage implements StoragePort {
     return row ? rowToEntity(row as EntityRow) : null;
   }
 
+  /** Batch point read (v5.5). In-process, so this buys no network — it is here because it is what
+   * makes the shared conformance case non-vacuous under `npm test`, where the remote suites skip. */
+  async getEntities(ids: string[]): Promise<Entity[]> {
+    if (ids.length === 0) return [];
+    const holes = ids.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(
+        `SELECT e.* FROM entities e
+         WHERE e.id IN (${holes})
+           AND e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)`,
+      )
+      .all(...ids) as EntityRow[];
+    return orderByIds(rows.map(rowToEntity), ids);
+  }
+
   async putRelation(r: Relation): Promise<void> {
     this.db
       .prepare(
@@ -495,19 +511,19 @@ export class SqliteStorage implements StoragePort {
         `SELECT id, embedding FROM entity_vec WHERE embedding MATCH ? AND k = ? ORDER BY distance`,
       )
       .all(query, k) as { id: string; embedding: Buffer }[];
-    const out: Entity[] = [];
-    for (const h of hits) {
-      const e = await this.getEntity(h.id);
-      if (!e) continue;
-      const buf = h.embedding;
-      out.push({
+    // One batch read in distance order, same shape as the remote adapters (v5.5). In-process here,
+    // so this is about keeping ONE implementation of the vector-restore step rather than about cost.
+    const vectors = new Map(hits.map((h) => [h.id, h.embedding] as const));
+    const rows = await this.getEntities([...vectors.keys()]);
+    return rows.map((e) => {
+      const buf = vectors.get(e.id) as Buffer;
+      return {
         ...e,
         embedding: new Float32Array(
           buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
         ),
-      });
-    }
-    return out;
+      };
+    });
   }
 
   // --- Adapter extensions outside StoragePort: ontology seed save/load (for CLI init) ---

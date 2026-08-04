@@ -7,7 +7,10 @@ import { seedOntology } from "../../core/ontology.js";
 import { describeStoragePort } from "../../ports/conformance.js";
 import { QdrantStorage } from "./index.js";
 
-type Match = { key: string; match: { value: string | number } };
+type Match = {
+  key: string;
+  match: { value: string | number } | { any: string[] };
+};
 type Filter = { must?: Match[]; should?: Match[] };
 interface Point {
   id: string | number;
@@ -21,7 +24,12 @@ interface Collection {
 
 function matchesFilter(payload: Record<string, unknown>, f?: Filter): boolean {
   if (!f) return true;
-  const hit = (m: Match) => payload[m.key] === m.match.value;
+  // `any` is qdrant's IN, used by getEntities. Kept honest against the real server: verified live
+  // that a `match: {any: [...]}` filter selects exactly the listed values (v5.5).
+  const hit = (m: Match) =>
+    "any" in m.match
+      ? m.match.any.includes(payload[m.key] as string)
+      : payload[m.key] === m.match.value;
   const mustOk = !f.must || f.must.every(hit);
   const shouldOk = !f.should || f.should.some(hit);
   return mustOk && shouldOk;

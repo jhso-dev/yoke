@@ -273,6 +273,38 @@ export const conformanceCases: ConformanceCase[] = [
     },
   },
   {
+    // (7d) getEntities (v5.5): the point-read loop as one round trip. Optional, so this case is the
+    // only place its four clauses are pinned — and the ordering one is the reason it exists at all,
+    // since an adapter that returned storage order would silently destroy `similar`'s ranking while
+    // still looking like a ranking.
+    name: "getEntities returns latest versions in ids order, omitting absent and collapsing duplicates",
+    async run(port) {
+      if (!port.getEntities) return;
+      const a = makeEntity({ type: "batchRead", attributes: { title: "a" } });
+      const b = makeEntity({ type: "batchRead", attributes: { title: "b" } });
+      await port.putEntity(a);
+      await port.putEntity(b);
+      // A second version of b, so "latest" is observed rather than assumed.
+      const b2: Entity = {
+        ...b,
+        version: 2,
+        status: "verified",
+        attributes: { title: "b2" },
+      };
+      await port.putEntity(b2);
+
+      // Asked for b THEN a — neither storage order nor id order. The answer follows the request.
+      eq(await port.getEntities([b.id, a.id]), [b2, a]);
+      // An absent id drops out; it does not become a hole that shifts the rest.
+      eq(await port.getEntities([a.id, "no-such-batch-id", b.id]), [a, b2]);
+      // Duplicates collapse to one row.
+      eq(await port.getEntities([a.id, a.id]), [a]);
+      // Empty in, empty out — and not "the whole corpus", which is what an unguarded IN () or an
+      // empty match-any filter degenerates to on some engines.
+      eq(await port.getEntities([]), []);
+    },
+  },
+  {
     // (7b) namespace isolation (PLAN-V2 10.1).
     name: "search isolates by namespace",
     async run(port) {

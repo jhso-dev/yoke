@@ -288,6 +288,25 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
 - [ ] **Identity resolution across connector sources** — the same person arriving from Slack, GitHub
       and an RDB mapping is three `person` records today
 
+## v5.5 — the read paths stop paying per row
+
+- [x] **Batch point reads (`getEntities`)** — every read path in core was a loop of `getEntity`, which
+      costs nothing on sqlite and is a network round trip per iteration on a remote backend. Measured
+      against the live OpenSearch demo with one script on both sides of the change, identical results
+      throughout: a briefing **56 → 2** round trips, query injection **63 → 4**, `similar(k=60)`
+      **61 → 2**, bulk `verify` of 54 ids **217 → 164** (its read half 54 → 1; the rest are the
+      append-only writes). Optional capability with a core-side fallback, so kuzu correctly declines
+      it. `similar` was the largest of these and the newest: v5.3 put it on every query injection with
+      `k = limit × 3`, and each hit was a point read. Neo4j was already batched there — one backend
+      had solved it and the contract had not noticed
+- [x] **`verify`/`deprecate` refuse before they write** — the read loop threw on the first unknown id,
+      after promoting every id ahead of it. A half-applied governance action, found by moving the read
+      out of the loop rather than by a report
+
+Left standing deliberately: **there is no batch form of `getEntity(id, version)`**, so `listVersions`'s
+fallback — and as-of injection through it — is still a loop. Versions are a dense 1..n and a governed
+record has two or three, whereas the loops closed above scale with the corpus. Nothing has measured it.
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

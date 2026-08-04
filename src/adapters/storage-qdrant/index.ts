@@ -20,6 +20,7 @@ import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
+  orderByIds,
   type Page,
   page,
   type StoragePort,
@@ -85,7 +86,11 @@ function payloadToRelation(p: RelationPayload): Relation {
 }
 
 // Qdrant filter DSL — only the fragments this adapter relies on. The fake must honor these.
-type Match = { key: string; match: { value: string | number } };
+type Match = {
+  key: string;
+  /** `any` is qdrant's IN — one filter for a whole id set (see getEntities). */
+  match: { value: string | number } | { any: string[] };
+};
 interface Filter {
   must?: Match[];
   should?: Match[];
@@ -293,6 +298,19 @@ export class QdrantStorage implements StoragePort {
     return payloadToEntity(latestByVersion(rows)[0]);
   }
 
+  /** Batch point read (v5.5) — one scroll under an `any` filter instead of one scroll per id.
+   * The empty guard is load-bearing here and nowhere else: an empty `any` list is a filter that
+   * matches nothing on some qdrant versions and everything on others, and "everything" would hand
+   * back the corpus. */
+  async getEntities(ids: string[]): Promise<Entity[]> {
+    if (ids.length === 0) return [];
+    const points = await this.scrollAll(ENTITIES, {
+      must: [{ key: "id", match: { any: ids } }],
+    });
+    const rows = latestByVersion(points.map((p) => p.payload as EntityPayload));
+    return orderByIds(rows.map(payloadToEntity), ids);
+  }
+
   async putRelation(r: Relation): Promise<void> {
     const payload: RelationPayload = {
       id: r.id,
@@ -419,15 +437,16 @@ export class QdrantStorage implements StoragePort {
         with_vector: true,
       },
     )) as { result: Array<{ payload: { id: string }; vector?: number[] }> };
-    const out: Entity[] = [];
-    for (const hit of res.result) {
-      const e = await this.getEntity(hit.payload.id);
-      if (!e) continue;
-      out.push(
-        hit.vector ? { ...e, embedding: Float32Array.from(hit.vector) } : e,
-      );
-    }
-    return out;
+    // One batch read in score order, NOT one per hit (v5.5) — `similar` runs on every query
+    // injection now that retrieval is hybrid, with k = limit x 3.
+    const vectors = new Map(
+      res.result.map((h) => [h.payload.id, h.vector] as const),
+    );
+    const rows = await this.getEntities([...vectors.keys()]);
+    return rows.map((e) => {
+      const vec = vectors.get(e.id);
+      return vec ? { ...e, embedding: Float32Array.from(vec) } : e;
+    });
   }
 
   // --- Adapter extensions outside StoragePort: ontology seed save/load (mirrors sqlite/kuzu) ---

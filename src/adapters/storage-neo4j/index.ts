@@ -28,6 +28,7 @@ import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
+  orderByIds,
   type Page,
   page,
   type StoragePort,
@@ -323,6 +324,25 @@ export class Neo4jStorage implements StoragePort {
           });
     const node = rows[0]?.e as { properties: EntityRow } | undefined;
     return node ? rowToEntity(node.properties) : null;
+  }
+
+  /** Batch point read (v5.5) — one Cypher for the whole set. The latest-version collapse is the same
+   * two-step `similar` already uses, which is why Neo4j was the one backend whose `similar` was not
+   * an N+1 to begin with. */
+  async getEntities(ids: string[]): Promise<Entity[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.run(
+      `MATCH (e:Entity) WHERE e.id IN $ids
+       WITH e.id AS eid, max(e.version) AS mv
+       MATCH (e:Entity {id:eid, version:mv}) RETURN e`,
+      { ids },
+    );
+    return orderByIds(
+      rows.map((row) =>
+        rowToEntity((row.e as { properties: EntityRow }).properties),
+      ),
+      ids,
+    );
   }
 
   /**

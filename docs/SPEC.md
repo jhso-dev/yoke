@@ -43,6 +43,8 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 interface StoragePort {
   putEntity(e: Entity): Promise<void>        // append-only (new version row)
   getEntity(id: string, version?: number): Promise<Entity | null>
+  // optional (v5.5) — the latest version of many ids in one round trip. See "Batch point reads".
+  getEntities?(ids: string[]): Promise<Entity[]>
   putRelation(r: Relation): Promise<void>
   neighbors(id: string, relType?: string, dir?: 'in'|'out'): Promise<Relation[]>
   search(q: TextQuery): Promise<Entity[]>    // keyword (FTS)
@@ -134,6 +136,52 @@ entities, which are remote. Callers use `listVersions(port, id)` (`core/lifecycl
 feature-detects the extension and otherwise walks `getEntity(id, version)` — a port method, therefore
 async. Its order is **ascending by version**, matching sqlite's `listHistory`; before v5.2 the two
 disagreed while the contract said "any order", which is a latent display bug rather than a freedom.
+
+### Batch point reads (v5.5)
+
+Every read path in core was written as a loop of point reads, because on sqlite a point read is a
+prepared statement and costs nothing. On a remote backend each iteration is a **network round trip**,
+and the loops are not short: one briefing of a collaboration reads every entity one hop from the
+anchor, and `similar(embedding, k)` reads one entity per neighbour returned.
+
+`getEntities(ids)` is that loop as one call. It is **optional**, and core falls back to the
+`getEntity` loop, so a backend that omits it is correct and merely slower — an in-process backend
+(kuzu) has nothing to gain and does not implement it.
+
+Four clauses, each a conformance case:
+
+1. **Latest version of each id.** Same selection as `getEntity(id)` with no version.
+2. **In the order of `ids`**, not storage order. "Any order" is precisely the freedom that let
+   `listHistory` and the `listVersions` fallback disagree about version order for two releases, and
+   an adapter's own `similar` passes ids in *score* order — a batch read that reshuffled them would
+   silently destroy the ranking it was called to make cheaper.
+3. **Absent ids are omitted**, not returned as holes. A caller that needs to know which ids were
+   missing compares what it asked for against what came back; `verify`/`deprecate` do exactly that
+   and refuse the whole batch.
+4. **Duplicate ids collapse to one row.** Callers pass sets and arrays interchangeably.
+
+Measured through `inject()` and `verify()` against a live OpenSearch demo (504 records, 1,272
+relations, an anchor with 60 relations), by counting the adapter's HTTP calls with the same script on
+both sides of the change. **Every row returns the identical result** — same items, same omitted count,
+same hit count, same rows written:
+
+| one user action | round trips before | after |
+| --- | --- | --- |
+| briefing of one collaboration (`limit` 6) | 56 | **2** |
+| query injection (`limit` 20, hybrid) | 63 | **4** |
+| anchored query injection (`limit` 20) | 63 | **4** |
+| `similar(embedding, 60)` on its own | 61 | **2** |
+| bulk `verify` of 54 ids | 217 | **164** |
+
+The last row is the shape of what is left: its read half went 54 → 1, and the remaining 163 are
+`putEntity` calls. Writes are one call each because the port has no batch write and append-only means
+each is a distinct new row — a batch write is a different decision, not a continuation of this one.
+
+**There is no batch form of `getEntity(id, version)`,** so the loops that walk *versions* of one id
+stay loops: `listVersions`'s fallback, and therefore as-of injection through it. That is a known
+remaining N+1 on remote backends, left standing because nothing has measured it — versions are a
+dense 1..n sequence and a governed record has two or three of them, whereas the loops closed above
+are proportional to the corpus.
 
 Enumeration is the only port method that can return the whole database, so its contract
 is tighter than the rest. Each clause below is a conformance case:
