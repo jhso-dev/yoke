@@ -177,6 +177,26 @@ The last row is the shape of what is left: its read half went 54 → 1, and the 
 `putEntity` calls. Writes are one call each because the port has no batch write and append-only means
 each is a distinct new row — a batch write is a different decision, not a continuation of this one.
 
+The graph routes were measured separately, because their cost turned out not to be where it looked.
+Same corpus, same anchor, and the responses are byte-identical before and after (compared by digest):
+
+| `GET /api/graph` | round trips before | after |
+| --- | --- | --- |
+| `?scope=…&depth=1` (61 nodes, 60 edges) | 183 | **4** |
+| `?scope=…&depth=2` (117 nodes, 194 edges) | 489 | **65** |
+| `?scope=…&depth=3` (517 nodes, 1,077 edges) | *the request storm failed the server* | **122** |
+| `?limit=300` (200 nodes, 300 edges) | *same* | **207** |
+
+**The traversal was not the problem.** Counted per port method against a loaded sqlite corpus, the
+depth-3 open made 1,715 calls of which **1,595 were actor-name resolution** — one point read per
+distinct author, and twice over, because the entity and relation serializers each built their own memo.
+The traversal itself was 117. A memo only helps when authors repeat, and in a real corpus each record
+has its own. So actor names now resolve in one batch read per response, shared by both serializers.
+
+What remains is one `neighbors` call per frontier node, issued 16 at a time. `neighbors` takes a single
+id and a batch form would be a fifth port method with four implementations behind it; the concurrency
+was the free half of that fix.
+
 **There is no batch form of `getEntity(id, version)`,** so the loops that walk *versions* of one id
 stay loops: `listVersions`'s fallback, and therefore as-of injection through it. That is a known
 remaining N+1 on remote backends, left standing because nothing has measured it — versions are a

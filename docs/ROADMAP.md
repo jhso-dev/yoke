@@ -234,11 +234,20 @@ boxes above are checked for what automation proves, not for this:
       the payloads were right every time. Nothing in it looked at what a person sees.
 - [ ] one `--auth` login with a read-only token, confirming verify is refused with a
       message naming the scope
-- [ ] one graph-explorer open against a ≥100k-row DB, confirming the truncation banner and
-      that `POST /mcp` keeps answering while it is open
-      (the banner half is now seen daily — a 301-entity Neo4j corpus trips it at the 200-node cap
-      and reads `showing 200 of 201+`. What is still unverified is the ≥100k part and whether MCP
-      keeps answering underneath it, which is the half this item exists for)
+- [x] one graph-explorer open against a ≥100k-row DB, confirming the truncation banner and
+      that `POST /mcp` keeps answering while it is open — **done 2026-08-04** against 1,000,000
+      entities / 3,005,000 relations in one sqlite file, through `yoke serve` (the process that serves
+      both halves, so a graph read that blocked the loop would take MCP with it). `?limit=2000` →
+      334 nodes, `truncated: true`; `?limit=3000` → **HTTP 400** naming the maximum, so over-max is an
+      error and not a silent cap; `POST /mcp` `yoke_inject` **12/12 answered, worst 33 ms**, during 8
+      concurrent max-limit graph reads; `/api/entities` in 1 ms afterwards.
+      Two findings the open produced, neither a regression, both worth knowing:
+      **(a)** `limit` is divided across entity types, so a corpus concentrated in one type shows
+      `ceil(limit/types)` nodes — 334 of the 2,000 asked for. Honest (the banner fires) and stingy.
+      **(b)** an un-anchored view of a large corpus draws almost no edges (14 among 334 nodes), because
+      only edges with *both* ends in the sampled node set are kept and 334 nodes drawn from a million by
+      id order are rarely connected. Correct per its contract, useless to look at. The anchored view is
+      the one that works at scale, and it is now the cheap one
 - [ ] `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
       after, and a forced web-build failure still leaving a working CLI
 
@@ -311,6 +320,14 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
       OpenSearch, which is the first measurement that could have exposed a backend leaking into core
 - [x] **The demo corpus lives in the repo** (`scripts/demo-corpus/`, one backend-agnostic loader).
       It had survived being erased from a live Neo4j only because the scratch files were still there
+
+- [x] **The graph routes stopped paying per author** — an anchored open at depth 3 made 1,715 port
+      calls, of which **1,595 were actor-name resolution**: one point read per distinct author, twice
+      over, because the entity and relation serializers each built their own memo. The traversal
+      everyone would have blamed was 117 of them. A memo helps only when authors repeat and in a real
+      corpus they do not. Now one batch read per response, shared: **122** calls, byte-identical
+      response. Against live OpenSearch, depth 2 went **489 → 65** round trips and depth 3 became
+      possible at all — the old shape's request storm failed the server before it answered
 
 Open next, and ahead of the older items below it: **a minimum-should-match rule for `search`.** The
 measurement above makes it the highest-value retrieval change available, and it is a change to a

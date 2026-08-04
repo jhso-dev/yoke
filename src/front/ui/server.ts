@@ -26,6 +26,7 @@ import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
+import { readEntities } from "../../ports/storage.js";
 import { injectDetail, summarize, ULID } from "../display.js";
 import { openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
@@ -95,12 +96,28 @@ function personName(e: Entity, ontology: TypeDef[]): string | undefined {
  * in `citation()`: the citation is the audit pointer and an id is what makes it one — names are not
  * unique and they change, so a renamed person must not rewrite history.
  *
- * ponytail: one point read per distinct actor per request, memoized. A page of 100 rows by 3 authors
- * costs 3 reads. Batch it via a port method only if a profile ever says these reads matter.
+ * A profile DID eventually say these reads matter (v5.5). `prefetch` resolves a whole response's
+ * actors in one batch read, because the memo only helps when authors repeat and in a real corpus they
+ * do not: an anchored graph at depth 3 spent **1,595 of its 1,715** port calls here, one per distinct
+ * author, and the traversal it was blamed on accounted for 117.
  */
 function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
   const seen = new Map<string, string | undefined>();
-  return async (actorId: string): Promise<string | undefined> => {
+  const remember = (e: Entity) =>
+    seen.set(e.id, e.type === "person" ? personName(e, ontology) : undefined);
+  /** Resolve every actor these rows name, in one read. Ids that resolve to nothing — or to something
+   * that is not a person — are memoized as "no name", which is what the point read would conclude. */
+  const prefetch = async (
+    rows: Array<{ provenance: { actor: string } }>,
+  ): Promise<void> => {
+    const missing = [...new Set(rows.map((r) => r.provenance.actor))].filter(
+      (id) => !seen.has(id),
+    );
+    if (missing.length === 0) return;
+    for (const id of missing) seen.set(id, undefined);
+    for (const e of await readEntities(store, missing)) remember(e);
+  };
+  const nameOf = async (actorId: string): Promise<string | undefined> => {
     if (!seen.has(actorId)) {
       // Every actor is looked up. This used to skip any id containing a colon, on the theory that a
       // colon means a machine actor ('yoke:system', 'connector:github-pr') and a ULID never has one —
@@ -111,13 +128,12 @@ function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
       // ids that only the caller knows. Cost of dropping it: one memoized point read per distinct
       // machine actor per request.
       const e = await store.getEntity(actorId);
-      seen.set(
-        actorId,
-        e?.type === "person" ? personName(e, ontology) : undefined,
-      );
+      if (e) remember(e);
+      else seen.set(actorId, undefined);
     }
     return seen.get(actorId);
   };
+  return { nameOf, prefetch };
 }
 
 /** The audit-visible knowledge row shape shared by every screen (citation everywhere).
@@ -212,15 +228,54 @@ async function graphEntities(
   };
 }
 
+/**
+ * How many `neighbors` calls are in flight at once. The graph reads issue one per node, and a frontier
+ * is bounded only by `limit` (2000) — an unbounded `Promise.all` over it opens a socket per node, which
+ * a remote backend answers with a connection error rather than a slow reply. 16 is the same order as
+ * the workflow concurrency cap and well under any server's default connection limit.
+ */
+const FANOUT = 16;
+
+/** Map with bounded concurrency, preserving input order. */
+async function mapLimit<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  limit = FANOUT,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  for (let i = 0; i < items.length; i += limit) {
+    const chunk = items.slice(i, i + limit);
+    const done = await Promise.all(chunk.map(fn));
+    done.forEach((r, j) => {
+      out[i + j] = r;
+    });
+  }
+  return out;
+}
+
+/**
+ * Edges among a known node set — both ends inside it, so the client never has to draw a dangling one.
+ *
+ * The `neighbors` calls are issued together and folded afterwards **in the original id order**, which
+ * is what keeps the answer byte-identical to the sequential version: the fold, including the early
+ * return when `limit` is reached, still walks ids in the order the caller gave them. Awaiting inside
+ * the loop instead made a 334-node view 334 sequential round trips (v5.5).
+ *
+ * ponytail: still one call per node — `neighbors` takes a single id, and a batch form is a port method
+ * with four implementations and a conformance case behind it. Concurrency was the free half; add the
+ * port method when a measurement says the remaining round trips cost more than the wall clock does.
+ */
 async function visibleGraphRelations(
   store: YokeStore,
   ids: Set<string>,
   inNs: (x: { ns?: string | null }) => boolean,
   limit: number,
 ) {
+  const order = [...ids];
+  const perNode = await mapLimit(order, (id) => store.neighbors(id));
   const edges = new Map<string, Relation>();
-  for (const id of ids) {
-    for (const r of await store.neighbors(id)) {
+  for (const rels of perNode) {
+    for (const r of rels) {
       if (!inNs(r) || edges.has(r.id) || !ids.has(r.from) || !ids.has(r.to))
         continue;
       edges.set(r.id, r);
@@ -326,21 +381,32 @@ export function createUiHandler(
    * once per request rather than per row, and every route reports freshness the same way.
    * Async because it also resolves actor ids to display names; the name memo is created here, per
    * call, so it cannot outlive one response and serve a renamed person their old name. */
-  const asRow = () => {
+  /** Entity rows, relation rows, and the actor-name prefetch — ONE memo behind all three.
+   * `asRow()` and `asRelRow()` used to build a memo each, so a route serializing both read every
+   * author twice; the graph route did exactly that. */
+  const serializers = () => {
     const ontology = store.loadOntology(ns);
     const ts = now();
-    const nameOf = makeActorNames(store, ontology);
-    return async (e: Entity) =>
-      row(e, ontology, ts, await nameOf(e.provenance.actor));
+    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    return {
+      asR: async (e: Entity) =>
+        row(e, ontology, ts, await nameOf(e.provenance.actor)),
+      asRel: async (r: Relation) =>
+        relRow(r, ontology, ts, await nameOf(r.provenance.actor)),
+      prefetch,
+    };
   };
+  const asRow = () => serializers().asR;
   /** The same, for relations — a relation is knowledge with an author too, so its row carries the
    * readable actor for the identical reason. */
-  const asRelRow = () => {
-    const ontology = store.loadOntology(ns);
-    const ts = now();
-    const nameOf = makeActorNames(store, ontology);
-    return async (r: Relation) =>
-      relRow(r, ontology, ts, await nameOf(r.provenance.actor));
+  const asRelRow = () => serializers().asRel;
+  /** Serialize a list: the actors resolve in one batch read, then the rows. Every route that returns
+   * more than one row goes through this — the alternative is a point read per distinct author, which
+   * is what a real corpus has one of per record. */
+  const rowsOf = async <T extends Entity>(xs: T[]) => {
+    const { asR, prefetch } = serializers();
+    await prefetch(xs);
+    return Promise.all(xs.map(asR));
   };
 
   return async function handle(
@@ -372,7 +438,7 @@ export function createUiHandler(
       // The topbar says who you are signed in as. Under --auth that actor is a person entity id, so
       // without resolution the header reads as a ULID.
       const actorName = authenticated
-        ? await makeActorNames(store, store.loadOntology(ns))(actor)
+        ? await makeActorNames(store, store.loadOntology(ns)).nameOf(actor)
         : undefined;
       sendJson(res, 200, {
         auth: deps.authRequired ?? false,
@@ -405,7 +471,7 @@ export function createUiHandler(
         // `scanned` travels with the rows: the walk is bounded, so a screen that printed only the
         // count would be claiming a corpus-wide number this did not compute.
         sendJson(res, 200, {
-          items: await Promise.all(items.map(asRow())),
+          items: await rowsOf(items),
           next,
           scanned,
         });
@@ -417,11 +483,7 @@ export function createUiHandler(
       // whoever adds multi-reviewer aggregation; this route is not currently enforcing it, and the
       // comment that used to say "only this reviewer's list" described a filter that is not here.
       const drafts = await store.listEntities({ status: "draft", ns });
-      sendJson(
-        res,
-        200,
-        await Promise.all(newestFirst(drafts.items).map(asRow())),
-      );
+      sendJson(res, 200, await rowsOf(newestFirst(drafts.items)));
       return;
     }
 
@@ -439,7 +501,7 @@ export function createUiHandler(
       };
       const p = await store.listEntities(q);
       sendJson(res, 200, {
-        items: await Promise.all(p.items.map(asRow())),
+        items: await rowsOf(p.items),
         next: p.next,
       });
       return;
@@ -478,7 +540,7 @@ export function createUiHandler(
         text,
       );
       sendJson(res, 200, {
-        items: await Promise.all(items.map(asRow())),
+        items: await rowsOf(items),
         next: null,
         truncated: found.length > limit,
         limit,
@@ -613,14 +675,18 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      const asR = asRow();
+      const { asR, prefetch } = serializers();
       sendJson(res, 200, {
         query,
         scope: scope ?? null,
         asOf: asOfParam ?? null,
         includeDraft,
         omitted,
-        items: await Promise.all(items.map((it) => asR(it.entity))),
+        items: await (async () => {
+          const es = items.map((it) => it.entity);
+          await prefetch(es);
+          return Promise.all(es.map(asR));
+        })(),
       });
       return;
     }
@@ -634,8 +700,7 @@ export function createUiHandler(
       if (!authorize("read") && deny(res)) return;
       const limit = intParam(url, "limit", 300, 2000);
       const scope = url.searchParams.get("scope");
-      const asR = asRow();
-      const asRel = asRelRow();
+      const { asR, asRel, prefetch } = serializers();
       const inNs = (x: { ns?: string | null }) =>
         normalizeNs(x.ns) === normalizeNs(ns);
 
@@ -645,34 +710,48 @@ export function createUiHandler(
         const edges = new Map<string, Relation>();
         const anchor = await store.getEntity(scope);
         if (anchor && inNs(anchor)) nodes.set(scope, anchor);
+        // One hop at a time, and each hop is TWO waits rather than two per node: the frontier's
+        // `neighbors` calls go out together, then the entities the hop discovered are read in a single
+        // batch. The previous shape awaited inside a triple-nested loop and, measured against the live
+        // OpenSearch demo, one 2-hop open cost 480 round trips — the heaviest read path in the product.
+        //
+        // The fold order still follows the frontier, so which nodes survive the `limit` cut does not
+        // depend on which request finished first.
         let frontier = [scope];
         for (let d = 0; d < depth && nodes.size < limit; d++) {
-          const next: string[] = [];
-          for (const id of frontier) {
-            for (const r of await store.neighbors(id)) {
+          const perNode = await mapLimit(frontier, (id) => store.neighbors(id));
+          const discovered: string[] = [];
+          frontier.forEach((id, i) => {
+            for (const r of perNode[i]) {
               if (!inNs(r) || edges.has(r.id)) continue;
               edges.set(r.id, r);
               const other = r.from === id ? r.to : r.from;
               if (nodes.has(other) || other === id) continue;
-              const e = await store.getEntity(other);
-              if (e && inNs(e)) {
-                nodes.set(other, e);
-                next.push(other);
-              }
+              // Not added to `nodes` yet: the ns check needs the row, and the row comes below. Pushing
+              // it here would let a later relation in the same hop skip it as already-seen.
+              discovered.push(other);
             }
+          });
+          const next: string[] = [];
+          for (const e of await readEntities(store, discovered)) {
+            if (!inNs(e) || nodes.has(e.id)) continue;
+            nodes.set(e.id, e);
+            next.push(e.id);
           }
           frontier = next;
         }
         const kept = [...nodes.values()].slice(0, limit);
         const keptIds = new Set(kept.map((e) => e.id));
+        const keptEdges = [...edges.values()].filter(
+          (r) => keptIds.has(r.from) && keptIds.has(r.to),
+        );
+        // Nodes AND edges in one prefetch: both carry an author, and a graph of 517 nodes has roughly
+        // 517 distinct ones, so the memo alone bought nothing.
+        await prefetch([...kept, ...keptEdges]);
         sendJson(res, 200, {
           anchor: scope,
           nodes: await Promise.all(kept.map(asR)),
-          edges: await Promise.all(
-            [...edges.values()]
-              .filter((r) => keptIds.has(r.from) && keptIds.has(r.to))
-              .map(asRel),
-          ),
+          edges: await Promise.all(keptEdges.map(asRel)),
           next: { nodes: null, edges: null },
           truncated: nodes.size > kept.length,
           limit,
@@ -690,6 +769,7 @@ export function createUiHandler(
       );
       const keptIds = new Set(ents.items.map((e) => e.id));
       const rels = await visibleGraphRelations(store, keptIds, inNs, limit);
+      await prefetch([...ents.items, ...rels.items]);
       sendJson(res, 200, {
         anchor: null,
         nodes: await Promise.all(ents.items.map(asR)),
@@ -717,7 +797,7 @@ export function createUiHandler(
       // heavily across events (the same knowledge injected again and again), so a shared memo turns
       // what would be limit×refs point reads into one per distinct id.
       const auditOnt = store.loadOntology(ns);
-      const nameOf = makeActorNames(store, auditOnt);
+      const { nameOf } = makeActorNames(store, auditOnt);
       const seen = new Map<string, { type: string; summary: string } | null>();
       const resolve = async (id: string) => {
         if (!seen.has(id)) {
@@ -849,10 +929,15 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      const asR = asRow();
+      const { asR, prefetch } = serializers();
       sendJson(res, 200, {
-        decisions: await Promise.all(result.decisions.map(asR)),
-        facts: await Promise.all(result.facts.map(asR)),
+        ...(await (async () => {
+          await prefetch([...result.decisions, ...result.facts]);
+          return {
+            decisions: await Promise.all(result.decisions.map(asR)),
+            facts: await Promise.all(result.facts.map(asR)),
+          };
+        })()),
       });
       return;
     }
@@ -876,7 +961,7 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      sendJson(res, 200, await Promise.all(done.map(asRow())));
+      sendJson(res, 200, await rowsOf(done));
       return;
     }
 
@@ -964,7 +1049,7 @@ export function createUiHandler(
         // neither lets someone believe their record was checked when it was not.
         sendJson(res, 201, {
           ...(await asRow()(entity)),
-          duplicates: await Promise.all(duplicates.map(asRow())),
+          duplicates: await rowsOf(duplicates),
           duplicateDetection,
         });
         return;
