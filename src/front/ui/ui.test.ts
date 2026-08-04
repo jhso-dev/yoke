@@ -655,6 +655,43 @@ describe("ui API", () => {
       graph.nodes.find((n: { id: string }) => n.id === byPersonId).actorName,
     ).toBe("Bora");
   });
+
+  // A person id is whatever created it. Resolution used to skip any actor containing a colon, reading
+  // it as a machine identifier — and `scripts/seed-dummy-it-company.mjs`, this repo's own corpus
+  // generator, mints exactly `person:platform-manager`. Every author in every seeded database rendered
+  // as a slug on the screens that exist to keep ids away from readers.
+  it("resolves a person whose id is namespaced, not just a bare ULID", async () => {
+    const ont = store.loadOntology(null);
+    const at = "2026-07-15T00:00:00Z";
+    // `existingId` is how the seed script mints readable ids, so this is that corpus's exact shape.
+    const seeded = "person:platform-lead";
+    await commit(
+      store,
+      ont,
+      { type: "person", attributes: { name: "Mina", role: "Platform Lead" } },
+      { actor: "tester", origin: "cli", occurred_at: at },
+      at,
+      { existingId: seeded },
+    );
+    const { entity } = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { title: "namespaced author resolves" } },
+      { actor: seeded, origin: "cli", occurred_at: at },
+      at,
+    );
+
+    const row = await get(`/api/entity/${entity.id}`);
+    expect(row.entity.actor).toBe(seeded);
+    expect(row.entity.actorName).toBe("Mina");
+    // The type check is the real guard, and it still holds: an actor with no person record resolves to
+    // nothing rather than to some other entity's name.
+    const machine = await get("/api/entities?type=fact");
+    const byTester = machine.items.find(
+      (r: { actor: string }) => r.actor === "tester",
+    );
+    expect(byTester.actorName).toBeUndefined();
+  });
 });
 
 // A tenant must never see another tenant's knowledge through a global listing. Before this was
