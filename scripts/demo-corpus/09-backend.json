@@ -1,0 +1,429 @@
+{
+  "collaboration": {
+    "id": "collab:backend-api",
+    "title": "주문 서비스 분리 준비와 API 계약(멱등성·페이지네이션·에러 포맷) 표준화"
+  },
+  "people": [
+    {
+      "id": "person:han-jiwoo",
+      "name": "한지우",
+      "role": "백엔드 엔지니어",
+      "team": "주문서비스팀"
+    },
+    {
+      "id": "person:song-yerim",
+      "name": "송예림",
+      "role": "테크리드",
+      "team": "주문서비스팀"
+    },
+    {
+      "id": "person:choi-donghyun",
+      "name": "최동현",
+      "role": "SRE",
+      "team": "인프라팀"
+    }
+  ],
+  "records": [
+    {
+      "key": "order-service-split-adr",
+      "type": "decision",
+      "author": "person:song-yerim",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "주문 서비스(order-service)를 결제·정산 모놀리스(payments-core)에서 분리해 별도 배포 단위로 만들고, order 관련 테이블도 신규 클러스터(orders-pg)로 이관한다.",
+        "rationale": "## 1. 배경과 문제\n결제·정산·주문이 payments-core(v2.14.1) 하나의 모놀리스로 같이 배포되고 있다. 주문 트래픽은 프로모션 시즌마다 평시 대비 6~8배씩 튀는데, 정산 배치는 트래픽과 무관하게 매일 03:10 KST에 도는 무거운 배치라서 같은 커넥션 풀과 프로세스를 공유하면 서로 경합한다. 2026-05-11 21:15 KST 프로모션 때 주문 생성 API의 p99가 320ms에서 2.4s까지 튀었고, 원인 추적 결과 같은 시각 정산 배치가 커넥션 풀의 80% 이상을 선점하고 있었다(pool-exhaustion-incident-fact 참조). 배포 결합 문제도 있다 — 정산 로직 하나 고치려고 배포하면 주문 API까지 같이 재기동되어, 지난 분기에만 주문과 무관한 배포로 인한 순단이 3건 있었다(평균 순단 시간 42초).\n\n## 2. 고려한 대안\n**대안 A. Strangler fig 패턴으로 점진 이관** — 기존 모놀리스 앞에 라우팅 레이어를 두고 엔드포인트 단위로 하나씩 신규 order-service로 옮긴다. 이관 중에도 구 코드가 계속 트래픽을 받을 수 있어 단계별 롤백이 쉽다. 대신 두 시스템을 동시에 운영하는 기간이 길다(추정 8~10주).\n\n**대안 B. 빅뱅 이관** — order 관련 코드와 데이터를 한 번에 통째로 옮긴다. 기간은 짧지만(추정 2주) 롤백 지점이 사실상 없고, 다운타임 창이 최소 4시간 필요하다.\n\n**대안 C. 분리는 보류하고 모놀리스 내부 모듈 경계만 강화** — DB 스키마는 그대로 두고 코드 레벨에서 order 모듈과 payments 모듈 사이 의존성만 끊는다. 이관 리스크는 없지만, 배포 결합과 리소스 경합이라는 근본 문제(1번)는 그대로 남는다. 이 판단 기준은 이후 modular-monolith-criteria-decision으로 일반화했다.\n\n## 3. 결정\n대안 A(strangler fig)로 간다. 이관 기간이 길어지는 비용보다 프로모션 시즌 중 무중단이 더 중요하다고 판단했다. order-service는 자체 배포 파이프라인과 자체 DB 클러스터(orders-pg, PostgreSQL 15)를 갖는다. API 계약은 idempotency-key-adr에서 정한 멱등성 규칙을 그대로 승계한다.\n\n## 4. 데이터 분리 방법\n- t+0: orders, order_items, order_events 테이블에 대해 CDC(Debezium, Kafka 토픽 `cdc.orders.*`)로 신규 클러스터에 실시간 복제를 건다.\n- t+1주: order-service가 신규 클러스터에서 읽기만 시작(shadow read), 응답은 버리고 기존 응답과 diff만 비교해 정합성을 검증한다. 목표 diff율 0.01% 미만.\n- t+3주: 주문 생성 경로부터 dual-write 시작 — 기존 모놀리스가 orders-pg에도 동시에 쓴다. 이 구간이 가장 위험해 별도 알림(`order-dual-write-lag`, 임계값 5초)을 신규로 만든다.\n- t+6주: 읽기 트래픽을 신규 클러스터로 50% 전환 후 관찰.\n- t+8주: dual-write 종료, 기존 모놀리스의 orders 테이블은 read-only로 전환 후 90일 보관.\n\n## 5. 단계별 이관과 롤백 타임라인\n각 단계는 최소 3일 관찰 후 다음 단계로 넘어간다. 롤백은 라우팅 레이어의 트래픽 비율만 되돌리면 가능하도록 설계했다 — DB 롤백은 dual-write 구간(t+3주~t+8주) 안에서만 가능하고, 그 이후에는 CDC 역방향 동기화가 필요해 롤백 비용이 급격히 커진다. 이 사실은 착수 전 전사에 공유했다.\n1. 2026-08-18: CDC 연결, shadow read 시작\n2. 2026-09-01: dual-write 시작, order-dual-write-lag 알림 신설\n3. 2026-09-22: 읽기 트래픽 50% 전환\n4. 2026-09-29: 읽기 트래픽 100% 전환\n5. 2026-10-13: dual-write 종료, 구 테이블 read-only화\n각 단계 게이트는 테크리드(송예림)와 SRE(최동현) 공동 승인을 필요로 한다.\n\n## 6. 미해결 위험\n- dual-write 구간에서 두 클러스터 간 정합성이 깨지면(신규 클러스터 쓰기 실패 후 재시도 누락 등) 정산 배치가 틀린 금액을 집계할 수 있다. reconciliation job은 아직 설계 전이며 t+3주 전까지 완료가 목표다.\n- 분리 후에도 결제 승인(payment-approve) 호출은 여전히 동기 호출로 남는다 — 사가(saga) 패턴 전환은 이번 ADR 범위 밖이라 별도 논의가 필요하다.\n- 신규 클러스터 커넥션 풀 사이즈를 실측 트래픽 기준으로 아직 정하지 못했다. 초기값은 기존 풀 사이즈(pool-size-rule 참조)를 그대로 복사해 시작하고 첫 프로모션 시즌 이후 재산정한다.\n- 인덱스 재설계(index-approval-procedure에 따른 신규 승인 필요)가 이관 일정에 포함되지 않아 t+6주 시점에 병목이 될 가능성이 있다.\n\n이 문서는 2026-08 아키텍처 리뷰에서 승인됐고, 단계별 진행 상황은 매주 #order-service-migration 채널에 공유한다.",
+        "rejected_alternatives": [
+          "빅뱅 이관 - 다운타임 창과 롤백 불가 리스크가 프로모션 시즌 일정과 맞지 않아 기각",
+          "모듈 경계만 강화하고 서비스 분리는 보류 - 배포 결합과 리소스 경합이라는 근본 원인이 해결되지 않아 기각"
+        ]
+      }
+    },
+    {
+      "key": "idempotency-key-adr",
+      "type": "decision",
+      "author": "person:han-jiwoo",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "주문 생성 API(POST /v1/orders)에 Idempotency-Key 헤더를 필수로 강제하고, 키는 Redis에 24시간 TTL로 저장한다.",
+        "rationale": "결제 재시도 중 중복 주문이 생기는 사고가 2026년 들어 3건 있었다. 가장 최근 건은 2026-06-02로, 모바일 클라이언트가 타임아웃(3초) 후 자동 재시도를 했는데 서버는 첫 요청을 이미 처리한 상태였고, 두 번째 요청이 새 주문을 또 만들어 같은 상품이 2개 결제됐다.\n\n검토한 저장소는 두 곳이다. 하나는 orders 테이블에 unique constraint를 걸어 idempotency key 컬럼을 추가하는 방법, 다른 하나는 Redis에 별도로 저장하는 방법. DB에 걸면 영구 보존되지만 orders 테이블 쓰기 경로에 추가 lock이 걸려 스테이징 부하 테스트에서 p99가 약 40ms 늘어나는 걸 확인했다. Redis는 쓰기가 가볍고 TTL로 자동 정리가 되어 이쪽을 택했다.\n\nTTL은 24시간으로 잡았다 — 결제 PG사 콜백이 최대 지연되는 시간이 12시간이라는 걸 감안해 여유를 뒀다(idempotency-ttl-rule 참조). 키가 없는 요청은 400 InvalidIdempotencyKey로 거부하되, 하위호환을 위해 배포 후 3개월(2026-11까지)은 경고 헤더만 붙이고 통과시킨다.\n\n동일 키로 바디가 다른 요청이 들어오면 409 IdempotencyKeyConflict를 반환한다(error-response-format-rule의 {code, message, traceId} 포맷을 그대로 따른다) — 클라이언트가 키를 재사용하며 다른 주문을 보내는 실수를 잡기 위해서다. 응답은 첫 처리 결과를 그대로 캐싱해서 돌려주고 재계산하지 않는다 — 재고 차감처럼 부수효과가 있는 로직이 두 번 실행되면 안 되기 때문이다.\n\n동시에 같은 키로 두 요청이 도착하는 경우(클라이언트가 이중 클릭 방지 없이 재시도)는 Redis `SET NX` 기반 분산 락으로 먼저 도착한 요청만 처리하고, 나중 요청은 락 해제까지 최대 2초 대기 후 캐싱된 응답을 반환한다.\n\n주문 서비스 분리(order-service-split-adr) 이후에도 이 계약은 그대로 유지되며, 신규 클러스터 이관 과정에서 Redis 키 네임스페이스만 `orders:idem:*`로 변경할 예정이다.",
+        "rejected_alternatives": [
+          "DB unique constraint 방식 - orders 테이블 쓰기 경로에 lock이 추가되어 p99가 약 40ms 늘어나 기각",
+          "클라이언트가 자체적으로 중복 방지 - 재시도 로직이 클라이언트마다 달라 서버 강제가 필요하다고 판단해 기각"
+        ]
+      }
+    },
+    {
+      "key": "pagination-cursor-adr",
+      "type": "decision",
+      "author": "person:song-yerim",
+      "size": "half",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "리스트 조회 API(주문 목록, 정산 내역 등)를 offset 기반에서 cursor 기반 페이지네이션으로 전환한다.",
+        "rationale": "작년(2025년) 초에는 offset 방식으로 충분했다(old-offset-pagination-decision 참조) — 리스트 API 트래픽이 낮고 페이지를 뒤로 많이 넘기는 경우가 드물었다. 그런데 정산팀 대시보드가 매일 새벽 배치로 order_events 테이블을 페이지당 500건씩 offset으로 끝까지 순회하기 시작하면서 문제가 커졌다. offset이 커질수록(10만 건을 넘어가면) `OFFSET n LIMIT 500` 쿼리가 인덱스를 못 타고 앞의 n건을 스캔 후 버리는 식으로 동작해, 마지막 페이지 근처에서는 쿼리 하나에 4~6초가 걸렸다.\n\ncursor 방식으로 바꾸면 `WHERE id > :last_id ORDER BY id LIMIT 500` 형태로 인덱스를 그대로 타서 페이지 위치와 무관하게 쿼리 시간이 일정하다(측정 결과 전 구간 40ms 이내). 대신 클라이언트가 임의 페이지로 점프하는 기능(예: '10페이지로 바로 가기')은 포기해야 한다 — 사내 대시보드 중 이 기능을 쓰는 곳이 없어서 영향은 없다고 확인했다.\n\ncursor 값은 base64로 인코딩한 `{id, sort_key}` 복합값을 쓴다. 정렬 기준이 바뀌는 API(최신순/오래된순 토글이 있는 API)는 sort_key를 cursor에 포함시키지 않으면 정렬이 바뀔 때 cursor가 깨지므로 주의가 필요하다.\n\n하위호환을 위해 기존 offset 파라미터(`page`, `size`)는 앞으로 6개월(2027-02까지) 계속 받되, 내부적으로 offset을 cursor로 변환해서 처리한다. 상한 규칙(pagination-cap-rule)은 cursor 방식으로 바뀌어도 그대로 유지한다. 6개월 뒤 offset 파라미터는 deprecated 처리하고 제거한다.\n\n현재 orders API와 정산 API 두 곳에만 우선 적용하는 초안 단계이고, 나머지 리스트 API로의 확대 여부는 다음 정책 리뷰에서 결정한다. 전환 후에는 orders 목록 조회 p99를 배포 전후로 비교해 대시보드(resource-api-gw-dashboard)에서 2주간 추적할 예정이다.",
+        "rejected_alternatives": [
+          "offset 방식 유지하고 인덱스만 튜닝 - 데이터가 계속 쌓이는 구조라 근본 해결이 안 되어 기각",
+          "keyset pagination 대신 전체를 미리 캐싱 - order_events처럼 계속 append되는 테이블에는 캐시 무효화 비용이 더 커서 기각"
+        ]
+      }
+    },
+    {
+      "key": "cache-invalidation-decision",
+      "type": "decision",
+      "author": "person:choi-donghyun",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "캐시 무효화는 TTL 60초 기본값과 이벤트 기반 무효화(Kafka `cache.invalidate.*`)를 함께 쓴다.",
+        "rationale": "상품 가격 캐시가 갱신 후에도 최대 5분씩 옛날 값을 보여준 사고가 있었다(2026-04 프로모션 가격 반영 지연). TTL만 쓰면 반영 지연이 생기고, 이벤트 기반만 쓰면 이벤트 유실 시 캐시가 영구히 stale해질 위험이 있다. 그래서 이벤트가 오면 즉시 무효화하되, 이벤트를 못 받아도 TTL 60초를 넘기지 않도록 이중 안전장치를 뒀다. Redis 캐시 키에는 버전 접미사를 붙여(`price:v{n}:{sku}`) 무효화 대신 버전을 올리는 방식도 병행한다 — DEL 커맨드가 몰리면 캐시 스탬피드가 생기는 걸 방지하기 위해서다. 이벤트 발행 실패율은 별도 모니터링 없이 방치돼 있었는데, 이번 결정 이후로는 발행 실패가 분당 1건을 넘으면 알림이 오도록 추가했다."
+      }
+    },
+    {
+      "key": "dlq-retry-policy-decision",
+      "type": "decision",
+      "author": "person:choi-donghyun",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "DLQ로 빠진 메시지는 자동 재처리 최대 3회, 이후에는 자동 재시도를 멈추고 사람이 검토한다.",
+        "rationale": "재고 차감 이벤트를 처리하는 컨슈머가 한때 poison message를 만나 무한 재시도 루프에 빠져 컨슈머 그룹 전체가 lag 20만 건까지 밀린 적이 있다(2026-03-19). 그 이후로 재시도 횟수에 상한을 두는 안을 만들었다. 3회 재시도(백오프 1s/5s/30s)까지는 자동으로 하고, 그래도 실패하면 DLQ 토픽(`orders.dlq`)으로 보내고 컨슈머는 다음 메시지로 넘어간다. DLQ에 쌓인 메시지는 매일 오전 사람이 직접 확인해서 재처리 여부를 정한다는 게 초안이며, 아직 DLQ 알림 채널과 담당자 로테이션이 확정되지 않아 draft 상태로 둔다. 재고 차감 외에 알림 발송, 정산 이벤트 컨슈머에도 같은 정책을 적용할지는 다음 스프린트에 논의하기로 했다."
+      }
+    },
+    {
+      "key": "modular-monolith-criteria-decision",
+      "type": "decision",
+      "author": "person:song-yerim",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "서비스는 기본적으로 모듈러 모놀리스로 유지하고, 트래픽 패턴·배포 주기·팀 경계 세 조건 중 두 개 이상이 어긋날 때만 별도 서비스로 분리한다.",
+        "rationale": "서비스를 몇 개나 쪼갤지에 대한 합의가 없어서 팀마다 기준이 달랐다. 이번에 기준을 세 가지로 정리했다: (1) 트래픽 패턴이 다른 모듈과 크게 다른가(예: 배치성 vs 실시간), (2) 배포 주기가 다른 모듈에 발이 묶이는가, (3) 코드 소유권이 이미 다른 팀으로 나뉘어 있는가. order-service 분리 건(order-service-split-adr)은 세 조건 모두 해당했다. 반대로 알림(notification) 모듈은 배포 주기는 잦지만 트래픽 패턴과 팀 경계는 겹쳐서, 이번 기준으로는 아직 분리 대상이 아니라고 결론냈다. 이 기준은 앞으로 새 분리 요청이 들어올 때마다 먼저 통과해야 하는 체크리스트로 쓰기로 했다."
+      }
+    },
+    {
+      "key": "grpc-vs-rest-decision",
+      "type": "decision",
+      "author": "person:han-jiwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "서비스 간 내부 호출은 gRPC로, 외부에 공개하는 API는 REST(+BFF)로 유지한다.",
+        "rationale": "order-service 분리를 준비하면서 서비스 간 호출 방식을 다시 정했다. 내부 호출은 protobuf 스키마로 계약을 강제할 수 있고 HTTP/2 멀티플렉싱으로 지연도 낮아서(내부 벤치마크 기준 REST 대비 p99 약 30% 감소) gRPC로 간다. 다만 외부 파트너사와 모바일 클라이언트는 이미 REST 계약에 맞춰 붙어 있고 브라우저에서 gRPC를 직접 쓰기도 번거로워서, 외부 공개 API는 계속 REST로 두고 BFF 레이어가 내부 gRPC 호출로 변환해준다. 적용 범위는 order-service 분리(order-service-split-adr) 착수 시점부터 우선 시범 적용하고, 다른 내부 서비스로는 점진적으로 확대할 계획이다."
+      }
+    },
+    {
+      "key": "n1-query-incident-fact",
+      "type": "fact",
+      "author": "person:han-jiwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "정산 배치 N+1 쿼리 인시던트",
+        "statement": "2026-06-20 03:40 KST, 정산 배치가 평소 12분이던 처리 시간이 1시간 넘게 걸려 SLA(04:00 KST 완료)를 어겼다. 원인은 정산 배치가 order_id 하나당 order_items를 별도 쿼리로 조회하는 N+1 패턴이었다 — 최근 프로모션으로 주문당 아이템 수가 늘면서(평균 2.3개 → 5.8개) 쿼리 수가 같이 늘어난 게 발화점이었다. 코드 자체는 예전부터 N+1이었지만 쿼리 수가 적을 때는 안 드러났다. 조치로 order_items를 `IN (order_id_list)`로 한 번에 묶어 조회하도록 고쳤고, order_items(order_id) 인덱스가 이미 있어서 추가 인덱스는 필요 없었다. 재발 방지로 배치 쿼리에 슬로우 쿼리 로그 기준(300ms 이상)을 걸어 알림을 추가했다."
+      }
+    },
+    {
+      "key": "term-hot-shard",
+      "type": "term",
+      "author": "person:choi-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "핫샤드",
+        "statement": "특정 파티션 키(주로 대형 셀러의 seller_id)에 쓰기가 몰려 해당 샤드만 레이턴시가 튀는 현상을 부르는 말. 알림 이름도 `hot-shard-alert`로 그대로 쓴다. 발생하면 해당 키만 별도 샤드로 재배치하는 핫픽스를 먼저 하고, 근본 대응(파티션 키 재설계)은 다음 분기로 미룬다. order-service 분리 시 신규 클러스터의 파티션 키를 정할 때도 이 사례를 참고한다."
+      }
+    },
+    {
+      "key": "term-breakglass-token",
+      "type": "term",
+      "author": "person:choi-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "브레이크글래스 토큰",
+        "statement": "장애 대응 중 정상 인증 절차를 우회해 프로덕션 DB에 직접 접근할 때 발급하는 30분짜리 임시 토큰. 발급 즉시 #db-oncall 채널에 자동 공지되고 사용 로그는 감사팀이 매주 리뷰한다. 평상시 권한 신청 절차를 대체하는 게 아니라 장애 대응 전용이라, 평시에 쓰면 사후 소명이 필요하다."
+      }
+    },
+    {
+      "key": "term-dual-write",
+      "type": "term",
+      "author": "person:han-jiwoo",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "듀얼라이트",
+        "statement": "마이그레이션 기간 동안 구 시스템과 신규 시스템에 동시에 쓰는 패턴을 부르는 말. 사내에서는 이 구간을 '가장 위험한 구간'이라고 부르는데, 두 시스템 중 하나만 쓰기에 실패했을 때 데이터가 어긋나는 사고가 실제로 있었기 때문이다. dual-write를 켤 때는 반드시 reconciliation job과 lag 알림을 같이 만든다(order-service-split-adr의 4단계 참조)."
+      }
+    },
+    {
+      "key": "resource-api-gw-dashboard",
+      "type": "resource",
+      "author": "person:choi-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "API 게이트웨이 트래픽 대시보드",
+        "statement": "게이트웨이 레벨의 요청량, 상태 코드 분포, 타임아웃 발생 건수를 서비스별로 보여준다. 배포 직후나 프로모션 중에 주로 본다. 504 비율이 1%를 넘으면 여기서 어떤 서비스가 타임아웃 예외 대상인지부터 확인한다.",
+        "url": "http://grafana.internal/d/api-gateway-traffic"
+      }
+    },
+    {
+      "key": "resource-db-pool-dashboard",
+      "type": "resource",
+      "author": "person:choi-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "DB 커넥션 풀 모니터링 대시보드",
+        "statement": "서비스별 HikariCP 풀 사용률, 대기 큐 길이, acquire 시간을 실시간으로 보여준다. 풀 사용률이 80%를 넘으면 슬랙으로 자동 알림이 온다. 풀 고갈 인시던트가 나면 가장 먼저 여기부터 연다.",
+        "url": "http://grafana.internal/d/db-connection-pool"
+      }
+    },
+    {
+      "key": "resource-migration-checklist",
+      "type": "resource",
+      "author": "person:song-yerim",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "스키마 마이그레이션 무중단 체크리스트",
+        "statement": "컬럼 추가/삭제, 인덱스 생성 순서, expand-contract 단계별 확인 항목을 정리 중인 문서. 프로덕션 마이그레이션 전에는 이 체크리스트에 체크가 다 되어야 DBA 승인이 난다는 게 목표지만, order-service 이관 사례를 반영해 아직 항목을 보강하는 중이라 초안이다.",
+        "url": "http://wiki.internal/pages/schema-migration-checklist"
+      }
+    },
+    {
+      "key": "old-offset-pagination-decision",
+      "type": "decision",
+      "author": "person:song-yerim",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "리스트 조회 API는 offset 기반 페이지네이션(`page`, `size` 파라미터)으로 통일한다.",
+        "rationale": "2025년 초 기준으로는 리스트 API 트래픽이 낮고 구현도 단순해서 offset 방식으로 충분하다고 판단했다. cursor 방식은 구현이 더 복잡하고 당장 필요하지도 않아 보류한다.",
+        "rejected_alternatives": [
+          "cursor 기반 페이지네이션 - 당시 트래픽 규모에 비해 과한 복잡도라고 판단해 보류"
+        ]
+      }
+    },
+    {
+      "key": "pool-exhaustion-incident-fact",
+      "type": "fact",
+      "author": "person:choi-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "커넥션 풀 고갈 인시던트",
+        "statement": "2026-05-11 21:15 KST, 프로모션 트래픽 중 orders-api 커넥션 풀이 고갈되어 신규 요청이 `HikariPool-1 - Connection is not available` 에러로 30초간 대량 실패했다. 원인은 정산 배치와 API 서버가 같은 RDS 인스턴스의 커넥션을 나눠 쓰는 구조라, 배치가 풀의 상당 부분을 선점한 상태였던 것. 임시 조치로 배치용 커넥션 풀을 분리했다."
+      }
+    },
+    {
+      "key": "pool-size-rule",
+      "type": "fact",
+      "author": "person:choi-donghyun",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "커넥션 풀 사이즈 규칙",
+        "statement": "이전 클러스터에서는 maximumPoolSize가 인스턴스당 10이었으나, 지금은 20으로 늘었다(RDS max_connections 500 기준 역산)."
+      }
+    },
+    {
+      "key": "pool-idle-timeout-rule",
+      "type": "fact",
+      "author": "person:choi-donghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "커넥션 풀 idle 타임아웃",
+        "statement": "idleTimeout 10분, maxLifetime 25분 — RDS wait_timeout(30분)보다 짧게 잡는다."
+      }
+    },
+    {
+      "key": "gateway-timeout-standard",
+      "type": "fact",
+      "author": "person:choi-donghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "API 게이트웨이 타임아웃 표준",
+        "statement": "게이트웨이 표준 타임아웃은 5초, 초과 시 504. 예외는 인프라팀 승인이 필요하다."
+      }
+    },
+    {
+      "key": "order-api-timeout-exception",
+      "type": "fact",
+      "author": "person:han-jiwoo",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "주문 생성 API 타임아웃",
+        "statement": "주문 생성 API는 재고 확인 로직 때문에 게이트웨이 타임아웃을 10초로 별도 운영 중이며, 표준 5초를 적용하지 않는다."
+      }
+    },
+    {
+      "key": "idempotency-ttl-rule",
+      "type": "fact",
+      "author": "person:han-jiwoo",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "멱등성 키 TTL",
+        "statement": "Idempotency-Key는 Redis에 24시간 TTL로 저장, 만료 후 동일 키 재요청은 신규 처리로 본다."
+      }
+    },
+    {
+      "key": "error-response-format-rule",
+      "type": "fact",
+      "author": "person:han-jiwoo",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "에러 응답 포맷 규칙",
+        "statement": "모든 API 에러는 {code, message, traceId} 구조로 통일하고, HTTP status와 code는 1:1이 아니다."
+      }
+    },
+    {
+      "key": "pagination-cap-rule",
+      "type": "fact",
+      "author": "person:song-yerim",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "페이지네이션 상한",
+        "statement": "리스트 API 기본 page size는 20, 최대 100. 100 초과 요청은 400 InvalidPageSize로 거부한다."
+      }
+    },
+    {
+      "key": "grpc-scope-rule",
+      "type": "fact",
+      "author": "person:han-jiwoo",
+      "size": "line",
+      "state": "draft",
+      "attributes": {
+        "title": "gRPC 사용 범위",
+        "statement": "gRPC는 서비스 간 내부 호출에만 쓰고, 외부 공개 API는 REST + BFF로 유지한다(세부 예외 목록은 정리 중)."
+      }
+    },
+    {
+      "key": "index-approval-procedure",
+      "type": "fact",
+      "author": "person:song-yerim",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "인덱스 추가 승인 절차",
+        "statement": "프로덕션 인덱스 추가는 DBA 리뷰 필수, EXPLAIN ANALYZE 첨부, 배치 시간대(02~05 KST)에만 적용한다."
+      }
+    },
+    {
+      "key": "db-oncall-contact",
+      "type": "fact",
+      "author": "person:choi-donghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "DB 온콜 연락 경로",
+        "statement": "DB 긴급 장애는 #db-oncall 채널로, PagerDuty는 15분 무응답 시 2차 에스컬레이션된다."
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "relates_to",
+      "from": "order-service-split-adr",
+      "to": "idempotency-key-adr"
+    },
+    {
+      "type": "relates_to",
+      "from": "order-service-split-adr",
+      "to": "modular-monolith-criteria-decision"
+    },
+    {
+      "type": "relates_to",
+      "from": "order-service-split-adr",
+      "to": "index-approval-procedure"
+    },
+    {
+      "type": "relates_to",
+      "from": "order-service-split-adr",
+      "to": "resource-migration-checklist"
+    },
+    {
+      "type": "relates_to",
+      "from": "order-service-split-adr",
+      "to": "term-hot-shard"
+    },
+    {
+      "type": "relates_to",
+      "from": "pagination-cursor-adr",
+      "to": "pagination-cap-rule"
+    },
+    {
+      "type": "relates_to",
+      "from": "idempotency-key-adr",
+      "to": "idempotency-ttl-rule"
+    },
+    {
+      "type": "relates_to",
+      "from": "idempotency-key-adr",
+      "to": "error-response-format-rule"
+    },
+    {
+      "type": "relates_to",
+      "from": "cache-invalidation-decision",
+      "to": "term-dual-write"
+    },
+    {
+      "type": "relates_to",
+      "from": "dlq-retry-policy-decision",
+      "to": "db-oncall-contact"
+    },
+    {
+      "type": "relates_to",
+      "from": "grpc-vs-rest-decision",
+      "to": "grpc-scope-rule"
+    },
+    {
+      "type": "relates_to",
+      "from": "n1-query-incident-fact",
+      "to": "index-approval-procedure"
+    },
+    {
+      "type": "relates_to",
+      "from": "n1-query-incident-fact",
+      "to": "pool-exhaustion-incident-fact"
+    },
+    {
+      "type": "relates_to",
+      "from": "resource-api-gw-dashboard",
+      "to": "gateway-timeout-standard"
+    },
+    {
+      "type": "relates_to",
+      "from": "resource-db-pool-dashboard",
+      "to": "pool-size-rule"
+    },
+    {
+      "type": "relates_to",
+      "from": "resource-db-pool-dashboard",
+      "to": "pool-exhaustion-incident-fact"
+    },
+    {
+      "type": "relates_to",
+      "from": "term-breakglass-token",
+      "to": "db-oncall-contact"
+    },
+    {
+      "type": "supersedes",
+      "from": "pagination-cursor-adr",
+      "to": "old-offset-pagination-decision"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "gateway-timeout-standard",
+      "to": "order-api-timeout-exception"
+    }
+  ]
+}

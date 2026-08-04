@@ -1,0 +1,431 @@
+{
+  "collaboration": {
+    "id": "collab:data-platform",
+    "title": "이벤트 스키마·지표 정의·야간 배치의 신뢰성을 지키는 데이터 플랫폼팀의 최근 작업"
+  },
+  "people": [
+    {
+      "id": "person:kim-dohyun",
+      "name": "김도현",
+      "role": "데이터 엔지니어",
+      "team": "데이터 플랫폼팀"
+    },
+    {
+      "id": "person:lee-suyeon",
+      "name": "이수연",
+      "role": "데이터 플랫폼 테크리드",
+      "team": "데이터 플랫폼팀"
+    },
+    {
+      "id": "person:park-jiwoo",
+      "name": "박지우",
+      "role": "애널리틱스 엔지니어",
+      "team": "데이터 플랫폼팀"
+    }
+  ],
+  "records": [
+    {
+      "key": "rc-metric-mismatch-postmortem",
+      "type": "fact",
+      "author": "person:park-jiwoo",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "title": "지표 불일치 조사: DAU 대시보드 A/B 21%p 차이",
+        "statement": "## 개요\n2026-07-22 오전, 그로스팀이 마케팅 대시보드(A)의 DAU가 데이터 플랫폼 코어 대시보드(B)보다 크게 낮게 표시된다고 신고했다. 같은 날짜 기준 A는 812,340, B는 1,031,220으로 218,880명, 약 21%p 차이가 났다. 두 대시보드 모두 이름은 \"DAU\"였지만 실제로는 서로 다른 이벤트, 서로 다른 필터, 서로 다른 계층을 보고 있었다.\n\n## 신고 경위 (타임라인)\n- 07-22 09:40 KST — 그로스팀 PM이 #data-platform 채널에 \"어제부터 대시보드 숫자가 안 맞는다\"고 제보. 캠페인 예산 배분 회의가 오전 11시로 잡혀 있어 급한 건이었다.\n- 07-22 10:15 KST — 박지우가 두 대시보드의 쿼리를 나란히 열어 비교 시작.\n- 07-22 11:05 KST — 정의 차이를 1차로 확인했지만 회의 시간에 맞추지 못해, 우선 B(코어) 숫자를 잠정 기준으로 안내.\n- 07-22 14:30 KST — 김도현이 파이프라인 쪽 원인(지연/중복)을 배제하기 위해 소스 이벤트 볼륨을 대조.\n- 07-23 10:00 KST — 근본 원인 확정, 이수연에게 재발 방지책 논의 요청.\n- 07-25 16:00 KST — 대시보드 A를 B의 정의를 참조하도록 수정 배포.\n\n## 두 숫자의 정의 차이\n- 대시보드 A(마케팅, Redash): `mobile-events-raw` 토픽에서 `app_open` 이벤트를 직접 SELECT해 unique user_id를 카운트. 로그인 여부와 무관하게 세션이 열리면 카운트되고, 봇 트래픽 필터링이 전혀 없다.\n- 대시보드 B(코어, Looker): dbt 모델 `fct_daily_active_users`가 소스. `session_start` 이벤트 중 `is_bot=false`이고 로그인 상태(`user_id IS NOT NULL`)인 세션만 카운트한다.\n- 즉 A는 \"앱을 열어본 디바이스 수\"에 가깝고, B는 \"로그인한 순수 유저 수\"에 가깝다. 두 숫자 모두 계산 자체는 틀리지 않았다 — 서로 다른 질문에 답하고 있었을 뿐이다.\n\n## 파이프라인 추적\n1. `app_open`은 클라이언트 SDK가 게이트웨이를 거치지 않고 Kafka topic `mobile-events-raw`로 직접 보낸다. 스키마 레지스트리 검증이 붙기 전, 2024년에 만들어진 레거시 경로다.\n2. `session_start`는 게이트웨이 검증을 거쳐 `mobile-events-validated`로 들어가고, Debezium CDC로 세션 테이블과 조인된 뒤 dbt staging → intermediate → mart 계층을 거쳐 `fct_daily_active_users`에 적재된다.\n3. 대시보드 A는 이 dbt 계층을 전혀 거치지 않는다. 즉 봇 필터링, 중복 제거, 로그인 조인이 하나도 적용되지 않은 원본 숫자를 그대로 보여주고 있었다.\n4. 소스 볼륨을 대조한 결과 `mobile-events-raw`에는 QA 자동화 트래픽과 크롤러가 약 9% 섞여 있었고, 나머지 12%p는 비로그인 게스트 세션 차이로 설명됐다. 파이프라인 지연이나 중복 적재는 관측되지 않아 후보 (2), (3)은 기각.\n\n## 결론\n- 숫자 차이의 근본 원인은 파이프라인 버그가 아니라, \"DAU\"라는 같은 이름 아래 서로 다른 정의와 서로 다른 데이터 소스가 동시에 존재했다는 것이다.\n- 대시보드 A는 봇 트래픽이 섞인 미검증 원본 로그를 직접 참조하고 있었고, 이는 지표라기보다 로그 열람에 가까웠다.\n- 코어 대시보드(B)의 정의를 회사 표준 DAU로 채택했고, A는 07-25에 B를 참조하도록 수정 배포되었다.\n\n## 재발 방지 (정의 카탈로그 규칙)\n1. 모든 대시보드는 `metrics.yml` 카탈로그에 등록된 지표만 참조한다. Redash/Looker에서 raw Kafka topic이나 원본 이벤트 테이블을 직접 SELECT해 지표를 재정의하는 것을 금지한다.\n2. 지표 이름은 카탈로그에 유일하게 등록되고, 같은 이름으로 다른 정의를 추가하는 PR은 CI 훅(중복 이름 검사, 07-29 배포)이 자동으로 반려한다.\n3. 신규 대시보드 생성 체크리스트에 \"이 지표가 카탈로그에 이미 있는가?\"를 첫 항목으로 추가.\n4. 분기별로 애널리틱스 엔지니어가 카탈로그 정의와 실제 운영 중인 대시보드 쿼리를 대조하는 감사를 수행하고, 결과를 #data-platform에 공유한다.\n\n## 영향 범위와 후속 조치\n이번 사고로 그로스팀의 캠페인 예산 배분 회의가 하루 밀렸고, 07-22 오전에 잠정 안내한 B 숫자를 기준으로 이미 초안 배분을 짜 둔 상태라 일부 재작업이 필요했다. 재무팀에도 동일한 \"활성 사용자\" 키워드로 다른 정의(결제 이력이 있는 유저 기준)를 쓰는 리포트가 있다는 걸 이번 조사 과정에서 추가로 발견해, 카탈로그 등록 대상에 재무팀 리포트도 포함시키기로 했다. 대시보드 A를 만들었던 그로스팀 자체 Redash 계정에는 raw topic 조회 권한이 남아 있었는데, 이번 건 이후 데이터 플랫폼 IAM 리뷰에서 해당 권한을 회수하고 카탈로그 기반 mart 테이블 조회 권한으로 교체했다. 근본적으로는 \"대시보드를 빠르게 만들고 싶다\"는 요구와 \"raw 이벤트가 가장 빠르고 유연하다\"는 실무 습관이 부딪힌 결과였고, 카탈로그가 충분히 빠르게 새 지표를 추가해주지 못하면 이런 우회가 다시 생길 수 있다는 점을 회고에서 함께 논의했다. 이 부분은 카탈로그 등록 SLA(신규 지표 요청 후 영업일 2일 이내 검토)를 함께 도입하는 것으로 8월 중 별도 결정하기로 했다."
+      }
+    },
+    {
+      "key": "dec-partition-key-orders",
+      "type": "decision",
+      "author": "person:lee-suyeon",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "orders 팩트 테이블의 파티션 키는 order_date(KST 기준 일 단위, created_at 파생)로, 클러스터링 키는 (store_id, order_status) 순서로 확정한다.",
+        "rationale": "현재 orders 테이블은 파티션이 없어 매일 배치가 테이블 전체(약 4.2TB)를 훑고 있었다. 최근 3개월 월평균 스캔 비용이 웨어하우스 전체 비용의 34%를 차지했고, 그중 80% 이상의 쿼리가 WHERE 절에 order_date 범위를 포함하고 있어 파티션 프루닝 효과가 클 것으로 판단했다. order_date는 UTC가 아니라 KST 기준으로 잘라야 했는데, 결제 완료 시각(paid_at)이 아니라 주문 생성 시각(created_at)을 기준으로 정의된 값이라 정산팀 리포트와 정의가 어긋나지 않는지 사전에 확인했다. 클러스터링 키로 store_id를 첫 번째로 둔 이유는 매장별 정산 쿼리가 전체 쿼리의 41%로 가장 빈번하고, order_status를 두 번째로 둔 것은 '결제완료' 상태만 필터링하는 대시보드 쿼리가 그다음으로 많기 때문이다(29%). 파티션 만료(expiration)는 걸지 않는다 — 회계 감사 때문에 3년치 원본을 보관해야 하는 규제 요건이 있다. 대신 90일이 지난 파티션은 스토리지 클래스를 자동으로 nearline으로 내리는 라이프사이클 규칙을 함께 적용한다. 마이그레이션은 다운타임 없이 진행하기 위해 새 파티션 테이블을 만들고 CTAS로 백필한 뒤, 뷰 이름만 스왑하는 blue-green 방식을 쓴다. 예상 다운타임은 스왑 순간의 수 초 미만이다. 백필 순서는 최근 3개월치를 먼저 채워 대시보드 영향을 줄이고, 나머지 2년 9개월치는 야간 유휴 슬롯에서 배치로 돌린다. 마이그레이션 완료 기준은 (1) 신규 파티션 테이블의 row count가 기존 테이블과 완전히 일치, (2) 매장별 정산 쿼리 p95가 8초에서 1.5초 이하로 개선, (3) 2주간 신규 쓰기 경로에서 파티션 프루닝이 정상 동작하는지 쿼리 플랜으로 확인, 세 가지를 모두 통과하는 것이다. 스왑 이후에도 구 테이블은 롤백 대비 2주간 남겨두고 이후 폐기한다.",
+        "rejected_alternatives": [
+          "created_at 대신 paid_at 기준 파티션 — 정산팀은 paid_at을 쓰지만 미결제/취소 주문까지 포함한 운영 대시보드가 더 많아 기각",
+          "클러스터링 없이 파티션만 적용 — 매장별 조회 성능이 여전히 느려(p95 8초) 클러스터링을 추가하기로 함",
+          "파티션 단위를 월(month)로 — 일별 백필/재처리가 잦아 월 단위는 재작업 범위가 너무 커져서 기각"
+        ]
+      }
+    },
+    {
+      "key": "dec-schema-registry-compat",
+      "type": "decision",
+      "author": "person:kim-dohyun",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "이벤트 스키마 레지스트리의 호환성 모드를 BACKWARD_TRANSITIVE로 강제하고, FORWARD 또는 NONE 모드 등록을 요청하는 PR은 CI에서 자동 반려한다.",
+        "rationale": "지난 분기 payments-api 팀이 이벤트 필드 하나를 제거하면서 하위 호환성을 깨뜨렸고, 이를 구독하던 정산 배치 3개가 동시에 실패한 사고가 있었다(INC-0417). 스키마 레지스트리(Confluent Schema Registry v7.6)의 기본값은 BACKWARD였는데, 이는 '새 스키마가 가장 최근 버전과 호환'만 보장할 뿐 그 이전 버전들과의 호환은 보장하지 않는다. 컨슈머가 여러 버전을 동시에 운영하는 경우가 많아(배포 순서가 팀마다 달라 최대 2주까지 버전 차이가 남) TRANSITIVE 옵션을 켜서 '등록된 모든 과거 버전과 호환'되도록 강화하기로 했다. FORWARD 호환(신규 컨슈머가 과거 데이터를 읽을 수 있어야 함)은 이번 결정 범위에서는 강제하지 않는다 — 대부분의 컨슈머가 실시간 스트림만 소비하고 과거 페이로드를 재생하는 경우가 드물기 때문이다. 실무적으로 필드 삭제나 타입 변경을 하려면 반드시 2단계 배포(필드 deprecate 표시 → 한 릴리즈 유예 → 실제 제거)를 거치도록 팀 온보딩 문서에 명시했다. CI 파이프라인에는 스키마 등록 요청이 오면 `compatibility-check` 잡이 먼저 돌고, BACKWARD_TRANSITIVE를 통과하지 못하면 머지가 막힌다. 예외가 필요한 팀은 #data-platform 채널에서 리뷰를 받아야 한다. 도입 첫 달에는 반려 건수가 하루 평균 4건으로 꽤 많았는데, 대부분 기존에 없던 필드를 nullable 없이 추가하려던 실수였다. 이후 스키마 등록 요청 템플릿에 nullable 기본값 체크리스트를 추가한 뒤로 반려 건수가 주 1건 이하로 줄었다. 레거시 토픽 중 이미 FORWARD로 등록되어 있던 12개는 소급 강제 전환 시 컨슈머가 깨질 위험이 있어 예외 목록에 등록해두고, 신규 토픽부터 우선 적용한다. 예외 목록은 분기마다 재검토해서, 마이그레이션이 끝난 토픽은 목록에서 빼고 강제 모드로 옮긴다. 이번 분기 목표는 12개 중 5개를 옮기는 것이다.",
+        "rejected_alternatives": [
+          "FULL_TRANSITIVE(양방향 완전 호환) — 제약이 너무 강해 정상적인 필드 추가조차 리뷰 병목이 커질 것으로 판단해 기각",
+          "팀별 자율 관리 — INC-0417처럼 팀 간 조율 없이 스키마를 바꾸는 사고가 반복될 위험이 커서 기각"
+        ]
+      }
+    },
+    {
+      "key": "dec-freshness-sla-orders",
+      "type": "decision",
+      "author": "person:lee-suyeon",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "orders 도메인 골드 테이블(`fct_orders`)의 신선도 SLA를 '소스 이벤트 발생 후 45분 이내 반영'으로 확정한다.",
+        "rationale": "기존에는 명문화된 SLA가 없어 팀마다 다른 기대치를 갖고 있었다(그로스팀은 15분, 정산팀은 1시간을 암묵적으로 가정). CDC 지연(평균 8분) + dbt 배치 주기(15분 스케줄) + 재시도 여유를 더해 현실적으로 지킬 수 있는 상한선을 45분으로 잡았다. 이보다 짧게 잡으면 배치가 조금만 늦어도 온콜이 매번 SLA 위반 알림을 받게 되어 알림 피로만 커진다는 게 지난 2개월 관측 결과였다. 그로스팀의 15분 요구는 실시간 캠페인 타겟팅 때문인데, 이 유스케이스는 골드 테이블이 아니라 별도의 실시간 스트림 집계로 풀어야 한다고 결론 내렸고 아직 합의는 남아 있다.",
+        "rejected_alternatives": [
+          "15분 — 그로스팀 요구사항이었으나 배치 주기와 재시도를 감안하면 상시 위반 상태가 되어 기각",
+          "1시간 — 여유는 넉넉하지만 실시간성이 필요한 재고 알림 유스케이스에 못 미쳐 기각"
+        ]
+      }
+    },
+    {
+      "key": "dec-backfill-idempotency",
+      "type": "decision",
+      "author": "person:kim-dohyun",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "백필 및 재처리 시 idempotency key를 (source_pk, updated_at) 해시로 두고, INSERT append 대신 MERGE upsert만 허용한다.",
+        "rationale": "지난 백필 작업에서 동일 배치를 실수로 두 번 돌려 orders 테이블에 중복 row가 187만 건 쌓인 사고가 있었다. INSERT append 방식이 재실행에 안전하지 않다는 게 근본 원인이었다. updated_at까지 키에 포함한 이유는 source_pk만으로는 CDC가 같은 row를 수정 때마다 여러 번 내보낼 때 최신 상태로 덮어써야 하기 때문이다. 이 규칙을 적용한 뒤로는 백필 잡이 실패해도 그냥 같은 잡을 그대로 재실행하면 되고, 재실행 전 별도 정리 작업이 필요 없어졌다.",
+        "rejected_alternatives": [
+          "source_pk만 키로 사용 — 수정 이력이 있는 row에서 이전 버전으로 되돌아가는 race condition 발생 가능",
+          "재실행 전 대상 파티션을 수동 TRUNCATE — 사람이 매번 개입해야 해서 자동화 파이프라인에 넣기 어려움"
+        ]
+      }
+    },
+    {
+      "key": "dec-watermark-policy",
+      "type": "decision",
+      "author": "person:kim-dohyun",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "clickstream 스트림 처리의 워터마크는 이벤트 시간 기준 lateness 5분으로 설정하고, 5분을 넘긴 late event는 별도 dead-letter topic(`clickstream-late-dlq`)으로 분리한다.",
+        "rationale": "초안 단계 — 아직 실제 프로덕션 트래픽으로 lateness 분포를 측정하지 못했다. 모바일 오프라인 이벤트가 재전송될 때 최대 3분 정도 늦게 도착하는 걸 로그 샘플링으로 봤지만, 표본이 하루치뿐이라 5분이 충분한지 확신이 없다. 다음 주까지 일주일치 트래픽으로 lateness 분포(p50/p95/p99)를 다시 뽑아보고 확정할 예정. 리뷰 필요.",
+        "rejected_alternatives": [
+          "lateness 1분 — 초기안이었으나 모바일 재전송 지연을 감안하면 대부분 dead-letter로 빠질 위험",
+          "워터마크 없이 processing time 기준 집계 — 순서 보장이 전혀 안 돼 세션 윈도우 집계가 깨짐"
+        ]
+      }
+    },
+    {
+      "key": "dec-metric-catalog-single-source",
+      "type": "decision",
+      "author": "person:park-jiwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "모든 파생 지표는 `metrics.yml` 카탈로그에 등록된 정의만 사용하고, 대시보드 툴에서 raw 이벤트 테이블을 직접 SELECT해 지표를 재정의하는 것을 금지한다.",
+        "rationale": "DAU 불일치 사고(대시보드 A/B 21%p 차이 조사 참고) 이후 재발 방지책으로 도입했다. 같은 이름의 지표가 팀마다 다른 정의로 흩어져 있으면 신뢰가 무너진다는 게 이번 사고의 핵심 교훈이었다. dbt의 metrics 패키지로 정의를 코드로 버전관리하고, Looker/Redash는 카탈로그가 만들어낸 mart 테이블만 참조하도록 강제한다. 등록되지 않은 지표를 새로 SELECT하려는 PR은 애널리틱스 엔지니어 리뷰가 필수 approver로 붙는다.",
+        "rejected_alternatives": [
+          "가이드 문서로만 권고 — 강제력이 없어 이번 사고 이전에도 이미 시도했으나 지켜지지 않았음",
+          "지표별 오너만 지정하고 등록은 선택 — 오너가 바뀌면 지식이 유실되는 문제가 그대로 남음"
+        ]
+      }
+    },
+    {
+      "key": "dec-pii-masking-tier",
+      "type": "decision",
+      "author": "person:lee-suyeon",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "PII 컬럼은 RAW / MASKED / AGGREGATE 3단계 접근 티어로 분리하고, RAW 접근은 익명화 예외 신청과 팀장 승인을 거친 인원만 허용한다.",
+        "rationale": "개인정보보호 감사에서 데이터 엔지니어 전원이 사용자 전화번호 원본 컬럼에 접근 가능한 게 지적됐다. 대부분의 분석 업무는 실제로는 마스킹된 값이나 집계값만 있어도 충분하다는 걸 최근 3개월 쿼리 로그로 확인했다(RAW 컬럼을 실제로 SELECT한 쿼리는 전체의 2% 미만). 티어별로 별도 데이터셋을 두고 IAM 권한을 분리하는 방식을 택했다. RAW 예외 신청은 90일마다 재승인이 필요하고, 승인 없이 만료되면 자동으로 MASKED 티어로 강등된다.",
+        "rejected_alternatives": [
+          "컬럼 레벨 권한만 적용 — 세분화는 되지만 감사 로그에서 '누가 왜'를 추적하기 어려워 신청 프로세스를 얹기로 함",
+          "모든 PII를 항상 마스킹 — 사기 탐지팀처럼 RAW가 실제로 필요한 유스케이스가 있어 전면 금지는 기각"
+        ]
+      }
+    },
+    {
+      "key": "term-cdc-lag",
+      "type": "term",
+      "author": "person:kim-dohyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "CDC lag",
+        "statement": "우리 회사에서 'CDC lag'는 단순 복제 지연이 아니라 'Debezium binlog 커밋 시각과 웨어하우스 반영 시각의 차이'를 가리킨다. 대시보드에는 p50/p99 두 값을 함께 보고하며, p99가 10분을 넘으면 온콜 알림이 간다. 네트워크 지연이 아니라 커넥터 자체의 스냅샷/스트리밍 전환 지연이 원인인 경우가 잦다는 걸 기억해 둘 것."
+      }
+    },
+    {
+      "key": "term-golden-record",
+      "type": "term",
+      "author": "person:park-jiwoo",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "골든 레코드",
+        "statement": "'골든 레코드'는 여러 소스에서 들어온 동일 엔티티(예: 매장)의 상충하는 값 중 metrics.yml 카탈로그가 지정한 단일 소스만을 신뢰값으로 채택한 row를 뜻한다. 카탈로그에 없는 임시 조인 결과는 골든 레코드로 부르지 않으며, 리포트에 인용할 때도 반드시 이 이름을 붙여 출처를 구분한다."
+      }
+    },
+    {
+      "key": "term-freshness-budget",
+      "type": "term",
+      "author": "person:lee-suyeon",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "신선도 버짓",
+        "statement": "'신선도 버짓'은 SLA 45분 중 파이프라인 단계별로 실제 얼마를 쓰고 있는지 배분한 예산 개념이다(CDC 8분 + 배치 대기 15분 + dbt run 12분 + 여유 10분). 아직 팀 전체에 공식 용어로 확정되지 않은 초안이라, 리뷰 없이 회의록 밖에서 인용하지 말 것."
+      }
+    },
+    {
+      "key": "resource-freshness-dashboard",
+      "type": "resource",
+      "author": "person:lee-suyeon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "데이터 신선도 SLA 대시보드",
+        "statement": "도메인별(orders, payments, clickstream 등) 골드 테이블의 마지막 갱신 시각과 SLA 대비 잔여 시간을 보여준다. 온콜이 알림을 받으면 가장 먼저 확인하는 화면이며, 야간 배치 실패 시 어떤 dbt 모델이 막혔는지도 여기서 바로 링크된다.",
+        "url": "https://data-platform.internal.example/dashboards/freshness"
+      }
+    },
+    {
+      "key": "resource-metrics-catalog-doc",
+      "type": "resource",
+      "author": "person:park-jiwoo",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "지표 정의 카탈로그 (metrics.yml 문서)",
+        "statement": "회사 전체 지표의 단일 정의 저장소. 지표명, SQL 정의, 소스 mart 테이블, 오너를 검색할 수 있다. 새 대시보드를 만들기 전에 여기서 지표가 이미 있는지 먼저 확인하는 게 규칙이다.",
+        "url": "https://data-platform.internal.example/catalog/metrics"
+      }
+    },
+    {
+      "key": "resource-batch-dag-viewer",
+      "type": "resource",
+      "author": "person:kim-dohyun",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "야간 배치 의존성 그래프 뷰어",
+        "statement": "Airflow DAG들을 도메인 간 의존 관계까지 묶어 시각화하는 내부 툴 초안. 아직 일부 레거시 크론잡(스케줄러 밖에서 도는 것들)은 반영이 안 돼 있어 draft 상태로 둔다.",
+        "url": "https://data-platform.internal.example/tools/batch-dag"
+      }
+    },
+    {
+      "key": "fact-nightly-batch-dependency",
+      "type": "fact",
+      "author": "person:kim-dohyun",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "야간 배치 의존 순서 초안",
+        "statement": "orders → payments_reconciliation → finance_daily_summary 순으로 돌아야 하는데, 이 의존관계가 코드에는 없고 사람이 크론 시각 간격(각 30분)으로만 맞춰둔 상태다. Airflow sensor로 명시적 의존성을 걸어야 한다는 논의 중이며 아직 초안이다."
+      }
+    },
+    {
+      "key": "dec-old-freshness-sla-loose",
+      "type": "decision",
+      "author": "person:lee-suyeon",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "구 클러스터(2025년, Redshift 기반) 시절 orders 골드 테이블의 신선도 목표는 '2시간 이내'였다.",
+        "rationale": "당시에는 배치 전체가 4시간 넘게 걸려 45분은 물리적으로 불가능한 목표였다. 작년 기준 수치이며, 지금 웨어하우스(BigQuery)로 이전한 뒤에는 더 이상 유효하지 않다.",
+        "rejected_alternatives": [
+          "실시간(수 분 이내) — 당시 인프라로는 시도조차 어려워 논의에서 빠르게 제외됨"
+        ]
+      }
+    },
+    {
+      "key": "fact-payments-retention-7d",
+      "type": "fact",
+      "author": "person:kim-dohyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "결제 이벤트 토픽 보존기간",
+        "statement": "payments-events Kafka 토픽의 보존기간은 7일이다. 그 이후는 웨어하우스에서만 조회 가능하다."
+      }
+    },
+    {
+      "key": "fact-payments-retention-30d",
+      "type": "fact",
+      "author": "person:lee-suyeon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "결제 이벤트 보존 요건",
+        "statement": "결제 이벤트는 원 소스 정책상 최소 30일 보존이 필요하다는 게 재무팀 요구사항이다."
+      }
+    },
+    {
+      "key": "fact-pii-mask-contact",
+      "type": "fact",
+      "author": "person:lee-suyeon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "PII 마스킹 예외 신청 경로",
+        "statement": "RAW PII 접근 예외 신청은 #data-access-request 채널에 팀장 승인 스크린샷과 함께 올린다."
+      }
+    },
+    {
+      "key": "fact-schema-compat-mode-default",
+      "type": "fact",
+      "author": "person:kim-dohyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "스키마 레지스트리 기본 모드",
+        "statement": "신규 토픽 생성 시 호환성 모드 기본값은 BACKWARD_TRANSITIVE이며, 변경하려면 리뷰가 필요하다."
+      }
+    },
+    {
+      "key": "fact-clustering-key-limit",
+      "type": "fact",
+      "author": "person:lee-suyeon",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "구 클러스터 클러스터링 키 제한",
+        "statement": "이전 클러스터에서는 클러스터링 키를 최대 1개만 지원해 복합 키 튜닝이 불가능했다."
+      }
+    },
+    {
+      "key": "fact-storage-lifecycle-glacier",
+      "type": "fact",
+      "author": "person:lee-suyeon",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "구 콜드스토리지 등급",
+        "statement": "작년 기준 90일 지난 파티션은 Glacier 등급으로 내렸으나, 지금은 nearline으로 정책이 바뀌었다."
+      }
+    },
+    {
+      "key": "fact-dbt-naming-convention",
+      "type": "fact",
+      "author": "person:park-jiwoo",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "dbt 모델 네이밍 규칙",
+        "statement": "dbt 모델은 stg_ / int_ / fct_ / dim_ 접두사로 계층을 표시하며, 접두사 생략은 리뷰에서 반려된다."
+      }
+    },
+    {
+      "key": "fact-watermark-default-lateness",
+      "type": "fact",
+      "author": "person:kim-dohyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "기본 워터마크 lateness",
+        "statement": "신규 스트림 잡의 기본 lateness 값은 2분이며, 도메인별 예외는 개별 협의로 정한다."
+      }
+    },
+    {
+      "key": "fact-cdc-lag-alert-threshold",
+      "type": "fact",
+      "author": "person:kim-dohyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "CDC lag 알림 임계값",
+        "statement": "CDC lag p99가 10분을 넘으면 PagerDuty로 온콜에게 자동 알림이 간다."
+      }
+    },
+    {
+      "key": "fact-consumer-freshness-expectation",
+      "type": "fact",
+      "author": "person:park-jiwoo",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "그로스팀의 신선도 기대치",
+        "statement": "그로스팀은 여전히 orders 신선도가 15분 이내여야 실시간 캠페인이 가능하다고 요구한다."
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "relates_to",
+      "from": "rc-metric-mismatch-postmortem",
+      "to": "dec-metric-catalog-single-source"
+    },
+    {
+      "type": "relates_to",
+      "from": "rc-metric-mismatch-postmortem",
+      "to": "resource-metrics-catalog-doc"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-metric-catalog-single-source",
+      "to": "resource-metrics-catalog-doc"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-freshness-sla-orders",
+      "to": "resource-freshness-dashboard"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-partition-key-orders",
+      "to": "fact-clustering-key-limit"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-schema-registry-compat",
+      "to": "fact-schema-compat-mode-default"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-backfill-idempotency",
+      "to": "fact-nightly-batch-dependency"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-watermark-policy",
+      "to": "fact-watermark-default-lateness"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-pii-masking-tier",
+      "to": "fact-pii-mask-contact"
+    },
+    {
+      "type": "relates_to",
+      "from": "fact-nightly-batch-dependency",
+      "to": "resource-batch-dag-viewer"
+    },
+    {
+      "type": "relates_to",
+      "from": "term-cdc-lag",
+      "to": "fact-cdc-lag-alert-threshold"
+    },
+    {
+      "type": "relates_to",
+      "from": "term-golden-record",
+      "to": "dec-metric-catalog-single-source"
+    },
+    {
+      "type": "relates_to",
+      "from": "term-freshness-budget",
+      "to": "dec-freshness-sla-orders"
+    },
+    {
+      "type": "supersedes",
+      "from": "dec-freshness-sla-orders",
+      "to": "dec-old-freshness-sla-loose"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "fact-payments-retention-7d",
+      "to": "fact-payments-retention-30d"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "fact-consumer-freshness-expectation",
+      "to": "dec-freshness-sla-orders"
+    }
+  ]
+}

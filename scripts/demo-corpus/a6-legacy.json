@@ -1,0 +1,480 @@
+{
+  "aged": [
+    {
+      "key": "fact-settlement-batch-q3",
+      "type": "fact",
+      "author": "person:oh-taemin",
+      "collab": "collab:payments-platform",
+      "age_days": 200,
+      "size": "short",
+      "attributes": {
+        "title": "정산배치 처리시간(3분기 기준)",
+        "statement": "2025년 3분기 기준 v2 정산 배치는 평균 42분에 완료됐고, 피크 구간인 오전 3시대에는 58분까지 늘어졌다. PG사 승인 응답 지연이 주요 병목이었고, 재시도 큐 적체가 겹치면 70분을 넘긴 날도 있었다. 배치 대상 건수는 일 평균 12만 건 수준이었다."
+      }
+    },
+    {
+      "key": "fact-ios-crashfree-prev-release",
+      "type": "fact",
+      "author": "person:choi-yeonwoo",
+      "collab": "collab:mobile-app",
+      "age_days": 210,
+      "size": "line",
+      "attributes": {
+        "title": "iOS 크래시프리 세션 비율(직전 릴리스)",
+        "statement": "직전 릴리스(4.12.0) 기준 크래시프리 세션 비율은 99.2%였다."
+      }
+    },
+    {
+      "key": "fact-nightly-batch-completion-q3",
+      "type": "fact",
+      "author": "person:kim-dohyun",
+      "collab": "collab:data-platform",
+      "age_days": 230,
+      "size": "short",
+      "attributes": {
+        "title": "야간 집계 배치 완료 시각(3분기)",
+        "statement": "2025년 3분기 기준 야간 집계 배치는 매일 04:20에 완료됐다. 이벤트 스키마 v3 적용 전이라 스키마 불일치로 인한 재처리가 잦았고, 총 잡 수는 37개, 이 중 5개는 완료까지 평균 3회 재시도가 필요했다. 재처리가 겹치는 날은 완료 시각이 05시를 넘겨 조간 리포트 발송이 지연된 경우도 주 2회꼴로 있었다."
+      }
+    },
+    {
+      "key": "fact-featurestore-sync-lag-v2",
+      "type": "fact",
+      "author": "person:seo-yeeun",
+      "collab": "collab:ml-recsys",
+      "age_days": 240,
+      "size": "line",
+      "attributes": {
+        "title": "피처스토어 온/오프라인 정합성 지연(랭킹 v2)",
+        "statement": "랭킹 v2 기준 온/오프라인 피처 정합성 지연은 평균 12분이었다."
+      }
+    },
+    {
+      "key": "fact-release-failure-rate-prev-quarter",
+      "type": "fact",
+      "author": "person:mun-jihu",
+      "collab": "collab:qa-release",
+      "age_days": 250,
+      "size": "line",
+      "attributes": {
+        "title": "배포 실패율(지난 분기)",
+        "statement": "지난 분기 2주 스프린트 릴리스 기준 배포 실패율은 6%였다."
+      }
+    },
+    {
+      "key": "fact-nodepool-config-last-h2",
+      "type": "fact",
+      "author": "person:yoon-daeun",
+      "collab": "collab:infra-sre",
+      "age_days": 310,
+      "size": "short",
+      "attributes": {
+        "title": "노드풀 구성(작년 하반기)",
+        "statement": "작년 하반기 기준 프로덕션 노드풀은 EKS 1.24 위에서 온디맨드 60%, 스팟 40% 비율로 구성됐고, 평균 가동 노드 수는 84대였다. 스팟 회수 이벤트로 인한 파드 재스케줄링이 주당 3~4회 발생했고, 그때마다 배포 대기열이 5분가량 밀리는 게 일상적이었다."
+      }
+    },
+    {
+      "key": "fact-vuln-patch-sla-last-h2",
+      "type": "fact",
+      "author": "person:oh-yuna",
+      "collab": "collab:security-compliance",
+      "age_days": 330,
+      "size": "line",
+      "attributes": {
+        "title": "취약점 패치 SLA(작년 하반기)",
+        "statement": "작년 하반기 기준 Critical 취약점 패치 SLA는 14일이었다."
+      }
+    },
+    {
+      "key": "fact-admin-ownership-before-split",
+      "type": "fact",
+      "author": "person:oh-jungmin",
+      "collab": "collab:support-admin",
+      "age_days": 345,
+      "size": "line",
+      "attributes": {
+        "title": "어드민 권한 체계(팀 분리 전)",
+        "statement": "팀 분리 전에는 어드민 권한 관리를 백엔드팀이 겸임했다."
+      }
+    },
+    {
+      "key": "fact-perf-budget-last-h2",
+      "type": "fact",
+      "author": "person:jang-minho",
+      "collab": "collab:web-design-system",
+      "age_days": 355,
+      "size": "short",
+      "attributes": {
+        "title": "웹 성능 예산(작년 하반기)",
+        "statement": "작년 하반기 기준 메인 페이지 LCP 예산은 2.8초였고, 디자인시스템 v1 컴포넌트 기준으로 측정됐다. 접근성 감사는 분기 1회만 진행됐고 자동화된 회귀 체크는 없었다. 측정 환경도 실제 회선이 아니라 사무실 와이파이 기준이라 실사용자 체감과는 차이가 있었다."
+      }
+    },
+    {
+      "key": "decision-rest-defer-grpc",
+      "type": "decision",
+      "author": "person:han-jiwoo",
+      "collab": "collab:backend-api",
+      "age_days": 450,
+      "size": "short",
+      "attributes": {
+        "conclusion": "내부 서비스간 통신은 REST+JSON을 유지하고 gRPC 도입은 보류한다.",
+        "rationale": "그 당시 내부 서비스가 6개뿐이고 스키마 변경 빈도가 낮아 protobuf 스키마 관리와 코드 생성 파이프라인을 새로 구축하는 오버헤드가 더 크다고 판단했다. 백엔드 엔지니어는 총 5명, gRPC 경험자는 1명뿐이었다.",
+        "rejected_alternatives": [
+          "gRPC+protobuf 전면 도입",
+          "GraphQL 게이트웨이 구축"
+        ]
+      }
+    },
+    {
+      "key": "decision-ci-tool-pick",
+      "type": "decision",
+      "author": "person:oh-taeyang",
+      "collab": "collab:qa-release",
+      "age_days": 420,
+      "size": "short",
+      "attributes": {
+        "conclusion": "사내 CI 도구로 Jenkins를 유지하고 SaaS형 CI로 전환하지 않는다.",
+        "rationale": "당시 운영 중인 파이프라인이 40개였고 마이그레이션 공수를 3주 이상으로 산정했는데 릴리스 엔지니어가 2명뿐이라 병행이 불가능했다. Jenkins 플러그인 커스텀 의존성도 이미 상당히 쌓여 있었다.",
+        "rejected_alternatives": ["GitHub Actions 전면 전환", "CircleCI 도입"]
+      }
+    },
+    {
+      "key": "decision-log-pipeline-pick",
+      "type": "decision",
+      "author": "person:choi-yerim",
+      "collab": "collab:infra-sre",
+      "age_days": 780,
+      "size": "short",
+      "attributes": {
+        "conclusion": "로그 수집 파이프라인은 Fluentd와 Elasticsearch 조합을 표준으로 채택한다.",
+        "rationale": "당시 일 로그량이 200GB 수준이었고 팀 내에 ELK 운영 경험이 있었던 반면, 매니지드 로그 서비스를 도입하면 견적상 예산을 3배 이상 초과했다. 온콜 인원도 2명뿐이라 새 도구 학습 여유가 없었다.",
+        "rejected_alternatives": [
+          "매니지드 로그 서비스 도입",
+          "Loki+Grafana 스택 전환"
+        ]
+      }
+    },
+    {
+      "key": "decision-message-queue-pick",
+      "type": "decision",
+      "author": "person:han-seojun",
+      "collab": "collab:infra-sre",
+      "age_days": 800,
+      "size": "para",
+      "attributes": {
+        "conclusion": "사내 표준 비동기 메시지 큐로 RabbitMQ 3.9를 채택하고 전사 이벤트 처리에 사용한다.",
+        "rationale": "그때 전사 이벤트 처리량은 초당 300건 수준이었고, 인프라팀 인원은 3명뿐이라 Kafka 클러스터를 새로 구축하고 운영할 여력이 없었다. RabbitMQ는 이미 알림 서비스에서 8개월째 안정적으로 운영되고 있었고, 팀 내 러닝커브도 낮았다. 당시에는 파티션 기반 순서 보장이나 대용량 스트림 처리 요구가 어느 서비스에서도 나오지 않았다는 점도 근거였다. 예산 승인 기준도 신규 인프라 도입 없이 기존 리소스 재활용을 우선하던 시기였다. 온콜 문서와 알림 규칙도 RabbitMQ의 큐 구조에 맞춰 이미 정리돼 있었기 때문에, 새 도구를 들이면 온콜 대응 매뉴얼부터 다시 써야 한다는 점도 부담으로 작용했다.",
+        "rejected_alternatives": [
+          "Kafka 클러스터 신규 구축",
+          "AWS SQS+SNS 완전 매니지드 전환"
+        ]
+      }
+    },
+    {
+      "key": "decision-self-hosted-auth",
+      "type": "decision",
+      "author": "person:baek-donghyun",
+      "collab": "collab:security-compliance",
+      "age_days": 850,
+      "size": "para",
+      "attributes": {
+        "conclusion": "자체 구축한 OAuth2 인증 서버(auth-core)를 유지하고 외부 IdP로 전환하지 않는다.",
+        "rationale": "그 시점에는 SSO가 필요한 사내 도구가 어드민 콘솔 2개뿐이었고, 외부 IdP 라이선스 비용을 견적받아보니 연간 예산을 초과했다. auth-core는 이미 18개월째 장애 없이 운영 중이었고, 보안 엔지니어 1명이 유지보수를 전담할 수 있는 수준의 복잡도였다. 제로트러스트 전환이나 다중 SaaS 연동 같은 요구는 당시 로드맵에 없었기 때문에 확장성보다 안정성과 비용을 우선한 결정이었다. 감사 로그 포맷도 auth-core 자체 스키마에 맞춰 사내 대시보드가 이미 연동돼 있어서, 외부 IdP로 바꾸면 감사 파이프라인도 함께 손봐야 하는 상황이었다. 이관 프로젝트 자체를 별도로 세워야 할 만큼 작업 범위가 컸다.",
+        "rejected_alternatives": ["Okta 도입", "AWS Cognito 전환"]
+      }
+    },
+    {
+      "key": "decision-frontend-state-lib",
+      "type": "decision",
+      "author": "person:han-seoyeon",
+      "collab": "collab:web-design-system",
+      "age_days": 430,
+      "size": "line",
+      "attributes": {
+        "conclusion": "웹 상태관리는 Redux를 표준으로 유지한다.",
+        "rationale": "팀 숙련도가 높고 전환 리팩터링 공수가 부담됐다.",
+        "rejected_alternatives": ["Recoil 전환", "Zustand 도입"]
+      }
+    },
+    {
+      "key": "decision-single-region-ops",
+      "type": "decision",
+      "author": "person:han-seojun",
+      "collab": "collab:infra-sre",
+      "age_days": 480,
+      "size": "line",
+      "attributes": {
+        "conclusion": "서비스는 단일 리전(ap-northeast-2)으로만 운영한다.",
+        "rationale": "해외 고객 비중이 3% 미만이라 리전 이중화 필요성이 낮다고 봤다.",
+        "rejected_alternatives": ["도쿄 리전 이중화"]
+      }
+    },
+    {
+      "key": "decision-monolith-retain",
+      "type": "decision",
+      "author": "person:song-yerim",
+      "collab": "collab:backend-api",
+      "age_days": 1250,
+      "size": "para",
+      "attributes": {
+        "conclusion": "주문 서비스를 별도 리포로 분리하지 않고 모놀리스 구조를 유지한다.",
+        "rationale": "그 무렵 백엔드 엔지니어는 4명, 일 평균 주문 트랜잭션은 8만 건 수준이었다. 서비스를 주문/재고/결제로 쪼개면 배포 파이프라인이 3개로 늘고 서비스 디스커버리와 분산 트랜잭션 처리를 새로 구축해야 했는데, 그 비용이 당시 조직 규모에서 얻을 이득보다 크다고 판단했다. 별도 API 게이트웨이를 둘 예산도 없었고, 트래픽 급증에 대비한 개별 스케일링 요구도 아직 없던 시기였다. 배포는 하루 1~2회, 장애 시 롤백도 단일 배포 단위라 오히려 단순했다. 코드 오너십도 팀 전체가 리포 하나를 공유하는 편이 리뷰 부담이 적었고, 서비스 경계를 미리 잘못 그으면 나중에 재통합하는 비용이 더 크다는 우려도 있었다.",
+        "rejected_alternatives": [
+          "주문/재고/결제 3개 서비스로 즉시 분리",
+          "모듈러 모놀리스로 전환 후 점진적 분리"
+        ]
+      }
+    },
+    {
+      "key": "decision-onprem-db-retain",
+      "type": "decision",
+      "author": "person:yoon-daeun",
+      "collab": "collab:infra-sre",
+      "age_days": 1350,
+      "size": "para",
+      "attributes": {
+        "conclusion": "온프레미스 IDC의 Oracle 19c를 유지하고 클라우드 매니지드 DB로 이전하지 않는다.",
+        "rationale": "3년 전 트래픽 기준 피크 QPS는 1200 수준이었고, 클라우드 이전 견적상 마이그레이션 기간 중 최대 3개월의 다운타임 리스크를 감수해야 했다. 당시에는 RDS의 Oracle 호환 옵션도 국내 리전에서 충분히 검증되지 않은 상태였고, 예산상 온프레미스 라이선스를 이미 3년치 선결제해 둔 상태라 조기 이전의 매몰비용도 컸다. DBA 인력도 1명뿐이라 신규 클라우드 DB 운영 학습에 투입할 여유가 없었다. IDC 코로케이션 계약도 그해 막 갱신한 참이라, 계약 기간 내 이전하면 위약금까지 얹어 손실이 커진다는 계산도 있었다. 계약 담당 부서와 재협상하려면 최소 반년은 걸릴 것으로 예상됐다.",
+        "rejected_alternatives": [
+          "AWS RDS for Oracle 이전",
+          "PostgreSQL로 재작성 후 클라우드 이전"
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "key": "conflict-single-region-vs-payments-dual-region",
+      "topic": "단일 리전 운영 원칙 vs 결제 게이트웨이 이중 리전 전환",
+      "a": {
+        "type": "fact",
+        "author": "person:han-seojun",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 500,
+        "attributes": {
+          "title": "단일 리전 운영 원칙",
+          "statement": "전사 인프라 원칙상 전 서비스는 단일 리전(ap-northeast-2)에서만 운영하며, 별도 리전 이중화 계획은 잡혀 있지 않다. 신규 서비스도 이 원칙을 기본값으로 따르고, 예외를 두려면 인프라 아키텍처 리뷰를 거쳐야 한다. 이 원칙은 인프라 로드맵 문서에도 그대로 실려 있다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:jung-arim",
+        "collab": "collab:payments-platform",
+        "size": "short",
+        "age_days": 30,
+        "attributes": {
+          "title": "결제 게이트웨이 이중 리전 전환",
+          "statement": "PG 이중화 요구사항에 따라 결제 게이트웨이는 서울-도쿄 active-standby 구성으로 이미 전환했다. 장애 시 RTO 3분 이내 페일오버가 최근 훈련에서 검증됐고, 다음 분기부터 정산 배치도 동일 구성으로 확장할 계획이다. 이 구성은 인프라팀의 단일 리전 원칙과는 별도로 결제 도메인 자체 예산으로 진행됐다."
+        }
+      }
+    },
+    {
+      "key": "conflict-mq-standard-vs-recsys-kafka",
+      "topic": "사내 표준 메시지 큐(RabbitMQ) vs 피처 파이프라인 실사용(Kafka)",
+      "a": {
+        "type": "fact",
+        "author": "person:han-seojun",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 400,
+        "attributes": {
+          "title": "사내 표준 메시지 큐 RabbitMQ",
+          "statement": "전사 비동기 처리 표준 메시지 큐는 RabbitMQ 3.9이며, 신규 프로젝트도 별도 예외 승인이 없는 한 이 표준을 따라야 한다. 온콜 대응도 RabbitMQ 기준으로만 문서화돼 있고, 다른 큐를 쓰면 장애 시 인프라팀이 대응할 수 없다는 점이 표준 문서에 명시돼 있다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:jang-doyoon",
+        "collab": "collab:ml-recsys",
+        "size": "short",
+        "age_days": 20,
+        "attributes": {
+          "title": "피처 파이프라인 Kafka 전환",
+          "statement": "실시간 피처 파이프라인은 초당 이벤트 4천 건을 처리해야 해서 RabbitMQ로는 처리량이 부족했다. 파티션 기반 순서 보장도 필요해 이미 Kafka 3.6 클러스터로 구축해 운영 중이며, 표준 예외 승인은 별도로 받지 않았다. 온콜 문서도 아직 자체적으로만 정리해 둔 상태라 인프라팀과 공유되지 않았다."
+        }
+      }
+    },
+    {
+      "key": "conflict-rest-standard-vs-recsys-grpc",
+      "topic": "내부 통신 REST 표준 vs 랭킹 서빙 gRPC 실사용",
+      "a": {
+        "type": "fact",
+        "author": "person:han-jiwoo",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 300,
+        "attributes": {
+          "title": "내부 통신 REST 표준",
+          "statement": "내부 서비스간 통신은 REST+JSON이 표준이며 gRPC 도입은 API 계약 문서 기준으로 여전히 보류 상태다. 신규 API도 REST 컨벤션(멱등성 헤더, 페이지네이션 커서, 에러 포맷)을 따라야 하며, 다른 프로토콜을 쓰려면 계약 문서 개정을 먼저 거쳐야 한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:han-jiwon",
+        "collab": "collab:ml-recsys",
+        "size": "short",
+        "age_days": 15,
+        "attributes": {
+          "title": "랭킹 서빙 gRPC 전환",
+          "statement": "랭킹 서빙 API는 p99 지연 20ms 요구를 맞추기 위해 gRPC+protobuf로 이미 전환했다. 평균 응답시간이 REST 대비 40ms에서 8ms로 줄었고, 팀 내에서는 REST로 되돌릴 계획이 없다. 계약 문서 개정 요청은 아직 백엔드팀에 제출하지 않은 상태다."
+        }
+      }
+    },
+    {
+      "key": "conflict-log-retention-vs-event-retention",
+      "topic": "애플리케이션 로그 보존기간 vs 이벤트 로그 보존기간",
+      "a": {
+        "type": "fact",
+        "author": "person:choi-yerim",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 60,
+        "attributes": {
+          "title": "애플리케이션 로그 보존기간",
+          "statement": "인프라 정책상 애플리케이션 로그는 스토리지 비용 문제로 14일만 보존하고 이후 자동 삭제한다. 장애 재현이 필요하면 14일 내에 별도 아카이빙을 요청해야 하며, 이 정책은 서비스 종류와 무관하게 전사에 동일하게 적용된다. 예외를 두려면 스토리지 비용 증가분을 요청 부서가 부담해야 한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:lee-suyeon",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 10,
+        "attributes": {
+          "title": "이벤트 로그 보존기간",
+          "statement": "지표 재계산과 리텐션 분석을 위해 이벤트 로그는 최소 90일 보존이 필요하다고 판단해, 실제로 S3에 90일치를 유지하고 있고 별도 삭제 배치도 돌리지 않는다. 인프라팀의 14일 보존 정책은 애플리케이션 로그 기준이라 이벤트 로그에는 적용된 적이 없다."
+        }
+      }
+    },
+    {
+      "key": "conflict-security-patch-sla-vs-qa-bug-deadline",
+      "topic": "Critical 취약점 패치 SLA vs Critical 버그 처리 기한",
+      "a": {
+        "type": "fact",
+        "author": "person:no-taekyung",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 5,
+        "attributes": {
+          "title": "Critical 취약점 패치 SLA",
+          "statement": "보안 정책상 Critical 등급 취약점은 발견 후 7일 이내 패치가 SLA이며, 초과 시 컴플라이언스 보고 대상이 된다. 최근 분기 준수율은 이 기준으로 집계되고, 미준수 건은 팀별로 감사 위원회에 별도 소명해야 한다. 외부 감사 시즌에는 이 SLA 준수율이 그대로 인용된다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:jang-mirae",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 5,
+        "attributes": {
+          "title": "Critical 버그 처리 기한",
+          "statement": "2주 스프린트 릴리스 사이클상 Critical 버그도 다음 배포 주기(최대 10일) 내 처리를 목표로 운영한다. 실제로 7일 SLA를 맞춘 사례는 최근 스프린트에서 없었고, 핫픽스 배포도 QA 검증 없이는 나가지 않는다는 원칙을 지키다 보니 더 지연되는 편이다."
+        }
+      }
+    },
+    {
+      "key": "conflict-pg-timeout-vs-gateway-standard",
+      "topic": "PG 연동 타임아웃 vs API 게이트웨이 표준 타임아웃",
+      "a": {
+        "type": "fact",
+        "author": "person:oh-taemin",
+        "collab": "collab:payments-platform",
+        "size": "short",
+        "age_days": 40,
+        "attributes": {
+          "title": "PG 연동 타임아웃",
+          "statement": "PG사 응답 지연 편차가 커서 결제 연동 타임아웃은 8초로 설정돼 있다. 3초로 줄이면 정상 승인 건도 타임아웃으로 처리돼 재시도 폭주가 발생한 이력이 있고, 그때 중복 승인 사고까지 이어진 적이 있어 8초 아래로는 내리기 어렵다는 게 팀 내 합의다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:song-yerim",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 20,
+        "attributes": {
+          "title": "API 게이트웨이 표준 타임아웃",
+          "statement": "API 계약 표준상 모든 백엔드 호출의 타임아웃은 3초로 통일해야 하며, 결제 도메인이라고 예외를 두면 게이트웨이 서킷브레이커 설정 전체가 복잡해진다. 표준을 어긴 채로 운영 중인 도메인이 결제 하나뿐이라 다른 팀에도 예외를 허용해야 하는 선례가 될 수 있다는 우려도 있다."
+        }
+      }
+    },
+    {
+      "key": "conflict-incident-notice-target-vs-mobile-priority",
+      "topic": "장애 1차 공지 목표시간 vs 공지 화면 개편 우선순위",
+      "a": {
+        "type": "fact",
+        "author": "person:bae-sua",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 15,
+        "attributes": {
+          "title": "장애 1차 공지 목표시간",
+          "statement": "CS 오퍼레이션 플레이북 기준 장애 발생 시 1차 공지는 10분 이내 발송을 목표로 하며, 에스컬레이션 확정 즉시 앱 푸시와 공지 화면을 동시에 올려야 한다. 이 목표치는 고객 문의량이 급증하기 전에 선제 안내를 하기 위한 기준으로 정해졌고, 분기마다 준수율을 리포트로 공유한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:song-arim",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 25,
+        "attributes": {
+          "title": "공지 화면 개편 우선순위",
+          "statement": "공지·프로모션 화면이 RN 전환 작업 중이라 실제로는 1차 공지 반영에 30분 넘게 걸리는 경우가 흔하고, 전환 완료 전까지는 CS 목표치를 맞추기 어렵다. 네이티브 화면과 RN 화면을 동시에 배포해야 해서 스토어 심사 대기 시간도 매번 변수가 된다."
+        }
+      }
+    },
+    {
+      "key": "conflict-redux-standard-vs-promo-zustand",
+      "topic": "상태관리 라이브러리 표준 vs 신규 페이지 실사용",
+      "a": {
+        "type": "fact",
+        "author": "person:han-seoyeon",
+        "collab": "collab:web-design-system",
+        "size": "short",
+        "age_days": 200,
+        "attributes": {
+          "title": "상태관리 라이브러리 표준",
+          "statement": "디자인시스템 v2 마이그레이션 가이드에는 상태관리를 Redux로 통일한다고 명시돼 있고, 신규 컴포넌트 문서도 이 기준으로 작성돼 있다. 가이드 개정 이후 나온 신규 화면은 전부 이 기준을 따르는 것으로 파악하고 있었고, 리뷰 체크리스트에도 그렇게 반영돼 있다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:jang-minho",
+        "collab": "collab:web-design-system",
+        "size": "short",
+        "age_days": 10,
+        "attributes": {
+          "title": "신규 페이지 상태관리 실사용",
+          "statement": "번들 크기 예산 200KB를 맞추려고 신규 프로모션 페이지는 Zustand로 구현했다. Redux 대비 번들이 18KB 줄어 예산을 지켰고, 이 결정을 가이드에 반영하진 않았다. 일정이 급해 디자인시스템 팀과 사전 협의 없이 진행한 것도 사실이다."
+        }
+      }
+    },
+    {
+      "key": "conflict-onprem-db-standard-vs-data-platform-aurora",
+      "topic": "메인 DB 온프레미스 표준 vs 신규 파이프라인 DB 선택",
+      "a": {
+        "type": "fact",
+        "author": "person:yoon-daeun",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 300,
+        "attributes": {
+          "title": "메인 DB 온프레미스 표준",
+          "statement": "메인 트랜잭션 DB는 여전히 온프레미스 IDC의 Oracle 19c가 사내 표준이며, 신규 서비스도 별도 예외 없이 이 DB에 연동하는 것이 원칙이다. 클라우드 DB를 쓰려면 인프라 아키텍처 리뷰와 보안 검토를 먼저 받아야 하고, 이 절차는 예외 없이 모든 팀에 동일하게 적용돼 왔다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:park-jiwoo",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 5,
+        "attributes": {
+          "title": "신규 파이프라인 DB 선택",
+          "statement": "신규 분석 파이프라인은 온프레미스 연동 지연 문제로 AWS Aurora PostgreSQL로 바로 구축했고, 온프레미스 DB와는 별도 계정으로 완전히 독립 운영 중이다. 인프라팀의 사전 아키텍처 리뷰는 일정상 건너뛰고 사후에 공유했으며, 계정 분리 근거는 데이터 접근 권한 통제를 단순하게 유지하려는 목적이었다."
+        }
+      }
+    }
+  ]
+}

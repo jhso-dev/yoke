@@ -1,0 +1,404 @@
+{
+  "collaboration": {
+    "id": "collab:mobile-app",
+    "title": "iOS/Android 앱 안정성 지표 정비와 공지·프로모션 화면 RN 전환 준비"
+  },
+  "people": [
+    {
+      "id": "person:choi-yeonwoo",
+      "name": "최연우",
+      "role": "iOS 테크리드",
+      "team": "모바일플랫폼팀"
+    },
+    {
+      "id": "person:han-dojin",
+      "name": "한도진",
+      "role": "Android 엔지니어",
+      "team": "모바일플랫폼팀"
+    },
+    {
+      "id": "person:song-arim",
+      "name": "송아림",
+      "role": "모바일 PM",
+      "team": "모바일플랫폼팀"
+    }
+  ],
+  "records": [
+    {
+      "key": "rn-webview-transition-plan",
+      "type": "decision",
+      "author": "person:choi-yeonwoo",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "핵심 트랜잭션 화면(홈 피드, 매물 상세, 채팅, 결제)은 네이티브로 유지하고, 콘텐츠성·저빈도 변경 화면(공지사항, 이벤트/프로모션 랜딩, 약관, FAQ, 고객센터)은 2026-Q3부터 3단계에 걸쳐 RN으로 전환한다.",
+        "rationale": "## 배경\n지난 1년간 마케팅팀 요청으로 이벤트 랜딩 화면이 47회 배포됐고, 그중 32건이 앱스토어 심사 대기(평균 18시간, 최장 4일 6시간) 때문에 캠페인 시작일을 못 맞췄다. 반면 홈 피드/매물 상세/결제는 같은 기간 배포 9회로 안정적이었다. 이 비대칭이 이번 전환 논의의 출발점이다. 완전 네이티브 유지 vs 전면 RN 전환 vs 부분 전환 세 갈래로 3주간 검토했다.\n\n## 화면별 전환 판단 기준\n다음 4가지 기준으로 화면을 채점했다(각 0~2점, 6점 만점, 4점 이상이면 전환 후보):\n1. 배포 빈도 — 분기 5회 이상 변경되면 2점\n2. 네이티브 API 의존도 — 카메라/생체인증/결제 SDK/딥러닝 추천 모델을 안 쓰면 2점\n3. 성능 민감도 — 스크롤 60fps 유지가 체감상 중요하지 않으면 2점\n4. 오프라인 요구 — 오프라인 캐시 없이도 되면 2점\n\n공지사항(6점), 이벤트 랜딩(6점), 약관/FAQ(6점), 고객센터 문의(4점)가 후보로 선정됐다. 매물 상세는 스크롤 성능과 지도 SDK 의존 때문에 2점, 채팅은 실시간 소켓과 푸시 연동 때문에 0점, 결제는 생체인증·PG SDK 의존으로 0점에 그쳐 네이티브 유지가 확정됐다. 홈 피드는 추천 모델 연동과 60fps 스크롤 요구로 2점.\n\n## 네이티브로 남기는 것과 이유\n- 홈 피드: 무한 스크롤 프레임드랍이 RN 프로토타입(2026-05 실험)에서 p95 44fps로 측정돼 네이티브(59fps) 대비 체감 저하가 명확했다.\n- 매물 상세: 지도 SDK(네이티브 전용 바인딩), 360도 이미지 뷰어가 RN 브릿지를 왕복할 때마다 200~300ms 지연 발생.\n- 채팅: 웹소켓 재연결과 백그라운드 푸시 병합 로직이 OS별 백그라운드 정책에 강하게 결합돼 있어 RN으로 옮기면 두 플랫폼 각각 우회 코드가 늘어난다(오히려 유지비 증가).\n- 결제: FIDO2 생체인증과 PG SDK가 네이티브 전용이며, 결제 스키마는 강제 업데이트 정책(강제 업데이트 정책 ADR 참조) 대상이라 RN OTA로 우회하면 안 된다.\n\n## 단계 계획\n1단계(2026-09): 공지사항, FAQ — 읽기 전용, 상태 없음. RN 번들 크기 목표 800KB 이하.\n2단계(2026-11): 이벤트/프로모션 랜딩 — 딥링크 파라미터 파싱, A/B 테스트 SDK 연동 포함.\n3단계(2027-01): 고객센터 문의 — 이미지 첨부, 폼 상태 관리 포함. 여기까지 완료 후 전체 재평가.\n각 단계마다 2주 카나리(전체 트래픽의 5%)를 거친 뒤 100% 전환.\n\n## 측정 지표\n- 화면 진입 TTI(Time To Interactive) p95: 네이티브 대비 +150ms 이내 유지가 목표(TTI 예산 참조)\n- 크래시프리 세션 비율 하락 0.1%p 이내(크래시프리 목표 참조)\n- 배포 리드타임: 이벤트 랜딩 기준 평균 3일 → 4시간 이내로 단축\n- 번들 다운로드 실패율 1% 미만, 실패 시 네이티브 폴백 화면으로 자동 전환\n\n## 리스크와 대응\n1. 번들 배포 파이프라인 이중화 — RN 번들 서버가 죽으면 전체 전환 화면이 흰 화면으로 뜨는 게 가장 우려되는 실패 모드다. 대응으로 마지막으로 성공한 번들을 단말 로컬에 캐싱해두고, 서버 응답이 3초 이상 지연되면 캐시된 이전 번들로 즉시 폴백한다. 폴백 발생률은 대시보드에서 별도 집계.\n2. 네이티브-RN 화면 전환 시 딥링크 파라미터 유실 — 딥링크 스킴(deep-link-scheme)이 네이티브 라우터를 거쳐 RN 화면으로 넘어갈 때 쿼리 파라미터가 URL 인코딩 두 번 적용되는 문제가 프로토타입에서 발견됐다. 1단계 배포 전까지 라우팅 레이어에서 파라미터 디코딩 횟수를 통일하는 패치를 선행한다.\n3. 접근성 회귀 — RN 쪽 컴포넌트가 네이티브 접근성 트리와 다르게 동작해 VoiceOver/TalkBack 포커스 순서가 꼬이는 사례가 다른 프로젝트에서 보고된 바 있다(accessibility-check-rule 참조). 1단계 화면부터 접근성 QA를 정식 체크리스트 항목에 포함시킨다.\n4. 조직적 리스크 — RN 전담 인력이 현재 없어 최연우, 한도진이 각자 iOS/Android 본업과 병행한다. 2단계 착수 전까지 전담 여부를 재논의하기로 팀 합의.\n\n이 문서는 2026-08 정책 리뷰에서 최종 승인됐고, 1단계 착수 전 매주 진행 상황을 #mobile-release 채널에 공유한다.",
+        "rejected_alternatives": [
+          "전면 RN 전환 — 채팅/결제/매물 상세까지 옮기면 초기 이관 공수가 추정 14인월로 과도하고, 생체인증·PG SDK 등 네이티브 전용 의존성 때문에 결국 네이티브 브릿지 코드가 더 늘어나 유지비가 오히려 증가할 것으로 판단해 기각",
+          "완전 네이티브 유지(현행 유지) — 심사 대기로 인한 캠페인 지연이 최근 2분기 연속 마케팅팀 불만 1순위로 보고돼, 아무것도 안 하는 안은 조직적으로 받아들여지지 않음",
+          "WebView + 서버 렌더링(하이브리드 웹) — 네이티브 브릿지 규약이 이미 존재하고 학습 곡선이 낮다는 장점이 있었으나, 오프라인 캐시 정합성 보장이 RN AsyncStorage 대비 까다롭고 스크롤 체감 성능이 RN보다도 낮게 측정돼(p95 38fps) 2순위로 밀림. 다만 브릿지 규약 자체는 유지해 향후 재검토 여지를 남김"
+        ]
+      }
+    },
+    {
+      "key": "forced-update-policy",
+      "type": "decision",
+      "author": "person:song-arim",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "강제 업데이트는 보안 취약점 패치와 결제/정산 스키마 변경 시에만 발동하고, 그 외 신규 기능·UI 개선은 소프트 업데이트 배너(닫기 가능)로만 안내한다.",
+        "rationale": "2025-12 시행했던 '모든 배포마다 강제 업데이트' 정책(forced-update-policy-v1)을 8개월 운영한 결과 스토어 평점이 3.6에서 3.1로 떨어졌고, 리뷰 중 '업데이트 강요' 키워드가 언급된 건이 분기당 210건에서 480건으로 늘었다. 특히 구형 단말 사용자(Android 8~9 비중 약 12%)는 업데이트 다운로드에 평균 4분이 걸려 이탈률이 높았다.\n\n이번 결정은 QA팀 크래시 리포트와 CS 접수 로그를 3개월간 교차 분석해 만들었다. 실제로 '강제 업데이트가 필요했던' 사고는 12건 중 9건이 보안 취약점(WebView JS 인젝션 1건, 인증 토큰 재사용 취약점 1건 등) 또는 결제 스키마 변경(정산 API v2 마이그레이션)이었고, 나머지 3건은 UI 버그로 소프트 업데이트로도 충분히 대응 가능했다는 게 드러났다.\n\n발동 기준을 다음과 같이 명문화한다:\n1. CVE 등록되거나 사내 보안팀이 '긴급' 등급을 매긴 취약점 패치\n2. 결제/정산 API 스키마 breaking change (구버전 호출 시 결제 실패 유발)\n3. 개인정보 처리 관련 법적 요구사항 변경으로 즉시 반영이 필요한 경우\n\n위 3가지 외에는 아무리 중요한 기능이라도 소프트 업데이트로 처리하며, 배너는 3회 노출 후 7일간 재노출하지 않는다. 최소 지원 OS 버전(min-os-version-dev) 미만 단말은 이 정책과 별개로 앱 실행 자체를 차단한다.\n\n적용 시점: v3.8.0(2026-08-20 배포 예정)부터. 그 전 버전은 v1 정책으로 소급 적용하지 않는다.\n\n모니터링 계획: 배포 후 4주간 소프트 업데이트 배너 노출 후 실제 업데이트 전환율을 추적한다. 목표는 배너 노출 사용자의 35% 이상이 7일 이내 자발적으로 업데이트하는 것. 이 수치가 20% 미만으로 떨어지면 배너 문구나 노출 빈도를 재검토한다. 또한 강제 업데이트 발동 기준 3가지 중 어느 것에도 해당하지 않는데 팀 내부에서 '이번엔 강제로 가자'는 요청이 나오면, PM과 테크리드 2인 합의 없이는 예외를 허용하지 않기로 했다 — v1 정책 시절 예외가 누적되며 원칙이 무너졌던 전례를 반복하지 않기 위함이다.\n\n예외 승인 절차를 명문화하면: 발동 기준 3가지에 해당하지 않는 강제 업데이트를 원하는 팀은 사유서를 #mobile-release 채널에 올리고 PM(송아림)과 테크리드(최연우 또는 한도진) 양측의 서면 승인을 받아야 한다. 승인 없이 강제 업데이트 플래그를 배포 설정에 넣는 PR은 코드 리뷰 단계에서 자동으로 반려되도록 CI 룰을 추가할 예정(2026-09 목표)."
+      }
+    },
+    {
+      "key": "min-os-version-dev",
+      "type": "decision",
+      "author": "person:han-dojin",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2026-09 정기 배포부터 최소 지원 버전을 Android 8.0(API 26), iOS 15로 상향하고, 그 미만 단말은 실행 시 차단 화면만 노출한다.",
+        "rationale": "현재(v3.7.2) 최소 지원은 Android 7.0(API 24)/iOS 13이다. Crashlytics 기준 최근 90일 크래시의 41%가 API 24~25 단말에서 발생했는데, 정작 이 구간 MAU 비중은 전체의 2.3%뿐이다. 원인은 대부분 최신 WebView 엔진과 구형 OS의 TLS 1.3 미지원 조합, 그리고 백그라운드 서비스 정책 차이(Doze 모드 이전/이후)로 인한 푸시 토큰 갱신 실패였다.\n\niOS도 비슷하다. iOS 13 지원 때문에 SwiftUI 최신 API를 쓸 수 없어 접근성 개선(VoiceOver 커스텀 액션)이 두 갈래 코드로 분기돼 있고, 이 분기 코드에서만 발생하는 크래시가 최근 분기 3건 보고됐다.\n\n상향 근거를 정량화하면:\n- Android 8+ 커버리지: 전체 활성 단말의 97.4% (2026-07 기준)\n- iOS 15+ 커버리지: 전체 활성 단말의 96.8%\n- 두 조건 다 포기하는 MAU: 약 1.9%, 절대 수치로는 약 8,400명\n\n8,400명을 잃는 대신 얻는 것: 크래시프리 비율 개선 추정치 +0.6%p, 접근성 코드 분기 제거로 QA 회귀 테스트 케이스 34개 삭제, WebView 브릿지 규약에서 구형 TLS 폴백 코드 제거.\n\n하향 지원을 원하는 반론(min-os-version-pm)이 PM 쪽에서 제기됐으나, 개발/QA 입장에서는 위 크래시 데이터와 유지보수 비용을 근거로 상향을 유지한다. 최종 합의는 8월 3주차 정책 리뷰에서 결정 예정.\n\n마이그레이션 절차 초안: 1) v3.8.0에 최소 버전 체크 로직만 먼저 추가하되 차단은 하지 않고 배너로 경고만(soft warning 2주). 2) 2주 후 차단 화면 활성화. 3) 차단 화면에는 '이 단말에서는 더 이상 앱을 지원하지 않습니다' 안내와 함께 웹 버전(m.example.internal) 링크를 노출해 완전히 접근을 끊지는 않는다. 4) 접근성 코드 분기 제거는 최소 버전 상향이 확정된 다음 스프린트에 별도 작업으로 진행하며, 이때 QA 회귀 케이스 34개도 함께 삭제한다.\n\n영향받는 팀에 대한 사전 공지도 필요하다: 고객센터(CS)팀에는 차단 화면이 뜨는 사용자에게 안내할 스크립트를 8월 2주차까지 전달하고, 마케팅팀에는 min-os-version-pm에서 언급된 중저가 단말 프로모션 일정과의 충돌 가능성을 미리 공유해 8월 3주차 정책 리뷰에서 함께 논의하기로 했다."
+      }
+    },
+    {
+      "key": "min-os-version-pm",
+      "type": "decision",
+      "author": "person:song-arim",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "최소 지원 버전은 Android 7.0(API 24), iOS 13을 유지해야 한다. 신규 유입이 걸린 문제라 개발팀 제안(Android 8/iOS 15)에 동의할 수 없다.",
+        "rationale": "마케팅에서 진행 중인 중저가 단말 프로모션(2026 하반기 예정) 타겟 유저층이 Android 7~8 단말 비중이 높다는 리서치 결과가 있다. 개발팀이 제시한 크래시 비율은 이해하지만, 지금 지원을 끊으면 신규 유입 채널 하나를 통째로 닫는 셈이다. 최소한 이번 프로모션이 끝나는 2027-01까지는 현행 유지를 요청한다. 크래시가 문제라면 구형 OS 전용 경량 모드(애니메이션 축소, 이미지 캐시 축소)를 별도로 만드는 절충안을 검토해달라. 아직 개발팀과 합의 안 됐고 다음 주 정책 리뷰에서 다시 논의하기로 함 — 이 문서는 그 전까지의 잠정 입장 메모."
+      }
+    },
+    {
+      "key": "forced-update-policy-v1",
+      "type": "decision",
+      "author": "person:song-arim",
+      "size": "para",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "모든 정기 배포에 대해 강제 업데이트를 적용한다. 사용자가 최신 버전이 아니면 앱 실행 자체를 막는다.",
+        "rationale": "작년(2025-12) 기준으로, 버전 파편화로 인한 CS 문의가 너무 많아 아예 모든 배포를 강제 업데이트로 통일하기로 했다. 당시에는 QA 리소스가 부족해 구버전별 회귀 테스트를 다 커버할 수 없었고, '최신 버전 하나만 지원한다'는 원칙이 QA 부담을 줄이는 유일한 방법이라고 판단했다. 도입 초기에는 실제로 CS 문의가 분기당 30% 줄어 효과가 있는 듯 보였으나, 시간이 지나며 스토어 평점 하락과 리뷰 악화라는 부작용이 누적됐다. 이 정책은 2026-08 forced-update-policy로 대체되어 더 이상 유효하지 않음. 과거 클러스터(구 배포 파이프라인) 기준으로 작성된 문서라 강제 업데이트 발동 조건이나 배너 문구 등 세부 내용은 지금 인프라와 맞지 않을 수 있다."
+      }
+    },
+    {
+      "key": "codepush-scope-decision",
+      "type": "decision",
+      "author": "person:han-dojin",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "OTA(코드푸시)는 JS 로직/카피/이미지 리소스 변경까지만 허용하고, 네이티브 모듈 추가, 권한(permission) 변경, 데이터 스키마 변경은 반드시 스토어 정식 배포를 거친다.",
+        "rationale": "2026-04에 OTA로 네이티브 모듈 버전을 몰래 올렸다가(당시는 급한 버그 픽스라 판단) iOS 심사 없이 배포된 바이너리가 Apple 가이드라인 3.3.1 위반으로 걸려 앱이 24시간 내려간 사고가 있었다. 이후 OTA 허용 범위를 명문화했다. 허용: 텍스트/이미지 교체, JS 비즈니스 로직 버그 픽스, 피처 플래그 토글. 금지: 네이티브 SDK 버전 변경, Info.plist/AndroidManifest 권한 추가, 로컬 DB 스키마 변경. 심사 대응 런북(res-store-review-runbook)에도 이 기준을 반영해뒀다."
+      }
+    },
+    {
+      "key": "webview-bridge-contract-decision",
+      "type": "decision",
+      "author": "person:choi-yeonwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "웹뷰-네이티브 브릿지는 JSON-RPC 스타일 postMessage만 쓰고, allowlist에 등록된 origin에서 온 메시지만 처리한다. window 객체에 직접 함수를 주입하는 방식은 금지한다.",
+        "rationale": "예전 방식(window.NativeBridge.callXXX() 직접 주입)은 XSS 발생 시 임의 네이티브 함수 호출이 가능해 보안팀 점검에서 '높음' 등급 지적을 받았다. 이제는 모든 메시지가 { id, method, params } 스키마를 따르고, origin이 allowlist(사내 도메인 3개 + 공지/이벤트 CDN 도메인)에 없으면 무조건 무시한다. 응답도 { id, result } 또는 { id, error } 형태로만 돌아간다. RN 전환 화면(rn-webview-transition-plan)에서도 동일 규약을 재사용할 계획이다."
+      }
+    },
+    {
+      "key": "term-tti-budget",
+      "type": "term",
+      "author": "person:choi-yeonwoo",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "TTI 예산",
+        "statement": "우리 팀에서 'TTI 예산'은 콜드스타트 기준 스플래시 노출부터 홈 피드 첫 스크롤이 가능해지는 시점까지의 p95 시간을 말한다. 일반적인 웹 성능 지표의 TTI와 달리 네트워크 첫 응답이 아니라 '스크롤 인터랙션 가능 시점'을 기준으로 삼는다는 점이 사내 고유 정의다. 현재 예산은 2.5초."
+      }
+    },
+    {
+      "key": "term-crash-free-rate",
+      "type": "term",
+      "author": "person:han-dojin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "크래시프리 비율",
+        "statement": "Crashlytics가 기본 제공하는 '크래시 없는 세션 비율'과 달리, 우리는 ANR(Android)과 워치독 강제 종료(iOS, 백그라운드 8초 초과)도 크래시로 집계한 '보정 크래시프리 비율'을 공식 지표로 쓴다. 대시보드에는 이 보정값만 노출되고 Crashlytics 원본값은 참고용이다."
+      }
+    },
+    {
+      "key": "term-staged-rollout",
+      "type": "term",
+      "author": "person:song-arim",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "단계적 출시",
+        "statement": "사내에서 '단계적 출시'는 스토어의 phased release 기능만 뜻하지 않는다. 우리는 스토어 단계(1%→10%→50%→100%)와 별개로, 사내 QA 계정 대상 dogfood 단계를 '0단계'로 포함해 부른다. 즉 릴리즈 노트에 '단계적 출시 진행 중'이라 쓰여 있으면 dogfood를 이미 통과했다는 뜻이다."
+      }
+    },
+    {
+      "key": "res-crashlytics-dashboard",
+      "type": "resource",
+      "author": "person:han-dojin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "모바일 크래시프리 대시보드",
+        "statement": "일일 크래시프리 비율(보정값), ANR 상위 10건, 워치독 강제 종료 상위 10건을 플랫폼별로 보여준다. 매주 월요일 배포 회고 때 이 대시보드를 보고 시작한다. 특정 빌드 번호로 필터링해 회귀 여부를 바로 확인 가능.",
+        "url": "https://dash.internal.example/mobile/crash-free"
+      }
+    },
+    {
+      "key": "res-store-review-runbook",
+      "type": "resource",
+      "author": "person:song-arim",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "앱스토어 심사 리젝 대응 런북",
+        "statement": "리젝 사유별(가이드라인 조항 매핑, 자주 걸리는 3.1.1 결제 우회, 5.1.1 개인정보, 4.3 스팸성 유사앱) 대응 템플릿과 담당자, 평균 재심사 소요일이 정리돼 있다. 리젝 메일 받으면 가장 먼저 열어야 하는 문서.",
+        "url": "https://wiki.internal.example/mobile/store-review-runbook"
+      }
+    },
+    {
+      "key": "res-image-cache-dashboard",
+      "type": "resource",
+      "author": "person:choi-yeonwoo",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "이미지 캐시 메모리 모니터링",
+        "statement": "저사양 단말(RAM 3GB 이하) 기준 이미지 캐시 메모리 사용량을 실시간 추적한다. 상한(90MB) 초과 시 자동 알림이 온다. OOM 크래시 전조 증상을 미리 잡는 용도로 만들었다.",
+        "url": "https://dash.internal.example/mobile/image-cache-memory"
+      }
+    },
+    {
+      "key": "deep-link-incident",
+      "type": "fact",
+      "author": "person:choi-yeonwoo",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "카카오톡 공유 딥링크 진입 실패 (2026-07-22)",
+        "statement": "카카오톡에서 공유 링크를 탭하면 인앱 브라우저가 먼저 뜨고, 거기서 앱으로 넘어올 때 Universal Link 검증이 실패해 사파리로 튕기는 사례가 다수 접수됐다. 인앱 브라우저의 User-Agent 처리 방식과 apple-app-site-association 캐싱 문제로 추정되나 아직 재현율이 낮아(약 12%) 원인 확정은 못 했다. 계속 조사 중이라 초안 상태로 남겨둔다."
+      }
+    },
+    {
+      "key": "push-token-refresh-bug",
+      "type": "fact",
+      "author": "person:han-dojin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "FCM 토큰 갱신 누락으로 푸시 미수신 (v3.6.4)",
+        "statement": "앱을 장기간(30일 이상) 백그라운드에 방치한 Android 단말에서 FCM 토큰이 서버 갱신 없이 만료되는 사례가 있었다. 원인은 토큰 갱신 리스너가 프로세스 재시작 시 재등록되지 않는 버그. v3.6.5에서 앱 포그라운드 진입 시마다 토큰 유효성을 강제로 재확인하도록 수정해 재발이 없다."
+      }
+    },
+    {
+      "key": "offline-cache-consistency-issue",
+      "type": "fact",
+      "author": "person:choi-yeonwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "오프라인 캐시와 서버 데이터 불일치 (매물 찜 목록)",
+        "statement": "지하철 등 네트워크 단절 구간에서 매물 찜 목록을 오프라인 캐시로 보여주는데, 재연결 시 서버와 동기화하는 과정에서 사용자가 오프라인 중 눌렀던 찜 취소가 서버에 반영 안 되고 캐시만 갱신되는 버그가 회의에서 보고됐다. 원인은 낙관적 업데이트 후 서버 응답을 기다리지 않고 로컬 캐시를 먼저 확정(commit)해버리는 로직 때문. 결론은 낙관적 업데이트를 유지하되, 서버 응답이 실패하면 로컬 캐시를 롤백하고 사용자에게 토스트로 알리는 방식으로 수정하기로 했다. 담당은 Android/iOS 양쪽 모두 8월 2주차 스프린트에 반영. 이 문제는 오프라인 캐시 TTL(offline-cache-ttl)과도 연결되는데, TTL이 만료된 캐시를 보여주고 있었을 가능성도 같이 점검하기로 했다."
+      }
+    },
+    {
+      "key": "deep-link-scheme",
+      "type": "fact",
+      "author": "person:choi-yeonwoo",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "딥링크 스킴 우선순위",
+        "statement": "커스텀 스킴(myapp://)은 폴백 전용이고, 실제 공유·마케팅 링크는 전부 Universal Link/App Links(https://m.example.internal/*)를 우선 사용한다."
+      }
+    },
+    {
+      "key": "push-token-ttl",
+      "type": "fact",
+      "author": "person:han-dojin",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "푸시 토큰 재검증 주기",
+        "statement": "FCM/APNs 토큰은 앱 포그라운드 진입 시마다, 그리고 최소 7일에 한 번은 강제로 유효성을 재확인해 서버에 갱신한다."
+      }
+    },
+    {
+      "key": "offline-cache-ttl",
+      "type": "fact",
+      "author": "person:han-dojin",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "오프라인 캐시 TTL",
+        "statement": "이전 캐시 라이브러리(Realm) 기준 TTL은 6시간이었다. 지금 SQLite 기반 캐시로 바뀌면서 값이 달라졌을 가능성이 있어 재확인 필요."
+      }
+    },
+    {
+      "key": "tti-budget-value",
+      "type": "fact",
+      "author": "person:choi-yeonwoo",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "콜드스타트 TTI 예산",
+        "statement": "콜드스타트 TTI p95 예산은 2.5초, p99는 3.5초. 초과 시 배포 롤백 트리거 대상이다."
+      }
+    },
+    {
+      "key": "crash-free-target",
+      "type": "fact",
+      "author": "person:han-dojin",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "크래시프리 목표(작년 기준)",
+        "statement": "작년 목표는 보정 크래시프리 99.2% 이상이었다. 새 크래시 리포팅 파이프라인 도입 후 목표치 재산정 예정."
+      }
+    },
+    {
+      "key": "proguard-mapping-retention",
+      "type": "fact",
+      "author": "person:han-dojin",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "ProGuard 매핑 파일 보관",
+        "statement": "R8 난독화 mapping.txt는 버전별로 최소 18개월 보관한다. Crashlytics 심볼 업로드 자동화로 CI에서 매 빌드마다 업로드된다."
+      }
+    },
+    {
+      "key": "accessibility-check-rule",
+      "type": "fact",
+      "author": "person:choi-yeonwoo",
+      "size": "line",
+      "state": "draft",
+      "attributes": {
+        "title": "접근성 체크 필수 항목",
+        "statement": "신규 화면은 배포 전 VoiceOver/TalkBack으로 주요 액션 버튼에 라벨이 읽히는지 QA가 수동 확인해야 한다. 아직 체크리스트 공식화 전."
+      }
+    },
+    {
+      "key": "image-cache-memory-cap",
+      "type": "fact",
+      "author": "person:choi-yeonwoo",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "이미지 캐시 메모리 상한",
+        "statement": "RAM 3GB 이하 단말은 이미지 메모리 캐시 상한 90MB, 그 외 단말은 200MB. 초과분은 LRU로 즉시 축출한다."
+      }
+    },
+    {
+      "key": "app-review-contact",
+      "type": "fact",
+      "author": "person:song-arim",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "심사 리젝 대응 연락 경로",
+        "statement": "리젝 메일 수신 즉시 #mobile-release 채널에 공유하고, 24시간 내 재심사 요청 초안을 PM이 작성한다."
+      }
+    },
+    {
+      "key": "store-rollout-step",
+      "type": "fact",
+      "author": "person:song-arim",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "스토어 단계적 출시 비율",
+        "statement": "기본 롤아웃 단계는 1% → 10% → 50% → 100%, 각 단계 최소 12시간 관찰 후 크래시프리 이상 없으면 다음 단계로."
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "relates_to",
+      "from": "rn-webview-transition-plan",
+      "to": "webview-bridge-contract-decision"
+    },
+    {
+      "type": "relates_to",
+      "from": "rn-webview-transition-plan",
+      "to": "codepush-scope-decision"
+    },
+    {
+      "type": "relates_to",
+      "from": "forced-update-policy",
+      "to": "min-os-version-dev"
+    },
+    {
+      "type": "relates_to",
+      "from": "forced-update-policy",
+      "to": "store-rollout-step"
+    },
+    {
+      "type": "relates_to",
+      "from": "deep-link-scheme",
+      "to": "deep-link-incident"
+    },
+    {
+      "type": "relates_to",
+      "from": "push-token-ttl",
+      "to": "push-token-refresh-bug"
+    },
+    {
+      "type": "relates_to",
+      "from": "offline-cache-ttl",
+      "to": "offline-cache-consistency-issue"
+    },
+    {
+      "type": "relates_to",
+      "from": "tti-budget-value",
+      "to": "term-tti-budget"
+    },
+    {
+      "type": "relates_to",
+      "from": "crash-free-target",
+      "to": "term-crash-free-rate"
+    },
+    {
+      "type": "relates_to",
+      "from": "image-cache-memory-cap",
+      "to": "res-image-cache-dashboard"
+    },
+    {
+      "type": "relates_to",
+      "from": "app-review-contact",
+      "to": "res-store-review-runbook"
+    },
+    {
+      "type": "relates_to",
+      "from": "proguard-mapping-retention",
+      "to": "rn-webview-transition-plan"
+    },
+    {
+      "type": "relates_to",
+      "from": "store-rollout-step",
+      "to": "term-staged-rollout"
+    },
+    {
+      "type": "relates_to",
+      "from": "accessibility-check-rule",
+      "to": "rn-webview-transition-plan"
+    },
+    {
+      "type": "supersedes",
+      "from": "forced-update-policy",
+      "to": "forced-update-policy-v1"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "min-os-version-dev",
+      "to": "min-os-version-pm"
+    }
+  ]
+}

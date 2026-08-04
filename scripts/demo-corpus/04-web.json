@@ -1,0 +1,412 @@
+{
+  "collaboration": {
+    "id": "collab:web-design-system",
+    "title": "디자인 시스템 v2 마이그레이션과 웹 성능/접근성 예산 정리"
+  },
+  "people": [
+    {
+      "id": "person:han-seoyeon",
+      "name": "한서연",
+      "role": "프론트엔드 테크리드",
+      "team": "디자인시스템팀"
+    },
+    {
+      "id": "person:jang-minho",
+      "name": "장민호",
+      "role": "UI 엔지니어 (웹 퍼포먼스)",
+      "team": "웹플랫폼팀"
+    },
+    {
+      "id": "person:yoon-dain",
+      "name": "윤다인",
+      "role": "접근성/QA 엔지니어",
+      "team": "웹플랫폼팀"
+    }
+  ],
+  "records": [
+    {
+      "key": "ds-v2-plan",
+      "type": "decision",
+      "author": "person:han-seoyeon",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "디자인 시스템 v2로 전 화면을 4단계에 걸쳐 마이그레이션하며, 토큰 구조를 컴포넌트별 하드코딩에서 Primitive/Semantic/Component 3-tier 시맨틱 토큰 체계로 전환한다.",
+        "rationale": "[현황 진단]\n디자인 시스템 v1(@company/ui-kit v1.8.x)은 컴포넌트 137개, 소비 팀 12개 규모다. 토큰은 컴포넌트 파일마다 하드코딩된 hex 값과 Sass 변수(_variables.scss)가 혼재하고, 다크모드는 2024년 Q4에 급하게 붙인 theme-dark.tokens.json이 라이트 토큰과 별도 파일로 유지되며 이름 체계가 어긋난다(예: $blue-500 vs --color-brand-primary). 그 결과 신규 화면에서 다크모드 대비가 깨지는 버그가 지난 6개월간 GitHub Issue 41건 접수됐고, 그중 9건은 프로덕션 릴리즈 이후 발견됐다. Figma 쪽 Variables는 이미 3-tier(Primitive/Semantic/Component)로 재구성돼 있어, 코드와 디자인 소스가 구조적으로 어긋난 상태다.\n\n[토큰 구조 변경]\nv2.0.0-beta.1부터 토큰을 3-tier로 전환한다.\n1. Primitive: --gray-50 ~ --gray-900 등 raw 값. 컴포넌트에서 직접 참조 금지, 린트 룰로 차단.\n2. Semantic: --color-surface-default, --color-text-muted 등 의미 이름. data-theme=\"dark\" 속성 하나로 alias만 바뀌며, 다크모드 전용 토큰 세트 중복 정의를 제거한다.\n3. Component: --button-bg-primary 등 semantic을 참조하는 컴포넌트 레벨 override 지점.\nStyle Dictionary 빌드 파이프라인을 신설해 Figma Variables → tokens.json → CSS custom properties를 자동 생성한다(현재는 수작업 sync, 평균 지연 9일).\n\n[화면별 이관 순서 - 4단계]\n1단계(8/11~8/22, 2 sprint): 공통 레이아웃 셸·네비게이션·버튼/인풋 등 Tier 1 컴포넌트 22개. 트래픽 영향이 낮은 관리자 콘솔(admin-console)부터 적용해 리스크를 격리한다.\n2단계(8/25~9/12): 검색 결과·상세 페이지 등 트래픽 상위 화면. 각 화면 배포 후 48시간 RUM p75를 관찰해 LCP 회귀를 감시한다.\n3단계(9/15~10/3): 체크아웃 퍼널. 폼 컴포넌트는 form-validation-unify 결정과 동시 진행하며, 별도 feature flag(ds-v2-checkout)로 5% → 50% → 100% 단계적 롤아웃한다.\n4단계(10/6~10/17): 레거시 jQuery 위젯 3개 wrapping 및 v1 코드 삭제. v1.8.x는 10/24 deprecated 태그, 12/1 저장소에서 제거한다.\n\n[breaking change 목록과 대응]\n- Button의 variant=\"link\"가 제거되고 Link 컴포넌트로 분리된다. codemod(npx @company/ds-codemod v2-link)로 90%를 자동 치환하고, 나머지는 PR 리뷰에서 수동 처리한다.\n- Modal의 onClose prop이 onOpenChange(open: boolean)로 변경된다. 시그니처 불일치는 빌드 타임 타입 에러로 잡힌다.\n- 다크모드를 .dark 클래스 대신 data-theme 속성으로 전환하면서, .dark 셀렉터에 직접 의존하던 커스텀 CSS 6곳이 깨진다 — 각 팀에 사전 grep 결과를 공유했다.\n- Sass @import 기반 토큰 파일(_variables.scss)을 제거하고 CSS custom properties만 지원한다 — Sass 전용으로 컴파일하던 legacy-widget 레포는 예외적으로 v1.8.x를 6개월 더 유지한다.\n\n[완료 기준]\n- 전 12개 소비 팀이 v2.0.0 이상으로 이관 완료.\n- 다크모드 대비 이슈 신규 접수 0건이 2 sprint 연속 유지.\n- Figma-코드 토큰 값 diff가 CI에서 자동 검증되어 drift 0.\n- v1.8.x 참조가 레포 전체에서 grep 결과 0건.\n\n[리스크와 모니터링]\n각 단계 담당자는 배포 전 스냅샷 테스트(Chromatic)로 시각 회귀를 먼저 걸러내고, 배포 후에는 #ds-v2-rollout 채널에 자동으로 에러율·CLS 지표가 올라온다. 3단계(체크아웃)는 매출에 직결되므로 feature flag 롤아웃 단계마다 30분 이상 관찰 후 다음 비율로 넘어가는 것을 원칙으로 하고, 결제 실패율이 평소 대비 1.5배를 넘으면 즉시 이전 비율로 롤백한다. 1단계에서 발견된 breaking change 대응 패턴(codemod, 사전 grep 공유)은 이후 단계에도 그대로 재사용해 단계마다 새로 설계하지 않는다. 전체 일정이 2주 이상 밀리면 4단계(레거시 삭제)는 다음 분기로 넘기고 1~3단계 완료만으로 v2.0.0 정식 릴리즈를 태그하는 것도 허용한다.",
+        "rejected_alternatives": [
+          "기존 컴포넌트 유지 + 다크모드 토큰만 땜질 패치 - 토큰 부채가 계속 누적되고 결국 전면 재작업이 필요해질 것으로 판단",
+          "12개 팀 동시 빅뱅 마이그레이션 - 롤백 지점이 없고 체크아웃 퍼널 장애 시 매출 직결 리스크가 너무 큼"
+        ]
+      }
+    },
+    {
+      "key": "legacy-theme-tokens-adr",
+      "type": "decision",
+      "author": "person:han-seoyeon",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "라이트/다크 테마별로 별도 토큰 파일(theme-light.tokens.json, theme-dark.tokens.json)을 각각 정의해 운영한다.",
+        "rationale": "2024년 11월, 다크모드 지원 요청이 모바일 웹 트래픽의 34%를 차지하는 안드로이드 사용자 컴플레인과 함께 급증했다. 당시 디자인팀은 라이트 테마 시안만 확정된 상태였고 다크 테마 시안은 2주 안에 별도로 뽑아야 했다. 컴포넌트 137개 중 다크 시안이 확정된 것은 89개뿐이라, 시맨틱 토큰으로 한 번에 추상화하기엔 시간이 부족하다고 판단했다.\n\n그래서 라이트 테마에서 쓰던 Sass 변수(_variables.scss)는 그대로 두고, 다크 테마용 값만 theme-dark.tokens.json이라는 별도 JSON 파일에 hex 값으로 직접 채워 넣었다. 런타임에는 data-theme 속성이 아니라 body에 .dark 클래스를 토글하고, 클래스 셀렉터마다 개별 다크 값을 오버라이드하는 방식(.dark .btn-primary { background: #1a1a2e })을 썼다.\n\n장점은 명확했다: 시안이 확정 안 된 컴포넌트는 다크 값을 나중에 채워도 되고, 기존 라이트 테마 코드를 전혀 건드릴 필요가 없어 2024년 12월 5일 목표 릴리즈(v1.6.0)를 맞출 수 있었다. 실제로 89개 컴포넌트 다크 지원을 3주 만에 출시했다.\n\n단점은 출시 시점부터 알고 있었다: 새 컴포넌트를 만들 때마다 라이트/다크 값을 두 파일에 각각 채워야 하고, 이름 체계가 통일돼 있지 않아($blue-500 vs --color-brand-primary) 어떤 값이 어떤 값의 다크 버전인지 코드만 봐서는 알기 어렵다. 지난 8개월간 신규 컴포넌트 42개 중 17개가 다크 값 누락 상태로 머지됐고, 그중 9건은 프로덕션에서 발견됐다.\n\n당시에도 시맨틱 토큰 + alias 전환 방식을 검토했지만, Figma Variables 쪽 3-tier 구조가 아직 정리되지 않은 상태라 디자인-코드 동기화 자동화가 불가능했고, 수작업으로는 12월 출시 데드라인을 못 맞춘다고 결론 내렸다. 이 부채는 2026년 디자인 시스템 v2 마이그레이션에서 정리하기로 하고 일단 보류했다.",
+        "rejected_alternatives": [
+          "시맨틱 토큰 + data-theme alias 방식 - Figma Variables 구조가 아직 3-tier로 정리되지 않아 2024년 12월 데드라인 내 자동화가 불가능",
+          "다크모드 출시를 2025년으로 연기 - 안드로이드 사용자 이탈 리스크가 더 크다고 판단"
+        ]
+      }
+    },
+    {
+      "key": "breaking-change-policy",
+      "type": "decision",
+      "author": "person:jang-minho",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "컴포넌트 breaking change는 minor 배포 시 최소 4주 전 공지하고, deprecated API는 codemod와 함께 최소 2개 마이너 버전 동안 병행 지원한다.",
+        "rationale": "2026년 3월, Table 컴포넌트의 rowKey prop이 별다른 공지 없이 v1.12.0에서 필수(required)로 바뀌면서 정산팀 대시보드 3개 화면이 빌드 타임 에러 없이 런타임에서 조용히 깨졌다(TypeScript optional prop이라 타입 체크를 통과했다). 장애는 배포 후 6시간 뒤 정산팀이 리포트해서 알았고, 롤백까지 총 2시간이 걸렸다.\n\n이 사고 이후 breaking change 공지 프로세스를 다음과 같이 표준화한다.\n\n1. 정의: SemVer상 minor(0.x.0) 배포에 포함되는 prop 시그니처 변경, 기본값 변경, DOM 구조 변경, 스타일 breaking 변경 전부를 breaking change로 취급한다(엄밀히는 major에 해당하지만, 라이브러리가 아직 0.x대라 minor에 담는다).\n2. 공지 시점: 배포 최소 4주(2 sprint) 전, #design-system Slack 채널과 컴포넌트별 소비 팀 채널에 동시 공지한다. 공지에는 영향받는 화면 목록(사용률 대시보드 기준)을 첨부한다.\n3. Deprecation 기간: 기존 API는 @deprecated JSDoc 태그와 콘솔 경고를 단 채로 최소 2개 마이너 버전 동안 병행 지원한다. 이 기간 동안 신규 API와 구 API가 동시에 동작해야 한다.\n4. Codemod: 기계적으로 치환 가능한 변경은 @company/ds-codemod 패키지에 스크립트를 추가해 배포와 동시에 공개한다. Table rowKey 같은 필수화 변경은 codemod가 기본값을 채워 넣는 방식으로 처리한다.\n5. 사용률 대시보드: 각 API의 사용처를 grep 기반으로 집계해 마이그레이션 진행률을 추적한다. 마이그레이션율 90% 미만이면 deprecation 기간을 자동으로 1개 버전 연장한다.\n\n이 정책은 v1.12.1부터 적용하며, '문서에는 적혀 있었다'는 항변은 공지로 인정하지 않는다 — Slack 공지와 사용률 대시보드 알림이 모두 발송된 경우만 공지로 간주한다.",
+        "rejected_alternatives": [
+          "모든 변경을 즉시 major 버전으로 격상 - 0.x 라이브러리라 major 자체가 의미 없고 팀들이 버전 번호에 둔감해질 것",
+          "공지 없이 codemod만 제공 - Table 사고처럼 타입 체크를 통과하는 변경은 codemod를 실행하지 않으면 여전히 조용히 깨짐"
+        ]
+      }
+    },
+    {
+      "key": "cwv-budget",
+      "type": "decision",
+      "author": "person:jang-minho",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "라우트 진입점의 Core Web Vitals 예산을 LCP p75 2.5s, INP 200ms, CLS 0.1로 확정한다.",
+        "rationale": "7월 넷째 주 검색 결과 페이지 RUM 데이터에서 LCP p75가 3.8s까지 나빠졌고, 원인은 hero 이미지가 srcset 없이 원본 4000px 이미지를 그대로 내려서였다. 회의에서 팀별로 제각각 쓰던 '체감상 빠르면 됨' 기준을 버리고 구글 Core Web Vitals 임계값을 그대로 예산으로 채택하기로 했다. LCP는 모바일 4G Fast(RUM 기준) p75 2.5초, INP는 200ms, CLS는 0.1을 넘으면 Lighthouse CI가 PR을 fail 처리한다. 예산 초과 PR은 머지 자체는 막지 않되 #perf-budget 채널에 자동 알림이 가고, 다음 스프린트 계획 회의에 안건으로 자동 등록된다. 체크아웃 퍼널처럼 비즈니스상 예외가 필요한 라우트는 별도 승인 절차를 거쳐 예산을 완화할 수 있으나, 8월 현재 예외 승인된 라우트는 없다.",
+        "rejected_alternatives": [
+          "Lighthouse Lab 점수만 기준으로 삼음 - 실사용자 네트워크·기기 편차를 반영 못해 실제 체감과 괴리",
+          "라우트별로 팀 자율에 맡김 - 검색 페이지 사고처럼 예산 없이는 회귀를 아무도 못 알아챔"
+        ]
+      }
+    },
+    {
+      "key": "bundle-budget-decision",
+      "type": "decision",
+      "author": "person:jang-minho",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "라우트당 First Load JS 예산을 gzip 170KB로 설정하고, 초과 시 동적 import로 코드 스플리팅한다.",
+        "rationale": "일단 170KB로 잡아봄. 근거는 상품 목록 페이지가 지금 168KB인데 이게 그나마 우리 라우트 중 제일 무거운 축에 속해서(다른 페이지들은 대체로 110~140KB) 여기 맞추면 대충 다 커버될 듯. Webpack Bundle Analyzer 찍어보니 date-fns 전체 import가 22KB 먹고 있어서 그것부터 tree-shaking 가능한 형태로 바꾸면 될 것 같고, 나머지 채팅 위젯 같은 무거운 3rd party는 다 dynamic import(next/dynamic)로 빼기로. 근데 체크아웃 퍼널에 결제 SDK 붙이면 이 예산 못 지킬 수도 있어서 그건 따로 다시 정해야 함 — 일단 이번 스프린트엔 나머지 라우트부터 정리하고 체크아웃은 보류. 숫자 자체도 한 스프린트 지나고 실측 데이터 더 모이면 재조정할 수 있음.",
+        "rejected_alternatives": [
+          "300KB로 넉넉하게 잡기 - 지금도 사용자 이탈률이 번들 사이즈랑 상관관계 있어 보여서 넉넉하게 잡으면 의미가 없어짐",
+          "라우트 구분 없이 전체 앱 단일 예산 - Next.js 라우트별 청크 구조랑 안 맞음"
+        ]
+      }
+    },
+    {
+      "key": "form-validation-unify",
+      "type": "decision",
+      "author": "person:yoon-dain",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "폼 검증은 zod 스키마 + react-hook-form으로 통일하고, 기존 Formik/Yup·자체 validate 함수 방식은 신규 폼 개발에서 금지한다.",
+        "rationale": "현재 레포에 폼 검증 방식이 최소 4가지 섞여 있다: Formik+Yup(구 관리자 콘솔), react-hook-form+zod(신규 체크아웃), 컴포넌트 내부 useState + 수동 validate 함수(마이페이지), HTML5 native validation만 의존(문의하기 폼). 에러 메시지 문구가 폼마다 달라서('필수 입력입니다' vs '이 필드는 비어있을 수 없습니다' vs 영어 fallback 메시지 그대로 노출) QA에서 반복적으로 지적됐고, 지난 분기 접근성 감사에서도 스크린리더가 에러를 못 읽는 폼이 6개 발견됐다(useState 방식 전부). react-hook-form은 비제어 컴포넌트 기반이라 리렌더링 비용이 적고, zod 스키마는 이미 백엔드 API 응답 타입 검증에도 쓰고 있어 스키마를 프론트/백 양쪽에서 재사용할 수 있다는 점도 결정에 크게 작용했다. 마이그레이션은 신규 폼부터 강제하고, 기존 4개 폼은 별도 백로그로 분리해 이번 결정 범위에서는 제외한다.",
+        "rejected_alternatives": [
+          "Formik+Yup으로 통일 - 이미 레거시 취급받는 라이브러리라 신규 채택 시 장기 유지보수 부담",
+          "폼마다 자유롭게 - 지금 상태가 바로 그 결과이고 에러 메시지 불일치·접근성 문제의 원인"
+        ]
+      }
+    },
+    {
+      "key": "error-boundary-copy-rule",
+      "type": "decision",
+      "author": "person:yoon-dain",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "에러 바운더리 fallback UI는 에러 코드를 노출하지 않고, '문제가 발생했습니다 / 다시 시도' 2단 구조의 고정 문구만 사용한다.",
+        "rationale": "작년까지는 에러 바운더리가 error.message를 그대로 화면에 찍어줬는데, 5월 결제 모듈 장애 때 'PaymentIntentCreationError: card_declined at stripe-adapter.ts:42' 같은 내부 스택 정보가 그대로 사용자 화면에 노출된 스크린샷이 SNS에 캡처돼 돌아다닌 일이 있었다. 이후로 사용자향 에러 문구와 개발자향 로그를 분리하기로 했다. 화면에는 '일시적인 문제가 발생했습니다. 다시 시도해 주세요' 문구와 재시도 버튼만 노출하고, 실제 에러 객체는 Sentry로만 전송한다(사용자 화면에는 상관관계 추적을 위한 짧은 참조 코드만, 예: REF-8823). 재시도 버튼은 3회까지만 허용하고 그 이후엔 '고객센터 문의' 링크로 전환한다. 결제·정산처럼 금액이 걸린 화면은 재시도 문구 앞에 '중복 결제를 방지하기 위해' 같은 맥락 설명 한 줄을 추가로 허용한다.",
+        "rejected_alternatives": [
+          "에러 메시지를 그대로 노출하되 CSS로 작게 표시 - 스크린샷 캡처 문제는 폰트 크기와 무관하게 재발",
+          "에러 코드 없이 문구만 - 고객센터 문의 시 상담원이 어떤 에러인지 추적할 방법이 없어짐"
+        ]
+      }
+    },
+    {
+      "key": "ssr-cache-incident",
+      "type": "fact",
+      "author": "person:jang-minho",
+      "size": "para",
+      "state": "stale",
+      "attributes": {
+        "title": "ISR revalidate 누락으로 구가 24분 노출된 사건",
+        "statement": "작년 11월 구 인프라(ECS 클러스터, 지금은 Vercel로 이전) 시절 기록. 특가 이벤트 종료 직후 상품 상세 페이지의 ISR revalidate 태그가 이벤트 종료 스크립트에서 호출되지 않아, 종료된 특가가 24분간 캐시된 채로 계속 노출됐다. 원인은 revalidate 호출이 상품 DB 업데이트 트랜잭션과 같은 함수 안에 있었는데, 그 트랜잭션이 실패해도 revalidate 실패를 무시하고 넘어가는 코드였던 것. 당시엔 res.revalidate(path) 실패를 별도로 로깅하지 않아서 24분 동안 아무도 몰랐고, 고객 문의가 들어오고 나서야 발견했다. 지금 클러스터(Vercel)에서는 On-Demand Revalidation API가 실패하면 500을 던지고 별도 알람(#incidents 채널)이 가도록 바뀌어서 같은 방식으로는 재발하지 않을 것으로 보이지만, 새 인프라에서 이 케이스가 실제로 검증된 적은 없어 재확인이 필요하다."
+      }
+    },
+    {
+      "key": "i18n-untranslated-gate",
+      "type": "fact",
+      "author": "person:yoon-dain",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "i18n 미번역 문자열 검출 CI 게이트",
+        "statement": "next-intl 메시지 파일 기준으로 ko.json에는 있는데 en.json/ja.json에 키가 없으면 CI가 fail 처리한다(scripts/check-i18n-parity.ts). 신규 PR에서 하드코딩된 한글 문자열은 ESLint i18next/no-literal-string 룰로 잡는다. 다만 에러 로그·개발자 콘솔 메시지는 예외 처리 대상으로 별도 주석(// i18n-exempt)이 필요하다."
+      }
+    },
+    {
+      "key": "a11y-focus-contrast-qa",
+      "type": "fact",
+      "author": "person:yoon-dain",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "접근성 QA 체크리스트 (초안)",
+        "statement": "일단 릴리즈 전에 확인할 것들 초안임 — 포커스 링이 배경색이랑 대비 3:1 이상인지, 탭 순서가 시각적 순서랑 맞는지, 스크린리더로 폼 에러가 읽히는지 이 세 개만이라도 먼저 체크리스트화. axe-core 자동 스캔은 붙여놨는데 색상 대비랑 포커스 순서는 아직 수동 확인만 가능해서 QA 인력 리소스 문제가 있음. 자동화는 다음 스프린트에 더 붙여볼 예정."
+      }
+    },
+    {
+      "key": "image-format-srcset",
+      "type": "fact",
+      "author": "person:jang-minho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "이미지 포맷·반응형 srcset 정책",
+        "statement": "신규 이미지는 AVIF를 우선 제공하고 WebP, JPEG 순으로 fallback한다(<picture> + next/image formats 옵션). srcset breakpoint는 360/750/1080/1440px 4단이다. 히어로 이미지는 원본을 4000px급으로 올리지 말고 최대 1920px로 리사이즈 후 업로드 — 지난 LCP 회귀(cwv-budget 참고)의 직접 원인이었다."
+      }
+    },
+    {
+      "key": "term-breaking-change-window",
+      "type": "term",
+      "author": "person:han-seoyeon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "브레이킹 체인지 윈도우",
+        "statement": "사내에서 '브레이킹 체인지 윈도우'는 컴포넌트 API가 공지된 시점부터 실제 배포까지의 최소 4주 유예 기간을 뜻한다. 이 기간이 지나기 전에 배포하면 공지 여부와 무관하게 정책 위반으로 간주해 배포를 되돌린다. '윈도우가 열렸다'는 표현은 공지가 나갔다는 뜻이지 배포해도 된다는 뜻이 아니다."
+      }
+    },
+    {
+      "key": "term-token-tier",
+      "type": "term",
+      "author": "person:han-seoyeon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "토큰 티어 (Tier 1/2/3)",
+        "statement": "디자인 시스템 v2에서 '티어'는 토큰의 추상화 단계를 가리키는 사내 용어다. Tier 1(Primitive)은 raw 값, Tier 2(Semantic)는 의미 이름이 붙은 alias, Tier 3(Component)는 개별 컴포넌트 전용 override다. '이 값 몇 티어야?'라는 질문은 '컴포넌트에서 직접 참조해도 되는 값이냐'를 묻는 것과 같다 — Tier 1은 컴포넌트 코드에서 직접 쓰면 린트 에러가 난다."
+      }
+    },
+    {
+      "key": "term-golden-path-component",
+      "type": "term",
+      "author": "person:han-seoyeon",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "골든 패스 컴포넌트 (초안 용어)",
+        "statement": "아직 확정 용어는 아닌데 잠정적으로 쓰는 중 — Figma에 등록돼 있고, Code Connect 매핑도 있고, v2 토큰만 쓰는 컴포넌트를 '골든 패스 컴포넌트'라고 부르기 시작함. 이거 아닌 애들(레거시 v1 스타일이 남아있거나 Figma 매핑 없는 것들)은 신규 화면에서 쓰지 말라고 안내 중인데, 아직 사내 공식 문서에는 이 용어가 안 올라가 있어서 팀마다 부르는 말이 조금씩 다르다."
+      }
+    },
+    {
+      "key": "resource-figma-sync-dashboard",
+      "type": "resource",
+      "author": "person:han-seoyeon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "Figma-코드 토큰 동기화 대시보드",
+        "statement": "Figma Variables와 packages/tokens 레포의 CSS custom properties 값을 매일 03:00 KST에 diff해서 보여주는 내부 대시보드. drift가 발견되면 어느 쪽이 최신인지, 마지막 sync 커밋은 언제인지 표시된다. 디자인 시스템 v2 마이그레이션 기간에는 diff 0을 완료 기준으로 삼고 있어 매일 확인 대상이다.",
+        "url": "https://wiki.internal/design-system/token-sync-dashboard"
+      }
+    },
+    {
+      "key": "resource-i18n-report",
+      "type": "resource",
+      "author": "person:yoon-dain",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "i18n 미번역 문자열 주간 리포트",
+        "statement": "매주 월요일 09:00 KST에 check-i18n-parity 스크립트 결과를 모아서 언어별 누락 키 개수와 담당 화면을 정리해 올리는 리포트 페이지. 아직 자동 생성이 아니라 담당자가 수동으로 스크립트 돌리고 붙여넣는 중이라 가끔 하루이틀 밀린다 — 자동화는 백로그에 있음.",
+        "url": "https://wiki.internal/design-system/i18n-weekly-report"
+      }
+    },
+    {
+      "key": "lcp-budget-line",
+      "type": "fact",
+      "author": "person:han-seoyeon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "LCP 예산",
+        "statement": "LCP p75 2.5s 이하 (모바일 4G, RUM 기준). 초과 시 Lighthouse CI fail."
+      }
+    },
+    {
+      "key": "inp-budget-line",
+      "type": "fact",
+      "author": "person:jang-minho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "INP 예산",
+        "statement": "INP 200ms 이하. 체크아웃 퍼널도 현재는 예외 없이 동일하게 적용."
+      }
+    },
+    {
+      "key": "cls-budget-line",
+      "type": "fact",
+      "author": "person:jang-minho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "CLS 예산",
+        "statement": "CLS 0.1 이하. 폰트 로딩 중 레이아웃 시프트도 포함해 계산."
+      }
+    },
+    {
+      "key": "bundle-budget-line",
+      "type": "fact",
+      "author": "person:han-seoyeon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "번들 사이즈 예산",
+        "statement": "라우트당 First Load JS gzip 170KB. 초과 시 dynamic import로 스플리팅."
+      }
+    },
+    {
+      "key": "dark-mode-token-naming",
+      "type": "fact",
+      "author": "person:han-seoyeon",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "구 다크모드 토큰 네이밍 (v1)",
+        "statement": "이전 구조에서는 .dark 클래스 + theme-dark.tokens.json 별도 파일 사용. v2에서 폐기 예정."
+      }
+    },
+    {
+      "key": "font-subsetting-threshold",
+      "type": "fact",
+      "author": "person:jang-minho",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "한글 폰트 서브셋 임계값",
+        "statement": "작년 기준 한글 서브셋 2,350자(KS X 1001) 적용. 폰트 벤더 변경으로 재검증 필요."
+      }
+    },
+    {
+      "key": "contrast-ratio-constant",
+      "type": "fact",
+      "author": "person:yoon-dain",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "대비비 기준",
+        "statement": "본문 텍스트 4.5:1 이상, 18pt+/큰 텍스트 3:1 이상 (WCAG AA)."
+      }
+    },
+    {
+      "key": "browser-support-conflictA",
+      "type": "fact",
+      "author": "person:jang-minho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "브라우저 지원 범위",
+        "statement": "최근 2개 메이저 버전만 지원. IE11·구형 Android WebView(68 미만 포함 전체) 지원 종료."
+      }
+    },
+    {
+      "key": "browser-support-conflictB",
+      "type": "fact",
+      "author": "person:yoon-dain",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "임베디드 웹뷰 지원 요구",
+        "statement": "하이브리드 앱 트래픽 12%가 Android WebView 68 사용 — 이 버전은 계속 지원해야 함."
+      }
+    },
+    {
+      "key": "resource-cwv-dashboard-line",
+      "type": "resource",
+      "author": "person:yoon-dain",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "CWV 실시간 대시보드",
+        "statement": "라우트별 LCP/INP/CLS p75 실시간 대시보드.",
+        "url": "https://wiki.internal/perf/cwv-dashboard"
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "relates_to",
+      "from": "ds-v2-plan",
+      "to": "legacy-theme-tokens-adr"
+    },
+    {
+      "type": "relates_to",
+      "from": "ds-v2-plan",
+      "to": "breaking-change-policy"
+    },
+    { "type": "relates_to", "from": "ds-v2-plan", "to": "term-token-tier" },
+    {
+      "type": "relates_to",
+      "from": "ds-v2-plan",
+      "to": "term-golden-path-component"
+    },
+    {
+      "type": "relates_to",
+      "from": "ds-v2-plan",
+      "to": "resource-figma-sync-dashboard"
+    },
+    { "type": "relates_to", "from": "cwv-budget", "to": "lcp-budget-line" },
+    { "type": "relates_to", "from": "cwv-budget", "to": "inp-budget-line" },
+    { "type": "relates_to", "from": "cwv-budget", "to": "cls-budget-line" },
+    {
+      "type": "relates_to",
+      "from": "bundle-budget-decision",
+      "to": "bundle-budget-line"
+    },
+    {
+      "type": "relates_to",
+      "from": "form-validation-unify",
+      "to": "error-boundary-copy-rule"
+    },
+    {
+      "type": "relates_to",
+      "from": "i18n-untranslated-gate",
+      "to": "resource-i18n-report"
+    },
+    {
+      "type": "relates_to",
+      "from": "a11y-focus-contrast-qa",
+      "to": "contrast-ratio-constant"
+    },
+    {
+      "type": "relates_to",
+      "from": "term-breaking-change-window",
+      "to": "breaking-change-policy"
+    },
+    {
+      "type": "relates_to",
+      "from": "ssr-cache-incident",
+      "to": "resource-cwv-dashboard-line"
+    },
+    { "type": "relates_to", "from": "image-format-srcset", "to": "ds-v2-plan" },
+    {
+      "type": "supersedes",
+      "from": "ds-v2-plan",
+      "to": "legacy-theme-tokens-adr"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "browser-support-conflictA",
+      "to": "browser-support-conflictB"
+    }
+  ]
+}

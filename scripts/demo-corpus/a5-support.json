@@ -1,0 +1,480 @@
+{
+  "aged": [
+    {
+      "key": "admin-console-ip-whitelist",
+      "type": "fact",
+      "author": "person:oh-jungmin",
+      "collab": "collab:support-admin",
+      "age_days": 210,
+      "size": "short",
+      "attributes": {
+        "title": "어드민 콘솔 접근 IP 화이트리스트",
+        "statement": "2025년 3분기 기준으로 어드민 콘솔은 사내 VPN 대역(10.32.0.0/16)에서만 접근이 허용됐다. 재택 근무자는 조직 VPN 클라이언트를 경유해야 했고, 예외가 필요하면 슬랙 #admin-access 채널로 오정민에게 요청해 개별 IP를 화이트리스트에 추가하는 방식이었다."
+      }
+    },
+    {
+      "key": "refund-limit-no-manager-approval",
+      "type": "fact",
+      "author": "person:bae-jiho",
+      "collab": "collab:support-admin",
+      "age_days": 225,
+      "size": "line",
+      "attributes": {
+        "title": "CS 매니저 승인 없는 환불 한도",
+        "statement": "2025년 3분기까지 CS 담당자가 매니저 승인 없이 처리 가능한 환불 한도는 5만원이었다."
+      }
+    },
+    {
+      "key": "settlement-batch-retry-timeout",
+      "type": "fact",
+      "author": "person:oh-taemin",
+      "collab": "collab:payments-platform",
+      "age_days": 195,
+      "size": "line",
+      "attributes": {
+        "title": "PG 정산배치 재시도 타임아웃",
+        "statement": "지난 분기 기준 PG 정산배치 요청 타임아웃은 8초, 최대 재시도 횟수는 3회였다."
+      }
+    },
+    {
+      "key": "manual-regression-480cases",
+      "type": "fact",
+      "author": "person:mun-jihu",
+      "collab": "collab:qa-release",
+      "age_days": 240,
+      "size": "line",
+      "attributes": {
+        "title": "릴리스 전 회귀 테스트 실행 방식",
+        "statement": "지난 분기까지는 릴리스 전 회귀 테스트 480케이스를 QA 엔지니어가 수동으로 실행했다."
+      }
+    },
+    {
+      "key": "cs-first-response-target-old",
+      "type": "fact",
+      "author": "person:bae-sua",
+      "collab": "collab:support-admin",
+      "age_days": 205,
+      "size": "short",
+      "attributes": {
+        "title": "CS 1차 응답 목표(구)",
+        "statement": "2025년 3분기 기준 CS 1차 응답 목표는 영업일 기준 4시간이었다. 이 수치는 주간 CS 오퍼레이션 회의에서 매크로 대응률과 함께 리포팅됐고, 배수아가 매주 대시보드를 갱신했다. 당시에는 이 목표치가 CSAT 산정 기준과도 연동되어 있어서, 목표를 바꾸려면 CSAT 계산식도 함께 손봐야 한다는 이야기가 있었다."
+      }
+    },
+    {
+      "key": "admin-permission-tier-system-old",
+      "type": "fact",
+      "author": "person:oh-jungmin",
+      "collab": "collab:support-admin",
+      "age_days": 320,
+      "size": "para",
+      "attributes": {
+        "title": "구 어드민 권한 등급 체계",
+        "statement": "작년 하반기까지 어드민 권한은 3단계 등급 체계로 운영됐다. Tier1은 조회 전용으로 CS 상담원 전원에게 기본 부여됐고, Tier2는 회원정보 수정과 쿠폰 발급 권한으로 CS 매니저 승인을 받아야 했다. Tier3는 계정 삭제, 대량 데이터 수정, 환불 권한을 모두 포함했으며 오정민을 포함한 어드민 백엔드 엔지니어 3명만 보유했다. 등급 변경 요청은 내부 위키의 신청서 양식을 채워 어드민팀 슬랙 채널에 올리면 영업일 2일 이내 처리됐다. 예외적으로 결제플랫폼팀과 공동 대응이 필요한 장애 상황에서는 Tier2 담당자도 임시로 Tier3 권한을 받을 수 있었는데, 이 임시 권한은 요청일로부터 7일 뒤 자동으로 회수됐다. 이 체계는 CS 조직이 빠르게 커지면서 세분화가 더 필요하다는 이야기가 나오던 시절의 기준이라, 지금도 등급 수와 사람 매핑이 그대로인지는 재확인이 필요하다."
+      }
+    },
+    {
+      "key": "pg-single-vendor-before-redundancy",
+      "type": "fact",
+      "author": "person:han-seojin",
+      "collab": "collab:payments-platform",
+      "age_days": 340,
+      "size": "short",
+      "attributes": {
+        "title": "PG 이중화 이전 벤더 구성",
+        "statement": "작년 하반기까지는 PG사가 단일 벤더 구성이었다. 주 벤더 장애 시 결제가 전면 중단되는 구조였고, 대체 결제 수단으로의 자동 전환도 지원되지 않았다. 이중화 벤더 추가는 한서진이 그 다음 분기 로드맵에 올린 항목이었고, 당시에는 우선순위가 낮게 잡혀 실제 착수는 몇 달 뒤로 미뤄졌다."
+      }
+    },
+    {
+      "key": "release-cycle-3weeks-old",
+      "type": "fact",
+      "author": "person:oh-taeyang",
+      "collab": "collab:qa-release",
+      "age_days": 305,
+      "size": "line",
+      "attributes": {
+        "title": "릴리스 주기(구)",
+        "statement": "작년 하반기까지 릴리스 주기는 2주가 아니라 3주 스프린트 단위였다."
+      }
+    },
+    {
+      "key": "voc-classification-code-deprecated",
+      "type": "fact",
+      "author": "person:bae-jiho",
+      "collab": "collab:support-admin",
+      "age_days": 350,
+      "size": "line",
+      "attributes": {
+        "title": "폐기된 VOC 분류 코드",
+        "statement": "작년 하반기까지 VOC는 VOC-01부터 VOC-08까지 8개 코드로 분류됐다."
+      }
+    },
+    {
+      "key": "refund-limit-lowered-decision",
+      "type": "decision",
+      "author": "person:han-seojin",
+      "collab": "collab:payments-platform",
+      "age_days": 430,
+      "size": "para",
+      "attributes": {
+        "conclusion": "CS 담당자 단독 처리 환불 한도를 10만원에서 3만원으로 낮춘다.",
+        "rationale": "환불 오남용 사례가 늘면서 결제플랫폼팀이 리스크를 줄이기 위해 한도를 낮추기로 했다. 기존 10만원 한도에서는 CS 담당자 개인 판단만으로 처리되는 금액이 커서, 정산 역계산 오류가 발생했을 때 롤백 비용이 크다는 지적이 반복됐다. 한서진이 최근 6개월치 정산 로그를 근거로 낮은 한도안을 제시했고, 오태민이 시스템 반영 작업을 맡아 결제플랫폼팀 회의에서 확정됐다. 다만 이 결정이 CS 오퍼레이션 쪽 매뉴얼에까지 동일하게 반영됐는지는 그 회의록만으로는 알 수 없고, 당시 회의에 CS팀 참석자가 없었던 것도 뒤늦게 확인됐다. 한도 변경 공지가 어드민 콘솔 내부 게시판에는 올라갔지만, CS 상담원 교육 자료 업데이트는 별도 요청이 없으면 자동으로 이뤄지지 않는 구조였다는 점도 나중에 문제로 지적됐다.",
+        "rejected_alternatives": [
+          "기존 10만원 한도 유지",
+          "한도는 유지하고 매니저 2단계 승인만 추가"
+        ]
+      }
+    },
+    {
+      "key": "cs-response-target-shortened",
+      "type": "decision",
+      "author": "person:bae-sua",
+      "collab": "collab:support-admin",
+      "age_days": 460,
+      "size": "short",
+      "attributes": {
+        "conclusion": "1차 응답 목표를 4시간에서 2시간으로 단축한다.",
+        "rationale": "CSAT 하락과 SNS 컴플레인 증가로 응답 속도를 개선해야 한다는 요구가 있었다. 배수아가 최근 두 분기 CSAT 추이와 SNS 민원 건수를 근거로 목표 단축안을 냈고, 인력 증원 없이도 매크로 커버리지를 늘리면 달성 가능하다는 판단이 있었다.",
+        "rejected_alternatives": [
+          "목표 유지하고 인력만 증원",
+          "VIP 등급만 2시간, 일반 문의는 4시간 유지"
+        ]
+      }
+    },
+    {
+      "key": "staging-anonymization-required",
+      "type": "decision",
+      "author": "person:jang-mirae",
+      "collab": "collab:qa-release",
+      "age_days": 410,
+      "size": "short",
+      "attributes": {
+        "conclusion": "스테이징 환경 데이터는 익명화 배치를 거친 후에만 QA가 사용한다.",
+        "rationale": "실사용자 개인정보가 스테이징에 그대로 노출되는 사고가 있어 접근 통제를 강화해야 했다. 장미래가 사고 재발 방지 대책으로 익명화 배치를 필수 단계로 못박았고, QA팀 전체가 이후 스테이징 데이터를 다룰 때 이 절차를 거치는 것으로 합의했다.",
+        "rejected_alternatives": [
+          "스테이징 접근 권한만 축소하고 데이터는 그대로 유지",
+          "익명화 없이 감사 로그만 추가"
+        ]
+      }
+    },
+    {
+      "key": "account-merge-manual-sql",
+      "type": "fact",
+      "author": "person:oh-jungmin",
+      "collab": "collab:support-admin",
+      "age_days": 480,
+      "size": "line",
+      "attributes": {
+        "title": "구 계정 병합 절차",
+        "statement": "1년 전까지 계정 병합은 어드민 콘솔에서 수동 SQL 스크립트를 실행해 처리했다."
+      }
+    },
+    {
+      "key": "inquiry-category-12-reorg",
+      "type": "decision",
+      "author": "person:bae-jiho",
+      "collab": "collab:support-admin",
+      "age_days": 750,
+      "size": "para",
+      "attributes": {
+        "conclusion": "문의 카테고리 체계를 기존 6개 대분류에서 12개 대분류로 재편한다.",
+        "rationale": "2년 전 조직 개편으로 CS와 개발 담당 영역이 나뉘면서, 기존 6개 분류로는 담당 부서 라우팅이 애매한 문의가 많았다. 배지호가 최근 3개월치 오분류 티켓을 집계해 대분류를 세분화하면 자동 라우팅 정확도가 올라간다는 근거를 제시했고, CS 오퍼레이션 회의에서 12개 안으로 확정됐다. 각 대분류 아래에는 다시 3~4개의 소분류를 두어 어드민 콘솔의 문의 등록 폼에서 드롭다운으로 선택하도록 만들었다. 이때 결정된 카테고리 이름과 매핑표는 팀 분리 직후 담당자가 다시 바뀌면서 갱신이 필요한 상태고, 지금도 이 12개 체계가 그대로 쓰이는지, 소분류까지 매핑이 맞는지는 확인되지 않았다.",
+        "rejected_alternatives": [
+          "기존 6개 대분류를 유지하고 라우팅 규칙만 수정",
+          "카테고리 없이 자유 태그 방식으로 전환"
+        ]
+      }
+    },
+    {
+      "key": "pg-oncall-escalation-threshold",
+      "type": "decision",
+      "author": "person:jung-arim",
+      "collab": "collab:payments-platform",
+      "age_days": 820,
+      "size": "short",
+      "attributes": {
+        "conclusion": "PG 장애 온콜 에스컬레이션 임계값을 실패율 10%로 정한다.",
+        "rationale": "결제 인프라 온콜 부담을 줄이면서도 실제 장애만 걸러내기 위해 이전 임계값보다 높였다. 정아림이 지난 반년간 온콜 알람 로그를 분석해 낮은 임계값에서는 일시적 실패율 튐에도 페이지가 울리는 경우가 많다는 점을 지적했고, SRE 온콜 회의에서 10%로 조정하기로 했다.",
+        "rejected_alternatives": [
+          "기존 5% 임계값 유지",
+          "임계값 없이 절대 건수 기준으로 전환"
+        ]
+      }
+    },
+    {
+      "key": "qa-severity-3levels-old",
+      "type": "fact",
+      "author": "person:mun-jihu",
+      "collab": "collab:qa-release",
+      "age_days": 880,
+      "size": "line",
+      "attributes": {
+        "title": "구 QA 심각도 등급",
+        "statement": "2년 전에는 QA 버그 심각도가 Critical, Major, Minor 3단계뿐이었다."
+      }
+    },
+    {
+      "key": "admin-bulk-action-manager-only",
+      "type": "decision",
+      "author": "person:oh-jungmin",
+      "collab": "collab:support-admin",
+      "age_days": 1200,
+      "size": "para",
+      "attributes": {
+        "conclusion": "어드민 대량 작업(대량 환불, 대량 계정 수정)은 CS팀장 단독 승인만으로 실행 가능하게 한다.",
+        "rationale": "3년 전 팀 분리 전에는 CS와 어드민 개발이 한 조직이라 승인 라인이 짧았다. 장애 상황에서 대량 작업이 지연되면 고객 영향이 커진다는 판단 아래, 오정민과 당시 CS팀장이 승인 단계를 최소화하는 방향으로 결정했다. 당시에는 대량 작업 실행 로그를 사후에 어드민팀이 전수 검토하는 것으로 통제 공백을 메웠는데, 이 사후 검토가 실제로 매번 이뤄졌는지는 문서로 남아 있지 않다. 이후 조직이 분리되면서 이 승인 체계가 지금도 그대로인지, 사후 검토 담당이 누구로 넘어갔는지도 확인된 적이 없다. 당시 결정문에는 승인 권한을 재검토하는 시점을 별도로 정해두지 않아서, 조직 개편 같은 큰 변화가 있을 때 자동으로 재논의되는 장치도 없었다.",
+        "rejected_alternatives": [
+          "개발 리드 공동 승인 요구",
+          "사전 승인 없이 사후 감사로 대체"
+        ]
+      }
+    },
+    {
+      "key": "settlement-batch-v2-single-run",
+      "type": "fact",
+      "author": "person:han-seojin",
+      "collab": "collab:payments-platform",
+      "age_days": 1350,
+      "size": "short",
+      "attributes": {
+        "title": "v2 정산 배치 시절 스케줄",
+        "statement": "3년 전 v2 정산 배치 시절에는 정산 배치가 매일 새벽 2시 단일 배치로 돌았고, 실패 시 재실행은 오태민이 수동으로 트리거했다. 배치가 새벽 시간대에 실패하면 재실행 전까지 정산 결과가 다음날 오전까지 지연되는 일이 잦았고, 이 때문에 한서진이 배치 분할과 자동 재시도 도입을 다음 로드맵 후보로 올려두었다."
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "key": "conflict-cs-first-response-target",
+      "topic": "CS 1차 응답 시간 목표",
+      "a": {
+        "type": "fact",
+        "author": "person:bae-sua",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "CS 1차 응답 목표",
+          "statement": "CS 1차 응답 목표는 영업일 기준 2시간이다. 이 수치는 CSAT 지표와 직결되어 매주 CS 오퍼레이션 회의에서 트래킹되고, 매크로 대응률과 함께 대시보드에 실시간으로 표시된다. 배수아는 이 2시간 목표를 기준으로 상담원별 배정과 야간 당직 인원을 조정한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:han-jiwoo",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 30,
+        "attributes": {
+          "title": "CS 1차 응답 SLA(개발 인지)",
+          "statement": "개발팀이 인지하는 CS 1차 응답 SLA는 영업일 기준 4시간이다. 알림 시스템의 알럿 임계값도 이 4시간 기준으로 설정되어 있어서, 응답 지연이 4시간을 넘긴 티켓만 개발팀 슬랙 채널로 자동 알림이 간다. 한지우는 이 기준으로 온콜 대응 우선순위를 정리해왔다."
+        }
+      }
+    },
+    {
+      "key": "conflict-refund-authority-limit",
+      "topic": "CS 담당자 환불 권한 한도",
+      "a": {
+        "type": "fact",
+        "author": "person:bae-jiho",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 10,
+        "attributes": {
+          "title": "CS 담당자 환불 한도",
+          "statement": "CS 담당자가 매니저 승인 없이 처리 가능한 환불 한도는 10만원이다. 이 기준은 CS 운영 매뉴얼에 명시되어 있고, 상담원 교육 자료에서도 동일하게 안내하고 있다. 배지호는 상담원들이 현장에서 헷갈리지 않도록 이 수치를 벽보로도 게시해뒀다고 말한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:han-seojin",
+        "collab": "collab:payments-platform",
+        "size": "short",
+        "age_days": 5,
+        "attributes": {
+          "title": "환불 권한 한도(결제 시스템 기준)",
+          "statement": "결제 시스템에 등록된 CS 환불 권한 한도는 3만원이다. 이를 초과하면 어드민 콘솔에서 승인 요청 필드 자체가 활성화되지 않아 CS 담당자가 아무리 매니저 승인을 받아도 시스템상으로는 처리할 수 없다. 한서진은 이 값이 결제 리스크 정책에 맞춰 시스템에 하드코딩되어 있다고 확인했다."
+        }
+      }
+    },
+    {
+      "key": "conflict-incident-notice-threshold",
+      "topic": "장애 시 고객 공지 발송 기준",
+      "a": {
+        "type": "fact",
+        "author": "person:bae-sua",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "고객 공지 발송 기준(CS)",
+          "statement": "영향 사용자 비율이 1% 이상이거나 장애 지속 시간이 30분 이상이면 고객 공지를 발송한다. 배수아는 이 기준을 CS 위기 대응 매뉴얼에 근거로 들며, 두 조건 중 하나만 충족해도 공지 초안을 준비해 채널 담당자에게 넘긴다고 설명한다. 실제로는 지속 시간 조건이 더 자주 발동한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:han-seojun",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 20,
+        "attributes": {
+          "title": "장애 판단 기준(SRE)",
+          "statement": "5xx 에러율이 5%를 15분 이상 초과할 때만 공지 대상 장애로 판단한다. 한서준은 이 기준이 관측 지표 기반으로 자동 계산되는 값이라 사람의 판단이 개입할 여지가 없고, 영향 사용자 비율 같은 정성적 수치는 SRE 대시보드에 잡히지 않는다고 말한다."
+        }
+      }
+    },
+    {
+      "key": "conflict-admin-bulk-action-approver",
+      "topic": "어드민 대량 작업 승인자",
+      "a": {
+        "type": "fact",
+        "author": "person:oh-jungmin",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "대량 작업 승인 라인(CS/어드민)",
+          "statement": "대량 작업은 CS 매니저 승인만 있으면 어드민 콘솔에서 바로 실행할 수 있다. 오정민은 이 절차가 팀 분리 이전부터 이어져온 것이라며, 매니저 승인 로그가 어드민 콘솔에 남기 때문에 별도 외부 승인 단계는 필요하지 않다고 본다. 승인 지연이 곧 고객 불편으로 이어진다는 점도 강조한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:oh-yuna",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 15,
+        "attributes": {
+          "title": "대량 작업 승인 라인(GRC)",
+          "statement": "대량 어드민 작업은 GRC팀 사전 승인 없이는 실행이 금지되어 있다. 오유나는 제로트러스트 전환 과정에서 대량 데이터 변경 작업 전체를 GRC 승인 대상으로 정책에 등록했고, 이 정책이 어드민 콘솔에도 예외 없이 적용된다고 알고 있다. 팀별 예외 사유는 별도로 전달받은 적이 없다."
+        }
+      }
+    },
+    {
+      "key": "conflict-escalation-criteria",
+      "topic": "문의 에스컬레이션 판단 기준",
+      "a": {
+        "type": "fact",
+        "author": "person:bae-sua",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "에스컬레이션 기준(CS)",
+          "statement": "동일 문의가 3회 이상 반복되거나 VIP 등급 고객이면 개발팀으로 에스컬레이션한다. 배수아는 반복 횟수와 고객 등급이 상담원 화면에 자동으로 표시되기 때문에, 이 두 조건 중 하나만 걸려도 에스컬레이션 버튼을 누르도록 안내하고 있다고 설명한다. 상담원 교육 때마다 반복 강조하는 항목이다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:han-jiwoo",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 40,
+        "attributes": {
+          "title": "에스컬레이션 기준(개발)",
+          "statement": "개발팀은 5xx 에러 로그가 확인되는 문의만 에스컬레이션 대상으로 받는다. 한지우는 반복 횟수나 고객 등급만으로 넘어오는 티켓은 로그 상 원인이 없는 경우가 많아, 실제로 시스템 오류가 찍힌 건만 처리 큐에 올린다고 말한다. 그렇지 않으면 개발팀이 원인 불명 티켓에 파묻힌다는 것이다."
+        }
+      }
+    },
+    {
+      "key": "conflict-severity-vs-patch-sla",
+      "topic": "버그 심각도 대응 시한 vs 보안 패치 SLA",
+      "a": {
+        "type": "fact",
+        "author": "person:mun-jihu",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "Critical 버그 대응 시한(QA)",
+          "statement": "Critical 등급 버그는 발견 후 24시간 내 수정 배포가 원칙이다. 문지후는 이 기준이 QA 릴리스 체크리스트에 명시돼 있고, 24시간을 넘긴 Critical 이슈는 장미래에게 즉시 에스컬레이션되도록 알림이 설정되어 있다고 설명한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:no-taekyung",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 25,
+        "attributes": {
+          "title": "Critical 취약점 패치 SLA(보안)",
+          "statement": "Critical 취약점 패치 SLA는 72시간으로 정의되어 있다. 노태경은 취약점 스캐너가 탐지한 Critical 항목에 한해 이 SLA를 적용하며, QA가 말하는 버그 심각도와 보안팀의 취약점 심각도는 애초에 서로 다른 분류 체계라고 본다."
+        }
+      }
+    },
+    {
+      "key": "conflict-pg-timeout-value",
+      "topic": "PG 결제 요청 타임아웃 값",
+      "a": {
+        "type": "fact",
+        "author": "person:oh-taemin",
+        "collab": "collab:payments-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "PG 요청 타임아웃(결제)",
+          "statement": "PG 결제 요청 타임아웃은 8초로 설정되어 있다. 오태민은 PG사 응답이 네트워크 상황에 따라 5초 넘게 걸리는 경우가 잦아서, 8초보다 짧게 잡으면 정상 결제 건도 타임아웃으로 실패 처리된다고 설명한다. 이 값은 결제 모듈 설정 파일에 별도로 지정되어 있다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:choi-donghyun",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 12,
+        "attributes": {
+          "title": "API 게이트웨이 타임아웃 표준(백엔드)",
+          "statement": "API 게이트웨이 표준 타임아웃은 3초이며 모든 하위 서비스가 이를 따라야 한다. 최동현은 이 표준이 게이트웨이 설정 파일에 전역값으로 박혀 있고, 예외를 두려면 별도 승인을 받아 서비스별로 오버라이드해야 한다고 설명한다. 결제 모듈이 오버라이드 승인을 받았는지는 확인이 필요하다고 덧붙인다."
+        }
+      }
+    },
+    {
+      "key": "conflict-release-signoff-criteria",
+      "topic": "릴리스 QA 사인오프 기준",
+      "a": {
+        "type": "fact",
+        "author": "person:jang-mirae",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "사인오프 기준(테크리드)",
+          "statement": "회귀 테스트를 100% 통과해야 배포를 승인한다. 장미래는 비크리티컬 케이스라도 실패가 남아 있으면 다음 릴리스로 원인을 넘기지 말고 반드시 이번 릴리스에서 해결하고 넘어가야 품질 부채가 쌓이지 않는다고 본다. 예외를 한 번 두면 계속 반복된다는 게 이유다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:oh-taeyang",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 3,
+        "attributes": {
+          "title": "사인오프 기준(릴리스 엔지니어)",
+          "statement": "크리티컬 케이스만 통과하면 비크리티컬 케이스 실패가 있어도 배포할 수 있다. 오태양은 2주 스프린트 안에 회귀 100%를 맞추는 게 현실적으로 어렵고, 비크리티컬 실패는 핫픽스로 다음 배포 때 처리하면 충분하다고 본다. 배포 지연이 오히려 더 큰 리스크라는 입장이다."
+        }
+      }
+    },
+    {
+      "key": "conflict-macro-usage-scope",
+      "topic": "CS 매크로 사용 조건",
+      "a": {
+        "type": "fact",
+        "author": "person:bae-sua",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "매크로 적용 범위(오퍼레이션 리드)",
+          "statement": "매크로는 결제 실패 문의에만 사용하도록 제한되어 있다. 배수아는 매크로 승인 당시 문서에 결제 실패 케이스만 명시되어 있고, 다른 유형에 쓰면 상황에 안 맞는 안내가 나갈 위험이 있어 확대 적용을 승인한 적이 없다고 말한다. 문서 갱신 요청도 받은 적이 없다고 덧붙인다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:bae-jiho",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 7,
+        "attributes": {
+          "title": "매크로 적용 범위(CS 매니저)",
+          "statement": "배송 지연 문의에도 매크로를 확대 적용해서 쓰고 있다. 배지호는 배송 지연 문의량이 급증했던 시기에 현장 상담원들이 답답해해서 매크로 사용 범위를 넓혔고, 이후에도 그대로 굳어져 지금까지 쓰고 있다고 설명한다. 별도로 문서화하거나 보고한 적은 없었다."
+        }
+      }
+    }
+  ]
+}

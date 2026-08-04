@@ -1,0 +1,406 @@
+{
+  "collaboration": {
+    "id": "collab:security-compliance",
+    "title": "제로트러스트 전환과 취약점 SLA 재정의를 동시에 진행 중인 보안·컴플라이언스 부서"
+  },
+  "people": [
+    {
+      "id": "person:no-taekyung",
+      "name": "노태경",
+      "role": "보안 엔지니어 (AppSec)",
+      "team": "Security Engineering"
+    },
+    {
+      "id": "person:oh-yuna",
+      "name": "오유나",
+      "role": "GRC/컴플라이언스 매니저",
+      "team": "Security & Compliance"
+    },
+    {
+      "id": "person:baek-donghyun",
+      "name": "백동현",
+      "role": "보안 아키텍트 (IAM/제로트러스트 리드)",
+      "team": "Platform Security"
+    }
+  ],
+  "records": [
+    {
+      "key": "ir-runbook",
+      "type": "fact",
+      "author": "person:oh-yuna",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "title": "침해사고 대응 절차(IR Runbook) v3.2",
+        "statement": "## 0. 목적과 적용범위\n\n이 문서는 보안 사고 발생 시 '누가, 언제까지, 무엇을' 결정할지에 대한 팀 간 논쟁을 사고 발생 시점이 아니라 지금 끝내두기 위한 문서다. 2025-11 payments-api 크리덴셜 유출 사고 당시 등급 판정에만 40분이 걸리고 보고 라인이 불명확해 CTO 인지까지 1시간 20분이 걸렸던 것이 이 개정판(v3.2)의 직접적인 계기다. 적용 대상은 전 사내 시스템과 SaaS 연동 계정이며, 클라우드 인프라(AWS), 애플리케이션 로그, 사내 SSO 전부를 포괄한다.\n\n## 1. 심각도 분류 (Severity Grade)\n\n- **P0 (Critical)**: 고객 PII 유출 확정, 결제 시스템 침해, 프로덕션 DB 무단 접근 등 사업 존속에 직접 영향을 주는 사고. 예: 2025-11 payments-api 크리덴셜 유출 사고. 하나라도 해당하면 다른 신호를 더 기다리지 않고 즉시 P0로 판정한다.\n- **P1 (High)**: 내부 시스템 침해가 확인됐으나 외부 데이터 유출은 아직 미확인. 랜섬웨어 감염, 관리자 계정 탈취, 내부망 횡이동(lateral movement) 흔적 등이 해당.\n- **P2 (Medium)**: 스캐닝·브루트포스 등 공격 시도가 탐지됐으나 침투에는 실패. 이상 로그인이 다수 발생했지만 실제 접근 권한 획득으로 이어지지 않은 경우.\n- **P3 (Low)**: 정책 위반, 오탐 가능성이 높은 이상탐지 알림. 근무시간 내 처리로 충분하다.\n\n등급 판정은 최초 대응자(1차 온콜)가 하되, t0+15분 내 P0/P1 여부를 재확인해야 한다. 판정이 애매하면 낮은 등급이 아니라 높은 등급 쪽으로 우선 분류하고, 이후 트리아지에서 하향 조정한다 — 과탐지 비용보다 늦은 대응 비용이 훨씬 크다는 게 원칙이다.\n\n## 2. 단계별 조치와 시간 목표\n\n1. **탐지(Detection)**: SIEM(사내 Splunk 클러스터) 알림 또는 제보 접수. 접수 시각을 t0로 기록한다. 제보는 슬랙 #security-report 채널 또는 온콜 전화 두 경로 모두 유효하다.\n2. **트리아지(Triage)**: t0+15분 이내 온콜 보안 엔지니어가 등급을 1차 판정한다. P0/P1이면 즉시 사고대응팀(IRT)을 소집하고 Jira에 IR 티켓을 개설한다.\n3. **격리(Containment)**: P0는 t0+1시간 이내 영향 시스템을 네트워크에서 격리하거나 해당 자격증명을 폐기한다. P1은 t0+4시간 이내를 목표로 한다. 격리 판단은 IRT 리드 단독으로 가능하며 사후 보고로 갈음한다.\n4. **근절(Eradication)**: 침투 경로 차단, 악성 프로세스 제거, 취약 설정 수정을 완료한다. 목표는 P0 t0+24시간, P1 t0+72시간이다.\n5. **복구(Recovery)**: 서비스 정상화를 확인한 후 단계적으로 트래픽을 복귀시킨다(카나리 10% → 50% → 100%). 모니터링 강화 기간은 최소 72시간 유지한다.\n\n## 3. 보고 라인과 대외 커뮤니케이션\n\n- P0/P1이 확정되면 IRT 리드가 즉시 CTO 및 CPO(개인정보보호책임자)에게 직접 보고한다. 동시에 슬랙 비상 채널 #irt-war-room을 개설하고 관련자만 초대한다.\n- 개인정보 유출이 확인된 경우, CPO 판단 하에 72시간 이내 개인정보보호위원회 및 KISA 신고 여부를 결정한다. 법무팀도 동시에 소집해야 하며, 신고 대상 여부 판단 근거는 별도 메모로 남긴다.\n- 외부 커뮤니케이션(고객 공지, 언론 대응)은 CPO와 대표의 승인 없이는 어떤 담당자도 임의로 발신하지 않는다. IRT 멤버 개인 SNS·외부 채널 언급도 금지된다.\n- 사내 공지는 영향 범위가 확정된 시점에 IRT 리드가 초안을 작성하고, PR/커뮤니케이션팀 검토 후 배포한다. 확정 전 추측성 공지는 하지 않는다.\n\n## 4. 증거 보존(Evidence Preservation)\n\n- 격리 전 영향 시스템의 메모리 덤프, 디스크 스냅샷, 관련 로그(access log, auth log, network flow log)를 즉시 보존소(evidence-vault)에 백업한다. 원본은 절대 수정하지 않는다.\n- 체인 오브 커스터디 문서에 보존 시각, 담당자, 해시값(SHA-256)을 기록한다. 담당자 교체 시에도 문서상 서명이 이어져야 한다.\n- 로그 보존 기간은 사고 종결 후 최소 1년이며, 법적 분쟁 소지가 있으면 법무팀 지시에 따라 연장한다.\n\n## 5. 사후 절차(Post-Incident)\n\n- 사고 종결 후 영업일 기준 5일 이내 블레임리스 포스트모템을 작성하고 공유한다. '누구 잘못이냐'가 아니라 '무엇이 이걸 가능하게 했나'를 쓴다.\n- 재발 방지 액션 아이템은 담당자·기한을 명시해 Jira에 등록하고, 익월 보안 리뷰에서 이행 여부를 확인한다.\n- 등급 P0 사고는 이사회/경영진 보고 자료에 별도 요약을 포함한다.\n- 외부 감사 대응 시 제출할 수 있도록 포스트모템 문서는 감사 증빙 리포지토리에도 사본을 남긴다.\n\n## 부록: 1차 연락 경로\n\n온콜 순번과 전화번호는 IR 온콜 로테이션 문서에서 매주 갱신된다. 문서를 찾을 수 없을 때는 슬랙 /oncall security 커맨드로 현재 담당자를 즉시 조회할 수 있다."
+      }
+    },
+    {
+      "key": "adr-ztna",
+      "type": "decision",
+      "author": "person:baek-donghyun",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "사내 네트워크 접근 방식을 레거시 IPSec VPN에서 ZTNA(Zero Trust Network Access)로 전환한다. 2026년 Q3까지 전 임직원 계정 이관을 마치고, 레거시 VPN은 Q4에 완전히 폐지한다.",
+        "rationale": "2026년 5월 퇴사자 계정이 VPN 접속 권한 회수 누락 상태로 11일간 방치된 사례가 감사에서 발견됐다. 레거시 VPN은 접속에 성공하면 사내 전체 서브넷으로 라우팅이 열리는 구조라, 계정 하나만 탈취돼도 blast radius가 매우 크다. device posture check(OS 패치 상태, disk encryption 여부)를 강제할 방법이 없어 개인 노트북에서도 그대로 접속이 가능했다. ZTNA는 세션 단위로 애플리케이션별 접근을 판정하고, 요청마다 device trust score를 재평가한다. 초기 파일럿에서는 로그인 후 애플리케이션 접근까지 지연시간이 p95 180ms로 측정돼 체감 저하가 크지 않음을 확인했다. 병행 기간에는 두 체계를 동시에 로깅해 접근 권한 diff를 매주 검토했다. 이관 순서는 리스크가 큰 조직부터 진행한다 — 1차로 인프라·결제 도메인 담당자 전원을 2026년 Q2 안에 옮기고, 2차로 나머지 부서를 Q3까지 순차 이관한다. 이관 완료 여부는 팀별 체크리스트로 관리하며, 개인 기기 인증서 발급 오류나 사내 Wi-Fi 연동 이슈 등 온보딩 과정에서 나온 문제는 별도 트래킹 이슈로 남긴다. 롤아웃 중 발견된 예외 케이스(레거시 사내 프린터 연동 등 ZTNA 클라이언트가 지원하지 않는 장비)는 임시로 VPN 화이트리스트에 잔류시키되 분기별로 재검토한다. 이관 완료 후에도 남는 잔류 예외는 별도 위험 등록부(risk register)에 올려 분기마다 대체 방안이 나왔는지 확인하고, 1년이 지나도 해소되지 않으면 아키텍처팀과 함께 전용 마이그레이션 태스크를 새로 연다. 파일럿 기간 중 헬프데스크 문의는 하루 평균 3건 수준으로, 사전 우려보다 적었다 — 대부분 사설 인증서 재설치 방법을 몰라서 생긴 것으로 온보딩 가이드 문서를 보강해 해소했다.",
+        "rejected_alternatives": [
+          "레거시 VPN 유지 + MFA만 추가 - 계정 탈취 시 네트워크 전체가 노출되는 근본 문제는 그대로 남아 해결이 아니라는 이유로 기각",
+          "VPN과 ZTNA를 영구 병행 운영 - 두 체계를 동시에 감사·운영하면 정책 drift가 발생할 것으로 예상돼, 병행은 이관 완료 시점(2026 Q3)까지만 한시적으로 허용",
+          "SaaS형 ZTNA 대신 자체 구축(self-hosted) 게이트웨이 - 초기 구축 인력 투입이 커서 이번 전환 범위에서는 제외하고, 검증된 SaaS 솔루션으로 우선 전환 후 추후 재검토하기로 함",
+          "부서별 자율 전환(일괄 강제 없이 팀별로 원하는 시점에 이관) - 부서 간 전환 속도 차이로 과도기가 길어지고 감사 대응이 복잡해질 것으로 예상돼, 전사 일괄 스케줄로 확정"
+        ]
+      }
+    },
+    {
+      "key": "adr-vuln-sla",
+      "type": "decision",
+      "author": "person:oh-yuna",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "취약점 심각도별 패치 SLA를 CVSS v3.1 점수 기준으로 재정의한다: Critical(9.0~10.0) 48시간, High(7.0~8.9) 7일, Medium(4.0~6.9) 30일, Low(0.1~3.9) 90일 이내 패치 배포를 원칙으로 한다.",
+        "rationale": "작년까지는 심각도 무관 '14일 이내 패치' 단일 룰을 운영했는데, 2025-09 payments-api의 역직렬화 취약점(CVSS 9.8)이 공표 후 12일이 지나서야 패치돼 외부 감사에서 지적을 받았다. 이후 CVSS 기준 4단계 SLA로 전환했고, Critical 건은 discover 시점부터 카운트하며 근무시간 외에도 온콜을 호출한다. 패치 배포가 SLA를 초과할 것으로 예상되면 보안팀이 사전에 compensating control(WAF 룰, 네트워크 격리)을 임시 적용하고 예외 승인을 받아야 한다. 이 SLA는 대시보드(res-vuln-dashboard)에서 잔여시간 기준으로 실시간 추적된다. SLA 적용 대상은 프로덕션에 배포된 자체 코드와 오픈소스 의존성 전부이며, 스캐너는 매일 03:30 KST에 전체 레포를 스캔하고 신규 발견 건은 discover 시각을 자동으로 티켓에 기록한다. Critical/High 건이 SLA를 넘기면 다음 영업일 보안 주간 리뷰에서 지연 사유를 팀 리드가 직접 설명해야 하며, 반복 초과 팀은 분기 리뷰에서 별도 안건으로 다룬다. 도입 3개월 시점 기준 Critical SLA 준수율은 91%로, 이전 단일 룰 체계의 68%보다 크게 개선됐다. 예외 승인 절차도 명문화했다 — compensating control 적용 후 SLA 초과가 불가피하면 팀 리드와 보안팀장 공동 서명으로 최대 5영업일까지 연장 가능하며, 연장 사유와 종료 시점은 대시보드에 사유 배지로 노출된다. High 등급은 프로덕션 배포 파이프라인에 자동으로 블로킹 체크를 걸어, SLA 만료 24시간 전부터 담당 팀 슬랙 채널에 매일 리마인드가 간다.",
+        "rejected_alternatives": [
+          "심각도 무관 일괄 14일 룰 유지 - 감사 지적 원인이 된 Critical 대응 지연을 다시 허용하는 셈이라 기각",
+          "CVSS 대신 사내 자체 3단계(High/Medium/Low) 등급 체계 유지 - 외부 감사 시 매번 별도 매핑표를 제출해야 하는 비용이 커서 기각",
+          "Critical SLA를 24시간으로 더 taut하게 설정 - 야간·주말 배포 강제가 오히려 운영 실수를 늘릴 수 있다는 SRE팀 반대를 받아 48시간으로 절충",
+          "예외 승인 없이 SLA를 절대치로 강제 - 배포 인프라 장애 등 불가항력 상황까지 위반으로 잡히는 게 비합리적이라는 지적을 받아들여 공동 서명 예외 절차를 신설"
+        ]
+      }
+    },
+    {
+      "key": "dec-svc-token",
+      "type": "decision",
+      "author": "person:no-taekyung",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "서비스 계정(machine-to-machine) 토큰의 기본 수명(TTL)을 90일로 제한하고, 만료 30일 전 자동 로테이션 알림 후 갱신되지 않으면 자동 폐기한다.",
+        "rationale": "무기한 토큰이 다수 남아있던 사실이 2025년 IAM 전수조사에서 드러났다 — 그중 하나는 발급 후 3년 넘게 회전 없이 payments-api 배포 파이프라인에서 쓰이고 있었다. 담당자 퇴사 후에도 CI가 그 토큰으로 계속 동작해, 소유자 불명 자격증명(orphaned credential) 문제를 키웠다. 로테이션은 CI 파이프라인이 배포 직전 자동으로 새 토큰을 발급받는 방식으로 구현해 사람이 수동으로 갱신할 필요가 없도록 했다.",
+        "rejected_alternatives": [
+          "토큰 영구 발급 후 수동 감사만 강화 - 감사 주기(분기)와 실제 유출 시점 사이 공백이 너무 크다는 이유로 기각",
+          "TTL 30일로 더 짧게 - 배포 파이프라인 안정성에 영향(잦은 재인증 실패)이 확인돼 90일로 완화"
+        ]
+      }
+    },
+    {
+      "key": "dec-iam-review",
+      "type": "decision",
+      "author": "person:baek-donghyun",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "IAM 최소권한 리뷰를 연 1회 비정기 점검에서 분기(90일) 주기 의무 검토로 전환한다. 각 팀 리드가 자기 팀 권한 목록을 직접 검토하고 서명한다.",
+        "rationale": "연 1회 점검 체계에서는 조직 개편 후 붙은 임시 권한이 반년 이상 남아있는 경우가 반복됐다. 특히 인프라팀 소속이었다가 다른 팀으로 이동한 인원의 프로덕션 admin 권한이 이동 후에도 4개월간 유지된 사례가 있었다. 팀 리드는 리뷰 화면에서 팀원별 권한 목록을 보고 '유지/회수'만 클릭하면 되도록 IAM 콘솔에 리뷰 전용 UI를 추가해 부담을 최소화했다.",
+        "rejected_alternatives": [
+          "보안팀이 전사 권한을 중앙에서 일괄 검토 - 각 팀의 실제 업무 맥락을 모르는 채 재가만 찍게 될 우려로 기각, 팀 리드 책임제로 전환",
+          "리뷰 주기를 월 1회로 더 촘촘히 - 리뷰 피로도로 형식적 승인만 늘어날 것으로 판단해 90일로 절충"
+        ]
+      }
+    },
+    {
+      "key": "dec-vpn-legacy",
+      "type": "decision",
+      "author": "person:baek-donghyun",
+      "size": "para",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "레거시 IPSec VPN 체계를 유지하되, 클라이언트 IP 화이트리스트와 접속 시간대 제한만 강화한다.",
+        "rationale": "당시(2025년 초) 기준으로는 ZTNA 도입 비용과 사내 학습 곡선이 크다고 판단해, 전면 교체 대신 기존 VPN에 IP 화이트리스트와 심야 시간대(00~06시) 접속 차단을 추가하는 선에서 마무리했다. 이 결정은 이후 퇴사자 계정 회수 누락과 계정 탈취 시 blast radius 문제가 재확인되며 adr-ztna로 대체됐다. 지금 돌이켜보면 화이트리스트 강화만으로는 애초에 device 신뢰 판정 자체가 없다는 근본 문제를 건드리지 못했다.",
+        "rejected_alternatives": [
+          "즉시 ZTNA 전면 도입 - 당시 예산·인력 상 해당 연도 안에는 어렵다고 판단해 보류",
+          "VPN 완전 폐지 후 SSH bastion만 운영 - 개발자 워크플로우 단절이 크다는 반대로 기각"
+        ]
+      }
+    },
+    {
+      "key": "dec-pii-retention",
+      "type": "decision",
+      "author": "person:oh-yuna",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "개인정보는 원칙적으로 회원 탈퇴 시점에 즉시 파기하고, 전자상거래법상 결제·환불 기록만 5년, 통신비밀보호법 대상 로그는 3개월 별도 보관한다.",
+        "rationale": "이전에는 탈퇴 후에도 '분석 목적'으로 비식별화 없이 원본 테이블에 개인정보가 1년간 남아있었는데, 2025년 내부 감사에서 목적 외 보관으로 지적됐다. 법정 보관 의무가 있는 항목만 예외 테이블로 분리하고, 나머지는 탈퇴 배치잡(매일 03:00 KST)에서 즉시 삭제하도록 바꿨다. 예외 테이블도 접근 권한을 결제·법무 담당자로만 제한하고 조회 로그를 남긴다.",
+        "rejected_alternatives": [
+          "전체 비식별화 후 무기한 보관 - 비식별화 수준에 대한 법적 해석이 아직 불명확해 리스크가 크다고 판단해 기각",
+          "탈퇴 후 30일 유예 후 삭제(복구 요청 대응) - 실제 복구 요청 비율이 0.2% 미만으로 낮아 즉시 삭제로 단순화"
+        ]
+      }
+    },
+    {
+      "key": "dec-vuln-exception",
+      "type": "decision",
+      "author": "person:no-taekyung",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "결제 도메인(payments-api 계열)은 Critical 취약점이라도 카나리 배포 절차상 실제 패치 반영까지 최대 5영업일까지 허용한다.",
+        "rationale": "payments-api는 배포 전 PG사 연동 회귀 테스트가 필수라 48시간 내 전체 배포가 물리적으로 어렵다는 결제팀 의견을 받아 잠정 합의했다. 아직 보안팀 공식 SLA 문서에는 반영되지 않은 상태라 다음 분기 SLA 개정 때 정식 예외 조항으로 편입할지 논의가 필요하다. 그 사이에는 WAF 룰로 임시 차단하는 선에서 리스크를 낮추고 있으며, 결제팀 리드가 매주 진행 상황을 보안팀에 공유하기로 구두 합의했다.",
+        "rejected_alternatives": [
+          "결제 도메인도 48시간 SLA 동일 적용 - PG 연동 회귀 테스트 없이 배포하면 결제 오류 리스크가 더 크다는 반박으로 잠정 보류",
+          "결제 도메인만 별도 hotfix 파이프라인 신설 - 리소스 부족으로 이번 분기는 착수하지 못함"
+        ]
+      }
+    },
+    {
+      "key": "term-incident-grade",
+      "type": "term",
+      "author": "person:oh-yuna",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "사고 등급(P0~P3)",
+        "statement": "우리 회사에서 '사고 등급'은 CVSS 같은 취약점 점수가 아니라 IR 대응 우선순위를 뜻한다. P0는 고객 PII 유출·결제 침해급, P1은 침투 확인, P2는 시도만 탐지, P3는 정책 위반 수준의 낮은 알림이다. 슬랙에서 '이거 P0에요?'라고 물으면 CTO 호출 여부를 묻는 것과 같다."
+      }
+    },
+    {
+      "key": "term-shadow-account",
+      "type": "term",
+      "author": "person:no-taekyung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "그림자 계정(Shadow Account)",
+        "statement": "IAM 리뷰 문서에서 '그림자 계정'은 퇴사·조직이동 후에도 회수되지 않고 남아있는 계정이나 서비스 토큰을 가리킨다. 일반적인 미사용 계정(dormant account)과 달리, 그림자 계정은 CI/CD 파이프라인처럼 여전히 실사용되고 있어서 발견이 더 늦다는 게 특징이다."
+      }
+    },
+    {
+      "key": "res-vuln-dashboard",
+      "type": "resource",
+      "author": "person:no-taekyung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "Vulnerability SLA 대시보드",
+        "statement": "취약점별 CVSS 점수, SLA 잔여시간, 담당 도메인이 실시간으로 보이는 Grafana 대시보드. SLA 초과 임박(잔여 4시간 이내) 건은 자동으로 #sec-sla-alert 채널에 색상 경고가 뜬다. 패치 배포 지연 사유를 등록하지 않으면 대시보드에 빨간 배지가 계속 남는다.",
+        "url": "https://grafana.internal.example/d/vuln-sla"
+      }
+    },
+    {
+      "key": "res-audit-checklist",
+      "type": "resource",
+      "author": "person:oh-yuna",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "외부 감사 증빙 수집 체크리스트",
+        "statement": "연 1회 외부 보안 감사(ISMS-P 갱신 심사 대응) 전 제출해야 하는 증빙 목록. IAM 리뷰 서명 기록, 취약점 SLA 준수율, 침투테스트 리포트, 라이선스 검토 로그가 항목별 담당자와 함께 정리돼 있다. 감사 시즌 6주 전부터 항목별 취합 현황을 채워 넣는다.",
+        "url": "https://wiki.internal.example/security/audit-evidence-checklist"
+      }
+    },
+    {
+      "key": "fact-license-review",
+      "type": "fact",
+      "author": "person:no-taekyung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "의존성 라이선스 검토 절차",
+        "statement": "신규 오픈소스 의존성 추가 시 GPL 계열(AGPL 포함) 라이선스는 법무팀 검토 없이 머지 금지. CI에 license-checker 단계가 있어 허용 리스트(MIT, Apache-2.0, BSD 등) 외 라이선스가 감지되면 빌드가 실패한다. 예외가 필요하면 법무팀 승인 티켓 번호를 PR에 첨부해야 우회 라벨을 붙일 수 있다."
+      }
+    },
+    {
+      "key": "fact-secret-scanning",
+      "type": "fact",
+      "author": "person:no-taekyung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "시크릿 스캐닝과 유출 대응",
+        "statement": "모든 레포에 push 시점 시크릿 스캐너가 동작하며, AWS 키 패턴이나 사내 API 키 포맷이 감지되면 커밋이 즉시 차단된다. 이미 푸시된 이력에서 발견되면 해당 키는 발견 즉시 폐기(revoke)하고, 새 키 발급 후 이력 자체를 rewrite하지 않는다 — git history 재작성보다 키 폐기가 더 빠르고 확실하다는 게 원칙이다."
+      }
+    },
+    {
+      "key": "fact-access-log-audit",
+      "type": "fact",
+      "author": "person:baek-donghyun",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "접근 로그 감사 & 이상탐지 룰 초안",
+        "statement": "일단 초안. 같은 계정으로 5분 내 3개 이상 리전에서 로그인 성공 시 impossible travel로 잡음. 실패 로그인 10회/1분 넘으면 계정 임시 잠금. 아직 룰 threshold 튜닝 안 끝남 — 오탐 많아서 임계값 다시 잡아야 함. SOC 검토 후 정식 룰로 반영 예정."
+      }
+    },
+    {
+      "key": "fact-external-audit",
+      "type": "fact",
+      "author": "person:oh-yuna",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "외부 감사 증빙 수집 주기",
+        "statement": "ISMS-P 인증 갱신 심사는 매년 하반기(통상 10월)에 진행된다. 심사 6주 전부터 각 팀에 증빙 취합 요청 메일을 보내고, 미제출 항목은 심사 2주 전 최종 리마인드를 돌린다. 작년 심사에서는 접근 로그 보존 증빙 제출이 지연돼 조건부 통과를 받았다."
+      }
+    },
+    {
+      "key": "term-data-export-ticket",
+      "type": "term",
+      "author": "person:oh-yuna",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "반출 티켓(Export Ticket)",
+        "statement": "고객 데이터를 사외로 옮기는 모든 작업(BI 연동, 벤더 전달 등)에 앞서 CPO 승인을 받는 결재 문서를 가리키는 사내 용어."
+      }
+    },
+    {
+      "key": "res-ir-oncall-doc",
+      "type": "resource",
+      "author": "person:baek-donghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "IR 온콜 로테이션 문서",
+        "statement": "IRT 온콜 순번과 에스컬레이션 전화번호가 정리된 문서. 매주 월요일 갱신된다.",
+        "url": "https://wiki.internal.example/security/ir-oncall"
+      }
+    },
+    {
+      "key": "fact-local-dev-data",
+      "type": "fact",
+      "author": "person:no-taekyung",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "개발자 로컬 환경 데이터 사용 규칙",
+        "statement": "프로덕션 DB 덤프를 로컬 개발 환경에 그대로 내려받는 것은 금지. 마스킹된 스테이징 스냅샷만 허용."
+      }
+    },
+    {
+      "key": "fact-data-export-flow",
+      "type": "fact",
+      "author": "person:oh-yuna",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "데이터 반출 승인 흐름",
+        "statement": "반출 티켓 작성 → 팀 리드 1차 승인 → CPO 최종 승인 순. 승인 없는 반출은 감사 로그에서 자동 플래그된다."
+      }
+    },
+    {
+      "key": "fact-token-ttl-const",
+      "type": "fact",
+      "author": "person:no-taekyung",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "서비스 계정 토큰 TTL 상수",
+        "statement": "서비스 계정 토큰 기본 TTL은 90일, 만료 30일 전 자동 로테이션 알림이 발송된다."
+      }
+    },
+    {
+      "key": "fact-mfa-policy",
+      "type": "fact",
+      "author": "person:baek-donghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "MFA 필수 정책",
+        "statement": "전 임직원 계정은 하드웨어 보안키 또는 TOTP 기반 MFA 없이는 VPN·ZTNA 접속이 불가하다."
+      }
+    },
+    {
+      "key": "fact-log-retention",
+      "type": "fact",
+      "author": "person:oh-yuna",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "감사 로그 보존기간(구 클러스터 기준)",
+        "statement": "이전 ELK 클러스터에서는 감사 로그를 90일만 보존했다 — 신규 클러스터 보존기간은 별도 확인 필요."
+      }
+    },
+    {
+      "key": "fact-s3-public-block",
+      "type": "fact",
+      "author": "person:no-taekyung",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "S3 퍼블릭 접근 차단 기본값",
+        "statement": "전 계정 S3 버킷은 생성 시 Block Public Access가 기본 ON, 예외는 보안팀 승인 후 개별 해제한다."
+      }
+    },
+    {
+      "key": "fact-pentest-cycle",
+      "type": "fact",
+      "author": "person:baek-donghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "외부 침투테스트 주기",
+        "statement": "외부 업체 침투테스트는 반기 1회, payments-api 등 결제 도메인은 신규 기능 배포 전 별도 추가 진행한다."
+      }
+    },
+    {
+      "key": "fact-secret-precommit",
+      "type": "fact",
+      "author": "person:no-taekyung",
+      "size": "line",
+      "state": "draft",
+      "attributes": {
+        "title": "pre-commit 시크릿 훅 초안",
+        "statement": "로컬 pre-commit 훅으로도 시크릿 패턴 잡으려는 중 — 아직 오탐 많아서 opt-in 상태, 강제 아님."
+      }
+    }
+  ],
+  "links": [
+    { "type": "relates_to", "from": "ir-runbook", "to": "term-incident-grade" },
+    { "type": "relates_to", "from": "ir-runbook", "to": "res-ir-oncall-doc" },
+    {
+      "type": "relates_to",
+      "from": "ir-runbook",
+      "to": "fact-access-log-audit"
+    },
+    { "type": "relates_to", "from": "adr-ztna", "to": "term-shadow-account" },
+    { "type": "relates_to", "from": "adr-ztna", "to": "dec-iam-review" },
+    {
+      "type": "relates_to",
+      "from": "adr-vuln-sla",
+      "to": "res-vuln-dashboard"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-svc-token",
+      "to": "fact-token-ttl-const"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-iam-review",
+      "to": "term-shadow-account"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-pii-retention",
+      "to": "fact-data-export-flow"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-pii-retention",
+      "to": "term-data-export-ticket"
+    },
+    {
+      "type": "relates_to",
+      "from": "fact-secret-scanning",
+      "to": "fact-secret-precommit"
+    },
+    {
+      "type": "relates_to",
+      "from": "fact-external-audit",
+      "to": "res-audit-checklist"
+    },
+    {
+      "type": "relates_to",
+      "from": "fact-license-review",
+      "to": "res-audit-checklist"
+    },
+    { "type": "supersedes", "from": "adr-ztna", "to": "dec-vpn-legacy" },
+    {
+      "type": "conflicts_with",
+      "from": "adr-vuln-sla",
+      "to": "dec-vuln-exception"
+    }
+  ]
+}

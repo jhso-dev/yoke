@@ -1,0 +1,452 @@
+{
+  "collaboration": {
+    "id": "collab:payments-platform",
+    "title": "PG 이중화 안정화와 정산 배치 신뢰성 개선을 동시에 밀고 있는 결제·정산 플랫폼 부서"
+  },
+  "people": [
+    {
+      "id": "person:han-seojin",
+      "name": "한서진",
+      "role": "결제플랫폼 테크리드",
+      "team": "결제플랫폼팀"
+    },
+    {
+      "id": "person:oh-taemin",
+      "name": "오태민",
+      "role": "백엔드 엔지니어 (PG 연동/정산배치)",
+      "team": "정산엔진팀"
+    },
+    {
+      "id": "person:jung-arim",
+      "name": "정아림",
+      "role": "SRE (결제 인프라 온콜)",
+      "team": "결제SRE팀"
+    }
+  ],
+  "records": [
+    {
+      "key": "pg-outage-postmortem",
+      "type": "fact",
+      "author": "person:han-seojin",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "title": "포스트모템: PG A사 지연으로 결제 실패 대량 발생 (07-14)",
+        "statement": "## 개요\n2026-07-14 새벽, 주 결제대행사 PG A사의 승인(approval) API 응답 지연이 발생했다. 결제 API의 타임아웃 정책(3초)과 맞물려 짧은 시간에 결제 실패가 대량으로 발생했고, 자동 페일오버 조건을 충족하지 못해 수동 전환까지 약 15분이 소요됐다. 아래는 타임라인, 영향 범위, 원인 분석, 조치 항목을 정리한 포스트모템이다.\n\n## 타임라인 (KST)\n- 03:10 PG A사 승인 API p99 레이턴시가 평소 300ms대에서 4.2초로 급등. payment-gateway 서비스의 결제 실패율 그래프가 꺾이기 시작.\n- 03:12 결제 API 타임아웃(3초)에 도달한 요청이 폭증하며 실패 응답이 쌓임. Slack #payments-alert 채널에 5xx 급증 알람 발화.\n- 03:15 온콜 SRE 정아림이 PagerDuty 페이징 수신, 상황 확인 시작. payments-api 대시보드에서 PG A사향 트래픽만 실패율이 오르는 것을 확인.\n- 03:19 PG A사 공식 상태 페이지에서 \"일부 구간 지연\" 공지 확인. 원인은 PG A사 측 카드사 연동 구간으로 파악.\n- 03:22 자동 페일오버 트리거 조건(5분 이동평균 실패율 40% 이상) 미충족 확인 — 실측 실패율은 32%에서 정체되어 자동 전환이 걸리지 않음.\n- 03:25 온콜과 테크리드 한서진이 수동 페일오버 여부를 논의. 카드 BIN 라우팅 테이블 변경 범위와 PG B사 처리 용량 여유를 확인하는 데 시간 소요.\n- 03:41 수동으로 결제 트래픽 100%를 PG B사로 전환. bin_routing_table을 v2에서 v2-failover로 스왑.\n- 03:44 결제 성공률이 99.2%로 회복. 실패율 그래프 정상 범위 진입.\n- 04:10 PG A사 측 정상화 공지 게시.\n- 04:30 즉시 트래픽 복귀 대신, 안정성 확인을 위해 PG A/B 50:50 비율로 우선 유지하기로 결정.\n- 06:00 PG A사 지표 30분 이상 정상 유지 확인 후 원래 라우팅 비율(PG A 70 : PG B 30)로 복귀.\n- 09:00 정산 배치 실행. 장애 구간에 발생한 재시도 트랜잭션의 멱등키 기준 정합성 확인 완료, 중복 정산 라인 없음.\n\n## 영향 범위\n- 장애 구간(03:10~03:44) 결제 시도 12,400건 중 3,150건 실패 (실패율 25.4%).\n- 실패 건 중 2,890건은 사용자가 재시도해 최종 성공, 260건은 이탈로 추정 (추정 매출 손실 약 1,870만원).\n- CS 문의 340건 접수, 그중 210건은 \"결제가 안 된다\", 130건은 \"중복 결제됐다\"는 문의였으나 실제 중복 승인 사례는 확인되지 않음.\n- 정산 영향은 없었음 — 재시도 트랜잭션은 모두 동일 멱등키로 처리되어 대사(reconciliation) 단계에서 중복 없이 필터링됨.\n\n## 원인\n1. 자동 페일오버 실패율 임계치(40%)가 이번 장애의 실측 실패율(32%)보다 높게 설정되어 자동 전환이 걸리지 않았다. 임계치는 과거 오탐(false positive) 방지를 위해 보수적으로 잡혀 있었다.\n2. 결제 API 타임아웃(3초)이 PG A사 평상시 latency(p99 800ms 이하) 기준으로는 여유 있었지만, 이번처럼 광범위 지연 상황에서는 타임아웃 도달 자체가 실패로 집계되어 실패율 판단에 혼선을 줬다.\n3. 수동 페일오버 판단까지 15분이 걸렸다. 문서화된 runbook이 없어 온콜과 테크리드가 실시간으로 라우팅 변경 범위와 리스크를 협의해야 했다.\n4. 웹훅 순서 보장이 없는 상태라, 재시도 성공 건의 웹훅이 원거래 실패 웹훅보다 먼저 도착할 가능성이 있었다. 이번 건은 대사 배치 단계에서 문제 없이 걸러졌으나 구조적 리스크로 남아있다.\n\n## 조치 및 재발 방지\n1. 자동 페일오버 실패율 임계치를 40%에서 20%로 하향 조정 — 담당 정아림, 2026-07-16 완료.\n2. PG별 개별 타임아웃 도입 검토(PG A 3초 유지, 지연 이력이 있는 PG B는 별도 값 검토) — 담당 오태민, 진행중 PLAT-478.\n3. 수동 페일오버 runbook 작성 및 온콜 교육 세션 진행 — 담당 한서진, 2026-07-20 완료.\n4. 웹훅 순서 보장을 위한 시퀀스 번호 기반 큐 도입 검토 — 담당 오태민, 진행중 PLAT-482.\n5. 정산 배치에 실패율 급등 시 사전 알림을 연동해 정산 담당자가 장애 구간을 미리 인지하도록 개선 — 담당 정아림, 2026-07-18 완료.\n\n## 남은 논쟁거리\n포스트모템 리뷰 회의에서 결제 API 타임아웃 값 자체에 대한 이견이 다시 나왔다. 오태민은 3초 정책을 유지하되 PG별 개별화를 서두르자는 입장이고, 정아림은 실제 온콜 대응 중 PG B사 콜이 8초까지는 정상 승인으로 이어지는 걸 여러 번 봤다며 최소 PG B사만이라도 타임아웃을 늘려야 실패로 오판하는 케이스가 준다고 주장했다. 이번 장애의 실패율 25.4%도 실제로는 순수 지연이 아니라 타임아웃 도달분이 상당수 섞여 있다는 게 정아림 쪽 근거다. 두 입장은 이번 회의에서 합의되지 않았고, 타임아웃 정책 ADR과 정아림의 관측 기록은 서로 다른 결론을 낸 상태로 남아 별도 트래킹 중이다(conflicts_with 처리, PLAT-478과 별개 이슈로 관리).\n\n## 커뮤니케이션\n장애 공지는 03:20 내부 Slack #payments-alert에 1차, 03:45 #general에 요약 2차 공유. 외부 가맹점 공지는 영향이 사용자 재시도로 대부분 흡수됐다고 판단해 별도 발송하지 않았으나, CS 문의가 340건에 달했던 점을 감안해 다음 장애부터는 실패율 20% 초과 5분 지속 시 가맹점 공지 채널에 자동 배너를 띄우는 안을 백로그에 등록했다(PLAT-491)."
+      }
+    },
+    {
+      "key": "timeout-policy-adr",
+      "type": "decision",
+      "author": "person:oh-taemin",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "결제 API가 PG사로 보내는 승인 요청의 타임아웃을 3초로 통일하고, 3초 초과 시 즉시 실패 처리한 뒤 payment-retry-queue를 통한 비동기 재시도로 전환한다.",
+        "rationale": "PG A/B사 모두 평상시 승인 응답 p99는 800ms를 넘지 않는다. 반면 결제 API 전체 SLO는 p99 300ms로 잡혀 있어, PG 응답을 동기로 기다리는 구간이 전체 레이턴시의 대부분을 차지한다. 3초는 두 가지 근거로 정했다.\n\n첫째, 최근 6개월 PG A/B사 latency 로그를 보면 p99.9 구간에서도 2.4초를 넘긴 사례가 드물다. 3초는 이 p99.9 구간을 충분히 덮으면서도, 사용자가 결제 대기 화면에서 이탈을 시작하는 체감 한계(약 4~5초)보다는 짧다.\n\n둘째, 카드 BIN 라우팅으로 PG사가 나뉘는 상황에서 PG별로 다른 타임아웃을 두면 라우팅 로직에 조건 분기가 늘어난다. 운영 중 장애 대응 시 \"이 PG는 타임아웃이 몇 초였더라\"를 확인하는 비용이 붙는다. 통일된 값 하나가 온콜 대응 속도를 높인다.\n\n타임아웃 발생 시 바로 실패로 응답하지 않고 payment-retry-queue에 적재해 비동기로 재시도하는 이유는, 사용자 입장에서 카드사 승인은 실제로 성공했는데 결제 API만 타임아웃으로 실패 처리하면 이중 승인 위험이 생기기 때문이다. 재시도는 반드시 최초 요청의 멱등키를 그대로 사용해 PG사가 중복 승인을 거절하도록 한다.\n\n이 정책은 07-14 장애 포스트모템에서 논의된 \"PG별 개별 타임아웃\" 필요성과 별개로, 우선 통일된 기본값을 확정하고 개별화는 후속 과제(PLAT-478)로 분리했다.\n\n온콜 SRE 쪽에서는 PG B사의 경우 3초를 넘겨도 8초 안에는 정상 승인으로 이어지는 사례가 관측된다는 의견을 냈다. 이는 실제 장애 대응 로그에 근거한 것이라 무시할 수는 없지만, 이번 ADR에서는 우선 운영 단순성을 택했다. PG별 개별화는 트래픽 비중과 라우팅 안정성이 검증된 이후 재논의하기로 했고, 그 전까지는 이 문서의 3초 값이 공식 정책이다. 다만 이견 자체는 별도 기록으로 남겨 향후 판단 근거로 삼는다.",
+        "rejected_alternatives": [
+          "PG사별 개별 타임아웃(PG A 2초 / PG B 5초 등) — 관리 포인트가 늘고 장애 시 온콜이 PG별 값을 확인해야 해 대응 속도가 느려짐. 개별화는 PLAT-478로 별도 검토",
+          "타임아웃을 10초로 여유있게 설정 — 사용자 결제 대기 이탈률 증가와 커넥션 풀 점유 시간 증가로 기각",
+          "타임아웃 없이 PG 응답을 끝까지 대기 — 장애 전파 위험 및 스레드/커넥션 풀 고갈 위험으로 기각"
+        ]
+      }
+    },
+    {
+      "key": "settlement-cutoff-adr",
+      "type": "decision",
+      "author": "person:oh-taemin",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "일 정산 배치는 매일 03:00 KST에 실행하고, 실패 시 06:00 KST에 1회 자동 재실행한다. 06:00 재실행도 실패하면 정산 담당자 수동 개입으로 전환한다.",
+        "rationale": "정산 배치는 전날 00:00~23:59 KST 거래를 대상으로 가맹점별 정산 금액을 계산해 익일 정산 리포트를 생성한다. 03:00을 마감 시각으로 잡은 이유는, 자정 직후 발생하는 취소·환불의 대다수가 거래 후 2~3시간 내 처리되기 때문에 03:00이면 당일 취소분을 충분히 반영할 수 있다는 실측 데이터에 근거한다.\n\n06:00 재실행 1회를 둔 이유는 03:00 배치가 실패하는 원인의 대부분(집계 대상 테이블 락 경합, 환율 스냅샷 API 일시 지연)이 짧은 시간 안에 해소되는 일과성 문제였기 때문이다. 과거 3개월간 배치 실패 12건 중 9건이 06:00 재실행에서 성공했다.\n\n06:00 재실행도 실패하면 자동 재시도를 반복하지 않고 즉시 사람이 개입하도록 못박았다. 정산은 가맹점 정산금 지급과 직결되기 때문에, 원인 파악 없이 배치를 계속 돌리다가 부분 성공 상태로 리포트가 나가는 것이 가장 위험하다고 판단했다.\n\n이 정책은 원화/외화 정산의 환율 스냅샷 시점 정책과도 맞물린다 — 환율 스냅샷은 매일 09:00 KST 한국은행 고시환율 기준으로 고정되므로, 정산 배치가 03:00에 끝나 있어야 09:00 환율 적용 전에 거래 집계가 확정된 상태가 된다. 만약 정산 배치가 09:00을 넘겨 지연되면 환율 스냅샷 적용 순서가 꼬여 재계산이 필요해진다 — 이는 과거 정산 리포트 지연 장애의 원인이기도 했다.\n\n마감 이후 들어오는 정정 요청(늦은 취소, 대사 불일치 정정 등)은 당일 배치에 넣지 않고 익일 배치의 조정 항목(adjustment line)으로 반영한다.\n\n06:00 재실행 슬롯을 하나만 둔 것에 대해 정산 담당 인력이 늘면 재실행 슬롯을 2개(06:00, 08:00)로 늘리자는 의견도 있었으나, 09:00 환율 스냅샷 적용 전에 정산이 확정돼야 한다는 제약 때문에 08:00 슬롯은 여유가 거의 없어 이번에는 반영하지 않았다. 정산 리포트 지연 장애가 재발하면 이 부분을 다시 검토하기로 팀 내 합의했다.",
+        "rejected_alternatives": [
+          "마감 없이 실시간 정산 — 가맹점 정산금이 지속적으로 변동해 정산 리포트의 신뢰성이 떨어지고, 은행 송금 트리거 시점을 정할 수 없어 기각",
+          "03:00 실패 시 30분 간격으로 무한 재시도 — 원인 파악 없는 반복 실행이 부분 성공 상태의 리포트를 발행할 위험이 있어 기각",
+          "마감 시각을 01:00로 앞당김 — 자정 직후 취소분 반영률이 낮아져(실측 반영률 약 68%) 정산 후 취소 조정 건수가 늘어나 기각"
+        ]
+      }
+    },
+    {
+      "key": "idempotency-retry-policy",
+      "type": "decision",
+      "author": "person:oh-taemin",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "결제 실패 시 재시도는 최초 요청과 동일한 멱등키(Idempotency-Key)를 24시간 TTL 동안 그대로 재사용하며, 최대 3회까지 지수 백오프(200ms/800ms/2000ms)로 시도한다.",
+        "rationale": "PG사 승인 자체는 성공했지만 응답 전달 중 네트워크 오류로 클라이언트가 실패로 인지하는 케이스에서 동일 멱등키 없이 재시도하면 이중 승인이 발생한다. 24시간은 PG사 대부분의 멱등키 유효 기간(최소 24시간)에 맞춘 값이고, 3회·지수 백오프는 PG A사 순단 장애(수 초~수십 초)를 흡수하기에 충분하면서도 사용자를 과도하게 대기시키지 않는 선에서 결정했다.",
+        "rejected_alternatives": [
+          "멱등키 없이 매 재시도마다 신규 요청 생성 — 이중 승인 리스크를 감수해야 해 기각",
+          "재시도 최대 5회 — 순단 장애 흡수율은 3회 대비 크게 개선되지 않으면서 사용자 대기 시간만 늘어나 기각",
+          "TTL을 72시간으로 연장 — PG사 측 멱등키 보장 기간을 넘어서는 구간이 생겨 안전하지 않다고 판단해 기각"
+        ]
+      }
+    },
+    {
+      "key": "refund-partial-cancel-policy",
+      "type": "decision",
+      "author": "person:han-seojin",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "부분취소(환불)는 원거래 정산이 이미 완료된 경우에도 익일 정산 배치의 조정 항목(adjustment line)으로 반영하며, 별도의 취소 전용 정산 배치는 두지 않는다.",
+        "rationale": "부분취소는 하루 중 아무 때나 발생할 수 있어 즉시 정산에 반영하려면 정산 배치를 여러 번 돌려야 하는데, 이는 정산 마감 정책(03:00 단일 마감)과 충돌한다. 조정 항목 방식은 이미 지급된 정산금과 별도로 다음 정산 주기에 차감·환입 처리해 가맹점 정산금 지급 흐름을 단순하게 유지한다. 부분취소 금액이 다음 정산 지급액보다 큰 경우(정산 완료 후 대형 환불)에는 정산 담당자 수동 확인을 거친다.",
+        "rejected_alternatives": [
+          "부분취소 발생 즉시 정산 재계산 및 재지급 — 정산 배치 재실행 빈도가 늘고 가맹점에 정산 내역 정정 안내를 반복해야 해 기각",
+          "취소 전용 배치를 하루 2회 별도 실행 — 배치 운영 복잡도가 늘고 03:00 마감 배치와 집계 대상이 겹쳐 이중 계산 위험이 생겨 기각"
+        ]
+      }
+    },
+    {
+      "key": "coupon-dedup-policy",
+      "type": "decision",
+      "author": "person:han-seojin",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "동일 주문에 프로모션 쿠폰은 최대 1개만 적용하며, 서버가 주문 생성 시점에 적용 쿠폰 ID를 주문 레코드에 고정해 이후 재요청이 들어와도 추가 쿠폰이 붙지 않도록 한다.",
+        "rationale": "쿠폰 중복 적용 버그는 대부분 클라이언트 재요청(더블 탭, 네트워크 재시도)이 원인이었다. 쿠폰 적용을 클라이언트가 아니라 주문 생성 API 내부에서 한 번만 확정하고 이후 요청은 기존 주문의 쿠폰 상태를 그대로 반환하도록 바꿔, 클라이언트 동작과 무관하게 서버 단에서 중복을 막는다. 쿠폰 여러 장 조합 할인은 프로모션팀 요청이 있었으나 정산 로직 복잡도 증가 대비 실효 이득이 작아 이번 정책에서는 제외했다.",
+        "rejected_alternatives": [
+          "클라이언트에서 쿠폰 적용 여부 체크 후 요청 — 더블 탭·재시도 상황을 클라이언트가 완벽히 막을 수 없어 기각",
+          "쿠폰 최대 2장까지 조합 허용 — 정산 시 쿠폰별 부담 주체(가맹점/플랫폼) 분배 로직이 복잡해지고 남용 사례 검증 비용이 커 기각"
+        ]
+      }
+    },
+    {
+      "key": "fx-snapshot-policy",
+      "type": "decision",
+      "author": "person:oh-taemin",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "외화 결제 정산 환율은 매일 09:00 KST 한국은행 고시환율로 스냅샷을 고정하고, 하루 중 환율 변동은 반영하지 않는 방향으로 제안한다. (검토중, 아직 확정 아님)",
+        "rationale": "지금은 정산 배치가 돌 때마다 그 시점 환율 API를 그대로 호출해서 같은 날 재실행되면 환율이 미세하게 달라지는 문제가 있었음. 09:00 스냅샷을 고정값으로 캐싱해두고 그날 정산은 그 값만 쓰면 재실행해도 값이 안 바뀌니까 이게 낫다고 봄. 근데 09:00 이전에 발생하는 03:00 마감 배치와 시점이 안 맞는 케이스가 있어서 이 부분은 settlement-cutoff-adr 쪽이랑 다시 맞춰봐야 함. 초안 상태라 팀 리뷰 전.",
+        "rejected_alternatives": [
+          "실시간 환율 매 거래마다 조회 — API 호출량이 늘고 재실행 시 값이 달라지는 문제 여전히 있어 보류",
+          "일 평균 환율 사용 — 계산이 늦어져 정산 배치 시각과 안 맞음"
+        ]
+      }
+    },
+    {
+      "key": "reconciliation-mismatch-note",
+      "type": "fact",
+      "author": "person:jung-arim",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "대사(reconciliation) 불일치 처리 트러블슈팅 기록",
+        "statement": "정산 배치 결과와 PG사 정산 리포트를 매일 대사할 때, 월 평균 0.3% 수준의 금액 불일치가 발생한다. 대부분(약 80%)은 타임존 경계 문제로, PG사가 UTC 자정 기준으로 거래를 집계하는 반면 우리는 KST 자정 기준으로 집계해 자정 전후 거래가 다른 날짜로 잡히면서 생긴다. 나머지는 부분취소가 정산 마감 이후 접수돼 조정 항목으로 다음 날 반영되는 시차, 그리고 드물게 PG사 측 웹훅 유실로 우리 쪽에 최종 상태가 늦게 반영되는 케이스다. 불일치 건은 자동으로 익일 대사 배치에서 재확인해 그레이스 윈도우(3영업일) 내 해소되지 않으면 정산 담당자에게 에스컬레이션한다. 에스컬레이션된 건은 대부분 하루 안에 원인이 밝혀지지만, 월 1~2건 정도는 PG사 측 원장까지 확인해야 해 해소까지 일주일 이상 걸리기도 한다."
+      }
+    },
+    {
+      "key": "bin-routing-dynamic",
+      "type": "decision",
+      "author": "person:oh-taemin",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "카드 BIN 라우팅을 발급사 고정 테이블 방식에서 PG사 실시간 응답 지연 기반 동적 라우팅으로 전환한다. (07-14 장애 이후 제안, 아직 draft)",
+        "rationale": "정적 테이블은 특정 PG사에 지연이 생겨도 그 사실을 라우팅에 반영하지 못해 자동 대응이 늦다. 동적 라우팅은 최근 1분 p99 latency를 보고 임계치 초과 PG로는 신규 트래픽을 줄인다.",
+        "rejected_alternatives": [
+          "정적 테이블 유지하되 임계치만 낮춤 — 지연 자체를 감지하지 못하는 구조적 한계는 그대로임"
+        ]
+      }
+    },
+    {
+      "key": "bin-routing-static",
+      "type": "decision",
+      "author": "person:oh-taemin",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "카드 BIN 앞 6자리로 발급사를 판별해 고정 라우팅 테이블(bin_routing_table)에 따라 PG A/B사로 트래픽을 나눈다. (작년 기준 정책 — 동적 라우팅 제안으로 대체 검토중)",
+        "rationale": "발급사별로 승인율 차이가 있어 특정 PG가 특정 발급사 처리에 강점이 있었고, 이를 고정 테이블로 반영해 승인율을 높였다. 트래픽 패턴이 안정적이던 이전 클러스터 환경 기준으로 설계됨.",
+        "rejected_alternatives": [
+          "발급사 구분 없이 라운드로빈 — 발급사별 승인율 차이를 반영하지 못해 전체 승인율이 낮아짐"
+        ]
+      }
+    },
+    {
+      "key": "term-idempotency-key",
+      "type": "term",
+      "author": "person:oh-taemin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "멱등키(Idempotency Key)",
+        "statement": "우리 사내에서는 결제 요청 하나에 클라이언트가 생성해 붙이는 UUID를 말한다. 같은 키로 들어온 재요청은 PG사 승인을 다시 태우지 않고 최초 요청의 결과를 그대로 반환한다. Redis에 24시간 TTL로 저장하며, TTL 만료 후 동일 키가 다시 오면 신규 거래로 취급한다."
+      }
+    },
+    {
+      "key": "term-reconciliation",
+      "type": "term",
+      "author": "person:jung-arim",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "대사(Reconciliation)",
+        "statement": "우리 사내에서는 정산 배치가 계산한 우리 쪽 거래 내역과 PG사가 보내주는 정산 리포트를 거래 단위로 맞춰보는 일일 배치 작업을 말한다. 단순 회계 용어의 대사와 달리, 우리는 이 결과를 그날 정산 리포트 발행 전 최종 게이트로 쓴다 — 불일치가 일정 금액 이상이면 리포트 발행을 보류한다."
+      }
+    },
+    {
+      "key": "resource-settlement-dashboard",
+      "type": "resource",
+      "author": "person:jung-arim",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "정산 현황 대시보드",
+        "statement": "일별 정산 배치 실행 상태, 가맹점별 정산 금액, 대사 불일치 건수를 한 화면에서 본다. 정산 담당자는 매일 09:30 KST(배치+대사 완료 후) 확인하는 것이 루틴이다.",
+        "url": "https://internal.example-corp.io/dashboards/settlement"
+      }
+    },
+    {
+      "key": "fact-pg-dual-active",
+      "type": "fact",
+      "author": "person:han-seojin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "PG 이중화 구조",
+        "statement": "결제 트래픽은 평상시 PG A사 70% : PG B사 30%로 분산 처리한다. 두 PG 모두 상시 active 상태로 운영하며(active-active), 한쪽 실패율이 임계치를 넘으면 자동 또는 수동으로 트래픽 비율을 조정한다. 완전 장애 시에는 100%까지 전환 가능하다."
+      }
+    },
+    {
+      "key": "fact-webhook-order-issue",
+      "type": "fact",
+      "author": "person:oh-taemin",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "웹훅 순서 보장 이슈 (조사중)",
+        "statement": "PG사 웹훅이 발생 순서대로 도착한다는 보장이 없다는 걸 07-14 장애 이후 다시 확인함. 재시도 성공 웹훅이 원거래 실패 웹훅보다 먼저 오면 상태 머신이 꼬일 수 있음. 아직 실제 장애로 이어진 적은 없고, 시퀀스 번호 기반 큐(PLAT-482) 도입을 검토중. 결론 안 남."
+      }
+    },
+    {
+      "key": "fact-approval-code-map",
+      "type": "fact",
+      "author": "person:jung-arim",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "카드사 승인 거절 코드 매핑표 (초안)",
+        "statement": "PG A/B사가 내려주는 승인 거절 코드가 서로 다른 체계라 우리 쪽 공통 에러 코드로 매핑하는 표를 만드는 중. 잔액부족/한도초과/도난카드 등 주요 코드는 매핑 끝났고, 나머지 롱테일 코드 30여개는 아직 매핑 미완료라 일단 '기타 거절'로 뭉쳐 처리중."
+      }
+    },
+    {
+      "key": "term-grace-window",
+      "type": "term",
+      "author": "person:oh-taemin",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "그레이스 윈도우(Grace Window)",
+        "statement": "정산 마감 후에도 3영업일간 대사 불일치·늦은 웹훅을 조정 항목으로 받아주는 유예 기간을 이르는 말."
+      }
+    },
+    {
+      "key": "resource-webhook-console",
+      "type": "resource",
+      "author": "person:jung-arim",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "웹훅 재처리 콘솔",
+        "statement": "실패·유실 웹훅을 조회하고 수동 재전송하는 내부 콘솔.",
+        "url": "https://internal.example-corp.io/tools/webhook-console"
+      }
+    },
+    {
+      "key": "resource-pcidss-scope-doc",
+      "type": "resource",
+      "author": "person:han-seojin",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "PCI-DSS 범위 최소화 설계서",
+        "statement": "카드 데이터 저장 최소화 경계 문서. 작년 기준이라 PG 이중화 반영 갱신 필요.",
+        "url": "https://internal.example-corp.io/docs/pci-dss-scope"
+      }
+    },
+    {
+      "key": "fact-timeout-conflict-pgb",
+      "type": "fact",
+      "author": "person:jung-arim",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "PG B사 콜은 타임아웃 여유 필요",
+        "statement": "PG B사는 지연 시 8초까지는 기다려야 승인 유실 없이 처리된다는 관측 있음 — 3초 정책과 배치됨."
+      }
+    },
+    {
+      "key": "fact-idempotency-ttl",
+      "type": "fact",
+      "author": "person:oh-taemin",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "멱등키 TTL",
+        "statement": "멱등키는 Redis에 24시간 TTL로 저장, 만료 후 동일 키 재요청은 신규 거래로 처리."
+      }
+    },
+    {
+      "key": "fact-retry-max-count",
+      "type": "fact",
+      "author": "person:oh-taemin",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "결제 재시도 최대 횟수",
+        "statement": "결제 실패 시 최대 3회, 200ms/800ms/2000ms 지수 백오프로 재시도."
+      }
+    },
+    {
+      "key": "fact-bin-routing-table",
+      "type": "fact",
+      "author": "person:oh-taemin",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "BIN 라우팅 테이블 버전",
+        "statement": "BIN 앞 6자리로 발급사 판별, 현재 라우팅 테이블은 bin_routing_table v3 사용중."
+      }
+    },
+    {
+      "key": "fact-oncall-pagerduty",
+      "type": "fact",
+      "author": "person:jung-arim",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "결제 SLO 위반 시 연락 경로",
+        "statement": "결제 API p99가 SLO 300ms 초과 5분 지속 시 PagerDuty로 결제SRE 1차 온콜 자동 호출."
+      }
+    },
+    {
+      "key": "fact-settlement-batch-schedule",
+      "type": "fact",
+      "author": "person:han-seojin",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "정산 배치 스케줄",
+        "statement": "정산 배치는 매일 03:00 KST 실행, 실패 시 06:00 KST에 1회 자동 재실행."
+      }
+    },
+    {
+      "key": "fact-fx-snapshot-old",
+      "type": "fact",
+      "author": "person:oh-taemin",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "환율 스냅샷 (작년 기준)",
+        "statement": "작년 기준 환율은 정산 배치 실행 시점마다 실시간 조회했음 — 지금은 09:00 고정 스냅샷 방식 전환 검토중(fx-snapshot-policy 참고)."
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "relates_to",
+      "from": "pg-outage-postmortem",
+      "to": "timeout-policy-adr"
+    },
+    {
+      "type": "relates_to",
+      "from": "pg-outage-postmortem",
+      "to": "bin-routing-dynamic"
+    },
+    {
+      "type": "relates_to",
+      "from": "pg-outage-postmortem",
+      "to": "fact-pg-dual-active"
+    },
+    {
+      "type": "relates_to",
+      "from": "pg-outage-postmortem",
+      "to": "fact-webhook-order-issue"
+    },
+    {
+      "type": "relates_to",
+      "from": "idempotency-retry-policy",
+      "to": "term-idempotency-key"
+    },
+    {
+      "type": "relates_to",
+      "from": "idempotency-retry-policy",
+      "to": "fact-idempotency-ttl"
+    },
+    {
+      "type": "relates_to",
+      "from": "idempotency-retry-policy",
+      "to": "fact-retry-max-count"
+    },
+    {
+      "type": "relates_to",
+      "from": "refund-partial-cancel-policy",
+      "to": "reconciliation-mismatch-note"
+    },
+    {
+      "type": "relates_to",
+      "from": "reconciliation-mismatch-note",
+      "to": "term-reconciliation"
+    },
+    {
+      "type": "relates_to",
+      "from": "reconciliation-mismatch-note",
+      "to": "term-grace-window"
+    },
+    {
+      "type": "relates_to",
+      "from": "settlement-cutoff-adr",
+      "to": "fact-settlement-batch-schedule"
+    },
+    {
+      "type": "relates_to",
+      "from": "settlement-cutoff-adr",
+      "to": "resource-settlement-dashboard"
+    },
+    {
+      "type": "relates_to",
+      "from": "settlement-cutoff-adr",
+      "to": "fx-snapshot-policy"
+    },
+    {
+      "type": "relates_to",
+      "from": "fx-snapshot-policy",
+      "to": "fact-fx-snapshot-old"
+    },
+    {
+      "type": "relates_to",
+      "from": "bin-routing-dynamic",
+      "to": "fact-bin-routing-table"
+    },
+    {
+      "type": "relates_to",
+      "from": "fact-webhook-order-issue",
+      "to": "resource-webhook-console"
+    },
+    {
+      "type": "relates_to",
+      "from": "resource-pcidss-scope-doc",
+      "to": "fact-pg-dual-active"
+    },
+    {
+      "type": "relates_to",
+      "from": "fact-timeout-conflict-pgb",
+      "to": "fact-pg-dual-active"
+    },
+    {
+      "type": "supersedes",
+      "from": "bin-routing-dynamic",
+      "to": "bin-routing-static"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "timeout-policy-adr",
+      "to": "fact-timeout-conflict-pgb"
+    }
+  ]
+}

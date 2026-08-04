@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// A synthetic corpus generated in code — fast, no data files, English, and every record built from a
+// small set of sentence skeletons. That last property is a real limit and it is measured: 0 of 676
+// pairs in it are semantically related while lexically different (docs/RESEARCH.md), so retrieval
+// changes are invisible against it. Use `scripts/load-demo-corpus.mjs` when the corpus is what is
+// under test; use this one when you just need rows.
 
 import { unlinkSync } from "node:fs";
 import { commit } from "../dist/core/commit.js";
@@ -6,7 +11,8 @@ import { verify } from "../dist/core/lifecycle.js";
 import { seedOntology } from "../dist/core/ontology.js";
 import { openStore } from "../dist/front/store.js";
 
-const db = process.argv[2] ?? "/Users/jhso/dev/yoke/dummy-yoke.db";
+// Was an absolute path into another machine's home directory, so the no-argument form wrote nowhere.
+const db = process.argv[2] ?? "./dummy-yoke.db";
 const now = "2026-07-31T00:00:00.000Z";
 
 for (const suffix of ["", "-wal", "-shm"]) {
