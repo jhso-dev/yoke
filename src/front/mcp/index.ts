@@ -194,6 +194,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
         ns,
         scope: anchor,
+        // The same embedder the commit gate gets (SPEC "Hybrid retrieval"). Without it an agent's
+        // query was keyword-only while its writes were being embedded — half a vector index.
+        embedder,
       });
       // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an

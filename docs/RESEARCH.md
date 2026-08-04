@@ -183,12 +183,42 @@ unconfigured one, which at least says so.
 **FTS scored 0/8 on every query.** That is the "complements, not substitutes" claim from the survey
 above, demonstrated on our own data rather than cited: these are precisely the questions the keyword
 half cannot answer, and the vector half now can. It is also the strongest available argument for B1
-(hybrid retrieval in `inject`), which remains unbuilt — `inject` still runs keyword-only, so none of
-this reaches an agent yet.
+(hybrid retrieval in `inject`), which was built the next day — see below.
 
 Method: `bge-m3` served by Ollama (1.2GB, MIT, 8192-token context). Absolute cosine is deliberately
 not compared across models — the scales are not commensurable — so the discriminating number is
 accuracy@1 and the top1−top2 margin within each model.
+
+### Measured 2026-08-04: hybrid retrieval, and why the keyword half returned nothing
+
+B1 shipped (SPEC "Hybrid retrieval"). The measurement above went through `similar()` directly; this
+one goes through `inject()`, which is the only path an agent can reach. Twelve Korean records (eight
+answers, four lexical decoys), eight questions phrased with no content word in common with the record
+that answers them, `limit: 5`:
+
+| | accuracy@1 | hit@5 |
+|---|---|---|
+| keyword-only (v5.2 behaviour) | **0/8** | **0/8** |
+| hybrid (`bge-m3` + RRF) | **7/8** | **8/8** |
+
+**The keyword half returned literally nothing — and not because of Korean.** `search` is
+AND-of-prefix-tokens: every query term must appear (storage-sqlite, deliberate — the whole-phrase
+match it replaced silently missed multi-word queries). A question is a sentence, so the conjunction is
+unsatisfiable by construction. Probed by removing one token at a time from `인덱스 다시 만드는 배치는
+언제 도나요`: **0 hits at two tokens, 1 hit at one.** Keyword-shaped queries hit correctly on the same
+corpus (`색인` → the right record, `야간` → two), so FTS is not broken on Hangul — **the query shape is
+what fails, and an English sentence fails it identically.** Any measurement that quotes FTS recall
+without saying whether the queries were sentences or keywords is measuring the shape, not the index.
+
+**The one failure is the honest ceiling.** For `인덱스 다시 만드는 배치는 언제 도나요` the vector half
+ranked the decoy `인덱스 펀드 수익률 보고서` first and the answer (`야간 색인 재생성`) fourth — the
+answer says 색인 where the question says 인덱스, and the decoy shares the salient token. So a shared
+salient term can fool the vector half too. It still reached the agent inside `limit: 5`, but the reason
+nothing corrected it is structural: **when one half returns nothing, RRF degenerates to the other
+half's own order and there is no agreement signal left.** Fusion adds robustness only where both
+halves retrieve. That is an argument for A2/A3 (a gold set and recall/nDCG) rather than for tuning
+against eight queries, and an argument against ever reporting a fused number without reporting each
+half's.
 
 ---
 

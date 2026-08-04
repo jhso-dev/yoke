@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { commit } from "./commit.js";
+import type { Embedder } from "./embedding.js";
 import { inject } from "./inject.js";
 import { deprecate, verify } from "./lifecycle.js";
 import { seedOntology } from "./ontology.js";
@@ -30,6 +31,20 @@ async function addFact(note: string) {
     { type: "fact", attributes: { note } },
     prov,
     now,
+  );
+  return entity.id;
+}
+
+/** Same, but embedded at commit time — so the vector index has a row to find. `ns` puts it in
+ * another tenant, which is how the cross-namespace check gets a record it must not return. */
+async function addFactWith(note: string, embedder: Embedder, ns?: string) {
+  const { entity } = await commit(
+    port,
+    ont,
+    { type: "fact", attributes: { note } },
+    prov,
+    now,
+    { embedder, ns },
   );
   return entity.id;
 }
@@ -527,5 +542,94 @@ describe("as-of injection", () => {
       asOf: "2026-07-21T00:00:00Z",
     });
     expect(later.items.map((it) => it.entity.id)).toEqual([id]);
+  });
+});
+
+describe("hybrid retrieval: the vector half of the Embedder contract", () => {
+  // A vocabulary-mismatch corpus. `quatrain` shares no token with the query, so the keyword half
+  // cannot reach it at any limit — that is the case measured in docs/RESEARCH.md (Korean queries:
+  // bge-m3 8/8, FTS 0/8) reduced to two records.
+  const QUERY = "sonnet";
+  const NEAR = Float32Array.from([1, 0]);
+  const FAR = Float32Array.from([0, 1]);
+  /** A lookup embedder, not commit.test.ts's bag-of-words hash: to a word-overlap stub "different
+   * vocabulary" IS orthogonality, so it cannot express the one relationship under test. Records are
+   * indexed with what this returns at commit time, so the mapping below is the whole semantic claim —
+   * the query sits next to the record that shares none of its words. */
+  const semantic: Embedder = async (text) =>
+    text === QUERY || text.includes("quatrain") ? NEAR : FAR;
+
+  async function corpus() {
+    const keyword = await addFact("sonnet form and meter");
+    const vectorOnly = await addFactWith("quatrain form and meter", semantic);
+    await verify(port, [keyword, vectorOnly], "alice", now);
+    return { keyword, vectorOnly };
+  }
+
+  it("reaches a record the keyword half cannot, and does not without an embedder", async () => {
+    const { keyword, vectorOnly } = await corpus();
+
+    const withoutVectors = await inject(port, ont, QUERY, now);
+    expect(withoutVectors.items.map((i) => i.entity.id)).toEqual([keyword]);
+
+    const hybrid = await inject(port, ont, QUERY, now, { embedder: semantic });
+    expect(hybrid.items.map((i) => i.entity.id).sort()).toEqual(
+      [keyword, vectorOnly].sort(),
+    );
+  });
+
+  it("returns the keyword list untouched when the embedder yields nothing", async () => {
+    await corpus();
+    const expected = (await inject(port, ont, "form", now)).items.map(
+      (i) => i.entity.id,
+    );
+    expect(expected.length).toBeGreaterThan(1); // non-vacuous: an order exists to preserve
+
+    // Unconfigured (SPEC: an unconfigured provider is a FUNCTION returning null, not undefined) and
+    // a backend with no `similar` must both be indistinguishable from v5.2.
+    const nullEmbedder = await inject(port, ont, "form", now, {
+      embedder: async () => null,
+    });
+    expect(nullEmbedder.items.map((i) => i.entity.id)).toEqual(expected);
+
+    const noVectorBackend = Object.create(port) as SqliteStorage;
+    Object.defineProperty(noVectorBackend, "similar", { value: undefined });
+    const unsupported = await inject(noVectorBackend, ont, "form", now, {
+      embedder: semantic,
+    });
+    expect(unsupported.items.map((i) => i.entity.id)).toEqual(expected);
+  });
+
+  it("does not let a vector hit cross a namespace", async () => {
+    // `similar(embedding, k)` takes no ns, so this filter lives in core. Without it the vector half
+    // leaks across tenants where the keyword half does not.
+    const mine = await addFactWith("quatrain form and meter", semantic);
+    await verify(port, [mine], "alice", now);
+    const theirs = await addFactWith(
+      "quatrain form and meter",
+      semantic,
+      "tenant-b",
+    );
+    await verify(port, [theirs], "alice", now);
+
+    const items = (await inject(port, ont, QUERY, now, { embedder: semantic }))
+      .items;
+    expect(items.map((i) => i.entity.id)).toEqual([mine]);
+
+    // Non-vacuous: the other tenant's record IS in the vector index and IS the nearest neighbour, so
+    // the assertion above is the ns filter working rather than an empty index.
+    const neighbours = await port.similar(NEAR, 10);
+    expect(neighbours.map((e) => e.id).sort()).toEqual([mine, theirs].sort());
+  });
+
+  it("lets a dimension mismatch travel instead of degrading to keyword-only", async () => {
+    await corpus();
+    // A model change is the realistic cause. Silently answering from the old index, or silently
+    // dropping to FTS, both leave a broken vector half nobody is told about.
+    await expect(
+      inject(port, ont, QUERY, now, {
+        embedder: async () => Float32Array.from([1, 0, 0, 0]),
+      }),
+    ).rejects.toThrow(/dimension changed.*backfill --embeddings --rebuild/s);
   });
 });

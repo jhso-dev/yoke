@@ -207,6 +207,43 @@ write.
   we don't inject a decay signal. Viewing stale is the job of review/CLI)
 - Returns: a list of entities, each with its provenance (an auditable citation format)
 
+### Hybrid retrieval (v5.3 — the vector half of "falls back to FTS")
+
+The Embedder contract below has said since v0.4 that `null` means **retrieval falls back to FTS**.
+That sentence described a fork with one branch: `inject` had no vector path to fall back *from*, so
+every injection was keyword-only no matter how the embedder was configured. Closed here.
+
+- **A query is answered from two ranked lists, fused.** `search()` as before, plus
+  `similar(embedder(query), k)` when both the embedder returns a vector and the backend implements
+  `similar`. A briefing (anchor, no query) has no query text and is unchanged — there is nothing to
+  embed.
+- **Fusion is rank-based (Reciprocal Rank Fusion, `1/(60 + rank)`), never score-based.** BM25 and
+  cosine are not commensurable, and neither is absolute cosine across embedding models
+  (docs/RESEARCH.md, measured 2026-08-03) — so a weighted sum of the two scores would be arithmetic
+  on incomparable units. RRF only reads positions. `60` is the published constant (Cormack 2009),
+  not a tuned one; there is no per-half weight to configure and deliberately no re-ranker.
+  **When one half returns nothing the fused order IS the other half's** — fusion buys robustness only
+  where both halves retrieve, which is measured rather than assumed (docs/RESEARCH.md 2026-08-04).
+- **`null` from the embedder returns the FTS list untouched**, in the same order as before this
+  existed. An unconfigured or unreachable provider must be indistinguishable from v5.2 behaviour, and
+  that is the guarantee the constant-vs-fused test pins.
+- **A dimension mismatch throws rather than degrading to keyword-only.** `similar` already refuses to
+  answer out of an index built by a different model (SPEC "The vector index"), and injection lets that
+  error travel: the message names `yoke backfill --embeddings --rebuild`, whereas a silent fallback
+  would leave the vector half dead for as long as nobody looked. This is the one embedding failure
+  that is *not* a warn-and-proceed — the same exception the write path already makes.
+- **`ns` is filtered in core, not pushed down.** `similar(embedding, k)` takes no namespace, so a
+  vector hit from another tenant is filtered against the caller's `ns` after retrieval. Not an
+  optimization detail — without it the vector half is a cross-tenant leak the FTS half does not have.
+- **Stated ceiling: `status` cannot be pushed into the vector half.** `similar` has no status filter,
+  so deprecated and stale rows occupy the `k` window and are dropped afterwards by `effectiveStatus`
+  like every other candidate. `k` is the caller's limit (or the briefing cap when it names none) times
+  the same `STALE_HEADROOM` the FTS half uses. When both halves come back short the answer is a short
+  page and `omitted` reports it — the existing contract, unchanged.
+- Available everywhere `inject` is: `yoke inject`, `yoke_inject`, `GET /api/inject`. All three already
+  build the same env-configured embedder for the commit gate and now pass it here too, so a query
+  cannot retrieve differently depending on which front adapter asked.
+
 ### As-of injection (v5.2 — "what was true then")
 
 `inject(query, { asOf })` answers the question the version history already holds the data for and had
@@ -224,7 +261,8 @@ no way to ask: **what would this query have injected at time T.**
   `backfillAuthorship` already uses. Both are in the port or documented as an extension, so this adds
   no adapter work and no conformance case.
 - **Stated ceiling: as-of narrows what today's index found; it does not re-index the past.** Candidate
-  selection is still `search()` over the current FTS rows, so a record whose text was rewritten such
+  selection is still `search()` over the current FTS rows — and, since v5.3, `similar()` over the
+  current vectors, which keeps only the latest version's — so a record whose text was rewritten such
   that it no longer matches the query is not a candidate, even if its older text did match. What
   changes on a `decision` is overwhelmingly its *status*, which is what this does answer; re-indexing
   history would mean a second FTS table per version and is not worth that.
@@ -549,7 +587,8 @@ type Embedder = (text: string) => Promise<Float32Array | null>
 - **`null` means retrieval falls back to FTS. It does NOT mean duplicate detection falls back to
   anything** (corrected 2026-08-03 — the two were conflated here and in gate stage 3). Retrieval has a
   keyword path to fall back to; duplicate detection does not, and is skipped. Which happened is
-  reported as `duplicateDetection`.
+  reported as `duplicateDetection`. The vector path this falls back *from* is v5.3 — until then the
+  sentence described a fork with one branch (SPEC "Hybrid retrieval").
 - **An unconfigured provider is a FUNCTION, not `undefined`.** `makeFetchEmbedder` with no
   `YOKE_EMBED_URL`/`YOKE_EMBED_MODEL` returns `async () => null`, so a `if (embedder)` guard passes
   and the null arrives one step later. Anything deciding "do we have embeddings" must test the

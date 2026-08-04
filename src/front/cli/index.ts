@@ -747,6 +747,9 @@ async function cmdInject(
       // reproduce each other's results (WEB-UI's CLI-achievable rule).
       scope: v.scope,
       asOf: v["as-of"],
+      // Hybrid retrieval (SPEC "Hybrid retrieval"): the same env-configured embedder the gate uses,
+      // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
+      embedder: makeFetchEmbedder(env),
     });
     // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core stays pure.
     store.logAudit({
