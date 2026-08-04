@@ -61,7 +61,16 @@ port capabilities, etc. See SPEC).
       traversal in one engine. It also uncovered why kuzu and qdrant were never reachable from the
       CLI: `YokeStore`'s extension surface is synchronous, so a remote backend has to be composed
       (`storage-composite`) rather than substituted — see docs/BACKENDS.md
-- [x] Vector DB adapter (Qdrant) — a similar-capability implementation
+- [x] **OpenSearch adapter (v5.4)** — the second remote backend, and the one that shows the
+      composite's `RemoteStore` shape was really structural: it needed no change to the port, the
+      composite, or `openStore`'s structure. Native BM25 and native k-NN (the plugin ships in every
+      distribution), `neighbors` app-level like sqlite. **No dependency** — OpenSearch is REST, so it
+      takes a `fetchImpl` the way qdrant does, where neo4j needed 3.8 MB of Bolt driver. Its test suite
+      is scoped by index prefix, so unlike the neo4j suite it can run against a cluster that is holding
+      a demo
+- [x] Vector DB adapter (Qdrant) — a similar-capability implementation, **verified against a real
+      server for the first time in v5.4** (21/21). It had only ever passed against its in-memory REST
+      fake, which is defensible for a JSON filter surface and is still not the same claim
 - [x] **RDB read-mapping**: Postgres/MySQL tables → read-only entity mapping
       (a table-to-ontology mapping declaration file; the enterprise wedge — MARKET strategy 3)
 - [x] Audit log (a query API over the immutable record of gate/promotion/injection)

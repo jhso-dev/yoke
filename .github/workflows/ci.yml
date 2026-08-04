@@ -84,6 +84,49 @@ jobs:
           YOKE_TEST_NEO4J_USER: neo4j
           YOKE_TEST_NEO4J_PASSWORD: testtest
 
+  # storage-opensearch against a REAL OpenSearch, for the same reason the neo4j job exists: the test
+  # file skips itself when YOKE_TEST_OPENSEARCH_URL is unset, which keeps `npm test` green on a laptop
+  # with no docker — and would keep it green here too. What is under test is the ENGINE's behaviour
+  # (BM25 ranking, prefix terms against an analyzer's output, k-NN order, near-real-time visibility), so
+  # a fake would encode the adapter's own beliefs about all four and prove none of them.
+  opensearch-adapter:
+    runs-on: ubuntu-latest
+    services:
+      opensearch:
+        image: opensearchproject/opensearch:2
+        env:
+          discovery.type: single-node
+          DISABLE_SECURITY_PLUGIN: "true"
+          DISABLE_INSTALL_DEMO_CONFIG: "true"
+          OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+        # The cluster-health endpoint, not a port probe: OpenSearch accepts connections before the
+        # cluster is ready to answer, so a TCP check passes and the first query fails.
+        options: >-
+          --health-cmd "curl -fsS http://localhost:9200/_cluster/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run src/adapters/storage-opensearch
+        env:
+          YOKE_TEST_OPENSEARCH_URL: http://localhost:9200
+      # Non-vacuity: the suite above must not have been skipped. Without this the job is green either
+      # way — the same failure mode the windows job taught us, where a silent skip reads as a pass.
+      - name: the opensearch suite actually ran
+        run: |
+          npx vitest run src/adapters/storage-opensearch --reporter=json --outputFile=/tmp/os.json
+          node -e "const r=require('/tmp/os.json');if(!r.numPassedTests)throw new Error('opensearch suite ran 0 tests — it skipped');console.log(r.numPassedTests+' opensearch tests ran')"
+        env:
+          YOKE_TEST_OPENSEARCH_URL: http://localhost:9200
+
   # Windows native-binary check: better-sqlite3 / sqlite-vec prebuilds must
   # install and pass the main suite (the most common cross-platform trap).
   windows:
