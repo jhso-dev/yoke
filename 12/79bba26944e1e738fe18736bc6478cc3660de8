@@ -1,0 +1,70 @@
+docs/SPEC.md
+  8ecaf4f60771d7f1 210-246,262-265,590-591
+src/core/inject.ts
+  8ecaf4f60771d7f1 6,73-136,162-164,184,192-200,234-237,255
+src/front/cli/index.ts
+  8ecaf4f60771d7f1 750-752
+src/front/mcp/index.ts
+  8ecaf4f60771d7f1 197-199
+src/front/ui/server.ts
+  8ecaf4f60771d7f1 595-597
+src/core/inject.test.ts
+  8ecaf4f60771d7f1 7,37-51,546-635
+docs/RESEARCH.md
+  8ecaf4f60771d7f1 186,192-222
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "1279bba26944e1e738fe18736bc6478cc3660de8",
+  "prompts": {
+    "8ecaf4f60771d7f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6be58b6e-c23c-416f-bf9c-06f007cfd72a",
+        "model": "claude-opus-5"
+      },
+      "skills": [
+        {
+          "id": "compact",
+          "ts": "2026-07-31T03:55:01.200Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:40.704Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:46.790Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-03T05:31:28.931Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-03T13:59:21.596Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 708,
+        "Edit": 163,
+        "Write": 33,
+        "Read": 87,
+        "SendUserFile": 6,
+        "AskUserQuestion": 9,
+        "ToolSearch": 7,
+        "WebSearch": 7,
+        "WebFetch": 2,
+        "EnterPlanMode": 2,
+        "ExitPlanMode": 5,
+        "mcp__openviking__health": 1,
+        "mcp__openviking__search": 1,
+        "TaskCreate": 12,
+        "TaskUpdate": 23
+      },
+      "total_additions": 777,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
