@@ -10,13 +10,42 @@ import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
 import { LinkRecord } from "../../components/LinkRecord";
+import { Markdown } from "../../components/Markdown";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
 import { copyText } from "../../lib/clipboard";
 import { useT } from "../../lib/i18n";
+import { isDocument } from "../../lib/markdown";
 import { isMissing } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
+
+/**
+ * One stored attribute value, read the way it was written.
+ *
+ * Three shapes, because the ontology declares three (`string`, `string[]`, and the numbers/booleans
+ * that fall through). Every one of them used to be `typeof v === "string" ? v : JSON.stringify(v)`,
+ * which turned a decision's rejected alternatives — arguably the most-read field in the model, since
+ * it is what a decision record exists to preserve — into `["안 1","안 2"]`, and a multi-section
+ * postmortem into one collapsed paragraph.
+ */
+function attributeValue(v: unknown) {
+  if (typeof v === "string") return isDocument(v) ? <Markdown text={v} /> : v;
+  if (Array.isArray(v) && v.every((x) => typeof x === "string"))
+    return (
+      <div className="md">
+        <ul>
+          {v.map((x: string, i) => {
+            // Position is the only identity these have, and two rejected alternatives can read the
+            // same; the stored order is the author's, so it never reorders.
+            const key = `${i}:${x}`;
+            return <li key={key}>{x}</li>;
+          })}
+        </ul>
+      </div>
+    );
+  return JSON.stringify(v);
+}
 
 /**
  * One record, as stored. Nothing inferred, nothing summarized away.
@@ -136,7 +165,7 @@ function EntityBody() {
               {Object.entries(d.entity.attributes).map(([k, v]) => (
                 <tr key={k}>
                   <th style={{ width: "22%" }}>{k}</th>
-                  <td>{typeof v === "string" ? v : JSON.stringify(v)}</td>
+                  <td>{attributeValue(v)}</td>
                 </tr>
               ))}
             </tbody>

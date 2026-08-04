@@ -390,6 +390,71 @@ td.num {
   font-variant-numeric: tabular-nums;
 }
 
+/* A stored value rendered as the document it was written as (components/Markdown.tsx). Measured
+   trigger: a 2,809-character postmortem with 40 line breaks arrived in a table cell, where HTML
+   collapses newlines, so its six sections read as one paragraph. Sits INSIDE a td, hence the
+   first/last-child margin reset — a leading margin inside a cell reads as a broken row. */
+.md {
+  line-height: 1.65;
+  max-width: 78ch;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md h3,
+.md h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 18px 0 6px;
+  letter-spacing: 0.01em;
+}
+
+.md h4 {
+  color: var(--muted-foreground);
+}
+
+.md p {
+  margin: 0 0 10px;
+}
+
+.md ul,
+.md ol {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.md li {
+  margin: 3px 0;
+}
+
+.md code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--secondary);
+}
+
+/* A table inside a document keeps the page's table styling but not its full width: a five-column
+   results table stretched to 100% of a detail panel puts the numbers too far from their labels. */
+.md table {
+  width: auto;
+  margin: 4px 0 12px;
+  border: 1px solid var(--border);
+}
+
+.md th {
+  text-transform: none;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
 .mono {
   font-family: var(--font-mono);
   font-size: 12px;
