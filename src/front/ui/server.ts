@@ -592,6 +592,9 @@ export function createUiHandler(
           ns,
           scope,
           asOf: asOfParam,
+          // Hybrid retrieval (SPEC "Hybrid retrieval"). The preview's whole claim is that it shows
+          // byte-for-byte what an agent receives, so retrieving by a different half would break it.
+          embedder: deps.embedder,
         },
       );
       store.logAudit({

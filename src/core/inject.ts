@@ -3,6 +3,7 @@
 // The citation format is the smallest unit of the audit trail — pinned by tests.
 
 import type { StoragePort } from "../ports/storage.js";
+import type { Embedder } from "./embedding.js";
 import { effectiveStatus, versionAsOf } from "./lifecycle.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
@@ -69,6 +70,70 @@ const candidateQuery = (opts?: {
   limit: opts?.limit === undefined ? undefined : opts.limit * STALE_HEADROOM,
 });
 
+/**
+ * Reciprocal Rank Fusion (Cormack et al. 2009) — the whole hybrid retriever.
+ *
+ * RANK-based, and that is the point: BM25 and cosine are not commensurable, and absolute cosine is
+ * not comparable across embedding models either (docs/RESEARCH.md, measured 2026-08-03). Any weighted
+ * sum of the two scores would be arithmetic on incompatible units, tuned to whichever model happened
+ * to be configured. Positions have no units.
+ *
+ * 60 is the published constant, not a tuned one. Its effect is to flatten the top of each list so one
+ * list's #1 cannot dominate the other's #1–#5 outright, which is what makes agreement between the two
+ * halves the strongest signal.
+ *
+ * The FIRST list wins identity ties, so a record found by both keeps the FTS row object — the vector
+ * copy carries an `embedding` field and injection results never have.
+ */
+const RRF_K = 60;
+function fuse(lists: Entity[][]): Entity[] {
+  const score = new Map<string, number>();
+  const byId = new Map<string, Entity>();
+  for (const list of lists) {
+    list.forEach((e, i) => {
+      score.set(e.id, (score.get(e.id) ?? 0) + 1 / (RRF_K + i + 1));
+      if (!byId.has(e.id)) byId.set(e.id, e);
+    });
+  }
+  return [...byId.values()].sort(
+    (a, b) =>
+      (score.get(b.id) as number) - (score.get(a.id) as number) ||
+      // ULID tiebreak, same reason as the briefing sort: without it two records at the same fused
+      // score come out in Map insertion order, which differs per backend.
+      a.id.localeCompare(b.id),
+  );
+}
+
+/**
+ * The vector half. Empty array whenever it cannot contribute — no embedder, no `similar` on this
+ * backend, or the embedder returned null (unconfigured or unreachable). An empty list means the
+ * caller returns the FTS list untouched, so an unconfigured provider retrieves exactly what it did
+ * before this existed.
+ *
+ * A dimension mismatch is deliberately NOT caught: `similar` throws with the repair command in the
+ * message, and swallowing it here would leave the vector half silently dead after a model change —
+ * the "looks configured, retrieves noise" failure that docs/RESEARCH.md measured.
+ */
+async function vectorHits(
+  port: StoragePort,
+  query: string,
+  ns: string | null,
+  opts?: { embedder?: Embedder; limit?: number },
+): Promise<Entity[]> {
+  if (!opts?.embedder || !port.similar) return [];
+  const vector = await opts.embedder(query);
+  if (!vector) return [];
+  // `similar` takes no ns filter, so the tenant check happens here. Without it the vector half is a
+  // cross-tenant leak the keyword half does not have.
+  const hits = await port.similar(
+    vector,
+    (opts.limit ?? BRIEFING_LIMIT) * STALE_HEADROOM,
+  );
+  return hits
+    .filter((e) => normalizeNs(e.ns) === ns)
+    .map((e) => ({ ...e, embedding: undefined }));
+}
+
 /** `[{type}:{id}@v{version}] {actor}, {occurred_at}` — the audit citation format. */
 export function citation(e: Entity): string {
   return `[${e.type}:${e.id}@v${e.version}] ${e.provenance.actor}, ${e.provenance.occurred_at}`;
@@ -94,6 +159,9 @@ export function citation(e: Entity): string {
  *   everything attached to the work. A persona passes authored_by/'in' instead: presenting knowledge
  *   a person merely touched as their own judgment would be impersonation, so the strict anchor is
  *   part of that entry point, not a different mechanism.
+ * @param embedder turns the query into a vector so retrieval is hybrid rather than keyword-only
+ *   (SPEC "Hybrid retrieval"). Omitted, unconfigured or unreachable → the FTS list, unchanged. Only
+ *   the query paths use it: a briefing has no query text to embed.
  * @param asOf answer as of a past instant: "what would this query have injected then". Replaces the
  *   read clock for freshness AND rewinds every candidate to the version current at that time, so a
  *   record retired since still reads as what it was. See SPEC "As-of injection" for the stated
@@ -113,6 +181,7 @@ export async function inject(
     scopeRel?: string;
     scopeDir?: "in" | "out";
     asOf?: string;
+    embedder?: Embedder;
   },
 ): Promise<{ items: InjectItem[]; omitted: number }> {
   const scope = opts?.scope;
@@ -120,6 +189,15 @@ export async function inject(
   // the clock is still injected (SPEC "Time injection"); `asOf` overrides it for one read.
   const readAt = opts?.asOf ?? now;
   const ns = normalizeNs(opts?.ns);
+  // Both query paths retrieve the same way — one keyword list, one vector list, fused. Shared so the
+  // anchored and unscoped paths cannot drift into two different retrievers.
+  const retrieve = async (): Promise<Entity[]> => {
+    const fts = await port.search({ text: query, ...candidateQuery(opts) });
+    const vec = await vectorHits(port, query, ns, opts);
+    // Returning `fts` itself (not a fused list of one) is what makes an unconfigured embedder
+    // byte-identical to v5.2: fusion would re-sort ties by id, which is a change nobody asked for.
+    return vec.length === 0 ? fts : fuse([fts, vec]);
+  };
   let candidates: Entity[];
   if (scope) {
     // Relation types the ontology marks as membership. Walking them would hand the roster to an agent
@@ -153,7 +231,10 @@ export async function inject(
       // BOUNDED, and status-filtered. This call used to pass no limit at all, and at 10M entities
       // it killed the process: the adapter built ten million row objects and the heap ran out
       // (docs/SCALE.md). See candidateQuery for why the bound is a multiple of the caller's limit.
-      const hits = await port.search({ text: query, ...candidateQuery(opts) });
+      //
+      // The hop partition stays the OUTER order: fusion decides relevance within each half, and the
+      // working context still leads. Anchoring is not a relevance signal, it is a priority one.
+      const hits = await retrieve();
       candidates = [
         ...hits.filter((e) => hopIds.has(e.id)),
         ...hits.filter((e) => !hopIds.has(e.id)),
@@ -171,7 +252,7 @@ export async function inject(
     // See candidateQuery. Asking the store for exactly `limit` meant the caller got `limit` minus
     // however many were draft, stale or deprecated: measured at every corpus size from 10k to 10M, a
     // request for 50 returned 29 while 589,285 injectable records sat unreturned (docs/SCALE.md).
-    candidates = await port.search({ text: query, ...candidateQuery(opts) });
+    candidates = await retrieve();
   }
   const items: InjectItem[] = [];
   for (const found of candidates) {
