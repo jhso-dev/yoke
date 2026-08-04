@@ -86,7 +86,7 @@ command that fixes it. This is the one deliberate exception to "an embedding fai
 commit": a provider being down costs you one vector, whereas a mixed vector space returns confidently
 wrong neighbours forever, and a silent wrong answer is worse than a stopped write.
 
-### Remote backends (v5.2)
+### Remote backends (v5.2, second one v5.4)
 
 `StoragePort` is fully async and always was, so a network-backed backend implements it with no
 interface change. The obstacle is one layer up: the CLI, web and serve tiers hold a **`YokeStore`** —
@@ -111,6 +111,23 @@ synchronous, served from a cache the async `init()` fills.
 > ponytail: that cache is read once per `init()`. The CLI opens, inits and closes per command so every
 > invocation is fresh, but a long-running `yoke ui`/`serve` will not see an ontology another client
 > changed. Add invalidation when that actually bites, not before.
+
+**`RemoteStore` is structural, and v5.4 is the proof.** The composite's remote half is "a `StoragePort`
+plus async `saveOntology`/`loadOntology`/`renameType`" — declared as a shape, not a base class, so a
+second remote adapter satisfies it without importing the composite. `storage-opensearch` was written
+against that shape and needed **no change to the composite, the port, or `openStore`'s structure**; the
+only new code outside the adapter directory is one branch selecting it.
+
+Naming both `YOKE_NEO4J_URL` and `YOKE_OPENSEARCH_URL` is an **error**, not a precedence order. They
+are two different databases holding two different corpora, and picking one silently would mean
+`yoke inject` answering out of a store the caller did not think they were using.
+
+Per-backend rules that are contract rather than implementation are documented in each adapter's header.
+For OpenSearch the two worth knowing at this level: reads refresh before they read (it is a
+near-real-time engine and the port contract is read-your-writes), and a search's prefix terms are
+*required* while its exact terms are what *score* — a Lucene `prefix` query is constant-score, so a
+query built only from prefixes satisfies "matches" and silently fails "best match first". The same trap
+the Neo4j adapter hit with wildcards.
 
 `listHistory` stays optional and is **absent** on the composite: it is synchronous and it is about
 entities, which are remote. Callers use `listVersions(port, id)` (`core/lifecycle.ts`), which

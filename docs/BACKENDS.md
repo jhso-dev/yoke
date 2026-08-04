@@ -19,6 +19,7 @@ traditional-DB compatibility. Detailed when work starts (v2.0).
 | storage-kuzu | v2.0 | embedded graph DB — stronger graph queries with no infrastructure. A proven path Cognee also adopted |
 | storage-qdrant | v2.0 | a similar-capability-only implementation. Large-scale embeddings |
 | storage-neo4j | **v5.2 (built)** | an enterprise already runs one, and it is the only backend with native FTS, vectors and graph in one engine |
+| storage-opensearch | **v5.4 (built)** | an enterprise already runs one for logs and search, and it is the cheapest adapter to own: a REST API, so `fetchImpl` injection makes it fakeable and it adds **no dependency** — where neo4j needed a 3.8 MB Bolt driver |
 | storage-postgres | v2.x | the leading default-backend candidate for server mode (v3) (pgvector doubles as similar) |
 
 ## Capability matrix
@@ -35,6 +36,7 @@ direction: kuzu answers `search` app-level (materialize every row, tokenize, ran
 | kuzu | app-level | **—** | ✓ (native) | ✓ |
 | qdrant | app-level | ✓ | — | — |
 | **neo4j** | **✓ (native full-text index, scored)** | **✓ (native vector index)** | **✓ (native)** | — |
+| **opensearch** | **✓ (native BM25, scored)** | **✓ (native k-NN, HNSW)** | app-level (term query) | — |
 | postgres | ✓ | ✓ (pgvector) | app-level | — |
 
 "app-level" is not a synonym for "absent": those adapters materialize candidates and rank them with
@@ -87,6 +89,30 @@ For tests and for trying it:
 ```bash
 docker run -d --rm --name yoke-neo4j -p 7687:7687 -e NEO4J_AUTH=neo4j/testtest neo4j:5
 ```
+
+### OpenSearch (v5.4)
+
+```bash
+docker run -d --name yoke-opensearch -p 9200:9200 \
+  -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
+  -e DISABLE_INSTALL_DEMO_CONFIG=true -e "OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m" \
+  opensearchproject/opensearch:2
+
+export YOKE_OPENSEARCH_URL=http://localhost:9200
+export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=...   # a secured cluster only
+export YOKE_OPENSEARCH_PREFIX=team_a_                            # optional: two yoke DBs, one cluster
+yoke init
+```
+
+Same split as Neo4j — `--db` still names the local sqlite holding this client's audit trail and tokens.
+Setting `YOKE_NEO4J_URL` and `YOKE_OPENSEARCH_URL` together is an **error**, not a precedence order:
+they are two different knowledge stores.
+
+**The test suite here is scoped by index prefix, which is what Neo4j could not do.** It creates and
+deletes `yoketest_*` indices only, so it can run against the same cluster a demo is using — verified by
+running all 30 cases while a 1,007-document corpus sat in `yoke_*` and counting it unchanged afterwards.
+Neo4j Community has one database per server, so its suite has to erase everything; here the isolation
+is a name.
 
 > **`YOKE_TEST_NEO4J_URL` names a database the suite will ERASE.** Its `wipe()` runs
 > `MATCH (x) DETACH DELETE x` plus a drop of every `yoke_` index, in `beforeAll` — that is correct for
