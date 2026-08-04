@@ -278,11 +278,8 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
 - [ ] **Read a real `yoke audit --shape` trail.** The command shipped in v5.2 and nothing has consumed
       it, so the workload ratio that decides whether graph expansion pays is instrumented and still
       unknown. Having the command is not having the answer
-- [ ] **A gold set, and retrieval metrics over it** (recall@k, nDCG). `eval/inject-quality.ts`
-      measures safety only — contamination and missed contradictions — so nothing in the repo can say
-      whether a retrieval change helped. v5.3's own ceiling is the argument: when one half of the
-      hybrid returns nothing, RRF degenerates to the other half's order, and eight hand-written
-      queries cannot tell you how often that happens
+- [x] **A gold set, and retrieval metrics over it** (recall@k, nDCG) — done in v5.5 below. The answer
+      to "how often does RRF degenerate": on every question-shaped query in the set
 - [ ] **Multi-hop traversal** (`inject` walks exactly one relation hop) and **global aggregation** —
       both gated on the trail above, not on appetite
 - [ ] **Identity resolution across connector sources** — the same person arriving from Slack, GitHub
@@ -302,6 +299,22 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
 - [x] **`verify`/`deprecate` refuse before they write** — the read loop threw on the first unknown id,
       after promoting every id ahead of it. A half-applied governance action, found by moving the read
       out of the loop rather than by a report
+
+- [x] **A gold set, and retrieval metrics over it** — 66 queries over the 504-record demo corpus, each
+      naming the records that answer it, scored through `inject()` (`npm run eval:retrieval`). It
+      immediately paid for itself by turning v5.3's stated ceiling into a measurement: on **all 55**
+      question-shaped queries the keyword half returns **zero** rows, so RRF degeneracy is not an edge
+      case in this workload but the operating condition, and the embedder is load-bearing rather than
+      optional — with none configured, an agent's question returns nothing. The keyword half is not the
+      problem: given a keyword-shaped query it recalls **90.9%**. `search` is AND-of-prefix-tokens, so a
+      sentence is an unsatisfiable conjunction (docs/RESEARCH.md). Same numbers on sqlite and
+      OpenSearch, which is the first measurement that could have exposed a backend leaking into core
+- [x] **The demo corpus lives in the repo** (`scripts/demo-corpus/`, one backend-agnostic loader).
+      It had survived being erased from a live Neo4j only because the scratch files were still there
+
+Open next, and ahead of the older items below it: **a minimum-should-match rule for `search`.** The
+measurement above makes it the highest-value retrieval change available, and it is a change to a
+contract clause (conformance case 6c pins AND-of-terms on purpose), so SPEC comes first.
 
 Left standing deliberately: **there is no batch form of `getEntity(id, version)`**, so `listVersions`'s
 fallback — and as-of injection through it — is still a loop. Versions are a dense 1..n and a governed

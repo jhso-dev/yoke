@@ -220,6 +220,46 @@ halves retrieve. That is an argument for A2/A3 (a gold set and recall/nDCG) rath
 against eight queries, and an argument against ever reporting a fused number without reporting each
 half's.
 
+### Measured 2026-08-04 (2): the gold set, and what the keyword half is actually for
+
+The eight-query test above could not say how often RRF degenerates, only that it does. `eval/gold-set.json`
+answers it: 66 queries against the 504-record demo corpus, each naming the records that answer it,
+scored through `inject()` at k=10 (`npm run eval:retrieval`). Two query **shapes**, because the first
+draft of the set contained only one and that turned out to be the whole story:
+
+| | keyword | hybrid |
+| --- | --- | --- |
+| **question** (55) — a sentence, how an agent's user asks | recall@10 **0.0%**, acc@1 **0.0%** | recall@10 **84.7%**, acc@1 **58.2%** |
+| **keywords** (11) — one to three terms, how a person searches a wiki | recall@10 **90.9%**, acc@1 81.8% | recall@10 **100%**, acc@1 100% |
+| all 66 | recall@10 15.2%, nDCG 14.1% | recall@10 87.2%, nDCG 74.3% |
+
+Three findings, in order of what they cost:
+
+1. **RRF degeneracy is not an edge case in this workload — it is all of it.** On every one of the 55
+   question-shaped queries the keyword half returned zero rows, so the fused result *is* the vector
+   list, unchecked. The v5.3 ceiling was stated as a caveat; at 55/55 it is the operating condition.
+2. **Which makes the embedder load-bearing rather than optional.** `makeFetchEmbedder` returning
+   `null` is documented as "retrieval falls back to FTS", and this is what that fallback is worth for a
+   question: **nothing**. A deployment with no embedder configured answers an agent's question with an
+   empty result set, silently.
+3. **The keyword half is not broken, and the fix is not in the ranker.** Given a query shaped like a
+   query it recalls 90.9%. `search` is AND-of-prefix-tokens (conformance case 6c pins it deliberately),
+   so a 12-token sentence is an unsatisfiable conjunction — verified directly against the corpus:
+   `"결제대행사 승인 요청 타임아웃"` → 1 hit, `"타임아웃"` → 3, the full question → **0**. The
+   candidate fix is a minimum-should-match rule that keeps AND for short queries and requires a
+   fraction of terms for long ones. That is a change to a contract clause, not a tuning knob, so it
+   belongs in SPEC before it belongs in four adapters.
+
+**Two engines, one number.** The same gold set through sqlite (FTS5 + sqlite-vec) and through
+OpenSearch (BM25 + HNSW k-NN) scores recall@10 87.2% on both, nDCG 74.3% vs 74.4%, accuracy@1 65.2% on
+both. They differ on one keyword query's rank-1 pick (81.8% vs 90.9% acc@1 in that cohort), which is
+two BM25 implementations disagreeing about one tie. Invariant 2 says backend behaviour must not leak
+into core; this is the first measurement that could have shown a leak, and it does not.
+
+What the set does **not** measure, stated so nobody reads it as more than it is: relevance is binary
+and mine, one language, one corpus, and no query needs more than one hop. Its value is as a baseline —
+the next retrieval change now has a number to beat instead of an argument.
+
 ---
 
 ## How to use this file

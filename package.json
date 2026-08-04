@@ -38,7 +38,8 @@
     "build:web": "npm --prefix web install --no-audit --no-fund && npm --prefix web exec next build web && node scripts/copy-web.mjs",
     "dev:web": "npm --prefix web exec next dev web -p 4801",
     "test:bundle": "vitest run src/front/ui/bundle.smoke.test.ts",
-    "typecheck:web": "npm --prefix web install --no-audit --no-fund --silent && npm --prefix web exec tsc -- -p web --noEmit"
+    "typecheck:web": "npm --prefix web install --no-audit --no-fund --silent && npm --prefix web exec tsc -- -p web --noEmit",
+    "eval:retrieval": "tsx eval/retrieval-quality.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

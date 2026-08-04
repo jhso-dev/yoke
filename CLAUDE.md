@@ -42,4 +42,6 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 - `npm run build` — tsc → `dist/`
 - `npm test` — `test:main` (vitest), then `test:kuzu` (a standalone runner; kuzu's native binding crashes in a vitest pool)
 - `npm run typecheck` · `npm run lint` (biome) · `npm run eval` (injection-quality report)
+- `npm run eval:retrieval -- <db>` — recall@k/nDCG over `eval/gold-set.json`. Needs a loaded corpus
+  (`node scripts/load-demo-corpus.mjs <db>`) and an embedder for the hybrid column
 - All four must be green in every commit.
