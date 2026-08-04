@@ -88,6 +88,16 @@ For tests and for trying it:
 docker run -d --rm --name yoke-neo4j -p 7687:7687 -e NEO4J_AUTH=neo4j/testtest neo4j:5
 ```
 
+> **`YOKE_TEST_NEO4J_URL` names a database the suite will ERASE.** Its `wipe()` runs
+> `MATCH (x) DETACH DELETE x` plus a drop of every `yoke_` index, in `beforeAll` — that is correct for
+> a test database and destroys any other. Two consequences worth stating rather than learning:
+> `--rm` on the command above means stopping the container also discards whatever is in it, and
+> pointing the variable at the instance you are *demoing* from deletes that corpus. It happened
+> (2026-08-04: a 301-entity seeded corpus, erased by running the suite to verify an unrelated merge).
+> So keep the demo instance on a different port and never export the test variable in a shell you also
+> run `yoke` from. Reloading is only cheap if the seed script is in the repo, which is the argument for
+> keeping one there.
+
 The conformance suite runs against a real Neo4j when one is reachable and **skips when it is not**, so
 `npm test` stays green without docker. CI runs it as a service container, so it is never only skipped.
 A hand-written fake was rejected: faking Cypher means the fake encodes the same assumptions as the
