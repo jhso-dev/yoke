@@ -102,9 +102,15 @@ function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
   const seen = new Map<string, string | undefined>();
   return async (actorId: string): Promise<string | undefined> => {
     if (!seen.has(actorId)) {
-      // Agent identifiers are namespaced with a colon ('yoke:system', 'connector:github-pr');
-      // ULIDs never contain one, so this skips the pointless read for every machine actor.
-      const e = actorId.includes(":") ? null : await store.getEntity(actorId);
+      // Every actor is looked up. This used to skip any id containing a colon, on the theory that a
+      // colon means a machine actor ('yoke:system', 'connector:github-pr') and a ULID never has one —
+      // but a person's id is whatever created it, and `scripts/seed-dummy-it-company.mjs`, this
+      // repo's OWN corpus generator, mints `person:platform-manager`. So the shortcut turned every
+      // seeded author into a slug on the exact surface that exists to not show ids to people. The
+      // guard is the type check below, which was always the real one; the colon was a guess about
+      // ids that only the caller knows. Cost of dropping it: one memoized point read per distinct
+      // machine actor per request.
+      const e = await store.getEntity(actorId);
       seen.set(
         actorId,
         e?.type === "person" ? personName(e, ontology) : undefined,
