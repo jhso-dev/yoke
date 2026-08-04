@@ -353,77 +353,88 @@ describe("yoke MCP server", () => {
     expect(text(briefB)).toContain("overridescopedecision");
     await s2.close();
   });
-  it("caps an unbounded briefing and tells the agent where the rest is (v5.1)", async () => {
-    const s = await openSession();
-    const ws = JSON.parse(
-      text(
-        await s.client.callTool({
-          name: "yoke_commit",
-          arguments: {
-            type: "collaboration",
-            attributes: { title: "capped work", key: "CAP-1" },
-          },
-        }),
-      ),
-    );
-    // More attached records than the briefing cap, all verified so they pass the injection filter.
-    const ids: string[] = [];
-    for (let i = 0; i < BRIEFING_LIMIT + 4; i++) {
-      const f = JSON.parse(
+  // vitest's default 5s, on the heaviest test in this file: it commits BRIEFING_LIMIT + 4 records
+  // through the real gate, each of which is two writes (the record and its authored_by edge), then
+  // verifies all of them — well over a hundred sqlite transactions before the assertion. It fits in
+  // 5s on a warm machine and does not on a cold windows runner, where it timed out on one CI run
+  // while the identical tree passed on the other. The cap is the contract being tested, so making it
+  // smaller to fit the budget would test something else; the budget is what is wrong.
+  const SLOW = 30_000;
+  it(
+    "caps an unbounded briefing and tells the agent where the rest is (v5.1)",
+    async () => {
+      const s = await openSession();
+      const ws = JSON.parse(
         text(
           await s.client.callTool({
             name: "yoke_commit",
             arguments: {
-              type: "fact",
-              attributes: { statement: `capfact ${i} about gizmo${i}` },
-              scope: ws.id,
+              type: "collaboration",
+              attributes: { title: "capped work", key: "CAP-1" },
             },
           }),
         ),
       );
-      ids.push(f.id);
-    }
-    await s.close();
-    expect(await runCli(["verify", ...ids, "--db", db], {})).toBe(0);
+      // More attached records than the briefing cap, all verified so they pass the injection filter.
+      const ids: string[] = [];
+      for (let i = 0; i < BRIEFING_LIMIT + 4; i++) {
+        const f = JSON.parse(
+          text(
+            await s.client.callTool({
+              name: "yoke_commit",
+              arguments: {
+                type: "fact",
+                attributes: { statement: `capfact ${i} about gizmo${i}` },
+                scope: ws.id,
+              },
+            }),
+          ),
+        );
+        ids.push(f.id);
+      }
+      await s.close();
+      expect(await runCli(["verify", ...ids, "--db", db], {})).toBe(0);
 
-    const s2 = await openSession();
-    // A briefing: scope set, empty query. Uncapped this returned all 54 records in full.
-    const brief = text(
-      await s2.client.callTool({
-        name: "yoke_inject",
-        arguments: { query: "", scope: ws.id },
-      }),
-    );
-    const shown = brief.split("\n\n").filter((b) => b.startsWith("[fact:"));
-    expect(shown).toHaveLength(BRIEFING_LIMIT);
-    // The notice must be an instruction, not a flag: an agent that reads a truncated briefing as
-    // complete answers from part of the knowledge without knowing it.
-    expect(brief).toContain(`${BRIEFING_LIMIT} of ${BRIEFING_LIMIT + 4}`);
-    expect(brief).toContain("NOT lost");
-    expect(brief).toContain("ask yoke_inject a specific question");
+      const s2 = await openSession();
+      // A briefing: scope set, empty query. Uncapped this returned all 54 records in full.
+      const brief = text(
+        await s2.client.callTool({
+          name: "yoke_inject",
+          arguments: { query: "", scope: ws.id },
+        }),
+      );
+      const shown = brief.split("\n\n").filter((b) => b.startsWith("[fact:"));
+      expect(shown).toHaveLength(BRIEFING_LIMIT);
+      // The notice must be an instruction, not a flag: an agent that reads a truncated briefing as
+      // complete answers from part of the knowledge without knowing it.
+      expect(brief).toContain(`${BRIEFING_LIMIT} of ${BRIEFING_LIMIT + 4}`);
+      expect(brief).toContain("NOT lost");
+      expect(brief).toContain("ask yoke_inject a specific question");
 
-    // And the claim the notice makes is true: a query reaches a record the briefing dropped.
-    const dropped = ids.find((id) => !brief.includes(id));
-    expect(dropped).toBeDefined();
-    const idx = ids.indexOf(dropped as string);
-    const q = text(
-      await s2.client.callTool({
-        name: "yoke_inject",
-        arguments: { query: `gizmo${idx}`, scope: ws.id },
-      }),
-    );
-    expect(q).toContain(dropped as string);
+      // And the claim the notice makes is true: a query reaches a record the briefing dropped.
+      const dropped = ids.find((id) => !brief.includes(id));
+      expect(dropped).toBeDefined();
+      const idx = ids.indexOf(dropped as string);
+      const q = text(
+        await s2.client.callTool({
+          name: "yoke_inject",
+          arguments: { query: `gizmo${idx}`, scope: ws.id },
+        }),
+      );
+      expect(q).toContain(dropped as string);
 
-    // An explicit limit still overrides the default in both directions.
-    const all = text(
-      await s2.client.callTool({
-        name: "yoke_inject",
-        arguments: { query: "", scope: ws.id, limit: 100 },
-      }),
-    );
-    expect(all).not.toContain("NOT lost");
-    await s2.close();
-  });
+      // An explicit limit still overrides the default in both directions.
+      const all = text(
+        await s2.client.callTool({
+          name: "yoke_inject",
+          arguments: { query: "", scope: ws.id, limit: 100 },
+        }),
+      );
+      expect(all).not.toContain("NOT lost");
+      await s2.close();
+    },
+    SLOW,
+  );
 });
 
 describe("resolveScope (key/id → collaboration lookup)", () => {
