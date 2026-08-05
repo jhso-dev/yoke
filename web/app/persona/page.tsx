@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Citation } from "../../components/Citation";
 import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -145,12 +146,12 @@ function Person({ id }: { id: string }) {
       <ErrorBanner error={who.error ?? persona.error} />
 
       <div className="controls">
-        <input
+        <Input
           placeholder={t.persona.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           aria-label="search"
-          style={{ minWidth: 260 }}
+          className="w-auto min-w-65"
         />
         {/* Counted only while searching: "12 of 12" beside an untouched box is noise, but an empty
             result has to be distinguishable from a person with nothing on record. */}

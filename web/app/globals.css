@@ -653,27 +653,10 @@ td.num {
   border-color: var(--primary);
 }
 
-/* The native `<input>`/`<select>` still used on browse, audit, inject, persona and login, given the
-   same 32px box as a `sm` Button so a control row is one height instead of three — UA defaults were
-   19-21px beside a 32px button, which is what made the button look oversized rather than the button
-   being large. Checkboxes keep their own box.
-
-   Scoped by class, and `:not([data-slot])` keeps it off shadcn's primitives: an unlayered rule beats
-   any Tailwind utility, so an unguarded `.controls input` would silently override <Input> the same
-   way the bare element rules once overrode <Button>. */
-.controls input:not([type="checkbox"]):not([data-slot]),
-.controls select:not([data-slot]),
-.field input:not([type="checkbox"]):not([data-slot]),
-.field select:not([data-slot]),
-.login input:not([data-slot]) {
-  font: inherit;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--input);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--foreground);
-}
+/* The compatibility layer that gave native `<input>`/`<select>` the same 32px box as a Button is gone
+   with the last of them: browse, audit, inject, persona and login now render <Input> and <Select>, so
+   the `:not([data-slot])` guards it needed matched nothing. Checkboxes and the review radios are the
+   only native controls left — see the note by `.segmented`. */
 
 /* A panel has no padding of its own: its usual content is a full-bleed table, and the padding a
    reader sees comes from the cells. Anything else placed in one — the form rows on browse, entity,
@@ -733,11 +716,9 @@ td.num {
   flex-direction: column;
   gap: 10px;
 }
-/* Same `:not([data-slot])` as the sizing rule above so this stays equal in specificity and wins on
-   order — otherwise `font: inherit` there would quietly take the mono face off a pasted token. */
-.login input:not([data-slot]) {
-  font-family: var(--font-mono);
-}
+/* The mono face on a pasted token now travels on <Input className="font-mono"> — the rule that used
+   to do it here had to dodge shadcn's primitives with `:not([data-slot])`, and there is no native
+   input left on this screen to style. */
 .login .banner[data-kind="info"] {
   margin-top: 14px;
 }

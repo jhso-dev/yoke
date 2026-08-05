@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { ApiError, api } from "../../lib/api";
@@ -54,7 +55,7 @@ export default function Login() {
       <h1>{t.login.heading}</h1>
       <p className="lede">{t.login.lede}</p>
       <form onSubmit={submit}>
-        <input
+        <Input
           type="password"
           autoComplete="off"
           spellCheck={false}
@@ -62,6 +63,8 @@ export default function Login() {
           aria-label={t.login.credential}
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          // A pasted token is a machine string; the mono face is how every id reads here.
+          className="font-mono"
         />
         <Button type="submit" disabled={busy || !value.trim()}>
           {busy ? t.login.checking : t.login.submit}

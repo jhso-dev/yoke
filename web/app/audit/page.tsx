@@ -2,6 +2,15 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -22,6 +31,11 @@ import { useT } from "../../lib/i18n";
 import { isoFromLocalInput } from "../../lib/time";
 import type { AuditEntry } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
+
+/** Radix Select reserves the empty string for "no selection", so an "all"/"any" option cannot BE the
+ * empty value it means — it carries this token and the handler maps it back. The filter state stays
+ * `""` so the URL and the API call are unchanged. */
+const ANY = "__any";
 
 /**
  * Who was told what, when — answerable without shell access.
@@ -146,41 +160,53 @@ export default function Audit() {
       </p>
       <ErrorBanner error={trail.error} />
       <div className="controls">
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <Label
+          htmlFor="audit-since"
+          className="gap-1.5 text-[inherit] font-[inherit]"
+        >
           {t.audit.since}
-          <input
+          <Input
+            id="audit-since"
             type="datetime-local"
             value={since}
             onChange={(e) => setSince(e.target.value)}
-            aria-label="since"
             // Every timestamp on this screen reads in the viewer's zone, so the filter takes one too.
             title={t.audit.sinceHint}
+            className="w-auto"
           />
-        </label>
-        <select
-          value={action}
-          onChange={(e) => setAction(e.target.value)}
-          aria-label="action"
+        </Label>
+        <Select
+          value={action || ANY}
+          onValueChange={(v) => setAction(v === ANY ? "" : v)}
         >
-          <option value="">{t.audit.allActions}</option>
-          {actions.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-        <select
-          value={actor}
-          onChange={(e) => setActor(e.target.value)}
-          aria-label="actor"
+          <SelectTrigger aria-label="action">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>{t.audit.allActions}</SelectItem>
+            {actions.map((a) => (
+              <SelectItem key={a} value={a}>
+                {a}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={actor || ANY}
+          onValueChange={(v) => setActor(v === ANY ? "" : v)}
         >
-          <option value="">{t.audit.allActors}</option>
-          {actors.map(([id, label]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger aria-label="actor">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>{t.audit.allActors}</SelectItem>
+            {actors.map(([id, label]) => (
+              <SelectItem key={id} value={id}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <span className="muted">
           {t.audit.shown(rows.length, loaded.length)}
         </span>

@@ -3,6 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
@@ -84,20 +86,19 @@ function InjectBody() {
           run({});
         }}
       >
-        <input
+        <Input
           placeholder={t.inject.queryPlaceholder}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           aria-label="query"
-          style={{ minWidth: 260 }}
+          className="w-auto min-w-65"
         />
-        <input
+        <Input
           placeholder={t.inject.scopePlaceholder}
           value={draftScope}
           onChange={(e) => setDraftScope(e.target.value)}
           aria-label="scope"
-          className="mono"
-          style={{ minWidth: 220 }}
+          className="mono w-auto min-w-55"
         />
         <Button type="submit">{t.inject.run}</Button>
         <label style={{ display: "flex", gap: 5, alignItems: "center" }}>
@@ -108,16 +109,20 @@ function InjectBody() {
           />
           {t.inject.includeDraft}
         </label>
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <Label
+          htmlFor="inject-as-of"
+          className="gap-1.5 text-[inherit] font-[inherit]"
+        >
           {t.inject.asOf}
-          <input
+          <Input
+            id="inject-as-of"
             type="datetime-local"
             value={asOfLocal}
             onChange={(e) => run({ asOf: e.target.value })}
-            aria-label="asOf"
             title={t.inject.asOfHint}
+            className="w-auto"
           />
-        </label>
+        </Label>
         {asOfLocal && (
           <Button
             type="button"
