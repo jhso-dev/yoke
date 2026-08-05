@@ -1,0 +1,21 @@
+web/app/collaboration/page.tsx
+  h_9aabb7d8448c0a 255-272
+web/app/entity/page.tsx
+  h_9aabb7d8448c0a 160-163,165-168
+web/app/globals.css
+  h_9aabb7d8448c0a 474-477
+web/app/graph/page.tsx
+  h_9aabb7d8448c0a 117-123
+web/app/persona/page.tsx
+  h_9aabb7d8448c0a 161-178
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "d1c18a118774312608df2ca4da47ade19c1e7455",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
