@@ -1,0 +1,93 @@
+docs/SPEC.md
+  8ecaf4f60771d7f1 248-272,334,337-348
+src/core/rank.ts
+  8ecaf4f60771d7f1 29-58
+src/adapters/storage-sqlite/index.ts
+  8ecaf4f60771d7f1 383-392,394-396
+src/adapters/storage-kuzu/index.ts
+  8ecaf4f60771d7f1 11,226-229,232-234
+src/adapters/storage-qdrant/index.ts
+  8ecaf4f60771d7f1 18,363-365
+src/adapters/storage-neo4j/index.ts
+  8ecaf4f60771d7f1 26,109-113,127-128
+src/adapters/storage-opensearch/index.ts
+  8ecaf4f60771d7f1 47,522-531,549-551
+src/ports/conformance-cases.ts
+  8ecaf4f60771d7f1 195-220
+src/ports/conformance.self.test.ts
+  8ecaf4f60771d7f1 69-72,77-79
+docs/ROADMAP.md
+  8ecaf4f60771d7f1 332-356
+src/core/inject.test.ts
+  8ecaf4f60771d7f1 581-605
+docs/RESEARCH.md
+  8ecaf4f60771d7f1 251-252,264-302
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "8db26a10bc2a29dde2c3d560ceb0385c4093518e",
+  "prompts": {
+    "8ecaf4f60771d7f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6be58b6e-c23c-416f-bf9c-06f007cfd72a",
+        "model": "claude-opus-5"
+      },
+      "skills": [
+        {
+          "id": "compact",
+          "ts": "2026-07-31T03:55:01.200Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:40.704Z"
+        },
+        {
+          "id": "model",
+          "ts": "2026-07-31T06:27:46.790Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-03T05:31:28.931Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-03T13:59:21.596Z"
+        },
+        {
+          "id": "goal",
+          "ts": "2026-08-04T10:05:00.761Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-04T13:02:42.781Z"
+        },
+        {
+          "id": "compact",
+          "ts": "2026-08-05T01:39:33.201Z"
+        }
+      ],
+      "tool_counts": {
+        "Bash": 1132,
+        "Edit": 251,
+        "Write": 50,
+        "Read": 133,
+        "SendUserFile": 9,
+        "AskUserQuestion": 10,
+        "ToolSearch": 8,
+        "WebSearch": 14,
+        "WebFetch": 6,
+        "EnterPlanMode": 2,
+        "ExitPlanMode": 5,
+        "mcp__openviking__health": 1,
+        "mcp__openviking__search": 1,
+        "TaskCreate": 12,
+        "TaskUpdate": 23,
+        "Agent": 10
+      },
+      "total_additions": 321,
+      "total_deletions": 0,
+      "overriden_lines": 0
+    }
+  }
+}
