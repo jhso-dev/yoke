@@ -1,0 +1,21 @@
+web/app/globals.css
+  h_9aabb7d8448c0a 459-461
+web/app/graph/page.tsx
+  h_9aabb7d8448c0a 6,125,137
+web/components/StatusBadge.tsx
+  h_9aabb7d8448c0a 3,7-11,15,18
+web/components/ui/badge.tsx
+  h_9aabb7d8448c0a 7-16,18,31-44
+web/lib/status.ts
+  h_9aabb7d8448c0a 11-13
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "ceba826b18b9d3e802112f3c3f247d619a7ed1f8",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
