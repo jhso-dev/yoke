@@ -456,43 +456,9 @@ td.num {
   text-align: center;
 }
 
-/* --- status pill: colour AND label AND glyph --- */
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-.pill[data-tone="draft"] {
-  color: var(--tone-draft);
-  background: var(--tone-draft-bg);
-  border-style: dashed;
-  border-color: var(--tone-draft);
-}
-.pill[data-tone="verified"] {
-  color: var(--tone-verified);
-  background: var(--tone-verified-bg);
-}
-.pill[data-tone="stale"] {
-  color: var(--tone-stale);
-  background: var(--tone-stale-bg);
-  font-style: italic;
-}
-.pill[data-tone="deprecated"] {
-  color: var(--tone-deprecated);
-  background: var(--tone-deprecated-bg);
-  text-decoration: line-through;
-}
-.pill[data-tone="unknown"] {
-  color: var(--tone-unknown);
-  background: var(--tone-unknown-bg);
-}
+/* The status pill moved into components/ui/badge.tsx as its `tone` variants — same box, same
+   colours, same non-colour signals (draft dashed, stale italic, deprecated struck through). The
+   `--tone-*` tokens it reads still live in theme.css. */
 
 /* --- controls --- */
 

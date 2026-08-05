@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -121,7 +122,7 @@ function GraphBody() {
           {t.graph.counts(graph?.nodes.length ?? 0, graph?.links.length ?? 0)}
         </span>
         {types.map((t) => (
-          <span key={t} className="pill" style={{ background: "transparent" }}>
+          <Badge key={t} variant="plain">
             <span
               aria-hidden="true"
               style={{
@@ -133,7 +134,7 @@ function GraphBody() {
               }}
             />
             {t}
-          </span>
+          </Badge>
         ))}
         {/* Without this the two edge marks are decoration. The direction is the point: knowledge and
             people point AT the work, which is why an anchor gathers knowledge instead of holding it. */}
