@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CopyCode } from "../../components/CopyCode";
@@ -71,7 +72,7 @@ export default function Login() {
         </Button>
       </form>
       <ErrorBanner error={error} />
-      <div className="banner" data-kind="info">
+      <Alert variant="info">
         {t.login.noTokenBefore}
         <br />
         <CopyCode value="yoke token create --name alex --scopes read" />
@@ -79,7 +80,7 @@ export default function Login() {
         {t.login.addPrefix}
         <CopyCode value="yoke token create --name alex --scopes read,verify" />
         {t.login.noTokenAfter}
-      </div>
+      </Alert>
     </div>
   );
 }

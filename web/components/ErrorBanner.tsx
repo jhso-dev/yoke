@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert } from "@/components/ui/alert";
 import { ApiError } from "../lib/api";
 import { useT } from "../lib/i18n";
 
@@ -8,16 +9,12 @@ import { useT } from "../lib/i18n";
 export function ErrorBanner({ error }: { error: unknown }) {
   const t = useT();
   if (!error) return null;
-  let kind = "error";
+  let kind: "error" | "warn" = "error";
   let text = error instanceof Error ? error.message : String(error);
   if (error instanceof ApiError && error.forbidden) {
     kind = "warn";
     text = `${text} — ${t.errors.forbiddenHint}`;
   }
   if (error instanceof ApiError && error.status === 409) kind = "warn";
-  return (
-    <div className="banner" data-kind={kind} role="alert">
-      {text}
-    </div>
-  );
+  return <Alert variant={kind}>{text}</Alert>;
 }

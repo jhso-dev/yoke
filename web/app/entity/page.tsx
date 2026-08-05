@@ -120,21 +120,15 @@ function EntityBody() {
         <StatusBadge status={d.entity.effectiveStatus} />{" "}
         {/* This record's own id, shortened like every other id a person reads. Click to copy the
             whole thing — a ULID is for machines and for pasting into a command, not for reading. */}
-        <button
-          type="button"
-          className="mono muted"
+        <Button
+          variant="ghost"
+          size="text"
+          className="mono muted cursor-copy"
           title={`${d.entity.id}\n\n${t.entity.copyId}`}
-          style={{
-            border: "none",
-            background: "none",
-            padding: 0,
-            cursor: "copy",
-            font: "inherit",
-          }}
           onClick={() => copyText(d.entity.id, t.common.copied)}
         >
           {shortId(d.entity.id)}
-        </button>
+        </Button>
       </p>
       <ErrorBanner error={actionError} />
 

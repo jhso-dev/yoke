@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -58,14 +59,14 @@ export function KnowledgeTable({
             <TableRow>
               {select && (
                 <TableHead>
-                  <input
-                    type="checkbox"
-                    checked={head.checked}
-                    // A DOM property with no attribute form, so it is set on the node itself.
-                    ref={(el) => {
-                      if (el) el.indeterminate = head.indeterminate;
-                    }}
-                    onChange={() => {
+                  <Checkbox
+                    // "Some of these are selected" is a VALUE here, not a DOM property poked into the
+                    // node by a ref after render — which is what a native checkbox forced, since
+                    // `indeterminate` has no attribute form.
+                    checked={
+                      head.indeterminate ? "indeterminate" : head.checked
+                    }
+                    onCheckedChange={() => {
                       const next = head.checked
                         ? visible
                         : visible.filter((r) => !select.chosen.has(r.id));
@@ -88,10 +89,9 @@ export function KnowledgeTable({
               <TableRow key={r.id}>
                 {select && (
                   <TableCell>
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={select.chosen.has(r.id)}
-                      onChange={() => select.toggle(r.id)}
+                      onCheckedChange={() => select.toggle(r.id)}
                       aria-label={`select ${r.id}`}
                     />
                   </TableCell>

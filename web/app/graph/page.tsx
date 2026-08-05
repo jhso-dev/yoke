@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -106,11 +107,7 @@ function GraphBody() {
       <h1>{t.graph.heading}</h1>
       <p className="lede">{anchor ? t.graph.ledeAnchored : t.graph.lede}</p>
       <ErrorBanner error={error} />
-      {notice && (
-        <div className="banner" data-kind="warn">
-          {notice}
-        </div>
-      )}
+      {notice && <Alert variant="warn">{notice}</Alert>}
 
       <div className="controls">
         {anchor && (

@@ -11,6 +11,19 @@ const alertVariants = cva(
         default: "bg-card text-card-foreground",
         destructive:
           "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 [&>svg]:text-current",
+        // The page-level notice — what `.banner` was. A tighter box than `default` on purpose: these
+        // are one sentence above a table, whereas `default` is an inline result panel with a title.
+        // The three kinds reuse the lifecycle tones so a warning on any screen is the colour a draft
+        // record already is.
+        //
+        // `block` is not cosmetic. The base is a two-column GRID sized for an icon and an
+        // AlertTitle/AlertDescription pair, and a notice whose child is a plain sentence turns every
+        // WORD into a grid item — one word per line, measured. These carry text, so they lay out as
+        // text.
+        error:
+          "mb-3 block rounded-[var(--radius)] border-[var(--tone-deprecated)] bg-[var(--tone-deprecated-bg)] px-3 py-[9px] text-[13px] text-[var(--tone-deprecated)]",
+        warn: "mb-3 block rounded-[var(--radius)] border-[var(--tone-draft)] bg-[var(--tone-draft-bg)] px-3 py-[9px] text-[13px] text-[var(--tone-draft)]",
+        info: "mb-3 block rounded-[var(--radius)] border-border bg-secondary px-3 py-[9px] text-[13px]",
       },
     },
     defaultVariants: {

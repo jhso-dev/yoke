@@ -3,6 +3,7 @@
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -170,9 +171,7 @@ function BrowseBody() {
       {/* Never a silent cap. The listing says "more available" through its cursor; search has no
           cursor, so the cap has to be said in words. */}
       {found?.truncated && (
-        <div className="banner" data-kind="warn">
-          {t.browse.searchTruncated(found.limit)}
-        </div>
+        <Alert variant="warn">{t.browse.searchTruncated(found.limit)}</Alert>
       )}
       <div className="panel">
         {page.loading ? (

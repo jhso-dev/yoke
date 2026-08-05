@@ -2,7 +2,9 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CopyCode } from "../../components/CopyCode";
@@ -101,14 +103,17 @@ function InjectBody() {
           className="mono w-auto min-w-55"
         />
         <Button type="submit">{t.inject.run}</Button>
-        <label style={{ display: "flex", gap: 5, alignItems: "center" }}>
-          <input
-            type="checkbox"
+        <Label
+          htmlFor="inject-include-draft"
+          className="gap-1.5 text-[inherit] font-[inherit]"
+        >
+          <Checkbox
+            id="inject-include-draft"
             checked={includeDraft}
-            onChange={(e) => run({ draft: e.target.checked })}
+            onCheckedChange={(v) => run({ draft: v === true })}
           />
           {t.inject.includeDraft}
-        </label>
+        </Label>
         <Label
           htmlFor="inject-as-of"
           className="gap-1.5 text-[inherit] font-[inherit]"
@@ -145,19 +150,17 @@ function InjectBody() {
       ) : (
         <>
           {includeDraft && (
-            <div className="banner" data-kind="warn">
-              {t.inject.draftsIncluded}
-            </div>
+            <Alert variant="warn">{t.inject.draftsIncluded}</Alert>
           )}
           {/* Flagged from the SERVER's echo, not from the local field: if the two ever disagree, what
               matters is which clock actually produced these rows. A historical result that read as a
               current one would be worse than not offering the view at all. */}
           {result.data?.asOf && (
-            <div className="banner" data-kind="warn">
+            <Alert variant="warn">
               {t.inject.asOfActive(localTime(result.data.asOf))}
               <br />
               <span className="muted">{t.inject.asOfCeiling}</span>
-            </div>
+            </Alert>
           )}
           <div className="panel">
             <div className="panel-head">
@@ -172,12 +175,12 @@ function InjectBody() {
             {/* A preview that silently showed 50 of 312 would misrepresent what an agent receives —
                 which is this screen's whole job. */}
             {(result.data?.omitted ?? 0) > 0 && (
-              <div className="banner" data-kind="warn">
+              <Alert variant="warn">
                 {t.inject.truncated(
                   items.length,
                   items.length + (result.data?.omitted ?? 0),
                 )}
-              </div>
+              </Alert>
             )}
             <KnowledgeTable rows={items} empty={t.inject.empty} paginate />
           </div>

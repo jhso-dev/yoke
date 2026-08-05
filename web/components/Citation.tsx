@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { type Cited, citationLabel } from "../lib/citation";
 import { copyText } from "../lib/clipboard";
 import { useT } from "../lib/i18n";
@@ -20,22 +21,15 @@ export function Citation({ row }: { row: Cited }) {
   const t = useT();
   return (
     <span className="cite">
-      <button
-        type="button"
-        className="cite"
+      <Button
+        variant="ghost"
+        size="text"
+        className="cite cursor-copy"
         title={`${row.citation}\n\n${t.common.copyFull}`}
-        style={{
-          border: "none",
-          background: "none",
-          padding: 0,
-          cursor: "copy",
-          font: "inherit",
-          color: "inherit",
-        }}
         onClick={() => copyText(row.citation, t.common.copied)}
       >
         {citationLabel(row)}
-      </button>
+      </Button>
     </span>
   );
 }

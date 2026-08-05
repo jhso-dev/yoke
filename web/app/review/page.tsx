@@ -2,7 +2,9 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Actor } from "../../components/Actor";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
@@ -110,23 +112,28 @@ function ReviewBody() {
       <ErrorBanner error={drafts.error ?? stale.error ?? actionError} />
       <div className="controls">
         {/* Radios, not buttons: this is one choice between two states, and a radio group is what a
-            screen reader announces as such without any aria bookkeeping. */}
-        <div className="segmented" role="radiogroup" aria-label={t.nav.review}>
+            screen reader announces as such without any aria bookkeeping. Radix supplies the roles and
+            the arrow-key handling, so the native inputs that used to be hidden off-screen behind
+            styled labels are gone — the segments ARE the options now. */}
+        <RadioGroup
+          value={tab}
+          onValueChange={(v) => switchTo(v as "drafts" | "stale")}
+          aria-label={t.nav.review}
+          className="inline-flex gap-0 overflow-hidden rounded-[var(--radius)] border border-border"
+        >
           {(["drafts", "stale"] as const).map((k) => (
-            <label key={k} data-active={tab === k ? "" : undefined}>
-              <input
-                type="radio"
-                name="review-queue"
-                checked={tab === k}
-                onChange={() => switchTo(k)}
-              />
+            <RadioGroupItem
+              key={k}
+              value={k}
+              className="inline-flex aspect-auto size-auto items-center gap-1.5 rounded-none border-0 border-l border-border bg-background px-2.5 py-0 h-7 text-[13px] text-muted-foreground shadow-none first:border-l-0 focus-visible:ring-0 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring data-[state=checked]:bg-secondary data-[state=checked]:font-medium data-[state=checked]:text-foreground dark:bg-background"
+            >
               {k === "drafts" ? t.review.tabDrafts : t.review.tabStale}
               <span className="muted">
                 {k === "drafts" ? (drafts.data?.length ?? 0) : staleRows.length}
               </span>
-            </label>
+            </RadioGroupItem>
           ))}
-        </div>
+        </RadioGroup>
         {/* Same act, different word — and the vocabulary already existed: the entity detail screen has
             relabelled this "Re-confirm" for a stale record since it shipped. Calling it Verify in the
             aged-out queue would say "promote this" about a record that was already promoted. */}
@@ -155,9 +162,7 @@ function ReviewBody() {
       </div>
       {/* The walk is bounded, so an unfinished scan is said in words rather than implied by a count. */}
       {tab === "stale" && stale.data?.next && (
-        <div className="banner" data-kind="warn">
-          {t.review.staleMore}
-        </div>
+        <Alert variant="warn">{t.review.staleMore}</Alert>
       )}
       {tab === "stale" && owners.length > 0 && (
         <div className="panel" style={{ padding: "10px 14px" }}>

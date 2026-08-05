@@ -4,6 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -356,14 +357,14 @@ function CollaborationBody() {
             {/* The cap is honest only if it says where the rest is — the same sentence the agent
                 gets from yoke_inject, so the screen and the tool cannot disagree. */}
             {(briefing.data?.omitted ?? 0) > 0 && (
-              <div className="banner" data-kind="warn">
+              <Alert variant="warn">
                 {t.collaboration.truncated(
                   briefing.data?.items.length ?? 0,
                   (briefing.data?.items.length ?? 0) +
                     (briefing.data?.omitted ?? 0),
                   briefing.data?.omitted ?? 0,
                 )}
-              </div>
+              </Alert>
             )}
             <KnowledgeTable
               rows={briefing.data?.items ?? []}
