@@ -1,0 +1,23 @@
+web/app/audit/page.tsx
+  h_9aabb7d8448c0a 5-13,35-39,163-166,168-169,175,177-180,182-196,198-209
+web/app/browse/page.tsx
+  h_9aabb7d8448c0a 7-14,23-27,104-106,108-124,126-135,143,149
+web/app/globals.css
+  h_9aabb7d8448c0a 656-659,719-721
+web/app/inject/page.tsx
+  h_9aabb7d8448c0a 6-7,89,94,96,101,112-115,117-118,123,125
+web/app/login/page.tsx
+  h_9aabb7d8448c0a 6,58,66-67
+web/app/persona/page.tsx
+  h_9aabb7d8448c0a 9,149,154
+---
+{
+  "schema_version": "zax-attestation/1.2.0",
+  "base_commit_sha": "2839332741ae40d207c1b1181a43bd937c503709",
+  "prompts": {},
+  "humans": {
+    "h_9aabb7d8448c0a": {
+      "author": "jhso@zigbang.com"
+    }
+  }
+}
