@@ -165,8 +165,8 @@ port capabilities, etc. See SPEC).
       bundle, still served by the existing node:http server on one port
 - [ ] Install UX holds: `npm ci` size and wall time measured before and after, and a
       failed web build still leaves a working CLI
-      (code done — install.sh degrades gracefully; the before/after measurement on a
-      clean machine is on the human-verification list below)
+      (code done — install.sh degrades gracefully. The measurement is one item, tracked once, on the
+      human-verification list below — it was written down twice here and read as two tasks)
 - [x] Regression closed: a check that *executes* the shipped client bundle, not one
       that greps the HTML for markers (see the v2.5 note)
 - [x] Scale: injection stays correct and bounded at 10M records. Five defects, all measured
@@ -249,7 +249,10 @@ boxes above are checked for what automation proves, not for this:
       id order are rarely connected. Correct per its contract, useless to look at. The anchored view is
       the one that works at scale, and it is now the cheap one
 - [ ] `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
-      after, and a forced web-build failure still leaving a working CLI
+      after, and a forced web-build failure still leaving a working CLI.
+      **This is the same measurement as the v2.5 "Install UX holds" box** — one job, and the v2.5 entry
+      points here rather than restating it. Needs a machine without this repo's node_modules, so it
+      cannot be closed from inside the repo it measures
 
 What automation does prove today: every route and endpoint answers against a real
 server, the shipped bundle's scripts parse, all ten screens exist as exported pages,
@@ -291,8 +294,11 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
       to "how often does RRF degenerate": on every question-shaped query in the set
 - [ ] **Multi-hop traversal** (`inject` walks exactly one relation hop) and **global aggregation** —
       both gated on the trail above, not on appetite
-- [ ] **Identity resolution across connector sources** — the same person arriving from Slack, GitHub
-      and an RDB mapping is three `person` records today
+- [x] **Identity resolution across sources** — done in v5.6 below. Note the premise was wrong in a way
+      worth keeping: Slack and GitHub store the author as an attribute string and mint no `person` at
+      all, so it was never "three records" — it was one plus two opaque strings. `same_as` resolves the
+      duplicate-record half (two RDB mappings, a mapped person beside a hand-filed one); minting a
+      person for an unrecognised handle is a policy this repo still does not have, and refuses to invent
 
 ## v5.5 — the read paths stop paying per row
 
@@ -349,6 +355,23 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
       rank 1. Found by the gold set scoring both columns on every run, not by a report. Swept rather
       than chosen, and the top is a plateau; at 0.1 the hybrid path ends up **above** where v5.5 left
       it (recall 87.2 → 88.4%, nDCG 74.3 → 76.1%) with the keyword-shaped cohort untouched at 100%
+
+- [x] **A lookup is not a question** — clause 8 charged the connector idempotency probe 8x. It searches
+      for one exact `external_id` (a GitHub comment URL is ten tokens) and then filters for it exactly,
+      so the disjunction made it score every record sharing the word "github": **34 ms and 0 rows → 292
+      ms and 1,000 rows**, per ingested item, at 1M entities. Correctness held, which is what would have
+      kept it quiet. `TextQuery.terms: "all"` restores the conjunction for callers that are looking
+      something up, and the probe drops to **3 ms**. Not fixed with a heuristic in the caller: probing
+      by "the id's most distinctive tokens" drops the discriminator (`file:notes/2026-07-01.md#3` loses
+      the `#3`) and a probe that silently misses re-ingests the record
+- [x] **One person, several records** (`same_as`) — two source systems describing the same colleague
+      produced two `person` records and nothing said they were one, so a persona built from either was
+      half that person's judgment presented as all of it. The link is knowledge, not config: an ordinary
+      `yoke link <alias> same_as <canonical>` through the gate, versioned and reversible, needing no new
+      command. Followed both ways and transitively (a direction that changed the answer would mean two
+      accounts of one person), namespace-filtered before following, and marked `membership` so a
+      briefing never hands an agent the person's *other record* as a finding. No fuzzy matching, for the
+      reason `github-pr` already refused to guess a login → person mapping
 
 What made the disjunction safe was that ranking arrived first, in v5.1. While `search` returned
 storage order, the AND was the port's only precision and loosening it would have handed an agent the

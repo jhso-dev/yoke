@@ -114,5 +114,13 @@ export function seedOntology(): TypeDef[] {
     // Links a person to a collaboration they participate in (v4.0). Membership, not knowledge: the
     // roster belongs on the collaboration screen, not in the briefing an agent is handed.
     { name: "works_on", kind: "relation", attrs: {}, membership: true },
+    // Two records, one person (v5.6). Directed alias -> canonical for readability only: the resolver
+    // follows it both ways, since a direction that changed the answer would mean asking about the alias
+    // and asking about the canonical record gave two different accounts of one person.
+    //
+    // `membership: true` for the same reason `works_on` carries it, and it is the flag's behaviour
+    // rather than its name that applies: this edge is not knowledge. Without it, a briefing anchored on
+    // a person would hand an agent the person's OTHER record as a finding.
+    { name: "same_as", kind: "relation", attrs: {}, membership: true },
   ];
 }

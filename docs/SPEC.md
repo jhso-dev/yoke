@@ -32,7 +32,7 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 ## Default ontology (seed)
 
 - entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`, `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). It declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature
-- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → collaboration, v4.0)
+- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → collaboration, v4.0), `same_as` (person → person, v5.6 — see "Identity across sources")
 - **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
 - **Bootstrap**: `yoke init` seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself). All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
@@ -282,6 +282,50 @@ filter is the caller's and still runs after, so front adapters over-fetch — se
 Every implementation must pass the shared `ports/conformance/` test suite.
 v1 implementation: `storage-sqlite` (better-sqlite3 + FTS5 + sqlite-vec).
 v5.0 implementations that must pass: sqlite, kuzu, qdrant, sharded.
+
+## Identity across sources (v5.6)
+
+Two source systems describing the same colleague produce two `person` records, and nothing in the store
+says they are one person. An RDB read-mapping over `employees` beside a second over `contractors` is the
+case that occurs; a hand-filed person beside a mapped one is the other. The cost lands on the persona,
+which is *knowledge sourced from a specific person* — a duplicate record splits that judgment in half
+and the missing half is indistinguishable from knowledge the person never recorded.
+
+- **The link is knowledge, not configuration.** A `same_as` relation, filed through the ordinary gate
+  (`yoke link <alias> same_as <canonical>`), so it is versioned, attributable, reviewable and
+  reversible exactly like the claims around it. No new command and no config file: an identity claim is
+  a claim, and it belongs where the others are.
+- **Direction is for the reader; resolution follows both ways and transitively.** `identitySet(id)`
+  returns every record that is the same person, breadth-first from the query with each frontier sorted.
+  A resolver that honoured the arrow would answer one thing asked about the alias and another asked
+  about the canonical record, which is two accounts of one person. Cycles and diamonds are expected
+  input; the visited set is what makes them safe.
+- **Namespace-filtered before following.** `neighbors` takes no `ns`, so a link filed by one tenant
+  would otherwise reach another tenant's person. Same hole, same place, same fix as the vector half of
+  hybrid retrieval.
+- **`same_as` is marked `membership: true`.** It is the flag's behaviour rather than its name that
+  applies: this edge is not knowledge, so a briefing anchored on a person must not hand an agent that
+  person's *other record* as a finding.
+- **Persona is the consumer.** `personaQuery` anchors on each record in the set and unions the results,
+  deduplicated by entity id.
+- **No fuzzy matching, ever.** Nothing infers identity from a similar name, a shared email domain or an
+  embedding distance. A wrong merge attributes one person's judgment to another under their name, it is
+  invisible in the output, and no reader of a persona is positioned to catch it. This is the same rule
+  that keeps `github-pr` from minting a person for a GitHub login, and for the same reason.
+
+**What this deliberately does not do**, both stated because the roadmap item implied them:
+
+- **Connector handles are not persons.** A Slack `author` and a GitHub login are stored as attribute
+  strings, not `person` records — so the pre-v5.6 situation was not "three records", it was one plus
+  two opaque strings. Minting a person per unrecognised handle would fill the store with junk-drawer
+  people; deciding when a handle deserves one is a policy this document does not yet have, and
+  `same_as` is the mechanism that policy would resolve *through* once it exists.
+- **No canonical record is elected.** Nothing rewrites an alias's name to the canonical one on a
+  screen, because an alias's own `name` is also a true name for that person. *ponytail: add election
+  (no outgoing `same_as`, ties by lowest id) when a surface actually shows one person twice.*
+
+**Migration.** `same_as` is a seed type, and the seed applies to new databases only. An existing
+database gains it through the documented path, `yoke ontology add-type`, like every other seed change.
 
 ## Commit gate (the single write path)
 
