@@ -216,6 +216,22 @@ export const conformanceCases: ConformanceCase[] = [
       );
       // And the strict half is unchanged at the boundary: three tokens still require all three.
       eq(await port.search({ text: "quokka ferry hovercraft" }), []);
+      // `terms: "all"` opts back into the conjunction at any length. The connector idempotency probe
+      // needs it — a lookup for one known id has nothing to gain from recall and pays 8x for it.
+      eq(
+        await port.search({
+          text: "quokka ferry hovercraft submarine",
+          terms: "all",
+        }),
+        [],
+      );
+      eq(
+        await port.search({
+          text: "quokka ferry schedule winter",
+          terms: "all",
+        }),
+        [e],
+      );
     },
   },
   {

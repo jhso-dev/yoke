@@ -362,7 +362,7 @@ export class QdrantStorage implements StoragePort {
     const wantNs = normalizeNs(q.ns);
     // AND up to AND_TERM_LIMIT terms, OR beyond it (SPEC search clause 8), shared with kuzu so the
     // two client-side matchers cannot answer the same query differently.
-    const matched = rows.filter((r) => matchesTokens(qTokens, r.txt));
+    const matched = rows.filter((r) => matchesTokens(qTokens, r.txt, q.terms));
     const filtered = matched.filter(
       (r) =>
         // null-normalized ns so the default ns sees only default rows (10.1 isolation).

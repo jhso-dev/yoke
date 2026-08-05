@@ -7,9 +7,18 @@ import type { TypeDef } from "../core/ontology.js";
 import type { StoragePort } from "../ports/storage.js";
 import type { Connector } from "./types.js";
 
-/** Check whether an entity with this external_id exists. Fetch candidates via FTS, then match exactly (excludes false positives). */
+/**
+ * Check whether an entity with this external_id exists. Fetch candidates via FTS, then match exactly
+ * (excludes false positives).
+ *
+ * `terms: "all"` because this is a lookup, not a question. An external id is many tokens
+ * (`https://github.com/acme/widgets/pull/12#discussion_r998877` is ten), and SPEC search clause 8
+ * makes a long query a disjunction — which for a probe means scoring every record that shares the
+ * word "github" and materializing a thousand of them to find the one row already known by name.
+ * Measured at 1M entities: 292 ms and 1,000 rows per ingested item, against 34 ms and 0.
+ */
 async function exists(port: StoragePort, externalId: string): Promise<boolean> {
-  const hits = await port.search({ text: externalId });
+  const hits = await port.search({ text: externalId, terms: "all" });
   return hits.some((e) => e.attributes.external_id === externalId);
 }
 

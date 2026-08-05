@@ -32,6 +32,21 @@ export interface TextQuery {
    * namespace; a value scopes results to that namespace only. Point reads (getEntity)
    * stay id-based — ids are globally unique ULIDs, so no ns check is needed there. */
   ns?: string | null;
+  /**
+   * How multi-term queries combine (SPEC search clause 8). Default `"auto"`: every term up to
+   * `AND_TERM_LIMIT`, any term beyond it. `"all"` requires every term at any length.
+   *
+   * Exists for callers that are performing a LOOKUP rather than asking a question — the connector
+   * idempotency probe searches for one exact `external_id` and then filters for it exactly, so
+   * recall past that one row is pure cost. Measured at 1M entities, a GitHub comment URL as an
+   * `"auto"` query: 292 ms and 1,000 materialized rows, against 34 ms and 0 under `"all"`.
+   *
+   * Deliberately not solved by a heuristic in the caller. Probing with "the id's most distinctive
+   * tokens" drops the discriminator often enough to matter (`file:notes/2026-07-01.md#3` loses the
+   * `#3`), and a lookup that silently misses re-ingests the record — the exact failure the probe
+   * exists to prevent. Two callers want two semantics, so the query says which.
+   */
+  terms?: "auto" | "all";
 }
 
 /**

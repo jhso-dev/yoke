@@ -47,13 +47,26 @@ export const AND_TERM_LIMIT = 3;
  * reasoning) had this predicate inlined identically. One copy, because two copies of a matching rule
  * is two search semantics — which is exactly how the AND survived unnoticed in five places.
  */
-export function matchesTokens(qTokens: string[], docText: string): boolean {
+export function matchesTokens(
+  qTokens: string[],
+  docText: string,
+  terms: "auto" | "all" = "auto",
+): boolean {
   if (qTokens.length === 0) return false;
   const docTokens = tokenize(docText);
   const hit = (qt: string) => docTokens.some((dt) => dt.startsWith(qt));
-  return qTokens.length <= AND_TERM_LIMIT
+  return requireEveryTerm(qTokens.length, terms)
     ? qTokens.every(hit)
     : qTokens.some(hit);
+}
+
+/** The clause-8 decision itself, so the three adapters that build a native query expression read it
+ * from the same place as the two that match in JS. */
+export function requireEveryTerm(
+  tokenCount: number,
+  terms: "auto" | "all" = "auto",
+): boolean {
+  return terms === "all" || tokenCount <= AND_TERM_LIMIT;
 }
 
 /** BM25's usual constants: k1 bounds how much repetition helps, b how much length is penalised. */

@@ -23,7 +23,7 @@ import neo4j, { type Driver, type Session } from "neo4j-driver-lite";
 import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { AND_TERM_LIMIT, tokenize } from "../../core/rank.js";
+import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
@@ -121,10 +121,10 @@ const LUCENE_SPECIAL = /([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g;
  * Returns null when the query has no usable tokens, which the caller turns into an empty result rather
  * than a Lucene syntax error.
  */
-function luceneQuery(text: string): string | null {
+function luceneQuery(text: string, terms?: "auto" | "all"): string | null {
   const tokens = tokenize(text).map((t) => t.replace(LUCENE_SPECIAL, "\\$1"));
   if (tokens.length === 0) return null;
-  const req = tokens.length <= AND_TERM_LIMIT ? "+" : "";
+  const req = requireEveryTerm(tokens.length, terms) ? "+" : "";
   return tokens.map((t) => `${req}${t}* ${t}`).join(" ");
 }
 
@@ -389,7 +389,7 @@ export class Neo4jStorage implements StoragePort {
    * return a stale version and no collapse pass is needed here.
    */
   async search(q: TextQuery): Promise<Entity[]> {
-    const lucene = luceneQuery(q.text);
+    const lucene = luceneQuery(q.text, q.terms);
     if (lucene === null) return [];
     const wantNs = normalizeNs(q.ns) ?? "";
     const statuses = Array.isArray(q.status)

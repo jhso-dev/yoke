@@ -75,7 +75,7 @@ function makeFake(): StoragePort {
       const textOf = (e: Entity) => `${e.type} ${JSON.stringify(e.attributes)}`;
       const wantNs = q.ns == null || q.ns === "" ? null : q.ns;
       let out = [...latestById().values()].filter((e) =>
-        matchesTokens(queryTokens, textOf(e)),
+        matchesTokens(queryTokens, textOf(e), q.terms),
       );
       // Namespace isolation (PLAN-V2 10.1): default ns sees only default-ns rows.
       out = out.filter((e) => (e.ns ?? null) === wantNs);

@@ -8,7 +8,7 @@ import * as sqliteVec from "sqlite-vec";
 import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { AND_TERM_LIMIT, tokenize } from "../../core/rank.js";
+import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
@@ -394,7 +394,7 @@ export class SqliteStorage implements StoragePort {
     if (tokens.length === 0) return [];
     const match = tokens
       .map((t) => `"${t.replace(/"/g, '""')}"*`)
-      .join(tokens.length <= AND_TERM_LIMIT ? " " : " OR ");
+      .join(requireEveryTerm(tokens.length, q.terms) ? " " : " OR ");
     const typeClause = q.type === undefined ? "" : " AND e.type = @type";
     // A list of statuses becomes IN (...) with positional binds, since named binds cannot hold an
     // array. Inlined as placeholders, never as values — the statuses are from a closed set, but

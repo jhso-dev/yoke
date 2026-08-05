@@ -268,6 +268,15 @@ filter is the caller's and still runs after, so front adapters over-fetch — se
    clause 6's filter-before-limit exists to prevent. *ponytail: fixed threshold, promote to a
    percentage rule if a measured corpus shows the top-k polluted by one-term matches.*
 
+   **`terms: "all"` opts back into the conjunction at any length**, for callers performing a lookup
+   rather than asking a question. The connector idempotency probe is the one in the tree: it searches
+   for a single known `external_id` and then filters for it exactly, so every row past that one is
+   cost. Measured at 1M entities, a GitHub comment URL (ten tokens) went from 34 ms and 0 rows under
+   the old AND to **292 ms and 1,000 materialized rows** under `"auto"`, per ingested item — and back
+   to **3 ms** under `"all"`. Not left to a heuristic in the caller, because probing with "the id's
+   most distinctive tokens" drops the discriminator (`file:notes/2026-07-01.md#3` loses the `#3`) and a
+   lookup that silently misses re-ingests the record, which is the one thing the probe prevents.
+
 `status`/`type`/`ns` filters, and the default bound, apply identically under either rule.
 
 Every implementation must pass the shared `ports/conformance/` test suite.

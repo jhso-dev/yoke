@@ -230,7 +230,7 @@ export class KuzuStorage implements StoragePort {
     const qTokens = tokenize(q.text);
     const wantNs = normalizeNs(q.ns);
     const matched = latestByVersion(all).filter((r) =>
-      matchesTokens(qTokens, r.txt),
+      matchesTokens(qTokens, r.txt, q.terms),
     );
     const filtered = matched.filter(
       (r) =>

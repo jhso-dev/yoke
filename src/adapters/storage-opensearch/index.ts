@@ -44,7 +44,7 @@
 import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { AND_TERM_LIMIT, tokenize } from "../../core/rank.js";
+import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
@@ -526,7 +526,7 @@ export class OpenSearchStorage implements StoragePort {
     // targets every OpenSearch distribution.
     const prefixes = tokens.map((t) => ({ prefix: { txt: { value: t } } }));
     const exact = tokens.map((t) => ({ match: { txt: t } }));
-    const loose = tokens.length > AND_TERM_LIMIT;
+    const loose = !requireEveryTerm(tokens.length, q.terms);
     const must = loose ? [] : prefixes;
     const should = loose ? [...prefixes, ...exact] : exact;
     const filter: unknown[] = [
