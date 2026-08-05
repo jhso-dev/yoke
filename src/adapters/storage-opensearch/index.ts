@@ -44,7 +44,7 @@
 import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { tokenize } from "../../core/rank.js";
+import { AND_TERM_LIMIT, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
@@ -519,8 +519,16 @@ export class OpenSearchStorage implements StoragePort {
     await this.ready(this.idx(ENTITIES));
     // Required prefix clauses match; optional exact clauses score. See policy 3 — prefix queries are
     // constant-score, so on their own they rank every hit identically.
-    const must = tokens.map((t) => ({ prefix: { txt: { value: t } } }));
-    const should = tokens.map((t) => ({ match: { txt: t } }));
+    //
+    // Past AND_TERM_LIMIT tokens the prefix clauses move into `should` and one of them is enough
+    // (SPEC search clause 8). `minimum_should_match` is set explicitly rather than left to the
+    // must-less default, because that default has moved between Lucene versions and this adapter
+    // targets every OpenSearch distribution.
+    const prefixes = tokens.map((t) => ({ prefix: { txt: { value: t } } }));
+    const exact = tokens.map((t) => ({ match: { txt: t } }));
+    const loose = tokens.length > AND_TERM_LIMIT;
+    const must = loose ? [] : prefixes;
+    const should = loose ? [...prefixes, ...exact] : exact;
     const filter: unknown[] = [
       { term: { latest: true } },
       { term: { ns: normalizeNs(q.ns) ?? "" } },
@@ -538,7 +546,9 @@ export class OpenSearchStorage implements StoragePort {
       `/${this.idx(ENTITIES)}/_search`,
       {
         size: q.limit ?? DEFAULT_SEARCH_LIMIT,
-        query: { bool: { must, should, filter } },
+        query: {
+          bool: { must, should, filter, minimum_should_match: loose ? 1 : 0 },
+        },
         // Score first, then id — the tiebreak is what makes every backend agree on a total order.
         sort: [{ _score: "desc" }, { id: "asc" }],
       },

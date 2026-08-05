@@ -329,9 +329,31 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
       response. Against live OpenSearch, depth 2 went **489 → 65** round trips and depth 3 became
       possible at all — the old shape's request storm failed the server before it answered
 
-Open next, and ahead of the older items below it: **a minimum-should-match rule for `search`.** The
-measurement above makes it the highest-value retrieval change available, and it is a change to a
-contract clause (conformance case 6c pins AND-of-terms on purpose), so SPEC comes first.
+## v5.6 — a question stops being an unsatisfiable conjunction
+
+- [x] **Long queries are a disjunction** (SPEC search clause 8) — `search` required every query term,
+      which is right for the two or three someone types into a wiki and wrong for a sentence. Past
+      three tokens a record now matches on any term and clause 6's ranking decides what the caller
+      sees. Over the gold set, on sqlite: recall@10 **15.2% → 58.5%**, nDCG **14.1% → 45.8%**,
+      accuracy@1 **13.6% → 37.9%**; the question-shaped cohort went from **0 of 91** relevant records
+      found to **41 of 91**. The keyword-shaped cohort did not pay for it — **90.9% → 95.5%**, because
+      a four-term keyword query was hitting the same wall. Confirmed on live OpenSearch: 58/109 found
+      on both engines, identical accuracy@1
+- [x] **The rule lives in one place** — five adapters and the in-memory fake had each inlined
+      `qTokens.every(...)`, so the semantics were six copies of a decision the contract stated once.
+      The new conformance case caught the sixth immediately: the fake kept passing the strict half
+      after every real adapter had moved on
+- [x] **The keyword half of RRF carries weight 0.1** — clause 8 improved every keyword-only number and
+      quietly cost the *hybrid* path **12 points of accuracy@1** (65.2% → 53.0%), because rank-based
+      fusion had no way to know that a disjunctive keyword list's rank 1 is worth less than a vector
+      rank 1. Found by the gold set scoring both columns on every run, not by a report. Swept rather
+      than chosen, and the top is a plateau; at 0.1 the hybrid path ends up **above** where v5.5 left
+      it (recall 87.2 → 88.4%, nDCG 74.3 → 76.1%) with the keyword-shaped cohort untouched at 100%
+
+What made the disjunction safe was that ranking arrived first, in v5.1. While `search` returned
+storage order, the AND was the port's only precision and loosening it would have handed an agent the
+oldest N records containing any one word. Two clauses in the same file, two releases apart, where the
+second retired the first's reason for existing.
 
 Left standing deliberately: **there is no batch form of `getEntity(id, version)`**, so `listVersions`'s
 fallback — and as-of injection through it — is still a loop. Versions are a dense 1..n and a governed

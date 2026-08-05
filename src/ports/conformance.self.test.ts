@@ -1,7 +1,7 @@
 // conformance suite self-check — verify the contract with an in-memory fake adapter.
 // The fake exists only as a test helper (inside a .test.ts, not production code under src).
 
-import { rankByRelevance, tokenize } from "../core/rank.js";
+import { matchesTokens, rankByRelevance, tokenize } from "../core/rank.js";
 import type { Entity, Relation } from "../core/types.js";
 import { describeStoragePort } from "./conformance.js";
 import {
@@ -66,19 +66,17 @@ function makeFake(): StoragePort {
     },
 
     async search(q: TextQuery) {
-      // AND-of-prefix-tokens — the port's search semantics (matches sqlite/kuzu/qdrant).
-      // Core's tokenizer, not a second copy: a fake with its own could satisfy cases the real
-      // adapters cannot, which would make this self-check worse than nothing.
+      // Core's matcher, not a second copy of the rule: a fake with its own semantics could satisfy
+      // cases the real adapters cannot, which would make this self-check worse than nothing. This
+      // fake DID have its own copy, and case 6e caught it — an inlined `every()` here kept passing
+      // the strict half while the five adapters had moved to clause 8.
       const queryTokens = tokenize(q.text);
       if (queryTokens.length === 0) return [];
       const textOf = (e: Entity) => `${e.type} ${JSON.stringify(e.attributes)}`;
       const wantNs = q.ns == null || q.ns === "" ? null : q.ns;
-      let out = [...latestById().values()].filter((e) => {
-        const textTokens = tokenize(textOf(e));
-        return queryTokens.every((qt) =>
-          textTokens.some((tt) => tt.startsWith(qt)),
-        );
-      });
+      let out = [...latestById().values()].filter((e) =>
+        matchesTokens(queryTokens, textOf(e)),
+      );
       // Namespace isolation (PLAN-V2 10.1): default ns sees only default-ns rows.
       out = out.filter((e) => (e.ns ?? null) === wantNs);
       if (q.type) out = out.filter((e) => e.type === q.type);

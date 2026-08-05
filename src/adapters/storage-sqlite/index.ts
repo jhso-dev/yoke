@@ -8,6 +8,7 @@ import * as sqliteVec from "sqlite-vec";
 import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
+import { AND_TERM_LIMIT, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
@@ -380,16 +381,20 @@ export class SqliteStorage implements StoragePort {
   }
 
   async search(q: TextQuery): Promise<Entity[]> {
-    // AND-of-prefix-tokens: every query term must appear (any order), each with
-    // prefix tolerance — so "Slack retry" finds "Slack connector retries", and a
-    // token carrying a trailing particle/suffix (common in agglutinative languages
-    // like Korean) is still found by its stem. Each token is quoted (special chars
-    // are safe) and starred. This also matches the kuzu/qdrant adapters' semantics —
-    // the original whole-query phrase match required consecutive terms, which made
-    // multi-word queries silently miss (found in live MCP verification).
-    const tokens = q.text.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    // Prefix-tolerant token match: a query term reaches any token it prefixes, so "Slack retry"
+    // finds "Slack connector retries" and a term carrying a trailing particle (common in
+    // agglutinative languages like Korean) is still found by its stem. Each token is quoted
+    // (special chars are safe) and starred.
+    //
+    // Up to AND_TERM_LIMIT tokens the terms are joined by implicit AND, which is FTS5's default and
+    // was the only rule until v5.6; beyond it they are joined by OR and clause 6's `ORDER BY rank`
+    // decides what the caller sees. See SPEC search clause 8 for what the AND was costing — a
+    // question-shaped query is a conjunction no record satisfies.
+    const tokens = tokenize(q.text);
     if (tokens.length === 0) return [];
-    const match = tokens.map((t) => `"${t.replace(/"/g, '""')}"*`).join(" ");
+    const match = tokens
+      .map((t) => `"${t.replace(/"/g, '""')}"*`)
+      .join(tokens.length <= AND_TERM_LIMIT ? " " : " OR ");
     const typeClause = q.type === undefined ? "" : " AND e.type = @type";
     // A list of statuses becomes IN (...) with positional binds, since named binds cannot hold an
     // array. Inlined as placeholders, never as values — the statuses are from a closed set, but

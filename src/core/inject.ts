@@ -82,16 +82,39 @@ const candidateQuery = (opts?: {
  * list's #1 cannot dominate the other's #1–#5 outright, which is what makes agreement between the two
  * halves the strongest signal.
  *
+ * `weight` is NOT part of published RRF and exists for one measured reason (v5.6). SPEC search clause
+ * 8 made a long query a disjunction, which turned the keyword half from "returns nothing" into
+ * "returns loosely-related records confidently ranked" — and equal-weight fusion then let a keyword
+ * rank-1 outrank a vector rank-1 the keyword list had never seen. Measured over eval/gold-set.json,
+ * that cost the configured-embedder path **12 points of accuracy@1** (65.2% -> 53.0%) while the
+ * keyword-only path was gaining 43. Weights are still applied to RANKS, so the objection above stands:
+ * no arithmetic on incompatible scores, only on positions.
+ *
  * The FIRST list wins identity ties, so a record found by both keeps the FTS row object — the vector
  * copy carries an `embedding` field and injection results never have.
  */
 const RRF_K = 60;
-function fuse(lists: Entity[][]): Entity[] {
+/**
+ * How much a keyword rank counts against a vector rank, when both halves answered.
+ *
+ * Swept over eval/gold-set.json rather than chosen: 1.0 / 0.5 / 0.3 / 0.2 / 0.1 / 0.05 scored
+ * accuracy@1 53.0 / 57.6 / 59.1 / 65.2 / 65.2 / 65.2 % and recall@10 84.2 / 85.7 / 87.2 / 88.0 /
+ * 88.4 / 88.0 %. The top is a plateau, not a point — 0.05 through 0.2 are indistinguishable on
+ * accuracy@1 — which is the only reason a tuned constant is defensible here. At 0.1 every metric is at
+ * or above where v5.5 left it (recall 87.2 -> 88.4%, nDCG 74.3 -> 76.1%, accuracy@1 65.2% unchanged),
+ * so clause 8's gain on the keyword-only path costs the hybrid path nothing.
+ *
+ * ponytail: one corpus, one language, one embedding model. It is a floor for the weaker half, not a
+ * tuned optimum — re-sweep before trusting it on a corpus that looks different, and if two corpora
+ * disagree the answer is a per-deployment setting, not a better number here.
+ */
+const KEYWORD_WEIGHT = 0.1;
+function fuse(lists: Array<{ rows: Entity[]; weight: number }>): Entity[] {
   const score = new Map<string, number>();
   const byId = new Map<string, Entity>();
-  for (const list of lists) {
-    list.forEach((e, i) => {
-      score.set(e.id, (score.get(e.id) ?? 0) + 1 / (RRF_K + i + 1));
+  for (const { rows, weight } of lists) {
+    rows.forEach((e, i) => {
+      score.set(e.id, (score.get(e.id) ?? 0) + weight / (RRF_K + i + 1));
       if (!byId.has(e.id)) byId.set(e.id, e);
     });
   }
@@ -196,7 +219,12 @@ export async function inject(
     const vec = await vectorHits(port, query, ns, opts);
     // Returning `fts` itself (not a fused list of one) is what makes an unconfigured embedder
     // byte-identical to v5.2: fusion would re-sort ties by id, which is a change nobody asked for.
-    return vec.length === 0 ? fts : fuse([fts, vec]);
+    return vec.length === 0
+      ? fts
+      : fuse([
+          { rows: fts, weight: KEYWORD_WEIGHT },
+          { rows: vec, weight: 1 },
+        ]);
   };
   let candidates: Entity[];
   if (scope) {

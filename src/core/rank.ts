@@ -26,6 +26,36 @@ export function tokenize(text: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Up to this many query tokens, every one must match; beyond it, any one does (SPEC search clause 8).
+ *
+ * Two or three terms is someone searching a wiki and meaning all of them. A fourth token means a
+ * sentence, and a sentence is an unsatisfiable conjunction: measured over `eval/gold-set.json`, the
+ * AND found 0 of 91 relevant records across 55 question-shaped queries while scoring 90.9% recall on
+ * the keyword-shaped ones.
+ *
+ * Safe only because ranking (clause 6) landed first — the AND used to be the port's only precision.
+ */
+export const AND_TERM_LIMIT = 3;
+
+/**
+ * Does `docText` satisfy `qTokens` under clause 8? A query token matches any document token it
+ * PREFIXES, which is case 6b (Hangul stay attached to their stem, so `parseArgs` must reach
+ * `parseArgs로`).
+ *
+ * The three adapters with no full-text index of their own (kuzu, qdrant, and sqlite's fallback
+ * reasoning) had this predicate inlined identically. One copy, because two copies of a matching rule
+ * is two search semantics — which is exactly how the AND survived unnoticed in five places.
+ */
+export function matchesTokens(qTokens: string[], docText: string): boolean {
+  if (qTokens.length === 0) return false;
+  const docTokens = tokenize(docText);
+  const hit = (qt: string) => docTokens.some((dt) => dt.startsWith(qt));
+  return qTokens.length <= AND_TERM_LIMIT
+    ? qTokens.every(hit)
+    : qTokens.some(hit);
+}
+
 /** BM25's usual constants: k1 bounds how much repetition helps, b how much length is penalised. */
 const K1 = 1.2;
 const B = 0.75;

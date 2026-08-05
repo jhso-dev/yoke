@@ -23,7 +23,7 @@ import neo4j, { type Driver, type Session } from "neo4j-driver-lite";
 import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { tokenize } from "../../core/rank.js";
+import { AND_TERM_LIMIT, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
@@ -106,9 +106,11 @@ const LUCENE_SPECIAL = /([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g;
 /**
  * A search query as Lucene: `+tok* tok` per token. Two clauses, and both are load-bearing.
  *
- * `+tok*` is REQUIRED and does the matching — prefix tolerance is conformance case 6b (a query for
- * `parseArgs` must reach the token `parseArgs로`, because Hangul are letters and stay attached to
- * their stem) and the repeated `+` gives 6c, multi-word AND in any order.
+ * `+tok*` matches — prefix tolerance is conformance case 6b (a query for `parseArgs` must reach the
+ * token `parseArgs로`, because Hangul are letters and stay attached to their stem) and the repeated
+ * `+` gives 6c, multi-word AND in any order. Past AND_TERM_LIMIT tokens the `+` is dropped, which is
+ * Lucene's own default operator and makes the query a disjunction the index's score then ranks
+ * (SPEC search clause 8).
  *
  * `tok` is OPTIONAL and does the RANKING. Found by the conformance suite: Lucene rewrites a wildcard
  * as a CONSTANT_SCORE query, so a query of `+tok*` alone scores every hit identically and "best match
@@ -122,7 +124,8 @@ const LUCENE_SPECIAL = /([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g;
 function luceneQuery(text: string): string | null {
   const tokens = tokenize(text).map((t) => t.replace(LUCENE_SPECIAL, "\\$1"));
   if (tokens.length === 0) return null;
-  return tokens.map((t) => `+${t}* ${t}`).join(" ");
+  const req = tokens.length <= AND_TERM_LIMIT ? "+" : "";
+  return tokens.map((t) => `${req}${t}* ${t}`).join(" ");
 }
 
 export class Neo4jStorage implements StoragePort {

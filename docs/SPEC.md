@@ -245,6 +245,31 @@ fifty (measured at 1M; `docs/SCALE.md`). Two clauses, both conformance cases:
 filter is the caller's and still runs after, so front adapters over-fetch — see the gate note in
 "context injection".
 
+8. **Long queries are a disjunction (v5.6).** Up to `AND_TERM_LIMIT` (3) tokens every term is
+   required, as before. From the fourth token on, a record matches when it contains **any** query
+   term, and clause 6's ranking decides what reaches the caller. Both halves are conformance cases.
+
+   The rule exists because the AND was answering a question nobody asks. A person searching a wiki
+   types two or three terms and means all of them; an agent's user asks a sentence, and a sentence is
+   an unsatisfiable conjunction — `결제대행사 승인 요청 타임아웃` matched 1 record where `타임아웃`
+   alone matched 3, and the full question matched 0. Measured over `eval/gold-set.json` before this
+   clause: **0 of 91 relevant records found on all 55 question-shaped queries**, against 90.9% recall
+   on the keyword-shaped ones. The keyword half was not broken; it was answering a different shape.
+
+   What makes the disjunction safe is that ranking arrived first. In v5.1 `search` returned storage
+   order, so the AND was the only precision the port had — loosening it then would have handed an
+   agent the oldest N records containing any one word. With clause 6 in force, the strictness moved
+   into the ranker, and requiring every term became redundant on top of it.
+
+   The threshold is boolean rather than a percentage on purpose: AND and OR are the two things all
+   five backends express natively, so one rule survives the conformance suite. FTS5 has no
+   minimum-should-match, and a `k`-of-`n` rule there is either a combinatorial expansion of every
+   `k`-subset or a post-filter over an OR — the second re-creates "asked for 50, received 29" that
+   clause 6's filter-before-limit exists to prevent. *ponytail: fixed threshold, promote to a
+   percentage rule if a measured corpus shows the top-k polluted by one-term matches.*
+
+`status`/`type`/`ns` filters, and the default bound, apply identically under either rule.
+
 Every implementation must pass the shared `ports/conformance/` test suite.
 v1 implementation: `storage-sqlite` (better-sqlite3 + FTS5 + sqlite-vec).
 v5.0 implementations that must pass: sqlite, kuzu, qdrant, sharded.
@@ -306,9 +331,21 @@ every injection was keyword-only no matter how the embedder was configured. Clos
   cosine are not commensurable, and neither is absolute cosine across embedding models
   (docs/RESEARCH.md, measured 2026-08-03) — so a weighted sum of the two scores would be arithmetic
   on incomparable units. RRF only reads positions. `60` is the published constant (Cormack 2009),
-  not a tuned one; there is no per-half weight to configure and deliberately no re-ranker.
+  not a tuned one; there is deliberately no re-ranker.
   **When one half returns nothing the fused order IS the other half's** — fusion buys robustness only
   where both halves retrieve, which is measured rather than assumed (docs/RESEARCH.md 2026-08-04).
+- **The keyword half carries weight 0.1 against the vector half's 1 (v5.6).** Published RRF has no
+  weights, and this document said there was none to configure; that held only while search clause 8's
+  disjunction did not exist. Once a long query became a disjunction, the keyword half stopped returning
+  nothing and started returning loosely-related records in confident rank order — and at equal weight
+  its rank 1 outranked a vector rank 1 the keyword half had never seen. Measured over
+  `eval/gold-set.json`, that cost the configured-embedder path **12 points of accuracy@1** while
+  clause 8 was gaining 43 on the keyword-only path. The weight applies to RANKS, so the objection above
+  is untouched: still no arithmetic on incomparable scores.
+  The value was swept, not chosen, and 0.05–0.2 are indistinguishable on accuracy@1 — a plateau is what
+  makes a tuned constant defensible at all. *ponytail: one corpus, one language, one model. A floor for
+  the weaker half, not an optimum; if two corpora disagree the answer is a per-deployment setting, not
+  a better number in `core/inject.ts`.*
 - **`null` from the embedder returns the FTS list untouched**, in the same order as before this
   existed. An unconfigured or unreachable provider must be indistinguishable from v5.2 behaviour, and
   that is the guarantee the constant-vs-fused test pins.

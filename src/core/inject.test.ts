@@ -578,6 +578,31 @@ describe("hybrid retrieval: the vector half of the Embedder contract", () => {
     );
   });
 
+  it("does not let a loose keyword hit outrank the vector half's best (v5.6)", async () => {
+    // The regression clause 8 introduced and KEYWORD_WEIGHT closes. A four-token query is a
+    // disjunction, so the keyword list fills with records sharing one word and ranks them
+    // confidently; at equal fusion weight its rank-1 displaced a vector rank-1 the keyword half had
+    // never seen, costing 12 points of accuracy@1 over the gold set.
+    const LONG = `${QUERY} hovercraft zeppelin monorail`;
+    const near: Embedder = async (text) =>
+      text === LONG || text.includes("quatrain") ? NEAR : FAR;
+
+    // Order of creation is load-bearing: both records are rank 1 of their own list, so at equal
+    // weight the fused scores TIE and the ULID tiebreak decides. Minting the keyword record first
+    // makes it win that tie, which is what makes this check fail when the weight is removed. Reverse
+    // the two lines and it passes for the wrong reason.
+    const oneTermMatch = await addFact("hovercraft ferry winter timetable");
+    // Shares no token with the query at all — reachable only through the vector half.
+    const vectorOnly = await addFactWith("quatrain enjambment caesura", near);
+    await verify(port, [oneTermMatch, vectorOnly], "alice", now);
+
+    const items = (
+      await inject(port, ont, LONG, now, { embedder: near })
+    ).items.map((i) => i.entity.id);
+    expect(items).toContain(oneTermMatch); // the disjunction still reaches it — clause 8
+    expect(items[0]).toBe(vectorOnly); // but it does not lead. At weight 1.0 it did
+  });
+
   it("returns the keyword list untouched when the embedder yields nothing", async () => {
     await corpus();
     const expected = (await inject(port, ont, "form", now)).items.map(

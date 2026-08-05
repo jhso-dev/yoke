@@ -248,7 +248,8 @@ Three findings, in order of what they cost:
    `"결제대행사 승인 요청 타임아웃"` → 1 hit, `"타임아웃"` → 3, the full question → **0**. The
    candidate fix is a minimum-should-match rule that keeps AND for short queries and requires a
    fraction of terms for long ones. That is a change to a contract clause, not a tuning knob, so it
-   belongs in SPEC before it belongs in four adapters.
+   belongs in SPEC before it belongs in four adapters. *(Shipped the next day as SPEC search clause 8 —
+   boolean rather than fractional, for the reason in the section below.)*
 
 **Two engines, one number.** The same gold set through sqlite (FTS5 + sqlite-vec) and through
 OpenSearch (BM25 + HNSW k-NN) scores recall@10 87.2% on both, nDCG 74.3% vs 74.4%, accuracy@1 65.2% on
@@ -259,6 +260,45 @@ into core; this is the first measurement that could have shown a leak, and it do
 What the set does **not** measure, stated so nobody reads it as more than it is: relevance is binary
 and mine, one language, one corpus, and no query needs more than one hop. Its value is as a baseline —
 the next retrieval change now has a number to beat instead of an argument.
+
+### Measured 2026-08-05: the disjunction, and the regression it hid one layer up
+
+The fix from finding 3, measured on the same set. `search` now requires every term up to three and any
+term beyond that (SPEC clause 8). On sqlite, keyword-only:
+
+| | before | after |
+| --- | --- | --- |
+| **question** (55) | recall@10 0.0%, acc@1 0.0%, 0/91 found | recall@10 **51.1%**, acc@1 **29.1%**, **41**/91 found |
+| **keywords** (11) | recall@10 90.9%, acc@1 81.8% | recall@10 **95.5%**, acc@1 81.8% |
+| all 66 | recall@10 15.2%, nDCG 14.1% | recall@10 **58.5%**, nDCG **45.8%** |
+
+The keyword cohort **improving** was the surprise: a four-term keyword query had been hitting the same
+wall as a sentence, so "short queries were fine" was true only of the ones shorter than four terms.
+
+**Then the hybrid column moved the other way**, which is the finding worth keeping. Fusing the new
+keyword list at equal weight scored recall 84.2% / nDCG 67.4% / acc@1 **53.0%** against v5.5's
+87.2 / 74.3 / **65.2** — a 12-point accuracy@1 regression on the path we recommend, produced by a
+change that improved every keyword-only number. The mechanism: RRF reads positions only, so a keyword
+rank 1 and a vector rank 1 score identically, and the keyword half's rank 1 on a disjunctive query is a
+record sharing one word with the question. While that half returned *nothing*, its precision never
+mattered; clause 8 gave it a voice before anything had checked whether it deserved an equal one.
+
+Weighting the keyword half (`1/(60+rank)` scaled, still rank-based) and sweeping:
+
+| weight | 1.0 | 0.5 | 0.3 | 0.2 | 0.1 | 0.05 |
+| --- | --- | --- | --- | --- | --- | --- |
+| recall@10 | 84.2% | 85.7% | 87.2% | 88.0% | **88.4%** | 88.0% |
+| accuracy@1 | 53.0% | 57.6% | 59.1% | 65.2% | **65.2%** | 65.2% |
+
+0.1 ships. Two things about that number: the top is a **plateau** (0.05–0.2 tie on accuracy@1), which
+is the difference between a measurement and an overfit; and at 0.1 the keyword-shaped cohort is
+untouched at 100% recall / 100% acc@1, so the downweight costs the queries the AND was right about
+nothing at all.
+
+The generalisable lesson is not about weights. **A retrieval change was measured on the metric it was
+designed to move, improved it by 43 points, and silently cost 12 on a different configuration of the
+same system.** The gold set caught it only because it scores both columns on every run — a report that
+printed the column being worked on would have called this an unqualified win.
 
 ---
 

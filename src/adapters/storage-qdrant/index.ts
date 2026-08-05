@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { rankByRelevance, tokenize } from "../../core/rank.js";
+import { matchesTokens, rankByRelevance, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
@@ -360,10 +360,9 @@ export class QdrantStorage implements StoragePort {
     const rows = latestByVersion(points.map((p) => p.payload as EntityPayload));
     const qTokens = tokenize(q.text);
     const wantNs = normalizeNs(q.ns);
-    const matched = rows.filter((r) => {
-      const eTokens = tokenize(r.txt);
-      return qTokens.every((qt) => eTokens.some((et) => et.startsWith(qt)));
-    });
+    // AND up to AND_TERM_LIMIT terms, OR beyond it (SPEC search clause 8), shared with kuzu so the
+    // two client-side matchers cannot answer the same query differently.
+    const matched = rows.filter((r) => matchesTokens(qTokens, r.txt));
     const filtered = matched.filter(
       (r) =>
         // null-normalized ns so the default ns sees only default rows (10.1 isolation).
