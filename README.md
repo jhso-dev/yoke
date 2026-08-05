@@ -60,7 +60,7 @@ Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server requir
 |---|---|
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
-| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `neo4j` (native full-text + vectors + traversal; point it at the server your company already runs) · `kuzu` (embedded graph) · `qdrant` (vector search) · `sharded` (multi-backend federation by tenant). All pass one conformance suite. |
+| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `neo4j` (native full-text + vectors + traversal; point it at the server your company already runs) · `kuzu` (embedded graph; ships separately — `npm install kuzu`) · `qdrant` (vector search) · `sharded` (multi-backend federation by tenant). All pass one conformance suite. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
 | **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |

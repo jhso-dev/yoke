@@ -163,10 +163,27 @@ port capabilities, etc. See SPEC).
       CSP / body-limit / static-asset baseline
 - [x] Frontend rebuild: Next.js `output: 'export'` + React + d3-force → one static
       bundle, still served by the existing node:http server on one port
-- [ ] Install UX holds: `npm ci` size and wall time measured before and after, and a
-      failed web build still leaves a working CLI
-      (code done — install.sh degrades gracefully. The measurement is one item, tracked once, on the
-      human-verification list below — it was written down twice here and read as two tasks)
+- [x] Install UX holds: `npm ci` size and wall time measured before and after, and a
+      failed web build still leaves a working CLI — **measured 2026-08-05**, on a fresh clone with a
+      cold npm cache. It did not hold, and the number was not the web bundle's fault:
+
+      | | wall | on disk |
+      | --- | --- | --- |
+      | `npm ci` (root, devDeps included) | 31 s | **693 MB** node_modules |
+      | `npm run build:cli` | 1 s | 1.9 MB dist |
+      | `npm run build:web` | 10 s | +408 MB `web/node_modules` |
+      | **`npm ci --omit=dev`** — what `npx yoke` costs a user | 4 s | **581 MB** |
+
+      **531 MB of that 581 MB was kuzu** — 91% of an end user's download, for a backend reachable only
+      by naming `kind: "kuzu"` in a `--shards` config. It is now a devDependency, so this repo's
+      conformance suite still runs against it (24/24) and a consumer install is **581 MB → 44 MB**. A
+      config that names a kuzu shard fails with `npm install kuzu` rather than MODULE_NOT_FOUND,
+      verified in a tree that genuinely lacks it. The web toolchain, the thing this box was written to
+      watch, turned out to be the smaller half and only lands on a source install
+- [x] Graceful degradation verified in the same run: with `build:web` forced to fail, `--help`, `init`
+      and `GET /api/review` all work, and with no bundle anywhere `GET /` answers **503** naming
+      `npm run build:web`. One nuance worth knowing — a *previously* built `web/out` is still served,
+      so the degradation only shows on a machine where the web build has never succeeded
 - [x] Regression closed: a check that *executes* the shipped client bundle, not one
       that greps the HTML for markers (see the v2.5 note)
 - [x] Scale: injection stays correct and bounded at 10M records. Five defects, all measured
@@ -256,11 +273,13 @@ boxes above are checked for what automation proves, not for this:
       only edges with *both* ends in the sampled node set are kept and 334 nodes drawn from a million by
       id order are rarely connected. Correct per its contract, useless to look at. The anchored view is
       the one that works at scale, and it is now the cheap one
-- [ ] `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
-      after, and a forced web-build failure still leaving a working CLI.
-      **This is the same measurement as the v2.5 "Install UX holds" box** — one job, and the v2.5 entry
-      points here rather than restating it. Needs a machine without this repo's node_modules, so it
-      cannot be closed from inside the repo it measures
+- [x] `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
+      after, and a forced web-build failure still leaving a working CLI — **done 2026-08-05**, the
+      numbers and the kuzu finding are in the v2.5 "Install UX holds" box above. It was the same
+      measurement written down twice, and it did not need a different machine, only a directory
+      without this repo's `node_modules`: a fresh clone with its own cold npm cache is that. What
+      "clean machine" was protecting against was a warm cache flattering the wall time, which the
+      cold-cache column reports honestly
 
 What automation does prove today: every route and endpoint answers against a real
 server, the shipped bundle's scripts parse, all ten screens exist as exported pages,

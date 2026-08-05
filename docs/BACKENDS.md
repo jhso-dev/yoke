@@ -16,11 +16,26 @@ traditional-DB compatibility. Detailed when work starts (v2.0).
 | Adapter | When | Why chosen |
 |---|---|---|
 | storage-sqlite | v0.1 | embedded; FTS5 + sqlite-vec cover all of v1 |
-| storage-kuzu | v2.0 | embedded graph DB — stronger graph queries with no infrastructure. A proven path Cognee also adopted |
+| storage-kuzu | v2.0 | embedded graph DB — stronger graph queries with no infrastructure. A proven path Cognee also adopted. **Ships separately since v5.6**: `npm install kuzu`, see below |
 | storage-qdrant | v2.0 | a similar-capability-only implementation. Large-scale embeddings |
 | storage-neo4j | **v5.2 (built)** | an enterprise already runs one, and it is the only backend with native FTS, vectors and graph in one engine |
 | storage-opensearch | **v5.4 (built)** | an enterprise already runs one for logs and search, and it is the cheapest adapter to own: a REST API, so `fetchImpl` injection makes it fakeable and it adds **no dependency** — where neo4j needed a 3.8 MB Bolt driver |
 | storage-postgres | v2.x | the leading default-backend candidate for server mode (v3) (pgvector doubles as similar) |
+
+## kuzu is not installed by default (v5.6)
+
+Measured on a fresh clone: `npm ci --omit=dev` — what `npx yoke` costs a user — was **581 MB, of which
+kuzu's native binding was 531 MB**. 91% of an end user's download, for a backend they can only reach by
+naming `kind: "kuzu"` in a `--shards` config. It is a devDependency now, so a consumer install is
+**44 MB** and this repo's own conformance suite still runs the full 24 cases against it.
+
+A shard config naming a kuzu shard therefore fails with the one command that fixes it —
+`npm install kuzu` — rather than a `MODULE_NOT_FOUND` naming a file the caller never imported. The
+caller wrote a config, not an import; the error should be about the config.
+
+Considered and not done: an optional `peerDependency`. It leaves the package uninstalled for consumers
+exactly as this does, so it would be a second declaration of the same fact, and the devDependency is
+the one the test suite actually needs.
 
 ## Capability matrix
 
