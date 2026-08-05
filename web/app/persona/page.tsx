@@ -158,12 +158,24 @@ function Person({ id }: { id: string }) {
         {query && (
           <span className="muted">{t.persona.matched(shown, total)}</span>
         )}
-        <Link className="btn" href={`/entity/?id=${encodeURIComponent(id)}`}>
-          {t.common.openAsRecord}
-        </Link>
-        <Link className="btn" href={`/graph/?scope=${encodeURIComponent(id)}`}>
-          {t.common.openInGraph}
-        </Link>
+        <Button
+          asChild
+          variant="secondary"
+          className="border border-border hover:border-primary"
+        >
+          <Link href={`/entity/?id=${encodeURIComponent(id)}`}>
+            {t.common.openAsRecord}
+          </Link>
+        </Button>
+        <Button
+          asChild
+          variant="secondary"
+          className="border border-border hover:border-primary"
+        >
+          <Link href={`/graph/?scope=${encodeURIComponent(id)}`}>
+            {t.common.openInGraph}
+          </Link>
+        </Button>
         <CopyCode value={t.persona.exportHint(id)} />
       </div>
 

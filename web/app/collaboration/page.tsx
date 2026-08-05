@@ -252,12 +252,24 @@ function CollaborationBody() {
       <ErrorBanner error={briefing.error} />
 
       <div className="controls">
-        <Link className="btn" href={`/graph/?scope=${encodeURIComponent(id)}`}>
-          {t.common.openInGraph}
-        </Link>
-        <Link className="btn" href={`/entity/?id=${encodeURIComponent(id)}`}>
-          {t.common.openAsRecord}
-        </Link>
+        <Button
+          asChild
+          variant="secondary"
+          className="border border-border hover:border-primary"
+        >
+          <Link href={`/graph/?scope=${encodeURIComponent(id)}`}>
+            {t.common.openInGraph}
+          </Link>
+        </Button>
+        <Button
+          asChild
+          variant="secondary"
+          className="border border-border hover:border-primary"
+        >
+          <Link href={`/entity/?id=${encodeURIComponent(id)}`}>
+            {t.common.openAsRecord}
+          </Link>
+        </Button>
         <CopyCode value={`yoke inject --scope ${id}`} />
       </div>
 

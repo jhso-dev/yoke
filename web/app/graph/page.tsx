@@ -114,9 +114,13 @@ function GraphBody() {
 
       <div className="controls">
         {anchor && (
-          <Link className="btn" href="/graph/">
-            {t.graph.wholeNamespace}
-          </Link>
+          <Button
+            asChild
+            variant="secondary"
+            className="border border-border hover:border-primary"
+          >
+            <Link href="/graph/">{t.graph.wholeNamespace}</Link>
+          </Button>
         )}
         <span className="muted">
           {t.graph.counts(graph?.nodes.length ?? 0, graph?.links.length ?? 0)}

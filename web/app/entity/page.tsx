@@ -157,12 +157,15 @@ function EntityBody() {
         >
           {t.common.deprecate}
         </Button>
-        <Link
-          className="btn"
-          href={`/graph/?scope=${encodeURIComponent(d.entity.id)}`}
+        <Button
+          asChild
+          variant="secondary"
+          className="border border-border hover:border-primary"
         >
-          {t.common.openInGraph}
-        </Link>
+          <Link href={`/graph/?scope=${encodeURIComponent(d.entity.id)}`}>
+            {t.common.openInGraph}
+          </Link>
+        </Button>
       </div>
 
       <div className="panel">

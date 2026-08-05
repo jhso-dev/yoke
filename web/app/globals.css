@@ -471,25 +471,10 @@ td.num {
 
    `.btn` survives for <Link> elements that look like buttons — Button's `asChild` is the eventual
    home for those, and they move with their screens. */
-/* Boxed to match Button's `compact` (h-7, px-2.5, 13px) so a link that looks like a button is the
-   same size as one — these sit in the same rows on entity, graph and collaboration. */
-.btn {
-  font: inherit;
-  font-size: 13px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--secondary);
-  color: var(--foreground);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-}
-.btn:hover {
-  border-color: var(--primary);
-  text-decoration: none;
-}
+/* `.btn` is gone: the six links that looked like buttons are `<Button asChild>` now, which is what the
+   note above said would happen. It was boxed to match Button's `compact` size (h-7, px-2.5, 13px)
+   deliberately, so the swap is the same box — the border and the secondary fill that `compact` does not
+   carry travel on the call site instead. */
 
 .controls {
   display: flex;
