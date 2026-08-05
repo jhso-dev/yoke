@@ -232,8 +232,16 @@ boxes above are checked for what automation proves, not for this:
       own usage guard, so a briefing was impossible from the terminal.
       The lesson is the v2.5 lesson again, one level up: a green suite proves the payloads, and
       the payloads were right every time. Nothing in it looked at what a person sees.
-- [ ] one `--auth` login with a read-only token, confirming verify is refused with a
-      message naming the scope
+- [x] one `--auth` login with a read-only token, confirming verify is refused with a
+      message naming the scope (2026-08-05) — and it was not. `yoke serve --auth` on a two-token
+      database: the reader gets 200 on `GET /api/entities`, **403 on `POST /api/verify`**, the record
+      stays `draft`, the `read,verify` token promotes it to `verified` on the same call, no credential
+      gets 401, and the trail attributes the promotion to `token:promoter`. The refusal body, however,
+      was `{"error":"forbidden"}` — the holder of a read-only token learned that something was refused
+      and not which permission to ask for. Now
+      `{"error":"forbidden: this credential has no 'verify' scope", "required":"verify"}`, pinned by a
+      test. This is what the item was for: the behaviour was right and the message was not, and no
+      amount of green CI was going to say so
 - [x] one graph-explorer open against a ≥100k-row DB, confirming the truncation banner and
       that `POST /mcp` keeps answering while it is open — **done 2026-08-04** against 1,000,000
       entities / 3,005,000 relations in one sqlite file, through `yoke serve` (the process that serves
@@ -287,13 +295,23 @@ placeholder string in the inject box on the web.
 
 Open, and in this order — the first is the gate on the third by docs/RESEARCH.md's own argument:
 
-- [ ] **Read a real `yoke audit --shape` trail.** The command shipped in v5.2 and nothing has consumed
-      it, so the workload ratio that decides whether graph expansion pays is instrumented and still
-      unknown. Having the command is not having the answer
+- [x] **Read a real `yoke audit --shape` trail** (2026-08-05) — and the answer is that there is no
+      workload yet, which is worth more written down than left as "unknown". The only non-synthetic
+      trail (`./yoke.db`, the store this repo's own `.mcp.json` points at) holds **5 inject rows, 100%
+      plain, 0% anchored, 0% briefing**, all from one dogfooding session on 2026-07-14. The
+      instrumentation is not the problem: a demo database shows 3 `inject_preview` and 9 other audited
+      actions, so the web tier writes its trail, and `emitShapes` excludes previews on purpose — a
+      person clicking a screen does not answer "what do agents ask". n=5 is not a ratio. What it does
+      say is that the direction points away from graph expansion rather than toward it
+      **Decided before the next data arrives, so it cannot be a number chosen to be met:** revisit
+      multi-hop when the trail holds **≥200 `inject` rows from real agent sessions** and
+      **anchored + briefing ≥ 40%** of them. Until then the answer is not "we don't know", it is "the
+      workload we can see does not ask for it"
 - [x] **A gold set, and retrieval metrics over it** (recall@k, nDCG) — done in v5.5 below. The answer
       to "how often does RRF degenerate": on every question-shaped query in the set
 - [ ] **Multi-hop traversal** (`inject` walks exactly one relation hop) and **global aggregation** —
-      both gated on the trail above, not on appetite
+      both gated on the trail above, not on appetite. Now gated on a **measured** 0% anchored rather
+      than on an unknown, with the threshold that would reopen it stated above
 - [x] **Identity resolution across sources** — done in v5.6 below. Note the premise was wrong in a way
       worth keeping: Slack and GitHub store the author as an attribute string and mint no `person` at
       all, so it was never "three records" — it was one plus two opaque strings. `same_as` resolves the

@@ -603,6 +603,12 @@ Rules that hold for every route:
   exposes the port's `search()` to `browse`, returning summary rows and writing a `search` audit
   row. What stays refused is synthesis, a second ranker, and results framed as an answer — see the
   second amendment in WEB-UI.md.
+- **A 403 names the scope that would have granted the call** (v5.6): `{ error: "forbidden: this
+  credential has no 'verify' scope[ for type 'x'[ in namespace 'y']]", required, type?, ns? }`. Only
+  the required grant is named, never the credential's own scopes — what the caller holds does not
+  change what they must go and ask for, and saying it would mean threading the principal into the
+  handler for nothing. The body was `{"error":"forbidden"}` until a read-only token was actually
+  pointed at `POST /api/verify` and the refusal turned out to say nothing a person could act on.
 - **Any route that returns knowledge attributes writes an audit row.** A preview is an
   injection: reading through the browser leaves the same trail as reading through MCP
   (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing

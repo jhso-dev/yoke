@@ -354,9 +354,42 @@ export function createUiHandler(
   const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
-  /** 403 + false when denied, so callers early-return. */
-  const deny = (res: ServerResponse): boolean => {
-    sendJson(res, 403, { error: "forbidden" });
+  /**
+   * Authorize, and on refusal answer 403 naming the scope that would have granted it.
+   *
+   * The body used to be `{"error":"forbidden"}` and nothing else. Found by running the check the
+   * roadmap had been carrying as a human-verification item: a read-only token is refused `verify`
+   * correctly, and the person holding it is told only that something was forbidden — not which
+   * permission to ask for, and not whether the refusal was about this record's type or the namespace.
+   * "Errors explain what went wrong and how to fix it."
+   *
+   * Only the REQUIRED scope is named, never the token's own. What the caller holds does not change
+   * what they have to go and ask for, and the handler would have to be threaded the principal to say
+   * it — surface bought for nothing.
+   *
+   * Returns true when refused, so call sites stay `if (denied(...)) return;`.
+   */
+  const denied = (
+    res: ServerResponse,
+    action: "read" | "write" | "verify",
+    type?: string,
+  ): boolean => {
+    if (authorize(action, type)) return false;
+    // The scope grammar is `action` | `ns:action` | `ns:type:action` (serve/rbac.ts), and a wildcard
+    // in either position also grants it — so the message names the grant needed, not one exact string
+    // that would read as the only acceptable spelling.
+    const where = [
+      type === undefined ? null : `type '${type}'`,
+      ns === null ? null : `namespace '${ns}'`,
+    ].filter(Boolean);
+    sendJson(res, 403, {
+      error:
+        `forbidden: this credential has no '${action}' scope` +
+        (where.length ? ` for ${where.join(" in ")}` : ""),
+      required: action,
+      ...(type === undefined ? {} : { type }),
+      ...(ns === null ? {} : { ns }),
+    });
     return true;
   };
   /** One audit row for a knowledge read, in the `<subject> -> <id> …` shape every other action
@@ -451,7 +484,7 @@ export function createUiHandler(
     }
 
     if (method === "GET" && path === "/api/review") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       // The other queue: verified records past their type's TTL. SPEC's injection filter has said
       // since v1 that "viewing stale is the job of review/CLI" and neither showed one, so stale
       // knowledge left injection with nobody told — the failure docs/RESEARCH.md's freshness findings
@@ -491,7 +524,7 @@ export function createUiHandler(
     // ontology type can use this endpoint by naming that type — and only that type.
     if (method === "GET" && path === "/api/entities") {
       const type = url.searchParams.get("type") ?? undefined;
-      if (!authorize("read", type) && deny(res)) return;
+      if (denied(res, "read", type)) return;
       const q = {
         ns,
         type,
@@ -517,7 +550,7 @@ export function createUiHandler(
     // and briefing screens already do it this way). Getting everything is `inject`, or the CLI.
     if (method === "GET" && path === "/api/search") {
       const type = url.searchParams.get("type") ?? undefined;
-      if (!authorize("read", type) && deny(res)) return;
+      if (denied(res, "read", type)) return;
       const text = (url.searchParams.get("q") ?? "").trim();
       if (!text) {
         sendJson(res, 400, { error: "q is required" });
@@ -555,8 +588,7 @@ export function createUiHandler(
       const e = await store.getEntity(id);
       // Authorize on the loaded type before answering, and 404 after — so a denied caller cannot
       // use the 404-vs-403 difference to probe which ids exist.
-      const ok = e ? authorize("read", e.type) : authorize("read");
-      if (!ok && deny(res)) return;
+      if (denied(res, "read", e?.type)) return;
       if (!e || normalizeNs(e.ns) !== normalizeNs(ns)) {
         sendJson(res, 404, { error: "not found" });
         return;
@@ -604,7 +636,7 @@ export function createUiHandler(
     }
 
     if (method === "GET" && path === "/api/conflicts") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       const rels = (await store.listRelations({ type: "conflicts_with", ns }))
         .items;
       const asR = asRow();
@@ -632,7 +664,7 @@ export function createUiHandler(
     // the screen claims to show. Audited as `inject_preview`, distinct from `inject`, so a human
     // checking does not pollute the record of what an agent was actually told.
     if (method === "GET" && path === "/api/inject") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       const query = url.searchParams.get("q") ?? "";
       const scope = url.searchParams.get("scope") ?? undefined;
       if (!query && !scope)
@@ -697,7 +729,7 @@ export function createUiHandler(
     // When truncated, an edge may reference a node outside `nodes`; that is documented, and only
     // possible in the case the banner already flags.
     if (method === "GET" && path === "/api/graph") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       const limit = intParam(url, "limit", 300, 2000);
       const scope = url.searchParams.get("scope");
       const { asR, asRel, prefetch } = serializers();
@@ -784,7 +816,7 @@ export function createUiHandler(
     // Audit viewer: the append-only trail, namespace-scoped. Most-recent-N, oldest-first — the same
     // direction `yoke audit` prints, so a paging client does not have to reverse it.
     if (method === "GET" && path === "/api/audit") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       const limit = intParam(url, "limit", 200, 2000);
       const events = store.listAudit({
         since: url.searchParams.get("since") ?? undefined,
@@ -853,19 +885,19 @@ export function createUiHandler(
     }
 
     if (method === "GET" && path === "/api/ontology") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       sendJson(res, 200, store.loadOntology(ns));
       return;
     }
 
     if (method === "GET" && path === "/api/tokens") {
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       sendJson(res, 200, store.listTokens());
       return;
     }
 
     if (method === "POST" && path === "/api/tokens") {
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       const body = await readBody(req);
       const name = body.name;
       const scopes = body.scopes;
@@ -897,7 +929,7 @@ export function createUiHandler(
     }
 
     if (method === "DELETE" && path.startsWith("/api/tokens/")) {
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       const name = decodeURIComponent(path.slice("/api/tokens/".length));
       if (!name) {
         sendJson(res, 400, { error: "token name is required" });
@@ -912,7 +944,7 @@ export function createUiHandler(
     }
 
     if (method === "GET" && path.startsWith("/api/persona/")) {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       const id = decodeURIComponent(path.slice("/api/persona/".length));
       const ts = now();
       const result = await personaQuery(store, store.loadOntology(ns), id, ts, {
@@ -948,7 +980,7 @@ export function createUiHandler(
     ) {
       const action = path === "/api/verify" ? "verify" : "deprecate";
       // Both verify and deprecate are governance actions → gated on the verify permission.
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       const ids = await readIds(req);
       const ts = now();
       const fn = action === "verify" ? verify : deprecate;
@@ -984,7 +1016,7 @@ export function createUiHandler(
       }
       // Per-type write permission — the same key the read routes pass, so a `ns:fact:write` token
       // can create facts and nothing else.
-      if (!authorize("write", type) && deny(res)) return;
+      if (denied(res, "write", type)) return;
       const ontology = store.loadOntology(ns);
       if (ontology.length === 0) {
         sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
@@ -1069,7 +1101,7 @@ export function createUiHandler(
     // itself would be circular), which makes it the most powerful action here. Append-only per name,
     // so an existing name is a new version — a migration, exactly as it is from the CLI.
     if (method === "POST" && path === "/api/ontology") {
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       const def = (await readBody(req)).def;
       if (
         !def ||
@@ -1097,7 +1129,7 @@ export function createUiHandler(
     // `write` because that is what it produces — edges, through the same gate, attributed to each
     // record's recorded author rather than to whoever pressed the button.
     if (method === "POST" && path === "/api/backfill") {
-      if (!authorize("write") && deny(res)) return;
+      if (denied(res, "write")) return;
       const ontology = store.loadOntology(ns);
       if (ontology.length === 0) {
         sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
@@ -1133,7 +1165,7 @@ export function createUiHandler(
     // that reason, and it writes the `rename_type` audit row for the reason the store documents:
     // it is the one mutation the append-only history cannot record, because it rewrites those rows.
     if (method === "POST" && path === "/api/rename-type") {
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       const body = await readBody(req);
       const { from, to } = body;
       if (typeof from !== "string" || typeof to !== "string" || !from || !to) {
