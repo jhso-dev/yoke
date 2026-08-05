@@ -4,6 +4,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -182,38 +190,38 @@ function GraphBody() {
         </div>
         {graph && graph.nodes.length > 0 ? (
           <div className="scroll-x">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t.common.type}</th>
-                  <th>{t.common.record}</th>
-                  <th>{t.common.status}</th>
-                  <th>{t.common.relations}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.common.type}</TableHead>
+                  <TableHead>{t.common.record}</TableHead>
+                  <TableHead>{t.common.status}</TableHead>
+                  <TableHead>{t.common.relations}</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {nodePage.items.map((n) => (
-                  <tr key={n.id}>
-                    <td className="mono">{n.type}</td>
-                    <td>
+                  <TableRow key={n.id}>
+                    <TableCell className="mono">{n.type}</TableCell>
+                    <TableCell>
                       <Link href={`/entity/?id=${encodeURIComponent(n.id)}`}>
                         {n.label}
                       </Link>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <StatusBadge status={n.status} />
-                    </td>
-                    <td className="num">{n.degree}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="num">{n.degree}</TableCell>
+                    <TableCell>
                       <Button type="button" onClick={() => expand(n.id)}>
                         {t.common.expand}
                       </Button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             <Pagination
               page={nodePage.page}
               pages={nodePage.pages}

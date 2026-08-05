@@ -13,6 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Modal } from "../../components/Modal";
@@ -67,40 +75,40 @@ function TypeTable({ title, list }: { title: string; list: TypeDef[] }) {
         <div className="empty">{t.common.none}</div>
       ) : (
         <div className="scroll-x">
-          <table>
-            <thead>
-              <tr>
-                <th>{t.ontology.name}</th>
-                <th>{t.common.attributes}</th>
-                <th>{t.ontology.freshness}</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t.ontology.name}</TableHead>
+                <TableHead>{t.common.attributes}</TableHead>
+                <TableHead>{t.ontology.freshness}</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {page.items.map((d) => (
-                <tr key={`${d.kind}:${d.name}`}>
-                  <td className="mono">{d.name}</td>
-                  <td className="mono">
+                <TableRow key={`${d.kind}:${d.name}`}>
+                  <TableCell className="mono">{d.name}</TableCell>
+                  <TableCell className="mono">
                     {Object.entries(d.attrs)
                       .map(([k, s]) => (s.required ? `${k}*` : k))
                       .join(", ") || "—"}
-                  </td>
-                  <td className="num">
+                  </TableCell>
+                  <TableCell className="num">
                     {d.ttl_days === undefined ? (
                       <span title={t.ontology.neverStale}>∞</span>
                     ) : (
                       t.ontology.days(d.ttl_days)
                     )}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <Link href={`/browse/?type=${encodeURIComponent(d.name)}`}>
                       {t.common.browse}
                     </Link>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
           <Pagination
             page={page.page}
             pages={page.pages}

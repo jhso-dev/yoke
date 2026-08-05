@@ -2,6 +2,14 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Actor } from "../../components/Actor";
 import { CopyCode } from "../../components/CopyCode";
 import { DirectionIcon } from "../../components/DirectionIcon";
@@ -184,41 +192,41 @@ export default function Audit() {
           <div className="empty">{t.audit.empty}</div>
         ) : (
           <div className="scroll-x">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t.common.when}</th>
-                  <th>{t.common.actor}</th>
-                  <th>{t.common.action}</th>
-                  <th>{t.common.detail}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.common.when}</TableHead>
+                  <TableHead>{t.common.actor}</TableHead>
+                  <TableHead>{t.common.action}</TableHead>
+                  <TableHead>{t.common.detail}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {page.items.map((e, i) => (
                   // The index is part of the key because audit_log has no primary key: two identical
                   // events in the same second by the same actor are genuinely indistinguishable. The
                   // rule guards against reordering, and this list is append-only and never reordered.
                   // biome-ignore lint/suspicious/noArrayIndexKey: no id exists to key on.
-                  <tr key={`${e.at}-${e.actor}-${e.action}-${i}`}>
-                    <td className="mono">
+                  <TableRow key={`${e.at}-${e.actor}-${e.action}-${i}`}>
+                    <TableCell className="mono">
                       <Instant iso={e.at} />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <Actor actor={e.actor} actorName={e.actorName} />
-                    </td>
-                    <td
+                    </TableCell>
+                    <TableCell
                       className="mono"
                       title={t.audit.meaning[e.action] ?? e.action}
                     >
                       {e.action}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <Detail event={e} />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             <Pagination
               page={page.page}
               pages={page.pages}

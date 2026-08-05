@@ -359,33 +359,12 @@ h1 {
   overflow-x: auto;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
+/* The table box moved into components/ui/table.tsx (every screen now renders <Table>). These bare
+   element rules could not stay: unlayered CSS beats Tailwind utilities, so while they existed the
+   shadcn Table in this repo set classes that never applied — which is why it had zero importers.
 
-th,
-td {
-  text-align: left;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-
-th {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted-foreground);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-tr:last-child td {
-  border-bottom: none;
-}
-
+   `td.num` stays because it is a call-site choice, not a default, and it still wins for the same
+   reason those rules had to go. */
 td.num {
   font-variant-numeric: tabular-nums;
 }

@@ -4,6 +4,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { DirectionIcon } from "../../components/DirectionIcon";
@@ -160,60 +168,62 @@ function EntityBody() {
       <div className="panel">
         <div className="panel-head">{t.common.attributes}</div>
         <div className="scroll-x">
-          <table>
-            <tbody>
+          <Table>
+            <TableBody>
               {Object.entries(d.entity.attributes).map(([k, v]) => (
-                <tr key={k}>
-                  <th style={{ width: "22%" }}>{k}</th>
-                  <td>{attributeValue(v)}</td>
-                </tr>
+                <TableRow key={k}>
+                  <TableHead style={{ width: "22%" }}>{k}</TableHead>
+                  <TableCell>{attributeValue(v)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </div>
 
       <div className="panel">
         <div className="panel-head">{t.entity.provenance}</div>
         <div className="scroll-x">
-          <table>
-            <tbody>
-              <tr>
-                <th style={{ width: "22%" }}>{t.entity.recordedBy}</th>
-                <td>
+          <Table>
+            <TableBody>
+              <TableRow>
+                <TableHead style={{ width: "22%" }}>
+                  {t.entity.recordedBy}
+                </TableHead>
+                <TableCell>
                   <Actor
                     actor={d.entity.actor}
                     actorName={d.entity.actorName}
                   />
-                </td>
-              </tr>
-              <tr>
-                <th>{t.entity.origin}</th>
-                <td className="mono">{d.entity.origin}</td>
-              </tr>
-              <tr>
-                <th>{t.entity.occurredAt}</th>
-                <td className="mono">
+                </TableCell>
+              </TableRow>
+              <TableRow>
+                <TableHead>{t.entity.origin}</TableHead>
+                <TableCell className="mono">{d.entity.origin}</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableHead>{t.entity.occurredAt}</TableHead>
+                <TableCell className="mono">
                   <Instant iso={d.entity.occurred_at} />
-                </td>
-              </tr>
-              <tr>
-                <th>{t.entity.lastConfirmed}</th>
-                <td className="mono">
+                </TableCell>
+              </TableRow>
+              <TableRow>
+                <TableHead>{t.entity.lastConfirmed}</TableHead>
+                <TableCell className="mono">
                   <Instant iso={d.entity.last_confirmed} />
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
               {/* Compact, like everywhere else. Every field the raw string contains is already a row
                   in this table (id in the header, version, recorded by, occurred at) — its only
                   unique value is being copyable exactly, which the click gives. */}
-              <tr>
-                <th>{t.entity.citation}</th>
-                <td>
+              <TableRow>
+                <TableHead>{t.entity.citation}</TableHead>
+                <TableCell>
                   <Citation row={d.entity} />
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
         </div>
       </div>
 
@@ -223,36 +233,36 @@ function EntityBody() {
           <span className="muted">{d.history.length}</span>
         </div>
         <div className="scroll-x">
-          <table>
-            <thead>
-              <tr>
-                <th>{t.common.version}</th>
-                <th>{t.entity.storedStatus}</th>
-                <th>{t.common.actor}</th>
-                <th>{t.entity.occurredAt}</th>
-                <th>{t.common.source}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t.common.version}</TableHead>
+                <TableHead>{t.entity.storedStatus}</TableHead>
+                <TableHead>{t.common.actor}</TableHead>
+                <TableHead>{t.entity.occurredAt}</TableHead>
+                <TableHead>{t.common.source}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {d.history.map((h) => (
-                <tr key={h.version}>
-                  <td className="num">{h.version}</td>
-                  <td>
+                <TableRow key={h.version}>
+                  <TableCell className="num">{h.version}</TableCell>
+                  <TableCell>
                     <StatusBadge status={h.status} />
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <Actor actor={h.actor} actorName={h.actorName} />
-                  </td>
-                  <td className="mono">
+                  </TableCell>
+                  <TableCell className="mono">
                     <Instant iso={h.occurred_at} />
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <Citation row={h} />
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </div>
 
@@ -272,26 +282,26 @@ function EntityBody() {
           <div className="empty">{t.entity.standsAlone}</div>
         ) : (
           <div className="scroll-x">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t.common.direction}</th>
-                  <th>{t.common.type}</th>
-                  <th>{t.common.otherEnd}</th>
-                  <th>status</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.common.direction}</TableHead>
+                  <TableHead>{t.common.type}</TableHead>
+                  <TableHead>{t.common.otherEnd}</TableHead>
+                  <TableHead>status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {edges.map((e) => (
-                  <tr key={e.id}>
-                    <td className="mono">
+                  <TableRow key={e.id}>
+                    <TableCell className="mono">
                       <DirectionIcon
                         direction={e.dir === "out" ? "right" : "left"}
                         label={e.dir}
                       />
-                    </td>
-                    <td className="mono">{e.type}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="mono">{e.type}</TableCell>
+                    <TableCell>
                       {isMissing(e.other) ? (
                         <span className="mono muted">
                           <span className="mono">{shortId(e.other.id)}</span> —
@@ -304,16 +314,16 @@ function EntityBody() {
                           {recordLabel(e.other)}
                         </Link>
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       {isMissing(e.other) ? null : (
                         <StatusBadge status={e.other.effectiveStatus} />
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>

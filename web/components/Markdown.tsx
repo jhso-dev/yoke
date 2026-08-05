@@ -1,3 +1,11 @@
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { type Block, type Inline, parseMarkdown } from "../lib/markdown";
 
 /**
@@ -60,29 +68,31 @@ function block(b: Block, i: number) {
       // the page scroll sideways.
       return (
         <div className="scroll-x" key={key}>
-          <table>
-            <thead>
-              <tr>
+          <Table>
+            <TableHeader>
+              <TableRow>
                 {b.head.map((cell, j) => {
                   const headKey = cellKey(j, cell);
-                  return <th key={headKey}>{inline(cell)}</th>;
+                  return <TableHead key={headKey}>{inline(cell)}</TableHead>;
                 })}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {b.rows.map((row, j) => {
                 const rowKey = `row${j}:${row[0]?.[0]?.text ?? ""}`;
                 return (
-                  <tr key={rowKey}>
+                  <TableRow key={rowKey}>
                     {row.map((cell, k) => {
                       const dataKey = cellKey(k, cell);
-                      return <td key={dataKey}>{inline(cell)}</td>;
+                      return (
+                        <TableCell key={dataKey}>{inline(cell)}</TableCell>
+                      );
                     })}
-                  </tr>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       );
     default:

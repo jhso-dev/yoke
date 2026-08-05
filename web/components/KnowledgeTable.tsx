@@ -1,6 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { recordLabel } from "../lib/citation";
 import { useT } from "../lib/i18n";
 import { headerCheckState } from "../lib/selection";
@@ -45,11 +53,11 @@ export function KnowledgeTable({
   return (
     <>
       <div className="scroll-x">
-        <table>
-          <thead>
-            <tr>
+        <Table>
+          <TableHeader>
+            <TableRow>
               {select && (
-                <th>
+                <TableHead>
                   <input
                     type="checkbox"
                     checked={head.checked}
@@ -66,47 +74,47 @@ export function KnowledgeTable({
                     aria-label={t.review.selectAll}
                     title={t.review.selectAll}
                   />
-                </th>
+                </TableHead>
               )}
-              <th>{t.common.type}</th>
-              <th>{t.chrome.summary}</th>
-              <th>{t.common.status}</th>
-              <th>{t.common.actor}</th>
-              <th>{t.common.source}</th>
-            </tr>
-          </thead>
-          <tbody>
+              <TableHead>{t.common.type}</TableHead>
+              <TableHead>{t.chrome.summary}</TableHead>
+              <TableHead>{t.common.status}</TableHead>
+              <TableHead>{t.common.actor}</TableHead>
+              <TableHead>{t.common.source}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {visible.map((r) => (
-              <tr key={r.id}>
+              <TableRow key={r.id}>
                 {select && (
-                  <td>
+                  <TableCell>
                     <input
                       type="checkbox"
                       checked={select.chosen.has(r.id)}
                       onChange={() => select.toggle(r.id)}
                       aria-label={`select ${r.id}`}
                     />
-                  </td>
+                  </TableCell>
                 )}
-                <td className="mono">{r.type}</td>
-                <td>
+                <TableCell className="mono">{r.type}</TableCell>
+                <TableCell>
                   <Link href={`/entity/?id=${encodeURIComponent(r.id)}`}>
                     {recordLabel(r)}
                   </Link>
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   <StatusBadge status={r.effectiveStatus} />
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   <Actor actor={r.actor} actorName={r.actorName} />
-                </td>
-                <td>
+                </TableCell>
+                <TableCell>
                   <Citation row={r} />
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
       {paginate && (
         <Pagination

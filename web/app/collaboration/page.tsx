@@ -12,6 +12,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { CopyCode } from "../../components/CopyCode";
 import { CreateButton } from "../../components/CreateButton";
 import { DirectionIcon } from "../../components/DirectionIcon";
@@ -160,41 +168,41 @@ function CollaborationBody() {
             <div className="empty">{t.collaboration.emptyList}</div>
           ) : (
             <div className="scroll-x">
-              <table>
-                <thead>
-                  <tr>
+              <Table>
+                <TableHeader>
+                  <TableRow>
                     {/* No key column: the list payload carries `summary`, not attributes, and one
                         request per row to fetch a key would be an N+1 for a label. The key is on the
                         record when you open it. */}
-                    <th>{t.common.title}</th>
-                    <th>{t.common.status}</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
+                    <TableHead>{t.common.title}</TableHead>
+                    <TableHead>{t.common.status}</TableHead>
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {rows.map((w) => (
-                    <tr key={w.id}>
-                      <td>
+                    <TableRow key={w.id}>
+                      <TableCell>
                         <Link
                           href={`/collaboration/?id=${encodeURIComponent(w.id)}`}
                         >
                           {recordLabel(w)}
                         </Link>
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <StatusBadge status={w.effectiveStatus} />
-                      </td>
-                      <td>
+                      </TableCell>
+                      <TableCell>
                         <Link
                           href={`/graph/?scope=${encodeURIComponent(w.id)}`}
                         >
                           {t.common.graph}
                         </Link>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </div>
@@ -256,16 +264,18 @@ function CollaborationBody() {
       <div className="panel">
         <div className="panel-head">{t.common.attributes}</div>
         <div className="scroll-x">
-          <table>
-            <tbody>
+          <Table>
+            <TableBody>
               {Object.entries(d.entity.attributes).map(([k, v]) => (
-                <tr key={k}>
-                  <th style={{ width: "22%" }}>{k}</th>
-                  <td>{typeof v === "string" ? v : JSON.stringify(v)}</td>
-                </tr>
+                <TableRow key={k}>
+                  <TableHead style={{ width: "22%" }}>{k}</TableHead>
+                  <TableCell>
+                    {typeof v === "string" ? v : JSON.stringify(v)}
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </div>
 
@@ -292,11 +302,11 @@ function CollaborationBody() {
           </div>
         ) : (
           <div className="scroll-x">
-            <table>
-              <tbody>
+            <Table>
+              <TableBody>
                 {memberPage.items.map((m) => (
-                  <tr key={m.id}>
-                    <td>
+                  <TableRow key={m.id}>
+                    <TableCell>
                       {isMissing(m) ? (
                         <span className="muted">{t.common.notInNamespace}</span>
                       ) : (
@@ -307,11 +317,11 @@ function CollaborationBody() {
                           {recordLabel(m)}
                         </Link>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             <Pagination
               page={memberPage.page}
               pages={memberPage.pages}
@@ -363,25 +373,25 @@ function CollaborationBody() {
           <div className="empty">{t.collaboration.attachedEmpty}</div>
         ) : (
           <div className="scroll-x">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t.common.direction}</th>
-                  <th>{t.common.relation}</th>
-                  <th>{t.common.record}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.common.direction}</TableHead>
+                  <TableHead>{t.common.relation}</TableHead>
+                  <TableHead>{t.common.record}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {attachedPage.items.map((e) => (
-                  <tr key={e.id}>
-                    <td className="mono">
+                  <TableRow key={e.id}>
+                    <TableCell className="mono">
                       <DirectionIcon
                         direction={e.dir === "out" ? "right" : "left"}
                         label={e.dir}
                       />
-                    </td>
-                    <td className="mono">{e.type}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="mono">{e.type}</TableCell>
+                    <TableCell>
                       {isMissing(e.other) ? (
                         <span className="muted">{t.common.notInNamespace}</span>
                       ) : (
@@ -391,11 +401,11 @@ function CollaborationBody() {
                           {recordLabel(e.other)}
                         </Link>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             <Pagination
               page={attachedPage.page}
               pages={attachedPage.pages}

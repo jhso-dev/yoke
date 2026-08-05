@@ -4,6 +4,14 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
@@ -41,16 +49,16 @@ export default function Tokens() {
           <div className="empty">{t.tokens.empty}</div>
         ) : (
           <div className="scroll-x">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t.tokens.name}</th>
-                  <th>{t.tokens.scopes}</th>
-                  <th>{t.common.when}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.tokens.name}</TableHead>
+                  <TableHead>{t.tokens.scopes}</TableHead>
+                  <TableHead>{t.common.when}</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {page.items.map((tok) => (
                   <TokenRow
                     key={tok.name}
@@ -59,8 +67,8 @@ export default function Tokens() {
                     onError={setError}
                   />
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             <Pagination
               page={page.page}
               pages={page.pages}
@@ -176,13 +184,13 @@ function TokenRow({
   const t = useT();
   const [busy, setBusy] = useState(false);
   return (
-    <tr>
-      <td className="mono">{token.name}</td>
-      <td className="mono">{token.scopes.join(", ")}</td>
-      <td className="mono">
+    <TableRow>
+      <TableCell className="mono">{token.name}</TableCell>
+      <TableCell className="mono">{token.scopes.join(", ")}</TableCell>
+      <TableCell className="mono">
         <Instant iso={token.created_at} />
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         <Button
           type="button"
           variant="secondary"
@@ -202,7 +210,7 @@ function TokenRow({
         >
           {busy ? t.common.saving : t.tokens.revoke}
         </Button>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
