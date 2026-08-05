@@ -12,7 +12,7 @@
 //   same policy as sqlite's vec0 table). One point per entity id (delete+insert = latest only).
 
 import { createHash } from "node:crypto";
-import { serializeText } from "../../core/embedding.js";
+import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { matchesTokens, rankByRelevance, tokenize } from "../../core/rank.js";
@@ -196,11 +196,7 @@ export class QdrantStorage implements StoragePort {
     }
     if (this.vectorDim !== null) {
       if (this.vectorDim !== dim) {
-        throw new Error(
-          `embedding dimension changed: the vector index holds ${this.vectorDim}-dimension vectors and this one is ${dim}. ` +
-            `A database has one vector space — re-index every record with the new model: ` +
-            `yoke backfill --embeddings --rebuild`,
-        );
+        throw dimensionMismatch(this.vectorDim, dim, false);
       }
       return;
     }
@@ -421,10 +417,7 @@ export class QdrantStorage implements StoragePort {
     // Reads get the same dimension check as writes: querying the old index with a new model's vector
     // would answer out of a different vector space, which looks like a result and is not one.
     if (this.vectorDim !== embedding.length) {
-      throw new Error(
-        `embedding dimension changed: the vector index holds ${this.vectorDim}-dimension vectors and this query is ${embedding.length}. ` +
-          `Re-index every record with the current model: yoke backfill --embeddings --rebuild`,
-      );
+      throw dimensionMismatch(this.vectorDim, embedding.length, true);
     }
     const res = (await this.req(
       "POST",

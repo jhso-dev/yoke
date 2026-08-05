@@ -16,16 +16,12 @@ export function splitChunks(text: string): string[] {
 }
 
 /** Local transcript dir → draft fact connector. Recursive; files are visited in sorted path order. */
-export function makeNotesConnector(opts: {
-  dir: string;
-  fsImpl?: Pick<typeof fs, "readdirSync" | "readFileSync">;
-}): Connector {
-  const f = opts.fsImpl ?? fs;
+export function makeNotesConnector(opts: { dir: string }): Connector {
   return {
     name: "meeting-notes",
     async *pull() {
       const files = (
-        f.readdirSync(opts.dir, {
+        fs.readdirSync(opts.dir, {
           recursive: true,
           encoding: "utf8",
         }) as string[]
@@ -33,7 +29,7 @@ export function makeNotesConnector(opts: {
         .filter((p) => /\.(txt|md)$/i.test(p))
         .sort();
       for (const rel of files) {
-        const text = f.readFileSync(join(opts.dir, rel), "utf8");
+        const text = fs.readFileSync(join(opts.dir, rel), "utf8");
         const chunks = splitChunks(text);
         for (let i = 0; i < chunks.length; i++) {
           const externalId = `file:${rel}#${i}`;

@@ -20,7 +20,7 @@
 // kuzu made, for the same reason.
 
 import neo4j, { type Driver, type Session } from "neo4j-driver-lite";
-import { serializeText } from "../../core/embedding.js";
+import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
@@ -289,11 +289,7 @@ export class Neo4jStorage implements StoragePort {
     }
     if (this.vectorDim !== null) {
       if (this.vectorDim !== dim) {
-        throw new Error(
-          `embedding dimension changed: the vector index holds ${this.vectorDim}-dimension vectors and this one is ${dim}. ` +
-            `A database has one vector space — re-index every record with the new model: ` +
-            `yoke backfill --embeddings --rebuild`,
-        );
+        throw dimensionMismatch(this.vectorDim, dim, false);
       }
       return;
     }
@@ -426,10 +422,7 @@ export class Neo4jStorage implements StoragePort {
     // Reads get the same dimension check as writes: querying the old index with a new model's vector
     // answers out of a different vector space, which looks like a result and is not one.
     if (this.vectorDim !== embedding.length) {
-      throw new Error(
-        `embedding dimension changed: the vector index holds ${this.vectorDim}-dimension vectors and this query is ${embedding.length}. ` +
-          `Re-index every record with the current model: yoke backfill --embeddings --rebuild`,
-      );
+      throw dimensionMismatch(this.vectorDim, embedding.length, true);
     }
     const rows = await this.run(
       `CALL db.index.vector.queryNodes($index, $k, $vec) YIELD node AS v, score

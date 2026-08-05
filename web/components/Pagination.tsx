@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useT } from "../lib/i18n";
 
-export const LIST_PAGE_SIZE = 20;
+const LIST_PAGE_SIZE = 20;
 
 export function usePage<T>(items: T[], pageSize = LIST_PAGE_SIZE) {
   const [page, setPage] = useState(0);

@@ -5,7 +5,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
-import { serializeText } from "../../core/embedding.js";
+import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
@@ -232,11 +232,7 @@ export class SqliteStorage implements StoragePort {
       return;
     }
     if (current !== null && current !== dim) {
-      throw new Error(
-        `embedding dimension changed: the vector index holds ${current}-dimension vectors and this one is ${dim}. ` +
-          `A database has one vector space — re-index every record with the new model: ` +
-          `yoke backfill --embeddings --rebuild`,
-      );
+      throw dimensionMismatch(current, dim, false);
     }
     if (current === null) {
       this.db.exec(
@@ -501,10 +497,7 @@ export class SqliteStorage implements StoragePort {
     // out of the OLD index — a plausible-looking neighbour list computed in a different vector space,
     // which is exactly the silent wrongness the loud failure exists to prevent.
     if (dim !== embedding.length) {
-      throw new Error(
-        `embedding dimension changed: the vector index holds ${dim}-dimension vectors and this query is ${embedding.length}. ` +
-          `Re-index every record with the current model: yoke backfill --embeddings --rebuild`,
-      );
+      throw dimensionMismatch(dim, embedding.length, true);
     }
     const query = Buffer.from(
       embedding.buffer,

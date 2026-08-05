@@ -55,7 +55,7 @@ const nsKey = (ns?: string | null) => ns ?? "";
 // Not `implements YokeStore`: this class deliberately omits `listHistory` (see the note near the
 // bottom), so the gap is declared once at `makeCompositeStore` instead of being asserted here and
 // then contradicted. Everything else it does implement is checked by the port type below.
-export class CompositeStorage implements StoragePort {
+class CompositeStorage implements StoragePort {
   /** Present only when the remote backend has the capability, so `typeof store.similar === "function"`
    * still reflects reality — commit() and the conformance suite both branch on it. */
   similar?: (embedding: Float32Array, k: number) => Promise<Entity[]>;

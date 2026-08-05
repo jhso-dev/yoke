@@ -32,7 +32,7 @@ export function makeEntity(over: Partial<Entity> = {}): Entity {
   };
 }
 
-export function makeRelation(
+function makeRelation(
   from: string,
   to: string,
   over: Partial<Relation> = {},

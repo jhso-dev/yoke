@@ -76,7 +76,7 @@ export async function personaQuery(
 
 /** Splits injected knowledge into the persona shape. type==='decision' → decisions, rest → facts.
  * The verified/stale/draft filtering already happened in inject — no second filter lives here. */
-export function classifyPersona(entities: Entity[]): PersonaResult {
+function classifyPersona(entities: Entity[]): PersonaResult {
   const decisions: Entity[] = [];
   const facts: Entity[] = [];
   for (const e of entities) (e.type === "decision" ? decisions : facts).push(e);

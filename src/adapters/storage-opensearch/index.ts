@@ -41,7 +41,7 @@
 // sentinel are different queries in OpenSearch too, and one sentinel across three adapters is one rule
 // to remember.
 
-import { serializeText } from "../../core/embedding.js";
+import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
@@ -322,24 +322,6 @@ export class OpenSearchStorage implements StoragePort {
     return dim;
   }
 
-  /** A database has ONE vector space. The dimension is declared in the mapping, so OpenSearch itself
-   * refuses a mismatched write — this check exists to make the refusal say what to do about it, and to
-   * apply the same rule to READS, where a wrong-width query would otherwise be answered out of an
-   * index built by a different model (SPEC "The vector index"). */
-  private dimensionError(
-    current: number,
-    given: number,
-    reading: boolean,
-  ): Error {
-    return new Error(
-      `embedding dimension changed: the vector index holds ${current}-dimension vectors and this ${
-        reading ? "query" : "one"
-      } is ${given}. ` +
-        `A database has one vector space — re-index every record with the new model: ` +
-        `yoke backfill --embeddings --rebuild`,
-    );
-  }
-
   private async ensureVectorIndex(dim: number, rebuild = false): Promise<void> {
     const name = this.idx(VECTORS);
     if (rebuild) {
@@ -349,7 +331,7 @@ export class OpenSearchStorage implements StoragePort {
     }
     const current = await this.readVectorDim();
     if (current !== null) {
-      if (current !== dim) throw this.dimensionError(current, dim, false);
+      if (current !== dim) throw dimensionMismatch(current, dim, false);
       return;
     }
     await this.req("PUT", `/${name}`, {
@@ -392,7 +374,7 @@ export class OpenSearchStorage implements StoragePort {
     const dim = await this.readVectorDim();
     if (dim === null) return [];
     if (dim !== embedding.length)
-      throw this.dimensionError(dim, embedding.length, true);
+      throw dimensionMismatch(dim, embedding.length, true);
     await this.ready(this.idx(VECTORS));
     const res = await this.req<SearchResponse<{ id: string }>>(
       "POST",
