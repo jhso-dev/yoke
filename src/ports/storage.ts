@@ -32,6 +32,21 @@ export interface TextQuery {
    * namespace; a value scopes results to that namespace only. Point reads (getEntity)
    * stay id-based — ids are globally unique ULIDs, so no ns check is needed there. */
   ns?: string | null;
+  /**
+   * How multi-term queries combine (SPEC search clause 8). Default `"auto"`: every term up to
+   * `AND_TERM_LIMIT`, any term beyond it. `"all"` requires every term at any length.
+   *
+   * Exists for callers that are performing a LOOKUP rather than asking a question — the connector
+   * idempotency probe searches for one exact `external_id` and then filters for it exactly, so
+   * recall past that one row is pure cost. Measured at 1M entities, a GitHub comment URL as an
+   * `"auto"` query: 292 ms and 1,000 materialized rows, against 34 ms and 0 under `"all"`.
+   *
+   * Deliberately not solved by a heuristic in the caller. Probing with "the id's most distinctive
+   * tokens" drops the discriminator often enough to matter (`file:notes/2026-07-01.md#3` loses the
+   * `#3`), and a lookup that silently misses re-ingests the record — the exact failure the probe
+   * exists to prevent. Two callers want two semantics, so the query says which.
+   */
+  terms?: "auto" | "all";
 }
 
 /**
@@ -82,6 +97,48 @@ export function page<T extends { id: string }>(
   return { items, next: items[items.length - 1].id };
 }
 
+/**
+ * Order a batch read's rows by the ids that were asked for — the `getEntities` ordering clause, in
+ * one place for the same reason `page()` is: four adapters obeying it separately is four chances to
+ * get it subtly wrong, and this one is invisible when wrong (a reshuffled ranking still looks like a
+ * ranking). Absent ids drop out; duplicates collapse, because Set iteration is insertion-ordered.
+ */
+export function orderByIds<T extends { id: string }>(
+  rows: T[],
+  ids: Iterable<string>,
+): T[] {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const out: T[] = [];
+  for (const id of new Set(ids)) {
+    const r = byId.get(id);
+    if (r) out.push(r);
+  }
+  return out;
+}
+
+/**
+ * Read many entities, using the backend's batch capability when it has one and the `getEntity` loop
+ * when it does not. Callers in core use THIS rather than probing `getEntities` themselves — one copy
+ * of the feature-detect, the same rule `listVersions` learned after `backfillAuthorship` grew its own
+ * (and settled for the wrong fallback).
+ *
+ * Returns rows in `ids` order with absent ids omitted, on both paths.
+ */
+export async function readEntities(
+  port: StoragePort,
+  ids: Iterable<string>,
+): Promise<Entity[]> {
+  const wanted = [...new Set(ids)];
+  if (wanted.length === 0) return [];
+  if (port.getEntities) return port.getEntities(wanted);
+  const out: Entity[] = [];
+  for (const id of wanted) {
+    const e = await port.getEntity(id);
+    if (e) out.push(e);
+  }
+  return out;
+}
+
 export interface StoragePort {
   /** Prepare the backend (create schema, etc.). Must be idempotent. */
   init(): Promise<void>;
@@ -92,6 +149,20 @@ export interface StoragePort {
   putEntity(e: Entity): Promise<void>;
   /** Latest version when version is omitted, the given version otherwise. null if absent. */
   getEntity(id: string, version?: number): Promise<Entity | null>;
+
+  /**
+   * Optional capability (v5.5) — the latest version of each id in ONE round trip.
+   *
+   * Exists because every read path in core is a loop of point reads, which costs nothing on sqlite
+   * and is a network round trip per iteration on a remote backend (SPEC "Batch point reads"). Callers
+   * use `readEntities(port, ids)` above rather than probing for this, so an adapter without it is
+   * correct and merely slower — an in-process backend has nothing to gain.
+   *
+   * Contract: rows come back in `ids` ORDER (use `orderByIds`), absent ids are omitted rather than
+   * returned as holes, and duplicate ids collapse to one row. There is deliberately no batch form
+   * taking versions — the version walks stay loops, see the SPEC section.
+   */
+  getEntities?(ids: string[]): Promise<Entity[]>;
 
   putRelation(r: Relation): Promise<void>;
   /** Relations connected to id. Both directions when dir is omitted; filter type with relType. */

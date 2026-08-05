@@ -7,9 +7,28 @@ Measured 2026-08-02 on one machine (darwin, node 22, better-sqlite3, WAL). Synth
 runs. Every measurement drove the **shipped** `SqliteStorage` and the **shipped** `inject()` —
 nothing was reimplemented for the benchmark, so a bad number here was a bad number in production.
 
-The seeder and benchmarks are not in the repo: they exist to produce this table, and a 4 GB fixture
-is not something to check in. What matters is reproducible from the numbers and the queries quoted
-below.
+**Reproducing this** (corrected 2026-08-05): the fixtures are not checked in — a 4 GB database is not
+something to commit — but the seeder now is, because "the numbers and the queries are quoted below" was
+not the same as being able to re-run them:
+
+```
+npm run build
+node scripts/seed-scale-corpus.mjs ./big1m.db 1000000 3000000
+```
+
+That claim held for a year and then did not. The generator lived in a scratch directory, which made
+every number here a measurement in provenance and a claim in practice — the same gap the demo corpus
+had until v5.5 promoted it into `scripts/`, and it surfaced the same way: someone went to delete the
+scratch files. Promoting it also fixed a real defect in it. The scratch copy carried its own
+`CREATE TABLE` block, and that copy had drifted: **no indexes**. Every table below that names an index
+as the fix was measured against a database the scratch seeder built without any, which happens to be
+the honest "before" — but a later run of the same script would have silently measured the same
+unindexed shape and called it "after". The committed version takes its schema from `SqliteStorage.init()`
+so it cannot drift again.
+
+The seeder bypasses the commit gate deliberately (a million records through `commit` is hours, and the
+point is to load the READ paths). Consequence worth knowing before reusing it: no `authored_by` edges,
+so it cannot measure anything that walks authorship.
 
 ## The headline
 

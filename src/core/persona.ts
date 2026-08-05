@@ -11,6 +11,7 @@
 // Time is injected (never call new Date() in core).
 
 import type { StoragePort } from "../ports/storage.js";
+import { identitySet } from "./identity.js";
 import { citation, inject } from "./inject.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity } from "./types.js";
@@ -36,12 +37,31 @@ export async function personaQuery(
   now: string,
   opts?: { query?: string; ns?: string | null },
 ): Promise<PersonaResult> {
-  const { items } = await inject(port, ontology, "", now, {
-    scope: personId,
-    scopeRel: "authored_by",
-    scopeDir: "in",
-    ns: opts?.ns,
-  });
+  // One person can hold several records (`same_as`, v5.6), and a persona built from one of them is
+  // half of that person's judgment presented as all of it. Anchor on each and union.
+  //
+  // ponytail: one anchored injection per record, sequentially. The set is a person's duplicates — two
+  // or three — not a corpus walk, so batching this before anything has felt it would be inventing a
+  // problem. `identitySet` is a no-op walk (one `neighbors` call) on the ordinary single-record case.
+  const ids = await identitySet(port, personId, opts?.ns);
+  const items = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const one = await inject(port, ontology, "", now, {
+      scope: id,
+      scopeRel: "authored_by",
+      scopeDir: "in",
+      ns: opts?.ns,
+    });
+    // Deduplicated by entity id: a record authored by two of the same person's records is one record.
+    // Order is per-anchor, anchors in `identitySet` order — deterministic, which is what a generated
+    // SKILL.md needs, rather than meaningful across the union.
+    for (const i of one.items)
+      if (!seen.has(i.entity.id)) {
+        seen.add(i.entity.id);
+        items.push(i);
+      }
+  }
   const q = opts?.query?.toLowerCase();
   return classifyPersona(
     items
@@ -56,7 +76,7 @@ export async function personaQuery(
 
 /** Splits injected knowledge into the persona shape. type==='decision' → decisions, rest → facts.
  * The verified/stale/draft filtering already happened in inject — no second filter lives here. */
-export function classifyPersona(entities: Entity[]): PersonaResult {
+function classifyPersona(entities: Entity[]): PersonaResult {
   const decisions: Entity[] = [];
   const facts: Entity[] = [];
   for (const e of entities) (e.type === "decision" ? decisions : facts).push(e);

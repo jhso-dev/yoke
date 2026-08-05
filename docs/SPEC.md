@@ -32,7 +32,7 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 ## Default ontology (seed)
 
 - entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`, `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). It declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature
-- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → collaboration, v4.0)
+- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → collaboration, v4.0), `same_as` (person → person, v5.6 — see "Identity across sources")
 - **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
 - **Bootstrap**: `yoke init` seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself). All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
@@ -43,6 +43,8 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 interface StoragePort {
   putEntity(e: Entity): Promise<void>        // append-only (new version row)
   getEntity(id: string, version?: number): Promise<Entity | null>
+  // optional (v5.5) — the latest version of many ids in one round trip. See "Batch point reads".
+  getEntities?(ids: string[]): Promise<Entity[]>
   putRelation(r: Relation): Promise<void>
   neighbors(id: string, relType?: string, dir?: 'in'|'out'): Promise<Relation[]>
   search(q: TextQuery): Promise<Entity[]>    // keyword (FTS)
@@ -135,6 +137,72 @@ feature-detects the extension and otherwise walks `getEntity(id, version)` — a
 async. Its order is **ascending by version**, matching sqlite's `listHistory`; before v5.2 the two
 disagreed while the contract said "any order", which is a latent display bug rather than a freedom.
 
+### Batch point reads (v5.5)
+
+Every read path in core was written as a loop of point reads, because on sqlite a point read is a
+prepared statement and costs nothing. On a remote backend each iteration is a **network round trip**,
+and the loops are not short: one briefing of a collaboration reads every entity one hop from the
+anchor, and `similar(embedding, k)` reads one entity per neighbour returned.
+
+`getEntities(ids)` is that loop as one call. It is **optional**, and core falls back to the
+`getEntity` loop, so a backend that omits it is correct and merely slower — an in-process backend
+(kuzu) has nothing to gain and does not implement it.
+
+Four clauses, each a conformance case:
+
+1. **Latest version of each id.** Same selection as `getEntity(id)` with no version.
+2. **In the order of `ids`**, not storage order. "Any order" is precisely the freedom that let
+   `listHistory` and the `listVersions` fallback disagree about version order for two releases, and
+   an adapter's own `similar` passes ids in *score* order — a batch read that reshuffled them would
+   silently destroy the ranking it was called to make cheaper.
+3. **Absent ids are omitted**, not returned as holes. A caller that needs to know which ids were
+   missing compares what it asked for against what came back; `verify`/`deprecate` do exactly that
+   and refuse the whole batch.
+4. **Duplicate ids collapse to one row.** Callers pass sets and arrays interchangeably.
+
+Measured through `inject()` and `verify()` against a live OpenSearch demo (504 records, 1,272
+relations, an anchor with 60 relations), by counting the adapter's HTTP calls with the same script on
+both sides of the change. **Every row returns the identical result** — same items, same omitted count,
+same hit count, same rows written:
+
+| one user action | round trips before | after |
+| --- | --- | --- |
+| briefing of one collaboration (`limit` 6) | 56 | **2** |
+| query injection (`limit` 20, hybrid) | 63 | **4** |
+| anchored query injection (`limit` 20) | 63 | **4** |
+| `similar(embedding, 60)` on its own | 61 | **2** |
+| bulk `verify` of 54 ids | 217 | **164** |
+
+The last row is the shape of what is left: its read half went 54 → 1, and the remaining 163 are
+`putEntity` calls. Writes are one call each because the port has no batch write and append-only means
+each is a distinct new row — a batch write is a different decision, not a continuation of this one.
+
+The graph routes were measured separately, because their cost turned out not to be where it looked.
+Same corpus, same anchor, and the responses are byte-identical before and after (compared by digest):
+
+| `GET /api/graph` | round trips before | after |
+| --- | --- | --- |
+| `?scope=…&depth=1` (61 nodes, 60 edges) | 183 | **4** |
+| `?scope=…&depth=2` (117 nodes, 194 edges) | 489 | **65** |
+| `?scope=…&depth=3` (517 nodes, 1,077 edges) | *the request storm failed the server* | **122** |
+| `?limit=300` (200 nodes, 300 edges) | *same* | **207** |
+
+**The traversal was not the problem.** Counted per port method against a loaded sqlite corpus, the
+depth-3 open made 1,715 calls of which **1,595 were actor-name resolution** — one point read per
+distinct author, and twice over, because the entity and relation serializers each built their own memo.
+The traversal itself was 117. A memo only helps when authors repeat, and in a real corpus each record
+has its own. So actor names now resolve in one batch read per response, shared by both serializers.
+
+What remains is one `neighbors` call per frontier node, issued 16 at a time. `neighbors` takes a single
+id and a batch form would be a fifth port method with four implementations behind it; the concurrency
+was the free half of that fix.
+
+**There is no batch form of `getEntity(id, version)`,** so the loops that walk *versions* of one id
+stay loops: `listVersions`'s fallback, and therefore as-of injection through it. That is a known
+remaining N+1 on remote backends, left standing because nothing has measured it — versions are a
+dense 1..n sequence and a governed record has two or three of them, whereas the loops closed above
+are proportional to the corpus.
+
 Enumeration is the only port method that can return the whole database, so its contract
 is tighter than the rest. Each clause below is a conformance case:
 
@@ -177,9 +245,87 @@ fifty (measured at 1M; `docs/SCALE.md`). Two clauses, both conformance cases:
 filter is the caller's and still runs after, so front adapters over-fetch — see the gate note in
 "context injection".
 
+8. **Long queries are a disjunction (v5.6).** Up to `AND_TERM_LIMIT` (3) tokens every term is
+   required, as before. From the fourth token on, a record matches when it contains **any** query
+   term, and clause 6's ranking decides what reaches the caller. Both halves are conformance cases.
+
+   The rule exists because the AND was answering a question nobody asks. A person searching a wiki
+   types two or three terms and means all of them; an agent's user asks a sentence, and a sentence is
+   an unsatisfiable conjunction — `결제대행사 승인 요청 타임아웃` matched 1 record where `타임아웃`
+   alone matched 3, and the full question matched 0. Measured over `eval/gold-set.json` before this
+   clause: **0 of 91 relevant records found on all 55 question-shaped queries**, against 90.9% recall
+   on the keyword-shaped ones. The keyword half was not broken; it was answering a different shape.
+
+   What makes the disjunction safe is that ranking arrived first. In v5.1 `search` returned storage
+   order, so the AND was the only precision the port had — loosening it then would have handed an
+   agent the oldest N records containing any one word. With clause 6 in force, the strictness moved
+   into the ranker, and requiring every term became redundant on top of it.
+
+   The threshold is boolean rather than a percentage on purpose: AND and OR are the two things all
+   five backends express natively, so one rule survives the conformance suite. FTS5 has no
+   minimum-should-match, and a `k`-of-`n` rule there is either a combinatorial expansion of every
+   `k`-subset or a post-filter over an OR — the second re-creates "asked for 50, received 29" that
+   clause 6's filter-before-limit exists to prevent. *ponytail: fixed threshold, promote to a
+   percentage rule if a measured corpus shows the top-k polluted by one-term matches.*
+
+   **`terms: "all"` opts back into the conjunction at any length**, for callers performing a lookup
+   rather than asking a question. The connector idempotency probe is the one in the tree: it searches
+   for a single known `external_id` and then filters for it exactly, so every row past that one is
+   cost. Measured at 1M entities, a GitHub comment URL (ten tokens) went from 34 ms and 0 rows under
+   the old AND to **292 ms and 1,000 materialized rows** under `"auto"`, per ingested item — and back
+   to **3 ms** under `"all"`. Not left to a heuristic in the caller, because probing with "the id's
+   most distinctive tokens" drops the discriminator (`file:notes/2026-07-01.md#3` loses the `#3`) and a
+   lookup that silently misses re-ingests the record, which is the one thing the probe prevents.
+
+`status`/`type`/`ns` filters, and the default bound, apply identically under either rule.
+
 Every implementation must pass the shared `ports/conformance/` test suite.
 v1 implementation: `storage-sqlite` (better-sqlite3 + FTS5 + sqlite-vec).
 v5.0 implementations that must pass: sqlite, kuzu, qdrant, sharded.
+
+## Identity across sources (v5.6)
+
+Two source systems describing the same colleague produce two `person` records, and nothing in the store
+says they are one person. An RDB read-mapping over `employees` beside a second over `contractors` is the
+case that occurs; a hand-filed person beside a mapped one is the other. The cost lands on the persona,
+which is *knowledge sourced from a specific person* — a duplicate record splits that judgment in half
+and the missing half is indistinguishable from knowledge the person never recorded.
+
+- **The link is knowledge, not configuration.** A `same_as` relation, filed through the ordinary gate
+  (`yoke link <alias> same_as <canonical>`), so it is versioned, attributable, reviewable and
+  reversible exactly like the claims around it. No new command and no config file: an identity claim is
+  a claim, and it belongs where the others are.
+- **Direction is for the reader; resolution follows both ways and transitively.** `identitySet(id)`
+  returns every record that is the same person, breadth-first from the query with each frontier sorted.
+  A resolver that honoured the arrow would answer one thing asked about the alias and another asked
+  about the canonical record, which is two accounts of one person. Cycles and diamonds are expected
+  input; the visited set is what makes them safe.
+- **Namespace-filtered before following.** `neighbors` takes no `ns`, so a link filed by one tenant
+  would otherwise reach another tenant's person. Same hole, same place, same fix as the vector half of
+  hybrid retrieval.
+- **`same_as` is marked `membership: true`.** It is the flag's behaviour rather than its name that
+  applies: this edge is not knowledge, so a briefing anchored on a person must not hand an agent that
+  person's *other record* as a finding.
+- **Persona is the consumer.** `personaQuery` anchors on each record in the set and unions the results,
+  deduplicated by entity id.
+- **No fuzzy matching, ever.** Nothing infers identity from a similar name, a shared email domain or an
+  embedding distance. A wrong merge attributes one person's judgment to another under their name, it is
+  invisible in the output, and no reader of a persona is positioned to catch it. This is the same rule
+  that keeps `github-pr` from minting a person for a GitHub login, and for the same reason.
+
+**What this deliberately does not do**, both stated because the roadmap item implied them:
+
+- **Connector handles are not persons.** A Slack `author` and a GitHub login are stored as attribute
+  strings, not `person` records — so the pre-v5.6 situation was not "three records", it was one plus
+  two opaque strings. Minting a person per unrecognised handle would fill the store with junk-drawer
+  people; deciding when a handle deserves one is a policy this document does not yet have, and
+  `same_as` is the mechanism that policy would resolve *through* once it exists.
+- **No canonical record is elected.** Nothing rewrites an alias's name to the canonical one on a
+  screen, because an alias's own `name` is also a true name for that person. *ponytail: add election
+  (no outgoing `same_as`, ties by lowest id) when a surface actually shows one person twice.*
+
+**Migration.** `same_as` is a seed type, and the seed applies to new databases only. An existing
+database gains it through the documented path, `yoke ontology add-type`, like every other seed change.
 
 ## Commit gate (the single write path)
 
@@ -238,9 +384,21 @@ every injection was keyword-only no matter how the embedder was configured. Clos
   cosine are not commensurable, and neither is absolute cosine across embedding models
   (docs/RESEARCH.md, measured 2026-08-03) — so a weighted sum of the two scores would be arithmetic
   on incomparable units. RRF only reads positions. `60` is the published constant (Cormack 2009),
-  not a tuned one; there is no per-half weight to configure and deliberately no re-ranker.
+  not a tuned one; there is deliberately no re-ranker.
   **When one half returns nothing the fused order IS the other half's** — fusion buys robustness only
   where both halves retrieve, which is measured rather than assumed (docs/RESEARCH.md 2026-08-04).
+- **The keyword half carries weight 0.1 against the vector half's 1 (v5.6).** Published RRF has no
+  weights, and this document said there was none to configure; that held only while search clause 8's
+  disjunction did not exist. Once a long query became a disjunction, the keyword half stopped returning
+  nothing and started returning loosely-related records in confident rank order — and at equal weight
+  its rank 1 outranked a vector rank 1 the keyword half had never seen. Measured over
+  `eval/gold-set.json`, that cost the configured-embedder path **12 points of accuracy@1** while
+  clause 8 was gaining 43 on the keyword-only path. The weight applies to RANKS, so the objection above
+  is untouched: still no arithmetic on incomparable scores.
+  The value was swept, not chosen, and 0.05–0.2 are indistinguishable on accuracy@1 — a plateau is what
+  makes a tuned constant defensible at all. *ponytail: one corpus, one language, one model. A floor for
+  the weaker half, not an optimum; if two corpora disagree the answer is a per-deployment setting, not
+  a better number in `core/inject.ts`.*
 - **`null` from the embedder returns the FTS list untouched**, in the same order as before this
   existed. An unconfigured or unreachable provider must be indistinguishable from v5.2 behaviour, and
   that is the guarantee the constant-vs-fused test pins.
@@ -359,6 +517,92 @@ entry points**: a `collaboration` anchor is the shared working context, a `perso
   Default is every relation type, both directions — right for a collaboration, whose point is
   everything attached to the work.
 
+#### Multi-hop (v5.7)
+
+`opts.depth` (default **1**) is how many relation hops the anchor walk takes. Only meaningful with
+`scope`. At `depth: 1` every byte of the result is what v4.0 produced — the generalisation must not
+move the default.
+
+Why it exists: a `decision` carrying `supersedes` and rejected alternatives is a multi-hop record by
+construction, and multi-hop is one of the three question shapes where graph retrieval measurably beats
+vector RAG (docs/RESEARCH.md §5). "What replaced the thing that replaced this" is two hops, and one hop
+answered it with silence.
+
+- **Distance is a priority signal, not a relevance one**, which is the same thing v4.0 already said
+  about anchoring — this only grades what was binary. With a query: candidates are partitioned by
+  distance ascending (1, then 2, … then everything the walk never reached), and fusion still owns the
+  order *within* each band. Without a query: distance leads the briefing sort, ahead of
+  verified-before-draft and freshness. A hop-3 record is context; a hop-1 record is the subject.
+- **A record is held at its shortest distance.** Cycles and diamonds are ordinary graph shapes here,
+  not corruption, and a record reachable in 1 hop and again in 3 is a 1-hop record.
+- **`authored_by` leaving *any* node is skipped, not just the anchor's.** v4.0 dropped the anchor's own
+  author as metadata about the anchor. At depth 2 the un-generalised rule hands an agent the author of
+  every neighbour, which is the roster problem `membership: true` exists to prevent, arriving through a
+  relation type nobody marked. Authorship pointing *at* a node is still the persona hop and stays.
+- **`membership` is skipped at every hop**, on the same rule as depth 1: unless the caller named that
+  type in `scopeRel`.
+- **The walk is bounded, and never silently.** `WALK_BUDGET = 128` nodes have their edges expanded,
+  breadth-first, so what a budget cut removes is always the farthest band. Frontiers are expanded in
+  `id` order so a truncated walk is reproducible rather than dependent on the order a backend returns
+  relations in (invariant 2, the same reason the briefing sort has an `id` tiebreak). `inject` returns
+  `walk: { depth, nodes, truncated }` whenever it walked more than one hop — the deepest distance
+  actually reached, the size of the hop set, and whether the budget stopped it. Front adapters turn
+  those numbers into words, exactly as they do for `omitted`: an agent that reads a budget-truncated
+  two-hop walk as the whole neighbourhood answers from part of the graph without knowing it.
+- **Deeper walks surface sibling anchors.** A record attached to two collaborations makes the second
+  collaboration a hop-2 result, so at depth 3 the demo corpus returns `collaboration` records among the
+  knowledge. That is not new — anchoring on a record already returned its collaboration in v4.0 — and
+  the type is in the output, so a reader can tell context from subject.
+- **Stated ceiling: one `neighbors` call per expanded node, sequential.** At `depth: 1` that is the
+  single call it always was. Measured on the demo corpus from one collaboration: depth 1 → 29 records
+  injected in **1** call, depth 2 → 37 (57 reached) in **49**, depth 3 → 50 (70 reached) in **58**,
+  depth 4 → 131 (207 reached) in **71**. Depth 4 is 26% of the whole corpus, which is the practical
+  answer to how deep is useful: past 3, "everything is context" and nothing is. The batch form would be a sixth port method with five implementations
+  behind it, and `WALK_BUDGET` already bounds the count — measure a real multi-hop workload before
+  buying that.
+
+### Global aggregation (v5.7)
+
+The third question shape graph retrieval measurably wins on (docs/RESEARCH.md §5), after multi-hop and
+temporal. **"What does this organisation actually know?" is unanswerable by retrieval at any limit** —
+every retrieval path returns a top-k of a query, and the question is about the shape of the whole.
+
+`overview(port, ontology, now, { ns, top })` → type/status counts, a relation census, the most-connected
+records, and who the verified knowledge came from. Exposed as `yoke overview` and `yoke_overview`.
+
+- **Structure, never a summary.** GraphRAG answers this shape by LLM-summarising graph communities.
+  yoke does not: this document already refuses synthesis and results framed as an answer, and a
+  summary of knowledge is a claim nobody verified. What comes back is a map — counts, degrees, ids —
+  and the tool description says so, because an agent handed prose would quote it.
+- **Counts are by EFFECTIVE status.** `stale` is computed from the ontology's TTL at read time and
+  stored nowhere, so this is the only place the difference between "stored verified" and "injectable
+  today" appears as a number. Consequence: two overviews of an unchanged corpus at two instants
+  legitimately differ.
+- **Authorship comes off the `authored_by` edge, never `provenance.actor`.** `verify` replaces
+  provenance, so on a verified record that field names whoever *promoted* it — an authors list built
+  from it ranks reviewers, calls them authors, and in a corpus with a single reviewer credits
+  everything to one person. The gate mirrors the real author into an edge and promoting does not pass
+  through the gate, so the edge is the durable claim. It is also what `personaQuery` anchors on, so an
+  overview naming persona candidates and a persona built from one of them cannot disagree.
+- **Degree excludes `authored_by` and `membership` types.** Every record has exactly one author edge,
+  so counting them adds a constant to everything and puts *people* at the top of a list meant to say
+  what knowledge clusters — the "a roster is not knowledge" rule, one surface over. The relation
+  **census** still counts every type: that answers "what is in the store", and the per-type breakdown
+  is where a reader sees the split.
+- **`top` cuts the two ranked lists and never the counts.** An aggregate over a window is not an
+  aggregate.
+- **Stated ceiling: two full enumeration scans plus one batch read, paged at 500.** Not sampled, on
+  purpose — a quietly approximate count is worse than a slow one. Measured: **29 ms / 5 pages** on the
+  517-record demo corpus, **12.2 s / 8,010 pages / 420 MB RSS** at 1M entities and 3M relations. Memory
+  is the id sets, not the records: the first draft held every entity so the hub list could carry full
+  records and cost **511 MB**, which is a read whose memory is the size of the corpus. Only `top` of
+  them are ever returned, so they are re-read by id at the end. *ponytail: no incremental counters and
+  no cache, and the id sets are still O(entities) — at 10M this needs counting in the backend rather
+  than in core. Add either when a deployment runs this often enough to notice.*
+- A corpus organised around anchor records will report those anchors as its hubs — on the demo corpus
+  all ten are `collaboration` records. That is a true description of it, not a defect, and the type
+  column is how a reader tells.
+
 **Capture-side linking**: `yoke add --scope <id>`, and the `scope` argument on `yoke_commit` /
 `yoke_record_decision`, link new knowledge to a scope entity via a `relates_to` relation created
 through a second gate-passing commit at the front tier (core `commit` is untouched).
@@ -388,6 +632,7 @@ picks the wrong scope.
 | `yoke_record_decision` | a commit shortcut dedicated to decision entities |
 | `yoke_persona` | person-anchored injection ("what would Alex do") |
 | `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
+| `yoke_overview` | the shape of the whole corpus — structure, never a summary (see "Global aggregation") |
 
 ## HTTP API (v5.0 contract)
 
@@ -445,6 +690,12 @@ Rules that hold for every route:
   exposes the port's `search()` to `browse`, returning summary rows and writing a `search` audit
   row. What stays refused is synthesis, a second ranker, and results framed as an answer — see the
   second amendment in WEB-UI.md.
+- **A 403 names the scope that would have granted the call** (v5.6): `{ error: "forbidden: this
+  credential has no 'verify' scope[ for type 'x'[ in namespace 'y']]", required, type?, ns? }`. Only
+  the required grant is named, never the credential's own scopes — what the caller holds does not
+  change what they must go and ask for, and saying it would mean threading the principal into the
+  handler for nothing. The body was `{"error":"forbidden"}` until a read-only token was actually
+  pointed at `POST /api/verify` and the refusal turned out to say nothing a person could act on.
 - **Any route that returns knowledge attributes writes an audit row.** A preview is an
   injection: reading through the browser leaves the same trail as reading through MCP
   (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing
@@ -535,7 +786,8 @@ yoke graph [--limit n]     # the entity/relation graph, bounded, truncation repo
 yoke review [--stale] [--type t]   # list drafts; --stale lists verified records past their TTL
 yoke verify <id...>        # promote (batch), refresh last_confirmed — also how a stale record is re-confirmed
 yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction)
-yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]   # retrieve, with citations
+yoke inject <query> [--include-draft] [--limit n] [--scope id] [--depth n] [--as-of ts]   # retrieve, with citations
+yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
 yoke conflicts             # list conflicts_with
 yoke history <id>          # every version of one id (the append-only rows)
 yoke audit [--since ts] [--limit n] [--shape]   # the injection / governance audit trail; --shape counts workload composition

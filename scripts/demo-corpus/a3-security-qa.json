@@ -1,0 +1,477 @@
+{
+  "aged": [
+    {
+      "key": "vuln-sla-critical-24h",
+      "type": "fact",
+      "author": "person:no-taekyung",
+      "collab": "collab:security-compliance",
+      "age_days": 195,
+      "size": "line",
+      "attributes": {
+        "title": "Critical 취약점 패치 SLA 24시간",
+        "statement": "2025년 4분기 기준 Critical 등급 취약점은 발견 후 24시간 이내 패치 배포가 SLA였다."
+      }
+    },
+    {
+      "key": "vuln-sla-high-7d",
+      "type": "fact",
+      "author": "person:no-taekyung",
+      "collab": "collab:security-compliance",
+      "age_days": 205,
+      "size": "line",
+      "attributes": {
+        "title": "High 취약점 패치 기한 7영업일",
+        "statement": "지난 분기 기준 High 등급 취약점은 발견 후 7영업일 이내 패치하는 게 기한이었다."
+      }
+    },
+    {
+      "key": "codefreeze-48h-old",
+      "type": "fact",
+      "author": "person:oh-taeyang",
+      "collab": "collab:qa-release",
+      "age_days": 215,
+      "size": "line",
+      "attributes": {
+        "title": "정기 릴리스 코드프리즈 48시간",
+        "statement": "지난 분기까지는 정기 릴리스 전 48시간 동안 main 브랜치 코드프리즈를 걸었다."
+      }
+    },
+    {
+      "key": "qa-coverage-baseline-70",
+      "type": "fact",
+      "author": "person:mun-jihu",
+      "collab": "collab:qa-release",
+      "age_days": 230,
+      "size": "short",
+      "attributes": {
+        "title": "머지 게이트 커버리지 기준선 70%",
+        "statement": "지난 분기(2025년 3분기) 기준 신규 PR 머지 게이트의 라인 커버리지 기준선은 70%였다. CI에서 Jest 커버리지 리포트(coverage/lcov.info)를 파싱해 70% 미만이면 머지를 막았고, 이후 기준이 상향 조정됐다는 얘기가 있어 최신 값 확인이 필요하다."
+      }
+    },
+    {
+      "key": "svc-token-lifetime-180d-old",
+      "type": "fact",
+      "author": "person:baek-donghyun",
+      "collab": "collab:security-compliance",
+      "age_days": 248,
+      "size": "para",
+      "attributes": {
+        "title": "서비스 계정 토큰 수명 180일 (구 정책)",
+        "statement": "2025년 4분기 기준 서비스 계정(CI 배포 계정, 배치 잡 계정 포함) 토큰 수명은 발급 후 180일이었다. 당시에는 IAM 콘솔에서 만료 30일 전에 담당자에게 메일로 회전 알림을 보내는 방식이었고, 자동 회전 스크립트는 아직 붙어 있지 않았다. 회전 담당은 발급받은 개발자 본인이었고, 팀 단위로 취합해 리마인드하는 절차는 없었다. 만료를 놓쳐도 즉시 차단되지는 않고, 다음 분기 IAM 리뷰 때 미회전 목록으로 걸러내는 식이었다. 이후 제로트러스트 전환 작업이 진행되면서 토큰 수명 정책이 다시 논의된다는 이야기가 있었는데, 현재 실제 적용된 값이 무엇인지는 재확인이 필요하다. 당시 기준 문서 경로는 wiki/security/token-policy-2025q4 였다."
+      }
+    },
+    {
+      "key": "secret-storage-vault-kv1",
+      "type": "fact",
+      "author": "person:baek-donghyun",
+      "collab": "collab:security-compliance",
+      "age_days": 305,
+      "size": "line",
+      "attributes": {
+        "title": "시크릿 저장은 Vault KV v1",
+        "statement": "작년 하반기까지 서비스 시크릿은 Vault KV v1 엔진(path: secret/services/*)에 저장했다."
+      }
+    },
+    {
+      "key": "iam-review-cycle-old-owner",
+      "type": "fact",
+      "author": "person:oh-yuna",
+      "collab": "collab:security-compliance",
+      "age_days": 320,
+      "size": "line",
+      "attributes": {
+        "title": "IAM 리뷰는 인프라 온콜이 겸임",
+        "statement": "작년 하반기 기준 IAM 접근 권한 리뷰는 분기 1회였고, 담당은 인프라팀 온콜이 겸임했다."
+      }
+    },
+    {
+      "key": "sast-tool-sonarqube-79",
+      "type": "fact",
+      "author": "person:no-taekyung",
+      "collab": "collab:security-compliance",
+      "age_days": 340,
+      "size": "line",
+      "attributes": {
+        "title": "정적분석 게이트는 SonarQube 7.9",
+        "statement": "작년 하반기까지 정적분석 게이트는 SonarQube 7.9 기준 Blocker 0개, Critical 5개 이하였다."
+      }
+    },
+    {
+      "key": "breach-reporting-line-before-reorg",
+      "type": "fact",
+      "author": "person:oh-yuna",
+      "collab": "collab:security-compliance",
+      "age_days": 355,
+      "size": "short",
+      "attributes": {
+        "title": "옛 침해사고 보고 라인 (조직 개편 전)",
+        "statement": "작년 하반기 기준 침해사고 최초 보고 라인은 인프라 온콜 → 보안 엔지니어 순이었고, 컴플라이언스팀에 동시 통지하는 규정은 없었다. 이후 보안 아키텍트 직무가 신설되면서 보고 라인이 바뀌었다는 얘기가 있어 현재 라인이 맞는지 재확인이 필요하다."
+      }
+    },
+    {
+      "key": "vuln-severity-4tier-eks127",
+      "type": "fact",
+      "author": "person:no-taekyung",
+      "collab": "collab:security-compliance",
+      "age_days": 410,
+      "size": "line",
+      "attributes": {
+        "title": "취약점 등급은 4단계(P0~P3)",
+        "statement": "이전 클러스터(EKS 1.27) 운영 시절 취약점 등급은 4단계(P0~P3) 체계였다."
+      }
+    },
+    {
+      "key": "settlement-batch-token-180d",
+      "type": "fact",
+      "author": "person:baek-donghyun",
+      "collab": "collab:security-compliance",
+      "age_days": 430,
+      "size": "short",
+      "attributes": {
+        "title": "정산 배치 계정 토큰 수명 180일",
+        "statement": "정산 배치 계정 토큰 수명은 180일이었고, 만료 시 SRE 온콜(오태민 백업 포함)이 콘솔에서 수동으로 재발급했다. 자동 알림 없이 개인 캘린더 리마인더로만 관리했던 시절이라 담당자가 휴가라도 가면 재발급이 며칠씩 밀리곤 했다. 지금 실제 회전 주기와 담당 체계가 그대로인지 확인이 필요하다."
+      }
+    },
+    {
+      "key": "decision-vuln-4tier-scale",
+      "type": "decision",
+      "author": "person:no-taekyung",
+      "collab": "collab:security-compliance",
+      "age_days": 460,
+      "size": "short",
+      "attributes": {
+        "conclusion": "취약점 등급을 CVSS 단일 점수 대신 4단계(P0~P3) 자체 등급으로 재정의하기로 결정했다.",
+        "rationale": "CVSS 점수만으로는 팀 내부 우선순위 판단이 어렵고, 운영 영향도와 데이터 노출 범위를 함께 반영한 자체 등급이 필요하다고 판단했다.",
+        "rejected_alternatives": ["CVSS 점수 그대로 사용", "3단계(P0~P2) 등급"]
+      }
+    },
+    {
+      "key": "decision-sast-tool-sonarqube",
+      "type": "decision",
+      "author": "person:no-taekyung",
+      "collab": "collab:security-compliance",
+      "age_days": 490,
+      "size": "short",
+      "attributes": {
+        "conclusion": "정적분석 게이트 도구로 SonarQube를 채택하고 Blocker 0개, Critical 5개 이하를 게이트 기준으로 정했다.",
+        "rationale": "기존 도구(체크마르크스)는 라이선스 비용이 높고 CI 연동이 번거로워, 무료 커뮤니티 에디션으로 전환 가능한 SonarQube를 택했다.",
+        "rejected_alternatives": [
+          "Checkmarx 유지",
+          "정적분석 게이트 자체를 없애고 코드리뷰로만 대체"
+        ]
+      }
+    },
+    {
+      "key": "secret-storage-parameter-store-2yr",
+      "type": "fact",
+      "author": "person:baek-donghyun",
+      "collab": "collab:security-compliance",
+      "age_days": 720,
+      "size": "para",
+      "attributes": {
+        "title": "2년 전 시크릿은 Parameter Store에 저장",
+        "statement": "2년 전에는 서비스 시크릿을 Vault 대신 AWS Systems Manager Parameter Store(SecureString)에 저장했다. 경로 규칙은 /prod/<service-name>/<key> 형태였고, 접근 권한은 IAM 정책으로 서비스별 롤에 직접 붙였다. 시크릿 로테이션은 자동화돼 있지 않아 분기마다 수동으로 값을 갱신했고, 갱신 이력은 별도 스프레드시트로 관리했다. 신규 시크릿을 추가할 때마다 보안팀에 슬랙으로 요청해 등록해야 했고, 처리까지 보통 하루 이틀이 걸렸다. 이후 Vault로 전환하면서 저장 방식과 접근 체계가 모두 바뀌었다고 들었는데, 당시 마이그레이션이 실제로 어디까지 끝났는지는 재확인이 필요하다. 문서 경로는 wiki/security/secrets-2yr-ago 였다."
+      }
+    },
+    {
+      "key": "decision-iam-review-cadence-old",
+      "type": "decision",
+      "author": "person:oh-yuna",
+      "collab": "collab:security-compliance",
+      "age_days": 780,
+      "size": "short",
+      "attributes": {
+        "conclusion": "IAM 접근 리뷰 주기를 반기 1회로 정하고, 담당을 인프라팀 온콜로 지정했다.",
+        "rationale": "당시 보안 전담 인력이 없어 인프라팀이 겸임할 수밖에 없었고, 반기 주기로도 감사 요구 수준을 충족한다고 판단했다. 리뷰 결과는 스프레드시트로만 남기고 별도 시스템화는 하지 않았다.",
+        "rejected_alternatives": [
+          "월 1회 리뷰",
+          "보안 담당자를 별도로 채용할 때까지 리뷰 보류"
+        ]
+      }
+    },
+    {
+      "key": "decision-codefreeze-1week-old",
+      "type": "decision",
+      "author": "person:jang-mirae",
+      "collab": "collab:qa-release",
+      "age_days": 850,
+      "size": "para",
+      "attributes": {
+        "conclusion": "정기 릴리스 전 코드프리즈 기간을 1주일로 설정하기로 결정했다.",
+        "rationale": "당시에는 릴리스가 4주 주기였고 QA 인력이 지금보다 적어서, 회귀 테스트를 충분히 돌리려면 최소 1주일의 프리즈 기간이 필요하다고 판단했다. 프리즈 기간 동안은 핫픽스만 예외적으로 허용했고, 예외 승인은 테크리드 1인이 맡았다. 프리즈 시작과 동시에 스테이징 환경을 잠그고 회귀 테스트 스위트(약 1200케이스)를 순차 실행했는데, 실행 시간만 꼬박 2~3일이 걸렸다. 남은 3~4일은 발견된 결함을 고치고 재검증하는 데 썼고, 결함이 많이 나온 주에는 프리즈를 하루 이틀 더 연장하기도 했다. 이후 릴리스 주기가 2주로 단축되면서 이 1주일짜리 프리즈 규칙이 그대로 유지되고 있는지는 확인이 필요하다.",
+        "rejected_alternatives": [
+          "3일 코드프리즈",
+          "코드프리즈 없이 기능 플래그로만 제어"
+        ]
+      }
+    },
+    {
+      "key": "decision-vuln-severity-cvss-only-3yr",
+      "type": "decision",
+      "author": "person:no-taekyung",
+      "collab": "collab:security-compliance",
+      "age_days": 1150,
+      "size": "short",
+      "attributes": {
+        "conclusion": "취약점 심각도를 CVSS 점수 그대로 쓰고 별도 등급 체계 없이 점수 구간(9.0+, 7.0+, 4.0+)으로만 우선순위를 나눴다.",
+        "rationale": "당시 보안 인력이 1명뿐이라 별도 체계를 운영할 여력이 없었고, CVSS 점수 구간을 그대로 쓰는 게 가장 단순했다.",
+        "rejected_alternatives": [
+          "자체 등급 체계 설계",
+          "외부 벤더 취약점 관리 툴 도입"
+        ]
+      }
+    },
+    {
+      "key": "decision-breach-line-single-3yr",
+      "type": "decision",
+      "author": "person:oh-yuna",
+      "collab": "collab:security-compliance",
+      "age_days": 1300,
+      "size": "para",
+      "attributes": {
+        "conclusion": "침해사고 발생 시 최초 보고는 인프라 팀장에게 구두로 하고, 그 팀장이 CTO에게 직접 보고하는 단일 라인으로 정했다.",
+        "rationale": "당시에는 보안·컴플라이언스 조직이 따로 없었고 인프라팀이 보안 업무까지 겸임하던 시절이라, 별도 컴플라이언스 보고 라인을 만들 실익이 없다고 판단했다. 사고 등급 분류도 없이 '심각/경미' 2단계로만 나눴고, 경미한 사고는 주간 회의에서 구두로만 공유했다. 사고 대응 문서화도 표준 양식 없이 팀장 개인 노트로 관리됐고, 외부 고객 공지 여부도 그때그때 팀장이 즉석에서 판단했다. 이후 조직이 커지면서 보안·컴플라이언스 부서가 신설됐고 GRC 매니저 직무도 그때 생겼는데, 이 구두 보고 라인이 언제 공식적으로 폐지됐는지 문서로 남아있지 않아 확인이 필요하다.",
+        "rejected_alternatives": [
+          "컴플라이언스팀 동시 통지 규정 신설",
+          "사고 등급을 3단계 이상으로 세분화"
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "key": "conflict-p0-deadline-security-vs-qa",
+      "topic": "Critical 이슈 처리 기한 — 취약점 SLA vs 버그 심각도 기준",
+      "a": {
+        "type": "fact",
+        "author": "person:no-taekyung",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "Critical 취약점 패치 SLA는 24시간",
+          "statement": "보안팀 기준 Critical(P0) 취약점은 발견 시각으로부터 24시간 이내 패치 배포까지 완료해야 SLA를 지킨 것으로 본다. 외부 공개 취약점(CVE)이거나 익스플로잇 가능성이 확인된 경우 예외 없이 적용되며, 핫픽스 파이프라인(release-hotfix 브랜치)을 우선 사용한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:mun-jihu",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "P0 버그 처리 기한은 영업일 3일",
+          "statement": "QA팀 버그 심각도 기준으로 P0(치명적 결함, 서비스 전체 장애 또는 데이터 정합성 이슈)는 접수 후 영업일 3일 이내 수정·배포를 목표 기한으로 잡는다. 보안 취약점도 버그 트래커에 등록되면 동일한 P0 트랙을 타고, 별도 SLA 트랙은 QA 프로세스 문서에 없다."
+        }
+      }
+    },
+    {
+      "key": "conflict-svc-token-lifetime-policy-vs-practice",
+      "topic": "서비스 계정 토큰 수명 — 보안 정책 vs 운영 실제 값",
+      "a": {
+        "type": "fact",
+        "author": "person:baek-donghyun",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "서비스 계정 토큰 수명은 90일",
+          "statement": "제로트러스트 전환 정책상 서비스 계정(CI/CD, 배치 잡 포함) 토큰의 최대 수명은 90일로 못박혀 있고, IAM 콘솔에서 만료 30일 전 자동 알림이 발급 담당자에게 간다. 90일을 넘겨 사용 중인 토큰이 발견되면 보안팀이 강제 회전(revoke)한다. 예외는 없으며, 분기별 IAM 리뷰 때 만료 초과 토큰 목록을 별도로 집계해 감사 자료로 남긴다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:han-jiwoo",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "서비스 계정 토큰은 실제로 1년 주기 회전",
+          "statement": "주문 서비스 배포용 서비스 계정 토큰은 실제 운영에서 1년(365일) 주기로 회전한다. 분기마다 회전하면 배포 파이프라인 재인증 작업이 반복돼 부담이 커서, 팀 내부적으로는 만료 전 자동 갱신 스크립트(rotate-token.sh)를 크론으로 걸어 두고 90일 정책은 실제로 지켜지지 않고 있다. 보안팀 감사 때 지적된 적은 아직 없다."
+        }
+      }
+    },
+    {
+      "key": "conflict-coverage-baseline-release-vs-mobile",
+      "topic": "QA 커버리지 기준선 — 릴리스 게이트 vs 모바일팀 실제 기준",
+      "a": {
+        "type": "fact",
+        "author": "person:jang-mirae",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "머지 게이트 커버리지 기준선 80%",
+          "statement": "릴리스 프로세스 표준상 신규 PR의 라인 커버리지 기준선은 80%이며, CI 게이트(coverage-gate.yml)가 80% 미만이면 머지를 차단한다. 예외는 릴리스 엔지니어 승인이 있어야만 허용되고, 예외를 쓴 PR은 다음 스프린트 회고 때 별도로 집계해 보고한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:han-dojin",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "Android 모듈 커버리지 기준은 55%",
+          "statement": "Android 모듈은 UI 테스트 인프라(Espresso 환경)가 아직 불안정해 팀 내부적으로 커버리지 기준선을 55%로 낮춰 운영 중이다. 전사 80% 기준을 그대로 적용하면 대부분의 PR이 막혀서, 모바일 PM과 합의해 별도 기준을 쓰고 있다."
+        }
+      }
+    },
+    {
+      "key": "conflict-security-review-mandatory-vs-optional",
+      "topic": "보안 리뷰 필수 여부를 두고 갈리는 기록",
+      "a": {
+        "type": "fact",
+        "author": "person:no-taekyung",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "PII 처리 변경은 보안 리뷰 필수",
+          "statement": "개인정보(PII)를 다루는 코드 변경은 배포 전 AppSec 보안 리뷰를 통과해야 하며, 리뷰 미완료 상태로는 배포 파이프라인이 승인 단계에서 막히도록 설계돼 있다. 예외 승인 권한은 보안팀에만 있고, 리뷰 요청은 최소 영업일 2일 전에 접수해야 순번을 보장받는다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:oh-taeyang",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "보안 리뷰는 권고 사항, 릴리스 매니저 재량",
+          "statement": "실제 릴리스 프로세스에서는 보안 리뷰가 체크리스트 항목 중 하나일 뿐이고, 일정이 급한 경우 릴리스 매니저 재량으로 '보안 리뷰 보류' 태그를 달고 우선 배포한 뒤 사후 리뷰를 받는 패스트트랙이 통용된다. 지난 몇 차례 릴리스에서도 이 태그가 실제로 쓰였다."
+        }
+      }
+    },
+    {
+      "key": "conflict-release-approver-identity",
+      "topic": "릴리스 승인자가 누구인지에 대한 두 부서의 다른 기록",
+      "a": {
+        "type": "fact",
+        "author": "person:jang-mirae",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "릴리스 최종 승인자는 테크리드 단독",
+          "statement": "2주 스프린트 릴리스 프로세스 문서상 최종 배포 승인자는 팀 테크리드 1인이며, 승인 버튼은 배포 파이프라인의 approve-release 단계에서 테크리드 계정으로만 클릭 가능하다. 다른 역할이 대신 승인한 기록은 프로세스 문서 어디에도 없다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:baek-donghyun",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "PII 관련 릴리스는 보안팀 승인 필수",
+          "statement": "PII나 인증 관련 변경이 포함된 릴리스는 팀 테크리드 승인과 별개로 보안 아키텍트의 승인이 반드시 있어야 하며, 이 승인이 없으면 배포 파이프라인의 security-gate 단계를 통과할 수 없다. 이 규정은 제로트러스트 전환 계획 문서에 명시돼 있다."
+        }
+      }
+    },
+    {
+      "key": "conflict-iam-review-cycle-quarterly-vs-monthly",
+      "topic": "IAM 접근 리뷰 주기 — 컴플라이언스 기록 vs 제로트러스트 전환 후 실제",
+      "a": {
+        "type": "fact",
+        "author": "person:oh-yuna",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 260,
+        "attributes": {
+          "title": "IAM 리뷰 주기는 분기 1회",
+          "statement": "컴플라이언스 관점에서 IAM 접근 권한 리뷰는 분기 1회 진행하는 것이 공식 정책이며, 감사 대응 문서에도 분기 리뷰 기록을 근거로 제출한다. 외부 감사 때 이 문서 그대로를 근거 자료로 제출해 통과한 이력도 있고, 리뷰 결과는 별도 컴플라이언스 대장에 분기별로 정리해 남긴다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:baek-donghyun",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "제로트러스트 전환 후 IAM 리뷰는 월 1회",
+          "statement": "제로트러스트 전환 작업 이후로는 권한 리뷰를 월 1회로 강화해 운영 중이고, 분기 1회는 이미 낡은 기준이라 실제로는 매달 접근 로그 기반 리뷰를 돌리고 있다. 컴플라이언스팀 문서는 아직 갱신되지 않은 상태고, 이 차이를 다음 감사 전에 맞춰야 한다는 이야기가 나온다."
+        }
+      }
+    },
+    {
+      "key": "conflict-sast-gate-threshold-strict-vs-waiver",
+      "topic": "정적분석 게이트 임계값 — 보안팀 무관용 기준 vs QA 웨이버 관행",
+      "a": {
+        "type": "fact",
+        "author": "person:no-taekyung",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "정적분석 게이트는 Blocker·Critical 0건",
+          "statement": "보안팀 기준 정적분석(SAST) 게이트는 Blocker 0건, Critical 0건을 통과 조건으로 삼고, 하나라도 있으면 배포 승인 자체가 나지 않는다. 웨이버 제도는 존재하지 않으며, 예외를 요청하는 티켓이 올라와도 반려한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:mun-jihu",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "정적분석 게이트는 Critical 3건까지 웨이버 허용",
+          "statement": "QA 릴리스 체크리스트에서는 정적분석 Critical 이슈가 3건 이하면 웨이버 티켓(jira 라벨: sast-waiver)을 걸고 배포를 진행할 수 있다고 되어 있다. Blocker만 0건이 필수 조건이며, 이 체크리스트는 매 릴리스마다 실제로 참조된다."
+        }
+      }
+    },
+    {
+      "key": "conflict-batch-token-rotation-policy-vs-practice",
+      "topic": "배치 계정 토큰 수명 — 보안 정책 vs 데이터플랫폼 실제 운영",
+      "a": {
+        "type": "fact",
+        "author": "person:baek-donghyun",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "배치용 계정 토큰도 90일 회전 대상",
+          "statement": "야간 배치 잡에 쓰이는 서비스 계정도 예외 없이 90일 회전 대상이며, 회전 누락 시 보안팀 온콜이 강제로 토큰을 폐기하고 재발급을 요구한다. 배치 특성상 예외를 두면 정책 전체가 흔들린다고 보고 예외를 만들지 않았고, 위반 사례는 분기 IAM 리뷰 결과에 그대로 반영된다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:kim-dohyun",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "야간 배치 계정 토큰은 발급 후 회전 이력 없음",
+          "statement": "이벤트 적재 배치(nightly-etl) 계정 토큰은 최초 발급 이후 회전 없이 그대로 쓰이고 있고, 회전하면 배치 스케줄러 재인증 설정을 다시 잡아야 해서 지금까지 미뤄왔다. 실제로는 1년 넘게 같은 토큰이 돌고 있고, 팀 내부적으로도 이 사실을 알고는 있지만 야간 배치 특성상 재인증 작업 시간을 잡기가 애매해 계속 미뤄지는 상태다."
+        }
+      }
+    },
+    {
+      "key": "conflict-codefreeze-duration-release-vs-mobile",
+      "topic": "릴리스 전 코드프리즈 기간 — 릴리스팀 기준 vs 모바일팀 실제",
+      "a": {
+        "type": "fact",
+        "author": "person:oh-taeyang",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "코드프리즈는 48시간",
+          "statement": "2주 스프린트 릴리스 프로세스 기준 정기 배포 전 코드프리즈는 48시간이며, 이 기간에는 main 브랜치 머지가 릴리스 엔지니어 승인 없이는 막힌다. 프리즈 시작 시각은 항상 배포 전날 정오로 고정돼 있고, 예외 승인 요청은 릴리스 엔지니어 채널로 접수한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:song-arim",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "모바일 릴리스 코드프리즈는 1주일",
+          "statement": "모바일 앱은 스토어 심사 리드타임 때문에 릴리스 전 코드프리즈를 1주일로 잡는다. 48시간 기준을 그대로 적용하면 심사 중 발견된 이슈를 반영할 시간이 없어서 별도로 늘려 운영 중이고, 이 기준은 모바일 PM과 iOS/Android 테크리드가 합의해 공지·프로모션 화면 릴리스에도 그대로 적용하고 있는 값이다."
+        }
+      }
+    }
+  ]
+}

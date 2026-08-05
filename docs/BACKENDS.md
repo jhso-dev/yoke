@@ -16,11 +16,26 @@ traditional-DB compatibility. Detailed when work starts (v2.0).
 | Adapter | When | Why chosen |
 |---|---|---|
 | storage-sqlite | v0.1 | embedded; FTS5 + sqlite-vec cover all of v1 |
-| storage-kuzu | v2.0 | embedded graph DB — stronger graph queries with no infrastructure. A proven path Cognee also adopted |
+| storage-kuzu | v2.0 | embedded graph DB — stronger graph queries with no infrastructure. A proven path Cognee also adopted. **Ships separately since v5.6**: `npm install kuzu`, see below |
 | storage-qdrant | v2.0 | a similar-capability-only implementation. Large-scale embeddings |
 | storage-neo4j | **v5.2 (built)** | an enterprise already runs one, and it is the only backend with native FTS, vectors and graph in one engine |
 | storage-opensearch | **v5.4 (built)** | an enterprise already runs one for logs and search, and it is the cheapest adapter to own: a REST API, so `fetchImpl` injection makes it fakeable and it adds **no dependency** — where neo4j needed a 3.8 MB Bolt driver |
 | storage-postgres | v2.x | the leading default-backend candidate for server mode (v3) (pgvector doubles as similar) |
+
+## kuzu is not installed by default (v5.6)
+
+Measured on a fresh clone: `npm ci --omit=dev` — what `npx yoke` costs a user — was **581 MB, of which
+kuzu's native binding was 531 MB**. 91% of an end user's download, for a backend they can only reach by
+naming `kind: "kuzu"` in a `--shards` config. It is a devDependency now, so a consumer install is
+**44 MB** and this repo's own conformance suite still runs the full 24 cases against it.
+
+A shard config naming a kuzu shard therefore fails with the one command that fixes it —
+`npm install kuzu` — rather than a `MODULE_NOT_FOUND` naming a file the caller never imported. The
+caller wrote a config, not an import; the error should be about the config.
+
+Considered and not done: an optional `peerDependency`. It leaves the package uninstalled for consumers
+exactly as this does, so it would be a second declaration of the same fact, and the devDependency is
+the one the test suite actually needs.
 
 ## Capability matrix
 
@@ -30,14 +45,21 @@ the code pointed at a table that said the opposite. Its FTS row was also wrong i
 direction: kuzu answers `search` app-level (materialize every row, tokenize, rank with
 `core/rank.ts`), which is a real implementation with a real ceiling, not an absence.
 
-| | FTS | similar | graph traversal | embedded |
-|---|---|---|---|---|
-| sqlite | ✓ (FTS5 bm25) | ✓ (sqlite-vec) | app-level | ✓ |
-| kuzu | app-level | **—** | ✓ (native) | ✓ |
-| qdrant | app-level | ✓ | — | — |
-| **neo4j** | **✓ (native full-text index, scored)** | **✓ (native vector index)** | **✓ (native)** | — |
-| **opensearch** | **✓ (native BM25, scored)** | **✓ (native k-NN, HNSW)** | app-level (term query) | — |
-| postgres | ✓ | ✓ (pgvector) | app-level | — |
+| | FTS | similar | graph traversal | batch read | embedded |
+|---|---|---|---|---|---|
+| sqlite | ✓ (FTS5 bm25) | ✓ (sqlite-vec) | app-level | ✓ (`IN`) | ✓ |
+| kuzu | app-level | **—** | ✓ (native) | — (nothing to gain) | ✓ |
+| qdrant | app-level | ✓ | — | ✓ (`match: any`) | — |
+| **neo4j** | **✓ (native full-text index, scored)** | **✓ (native vector index)** | **✓ (native)** | ✓ (`IN $ids`) | — |
+| **opensearch** | **✓ (native BM25, scored)** | **✓ (native k-NN, HNSW)** | app-level (term query) | ✓ (`terms` + `latest`) | — |
+| postgres | ✓ | ✓ (pgvector) | app-level | ✓ (`IN`) | — |
+
+**Batch read** is `getEntities` (v5.5, SPEC "Batch point reads"), and it is the one column where an
+*embedded* backend is right to have a dash: a point read there is a prepared statement, so kuzu's
+absence costs it nothing and core's `getEntity` fallback covers it. On a remote backend the same loop
+was one network round trip per id — a briefing of one collaboration cost 56 of them and now costs 2.
+sqlite implements it anyway, because otherwise the conformance case would only ever run against a
+live server and `npm test` would never execute the contract.
 
 "app-level" is not a synonym for "absent": those adapters materialize candidates and rank them with
 `core/rank.ts`'s BM25, which is why every backend can satisfy the same "best match first" conformance

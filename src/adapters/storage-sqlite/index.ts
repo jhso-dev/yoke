@@ -5,13 +5,15 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
-import { serializeText } from "../../core/embedding.js";
+import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
+import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
+  orderByIds,
   type Page,
   page,
   type StoragePort,
@@ -230,11 +232,7 @@ export class SqliteStorage implements StoragePort {
       return;
     }
     if (current !== null && current !== dim) {
-      throw new Error(
-        `embedding dimension changed: the vector index holds ${current}-dimension vectors and this one is ${dim}. ` +
-          `A database has one vector space — re-index every record with the new model: ` +
-          `yoke backfill --embeddings --rebuild`,
-      );
+      throw dimensionMismatch(current, dim, false);
     }
     if (current === null) {
       this.db.exec(
@@ -320,6 +318,21 @@ export class SqliteStorage implements StoragePort {
     return row ? rowToEntity(row as EntityRow) : null;
   }
 
+  /** Batch point read (v5.5). In-process, so this buys no network — it is here because it is what
+   * makes the shared conformance case non-vacuous under `npm test`, where the remote suites skip. */
+  async getEntities(ids: string[]): Promise<Entity[]> {
+    if (ids.length === 0) return [];
+    const holes = ids.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(
+        `SELECT e.* FROM entities e
+         WHERE e.id IN (${holes})
+           AND e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)`,
+      )
+      .all(...ids) as EntityRow[];
+    return orderByIds(rows.map(rowToEntity), ids);
+  }
+
   async putRelation(r: Relation): Promise<void> {
     this.db
       .prepare(
@@ -364,16 +377,20 @@ export class SqliteStorage implements StoragePort {
   }
 
   async search(q: TextQuery): Promise<Entity[]> {
-    // AND-of-prefix-tokens: every query term must appear (any order), each with
-    // prefix tolerance — so "Slack retry" finds "Slack connector retries", and a
-    // token carrying a trailing particle/suffix (common in agglutinative languages
-    // like Korean) is still found by its stem. Each token is quoted (special chars
-    // are safe) and starred. This also matches the kuzu/qdrant adapters' semantics —
-    // the original whole-query phrase match required consecutive terms, which made
-    // multi-word queries silently miss (found in live MCP verification).
-    const tokens = q.text.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    // Prefix-tolerant token match: a query term reaches any token it prefixes, so "Slack retry"
+    // finds "Slack connector retries" and a term carrying a trailing particle (common in
+    // agglutinative languages like Korean) is still found by its stem. Each token is quoted
+    // (special chars are safe) and starred.
+    //
+    // Up to AND_TERM_LIMIT tokens the terms are joined by implicit AND, which is FTS5's default and
+    // was the only rule until v5.6; beyond it they are joined by OR and clause 6's `ORDER BY rank`
+    // decides what the caller sees. See SPEC search clause 8 for what the AND was costing — a
+    // question-shaped query is a conjunction no record satisfies.
+    const tokens = tokenize(q.text);
     if (tokens.length === 0) return [];
-    const match = tokens.map((t) => `"${t.replace(/"/g, '""')}"*`).join(" ");
+    const match = tokens
+      .map((t) => `"${t.replace(/"/g, '""')}"*`)
+      .join(requireEveryTerm(tokens.length, q.terms) ? " " : " OR ");
     const typeClause = q.type === undefined ? "" : " AND e.type = @type";
     // A list of statuses becomes IN (...) with positional binds, since named binds cannot hold an
     // array. Inlined as placeholders, never as values — the statuses are from a closed set, but
@@ -480,10 +497,7 @@ export class SqliteStorage implements StoragePort {
     // out of the OLD index — a plausible-looking neighbour list computed in a different vector space,
     // which is exactly the silent wrongness the loud failure exists to prevent.
     if (dim !== embedding.length) {
-      throw new Error(
-        `embedding dimension changed: the vector index holds ${dim}-dimension vectors and this query is ${embedding.length}. ` +
-          `Re-index every record with the current model: yoke backfill --embeddings --rebuild`,
-      );
+      throw dimensionMismatch(dim, embedding.length, true);
     }
     const query = Buffer.from(
       embedding.buffer,
@@ -495,19 +509,19 @@ export class SqliteStorage implements StoragePort {
         `SELECT id, embedding FROM entity_vec WHERE embedding MATCH ? AND k = ? ORDER BY distance`,
       )
       .all(query, k) as { id: string; embedding: Buffer }[];
-    const out: Entity[] = [];
-    for (const h of hits) {
-      const e = await this.getEntity(h.id);
-      if (!e) continue;
-      const buf = h.embedding;
-      out.push({
+    // One batch read in distance order, same shape as the remote adapters (v5.5). In-process here,
+    // so this is about keeping ONE implementation of the vector-restore step rather than about cost.
+    const vectors = new Map(hits.map((h) => [h.id, h.embedding] as const));
+    const rows = await this.getEntities([...vectors.keys()]);
+    return rows.map((e) => {
+      const buf = vectors.get(e.id) as Buffer;
+      return {
         ...e,
         embedding: new Float32Array(
           buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
         ),
-      });
-    }
-    return out;
+      };
+    });
   }
 
   // --- Adapter extensions outside StoragePort: ontology seed save/load (for CLI init) ---

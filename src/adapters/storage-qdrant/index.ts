@@ -12,14 +12,15 @@
 //   same policy as sqlite's vec0 table). One point per entity id (delete+insert = latest only).
 
 import { createHash } from "node:crypto";
-import { serializeText } from "../../core/embedding.js";
+import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { rankByRelevance, tokenize } from "../../core/rank.js";
+import { matchesTokens, rankByRelevance, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
+  orderByIds,
   type Page,
   page,
   type StoragePort,
@@ -85,7 +86,11 @@ function payloadToRelation(p: RelationPayload): Relation {
 }
 
 // Qdrant filter DSL — only the fragments this adapter relies on. The fake must honor these.
-type Match = { key: string; match: { value: string | number } };
+type Match = {
+  key: string;
+  /** `any` is qdrant's IN — one filter for a whole id set (see getEntities). */
+  match: { value: string | number } | { any: string[] };
+};
 interface Filter {
   must?: Match[];
   should?: Match[];
@@ -191,11 +196,7 @@ export class QdrantStorage implements StoragePort {
     }
     if (this.vectorDim !== null) {
       if (this.vectorDim !== dim) {
-        throw new Error(
-          `embedding dimension changed: the vector index holds ${this.vectorDim}-dimension vectors and this one is ${dim}. ` +
-            `A database has one vector space — re-index every record with the new model: ` +
-            `yoke backfill --embeddings --rebuild`,
-        );
+        throw dimensionMismatch(this.vectorDim, dim, false);
       }
       return;
     }
@@ -293,6 +294,19 @@ export class QdrantStorage implements StoragePort {
     return payloadToEntity(latestByVersion(rows)[0]);
   }
 
+  /** Batch point read (v5.5) — one scroll under an `any` filter instead of one scroll per id.
+   * The empty guard is load-bearing here and nowhere else: an empty `any` list is a filter that
+   * matches nothing on some qdrant versions and everything on others, and "everything" would hand
+   * back the corpus. */
+  async getEntities(ids: string[]): Promise<Entity[]> {
+    if (ids.length === 0) return [];
+    const points = await this.scrollAll(ENTITIES, {
+      must: [{ key: "id", match: { any: ids } }],
+    });
+    const rows = latestByVersion(points.map((p) => p.payload as EntityPayload));
+    return orderByIds(rows.map(payloadToEntity), ids);
+  }
+
   async putRelation(r: Relation): Promise<void> {
     const payload: RelationPayload = {
       id: r.id,
@@ -342,10 +356,9 @@ export class QdrantStorage implements StoragePort {
     const rows = latestByVersion(points.map((p) => p.payload as EntityPayload));
     const qTokens = tokenize(q.text);
     const wantNs = normalizeNs(q.ns);
-    const matched = rows.filter((r) => {
-      const eTokens = tokenize(r.txt);
-      return qTokens.every((qt) => eTokens.some((et) => et.startsWith(qt)));
-    });
+    // AND up to AND_TERM_LIMIT terms, OR beyond it (SPEC search clause 8), shared with kuzu so the
+    // two client-side matchers cannot answer the same query differently.
+    const matched = rows.filter((r) => matchesTokens(qTokens, r.txt, q.terms));
     const filtered = matched.filter(
       (r) =>
         // null-normalized ns so the default ns sees only default rows (10.1 isolation).
@@ -404,10 +417,7 @@ export class QdrantStorage implements StoragePort {
     // Reads get the same dimension check as writes: querying the old index with a new model's vector
     // would answer out of a different vector space, which looks like a result and is not one.
     if (this.vectorDim !== embedding.length) {
-      throw new Error(
-        `embedding dimension changed: the vector index holds ${this.vectorDim}-dimension vectors and this query is ${embedding.length}. ` +
-          `Re-index every record with the current model: yoke backfill --embeddings --rebuild`,
-      );
+      throw dimensionMismatch(this.vectorDim, embedding.length, true);
     }
     const res = (await this.req(
       "POST",
@@ -419,15 +429,16 @@ export class QdrantStorage implements StoragePort {
         with_vector: true,
       },
     )) as { result: Array<{ payload: { id: string }; vector?: number[] }> };
-    const out: Entity[] = [];
-    for (const hit of res.result) {
-      const e = await this.getEntity(hit.payload.id);
-      if (!e) continue;
-      out.push(
-        hit.vector ? { ...e, embedding: Float32Array.from(hit.vector) } : e,
-      );
-    }
-    return out;
+    // One batch read in score order, NOT one per hit (v5.5) — `similar` runs on every query
+    // injection now that retrieval is hybrid, with k = limit x 3.
+    const vectors = new Map(
+      res.result.map((h) => [h.payload.id, h.vector] as const),
+    );
+    const rows = await this.getEntities([...vectors.keys()]);
+    return rows.map((e) => {
+      const vec = vectors.get(e.id);
+      return vec ? { ...e, embedding: Float32Array.from(vec) } : e;
+    });
   }
 
   // --- Adapter extensions outside StoragePort: ontology seed save/load (mirrors sqlite/kuzu) ---

@@ -1,0 +1,477 @@
+{
+  "aged": [
+    {
+      "key": "event-schema-discount-code-field",
+      "type": "fact",
+      "author": "person:kim-dohyun",
+      "collab": "collab:data-platform",
+      "age_days": 195,
+      "size": "line",
+      "attributes": {
+        "title": "discount_code 필드 폐기 이력",
+        "statement": "2025년 4분기 기준 order_completed 이벤트엔 discount_code 필드가 없었다. v3 스키마 반영 후 채워지는지 재확인 필요."
+      }
+    },
+    {
+      "key": "dashboard-funnel-redash-482",
+      "type": "fact",
+      "author": "person:park-jiwoo",
+      "collab": "collab:data-platform",
+      "age_days": 210,
+      "size": "line",
+      "attributes": {
+        "title": "전환 퍼널 대시보드 링크",
+        "statement": "지난 분기 기준 결제 전환 퍼널은 Redash #482 대시보드였다. Looker 이관 후 링크가 살아있는지 확인 필요."
+      }
+    },
+    {
+      "key": "feature-store-refresh-old-cycle",
+      "type": "fact",
+      "author": "person:seo-yeeun",
+      "collab": "collab:ml-recsys",
+      "age_days": 225,
+      "size": "line",
+      "attributes": {
+        "title": "피처 스토어 갱신 주기(구)",
+        "statement": "지난 분기 기준 온라인 피처 스토어 갱신 주기는 30분이었다. 현재도 30분인지 재확인 필요."
+      }
+    },
+    {
+      "key": "conversion-rate-refund-exclusion",
+      "type": "fact",
+      "author": "person:han-jiwoo",
+      "collab": "collab:backend-api",
+      "age_days": 235,
+      "size": "short",
+      "attributes": {
+        "title": "전환율 계산 시 환불 처리(구)",
+        "statement": "지난 분기 기준 전환율은 결제 API 성공 호출 수를 장바구니 담기 수로 나눠 계산했고, 환불 건은 분모·분자 어디에서도 차감하지 않았다. 정산 재처리로 환불이 늘면서 이 계산식이 실제 결제완료 기준과 얼마나 벌어지는지 알 수 없는 상태였다. 지금도 환불 미차감 방식을 쓰는지, 최근 정산 배치 개편 때 분모에서 환불 건을 빼는 방식으로 바뀌었는지 재확인이 필요하다."
+      }
+    },
+    {
+      "key": "freshness-sla-old-value",
+      "type": "fact",
+      "author": "person:lee-suyeon",
+      "collab": "collab:data-platform",
+      "age_days": 248,
+      "size": "short",
+      "attributes": {
+        "title": "핵심 지표 신선도 SLA(구)",
+        "statement": "지난 분기 기준 핵심 지표 대시보드의 신선도 SLA는 익일 08시 적재 완료였다. 야간 배치 순서가 정산 배치 뒤로 밀리면서 지켜지지 않는 날이 잦았고, 이후 SLA 값을 조정했다는 얘기만 있고 문서화되지 않았다. 지금 실제 SLA 값과 배치 순서가 무엇인지 재확인이 필요하다."
+      }
+    },
+    {
+      "key": "warehouse-partition-key-event-date-utc",
+      "type": "fact",
+      "author": "person:kim-dohyun",
+      "collab": "collab:data-platform",
+      "age_days": 305,
+      "size": "line",
+      "attributes": {
+        "title": "이전 웨어하우스 파티션 키",
+        "statement": "작년 하반기 기준 이벤트 테이블은 event_date(UTC) 기준으로 파티션했다. 지금도 UTC 기준인지 재확인 필요."
+      }
+    },
+    {
+      "key": "settlement-batch-window-old",
+      "type": "fact",
+      "author": "person:song-yerim",
+      "collab": "collab:backend-api",
+      "age_days": 320,
+      "size": "line",
+      "attributes": {
+        "title": "정산 배치 실행 시각(구)",
+        "statement": "작년 하반기 기준 정산 배치는 매일 03시에 실행됐다. 지금도 같은 시각인지 재확인 필요."
+      }
+    },
+    {
+      "key": "feature-store-batch-schedule-old",
+      "type": "fact",
+      "author": "person:jang-doyoon",
+      "collab": "collab:ml-recsys",
+      "age_days": 340,
+      "size": "line",
+      "attributes": {
+        "title": "피처 스토어 오프라인 배치 주기(구)",
+        "statement": "작년 하반기 기준 오프라인 피처 배치는 하루 2회(06시, 18시) 돌았다. 지금도 하루 2회인지 재확인 필요."
+      }
+    },
+    {
+      "key": "wau-definition-guest-session",
+      "type": "fact",
+      "author": "person:park-jiwoo",
+      "collab": "collab:data-platform",
+      "age_days": 355,
+      "size": "short",
+      "attributes": {
+        "title": "WAU 집계 기준(구)",
+        "statement": "작년 하반기 기준 WAU에는 비로그인 게스트 세션도 포함해 집계했다. 게스트 트래픽이 늘면서 실제 활성 회원 수와 괴리가 커진다는 지적이 있었고, 로그인 회원만 집계하는 방식으로 바꾸자는 논의가 있었다. 지금 WAU 정의에 게스트 세션이 포함되는지, 바뀌었다면 언제부터인지 재확인이 필요하다."
+      }
+    },
+    {
+      "key": "airflow-dag-name-old",
+      "type": "fact",
+      "author": "person:choi-donghyun",
+      "collab": "collab:backend-api",
+      "age_days": 410,
+      "size": "line",
+      "attributes": {
+        "title": "정산 배치 Airflow DAG 이름(구)",
+        "statement": "1년 전 기준 정산 배치 DAG 이름은 settlement_batch_v2였다. 지금도 같은 이름인지 재확인 필요."
+      }
+    },
+    {
+      "key": "dbt-model-layer-naming-old",
+      "type": "fact",
+      "author": "person:lee-suyeon",
+      "collab": "collab:data-platform",
+      "age_days": 460,
+      "size": "para",
+      "attributes": {
+        "title": "dbt 모델 계층 이름(구)",
+        "statement": "1년 전 기준 dbt 모델 계층은 raw, staging, mart 3단으로 나뉘었고, staging 앞에는 stg_, mart 앞에는 각각 dim_, fct_ 프리픽스를 붙이는 규칙이었다. 당시엔 certified라는 개념이 따로 없어서 애널리틱스팀이 검증한 모델과 그렇지 않은 모델이 같은 mart 스키마 안에 섞여 있었고, 신뢰도를 구분하려면 모델 설명 문서를 일일이 열어봐야 했다. 이후 신뢰도 표시를 위해 certified 계층을 새로 만들자는 이야기가 나왔던 걸로 기억하는데, 실제로 반영됐는지, 반영됐다면 기존 stg_/dim_/fct_ 네이밍 규칙이 그대로 유지됐는지, 계층 이름 자체가 바뀌었는지 지금 기준으로 재확인이 필요하다. 오래된 문서를 보고 모델을 찾다가 계층 구조가 달라 헤매는 경우가 있었고, 신입 온보딩 문서도 이 시절 계층 이름을 기준으로 쓰여 있어 같이 갱신해야 한다."
+      }
+    },
+    {
+      "key": "event-schema-v3-migration-decision",
+      "type": "decision",
+      "author": "person:kim-dohyun",
+      "collab": "collab:data-platform",
+      "age_days": 430,
+      "size": "para",
+      "attributes": {
+        "conclusion": "이벤트 스키마를 v2에서 v3로 올리며 필드명을 camelCase에서 snake_case로 통일하기로 했다.",
+        "rationale": "웨어하우스 적재 시 camelCase 필드를 매번 별도 매핑 테이블로 변환해야 했고, 이 매핑이 누락되면 컬럼이 통째로 비는 사고가 반복됐다. dbt 모델에서도 컬럼명 규칙이 뒤섞여 신규 인원이 헷갈려했고, 리뷰 때마다 네이밍 지적이 나왔다. snake_case로 통일하면 매핑 계층을 걷어내고 이벤트 원본과 웨어하우스 컬럼명을 1:1로 맞출 수 있다고 판단했다. 이관 기간 동안은 두 스키마를 동시에 받아 병행 검증한 뒤 전환하기로 했고, 프로듀서 쪽 배포 일정에 맞춰 3주간 이중 발행 기간을 두기로 했다.",
+        "rejected_alternatives": [
+          "매핑 테이블을 유지하되 검증 스크립트만 추가한다",
+          "camelCase로 통일하고 웨어하우스 쪽 컬럼명을 맞춘다"
+        ]
+      }
+    },
+    {
+      "key": "ranking-feature-count-reduction-decision",
+      "type": "decision",
+      "author": "person:han-jiwon",
+      "collab": "collab:ml-recsys",
+      "age_days": 485,
+      "size": "short",
+      "attributes": {
+        "conclusion": "랭킹 모델 v2의 피처를 120개에서 70개로 줄이기로 했다.",
+        "rationale": "피처가 많을수록 온라인 서빙 지연이 늘고, 상당수 피처의 중요도가 낮아 제거해도 오프라인 지표 손실이 크지 않았다. p99 서빙 레이턴시가 목표치를 넘긴 시점이라 피처 수를 줄이는 쪽이 인프라 증설보다 빠르게 적용할 수 있는 대응이었다.",
+        "rejected_alternatives": [
+          "피처 수를 유지하고 서빙 인프라를 증설한다",
+          "피처는 그대로 두고 캐시 계층만 추가한다"
+        ]
+      }
+    },
+    {
+      "key": "pii-masking-old-method",
+      "type": "fact",
+      "author": "person:seo-yeeun",
+      "collab": "collab:ml-recsys",
+      "age_days": 720,
+      "size": "short",
+      "attributes": {
+        "title": "PII 마스킹 방식(구)",
+        "statement": "2년 전 기준 피처 스토어에 적재되는 사용자 식별값은 뒷자리를 별표로 가리는 마스킹만 했고, 해시 처리는 하지 않았다. 이후 해시 기반 마스킹으로 바꾸자는 논의가 있었던 걸로 기억한다. 지금 실제 마스킹 방식이 무엇인지, 언제 바뀌었는지 재확인이 필요하다."
+      }
+    },
+    {
+      "key": "batch-priority-queue-decision",
+      "type": "decision",
+      "author": "person:lee-suyeon",
+      "collab": "collab:data-platform",
+      "age_days": 800,
+      "size": "para",
+      "attributes": {
+        "conclusion": "야간 배치 큐에서 정산 배치를 최우선 순위로, 지표 집계 배치를 그 다음으로 두기로 했다.",
+        "rationale": "정산 배치가 지표 집계 배치와 자원을 다투면서 정산이 지연되는 사고가 반복됐고, 정산 지연은 매출 마감에 직접 영향을 주는 반면 지표 집계 지연은 대시보드가 몇 시간 늦게 갱신되는 정도라 상대적으로 영향이 작다고 판단했다. 그때는 데이터팀과 분석팀이 분리되지 않아 한 팀이 두 배치를 모두 관리했기 때문에 우선순위 조정이 팀 간 조율 없이 바로 반영될 수 있었다. 큐 우선순위는 클러스터 스케줄러 설정값으로만 남아 있고 별도 문서로 정리되지는 않았는데, 팀이 나뉜 지금은 이 설정을 누가 갖고 있는지조차 불분명해진 상태다.",
+        "rejected_alternatives": [
+          "두 배치를 별도 클러스터로 분리해 자원 경합을 없앤다",
+          "정산 배치 시각을 앞당겨 지표 집계와 겹치지 않게 한다"
+        ]
+      }
+    },
+    {
+      "key": "settlement-approval-delegation-decision",
+      "type": "decision",
+      "author": "person:song-yerim",
+      "collab": "collab:backend-api",
+      "age_days": 860,
+      "size": "short",
+      "attributes": {
+        "conclusion": "정산 배치 재처리 승인 권한을 SRE 온콜 담당자에게 위임하기로 했다.",
+        "rationale": "팀 분리 전에는 백엔드 테크리드가 유일한 승인자여서 야간 장애 시 승인이 지연됐다. 테크리드가 자고 있으면 재처리 승인까지 새벽에 30분 넘게 걸린 사고가 있어서 온콜을 도는 SRE에게 위임하는 편이 대응 속도가 빠르다고 봤다.",
+        "rejected_alternatives": ["승인자를 늘리지 않고 대기 시간을 감수한다"]
+      }
+    },
+    {
+      "key": "pipeline-eks-1-16-decision",
+      "type": "decision",
+      "author": "person:park-jiwoo",
+      "collab": "collab:data-platform",
+      "age_days": 1150,
+      "size": "para",
+      "attributes": {
+        "conclusion": "데이터 파이프라인 실행 환경을 EKS 1.16 클러스터의 별도 노드풀로 옮기기로 했다.",
+        "rationale": "3년 전 기준 배치 작업이 서비스 트래픽과 같은 노드풀을 쓰면서 배치가 몰리는 시간대에 서비스 응답 지연이 같이 발생했다. 노드풀을 분리하면 배치가 서비스 자원을 침범하지 않는다고 판단했다. 그때는 조직이 지금과 달라 인프라팀 없이 백엔드팀이 클러스터 운영까지 겸했고, 노드풀 분리 작업도 데이터팀 자체 판단으로 진행했다. 오토스케일링 정책도 이때 배치 전용 노드풀에 맞춰 별도로 짰는데, 이후 인프라팀이 생기면서 이 정책을 누가 이어받았는지는 인수인계 문서 어디에도 남아있지 않다. 당시 결정을 문서화한 사람도 이제는 팀에 남아있지 않아서 정책의 원래 취지를 아는 사람이 거의 없다.",
+        "rejected_alternatives": [
+          "배치 작업을 서비스 시간대 이후로만 스케줄링한다",
+          "별도 배치 전용 클러스터를 새로 구축한다"
+        ]
+      }
+    },
+    {
+      "key": "feature-store-batch-only-design-decision",
+      "type": "decision",
+      "author": "person:jang-doyoon",
+      "collab": "collab:ml-recsys",
+      "age_days": 1350,
+      "size": "short",
+      "attributes": {
+        "conclusion": "피처 스토어를 배치 전용으로 설계하고 온라인 서빙은 처음부터 범위에서 뺐다.",
+        "rationale": "3년 전 기준 추천 모델이 실시간성이 필요 없는 배치 추천뿐이라 온라인 피처가 불필요하다고 봤다. 온라인 서빙까지 지원하려면 개발 기간이 두 배 가까이 늘어난다는 견적도 배치 전용으로 좁히는 데 영향을 줬다.",
+        "rejected_alternatives": [
+          "처음부터 온라인/오프라인 이중 구조로 설계한다"
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "key": "kafka-retention-conflict",
+      "topic": "이벤트 스트림(Kafka) 토픽 보존 기간",
+      "a": {
+        "type": "fact",
+        "author": "person:han-seojun",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "이벤트 토픽 보존 3일(비용)",
+          "statement": "스토리지 비용 절감을 위해 최근 이벤트 스트림 토픽의 보존 기간을 14일에서 3일로 줄였다. 컨슈머가 3일 안에 오프셋을 따라잡지 못하면 데이터를 유실한다는 점은 컨슈머 쪽에서 랙을 모니터링해 대응해야 한다고 안내했다. 브로커 디스크 사용량이 임계치에 가까워져 인프라팀 판단으로 먼저 줄인 값이라 개별 컨슈머 팀에 사전 공지는 못 했다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:kim-dohyun",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 40,
+        "attributes": {
+          "title": "이벤트 토픽 보존 14일 유지 전제",
+          "statement": "야간 배치가 실패해 재처리할 때 최대 D-3까지는 카프카 토픽에서 원본 이벤트를 다시 읽어 복구해왔다. 이게 가능하려면 토픽 보존 기간이 최소 14일은 되어야 하고, 실제로 14일로 설정돼 있다고 알고 있다. 이 값이 최근에 바뀌었다는 공지는 받은 적 없다."
+        }
+      }
+    },
+    {
+      "key": "dashboard-freshness-vs-cs-expectation",
+      "topic": "핵심 지표 대시보드 신선도 SLA",
+      "a": {
+        "type": "fact",
+        "author": "person:park-jiwoo",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "대시보드 SLA는 T+1 09시",
+          "statement": "핵심 지표 대시보드의 공식 신선도 SLA는 'T+1일 09:00 KST까지 적재 완료'다. 야간 배치가 정산 배치 뒤에 실행되는 구조라 이보다 앞당기기 어렵고, 이 SLA는 데이터 플랫폼팀과 이해관계자 사이에 합의된 값이며 분기마다 재확인해왔다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:bae-sua",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "CS는 당일 오전 11시 반영 기대",
+          "statement": "CS는 회원 문의 응대 시 전날 활동 지표가 늦어도 당일 오전 11시까지는 화면에 반영돼야 한다고 안내받았고, 실제 응대 매뉴얼에도 그렇게 적혀 있다. 이 시각을 넘겨 지표가 비어 있으면 상담원이 오류로 오인해 문의를 다시 에스컬레이션하고, 그 티켓이 다시 데이터팀으로 넘어오는 악순환이 반복된다."
+        }
+      }
+    },
+    {
+      "key": "mau-definition-conflict",
+      "topic": "MAU(월간 활성 사용자) 정의",
+      "a": {
+        "type": "fact",
+        "author": "person:lee-suyeon",
+        "collab": "collab:data-platform",
+        "size": "para",
+        "age_days": 0,
+        "attributes": {
+          "title": "MAU는 세션 시작 기준",
+          "statement": "데이터 플랫폼팀이 공식 집계하는 MAU는 한 달 안에 앱 세션을 1회 이상 시작한 회원 수다. 로그인 여부나 특정 화면 진입 여부는 따지지 않고 세션 시작 이벤트만 있으면 카운트한다. 이 기준으로 최근 집계된 MAU는 약 480만이다. 경영 지표 보고에 쓰이는 공식 수치가 이 정의를 따르고 있고, 이사회·투자자 대상 리포트에도 이 숫자가 매달 그대로 올라간다. 세션 시작만 보는 이유는 앱을 켠 사실 자체가 서비스에 대한 최소한의 관심을 뜻한다고 보기 때문이고, 특정 화면 진입까지 조건을 걸면 팀마다 기준 화면이 달라져 정의가 계속 갈라진다고 판단해서다. 다른 팀이 별도로 MAU를 계산해 다른 숫자를 보고하면 어느 쪽이 맞는지 매번 확인 요청이 들어오고, 그때마다 정의부터 다시 설명해야 한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:jang-doyoon",
+        "collab": "collab:ml-recsys",
+        "size": "para",
+        "age_days": 0,
+        "attributes": {
+          "title": "MAU는 추천 인터랙션 기준",
+          "statement": "MLOps팀이 모델 성능 리포트에 쓰는 MAU는 한 달 안에 추천 노출에 클릭 등 인터랙션을 1회 이상 남긴 회원 수만 센다. 단순 세션 시작만으로는 추천 시스템에 아무 신호도 주지 않기 때문에 학습·평가에 의미가 없다고 보고 제외한다. 추천 지면을 아예 열어보지 않은 회원까지 활성으로 잡으면 모델 커버리지를 과대평가하게 돼서, 랭킹팀 내부에서는 이 기준을 오래전부터 써왔고 실험 설계 문서에도 이 정의가 못박혀 있어서 바꾸려면 문서를 전부 다시 검토해야 한다. 이 기준으로는 같은 달 MAU가 약 310만으로 나오는데, 데이터팀이 보고하는 480만과 차이가 커서 어느 쪽을 '공식 MAU'로 봐야 하는지 랭킹 리포트마다 다시 설명해야 하고, 매번 각주를 달아 정의 차이를 밝혀야 오해가 줄어든다."
+        }
+      }
+    },
+    {
+      "key": "conversion-rate-definition-conflict",
+      "topic": "전환율(conversion rate) 정의",
+      "a": {
+        "type": "fact",
+        "author": "person:song-yerim",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "전환율은 결제 API 성공 기준",
+          "statement": "백엔드팀이 보는 전환율은 결제 API 호출 성공 수를 장바구니 담기 수로 나눈 값이다. API 레벨에서 바로 계산되니 실시간으로 확인할 수 있고, 최근 값은 약 6.2%다. 장애 대응 중에 전환율이 떨어졌는지 바로 확인해야 할 때는 웨어하우스 집계를 기다릴 수 없어서 이 값을 쓴다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:kim-dohyun",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "전환율은 정산 확정 기준",
+          "statement": "데이터팀이 집계하는 전환율은 정산이 확정된 결제 건수를 방문 세션 수로 나눈 값이다. 결제 API가 성공해도 이후 정산에서 취소·실패 처리되는 건이 있어 API 성공만으로는 과대 집계된다고 본다. 이 기준으로는 최근 값이 약 4.1%로, 백엔드팀 수치보다 2%p 낮다."
+        }
+      }
+    },
+    {
+      "key": "pii-retention-conflict",
+      "topic": "탈퇴 회원 PII 보존 기간",
+      "a": {
+        "type": "decision",
+        "author": "person:oh-yuna",
+        "collab": "collab:security-compliance",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "탈퇴 회원의 개인식별정보는 탈퇴 후 5일 이내 파기해야 한다.",
+          "rationale": "개인정보처리방침에 명시된 파기 기한을 근거로 컴플라이언스 점검 시 5일 기준으로 위반 여부를 판단한다. 마스킹은 파기로 인정하지 않고, 식별 가능한 원본 값이 시스템 어디에도 남아있지 않아야 파기로 본다.",
+          "rejected_alternatives": ["법정 최대 보관 기한까지 보관 후 파기"]
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:lee-suyeon",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "웨어하우스는 탈퇴 후 마스킹만",
+          "statement": "웨어하우스에 적재된 탈퇴 회원 이벤트는 식별값만 마스킹 처리하고 레코드 자체는 분석 목적으로 400일 넘게 보관하고 있다. 마스킹하면 개인식별이 안 되니 파기 의무 대상이 아니라고 이해하고 있는데, 이 해석이 보안팀 기준과 맞는지는 확인된 적 없다."
+        }
+      }
+    },
+    {
+      "key": "feature-store-refresh-vs-batch-schedule-conflict",
+      "topic": "피처 스토어 반영 지연 허용 범위",
+      "a": {
+        "type": "fact",
+        "author": "person:seo-yeeun",
+        "collab": "collab:ml-recsys",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "온라인 피처는 15분 이내 반영 전제",
+          "statement": "온라인 피처 스토어는 15분 주기로 갱신되는 걸 전제로 랭킹 서빙 로직을 짰다. 15분보다 오래된 피처가 들어오면 콜드스타트 사용자 추천 품질이 눈에 띄게 떨어진다. 이 전제로 캐시 TTL과 폴백 로직까지 맞춰놨고, 갱신이 늦어지는 걸 감지하는 알람도 15분 기준으로 걸어뒀다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:park-jiwoo",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "원천 배치는 1시간 단위",
+          "statement": "피처 스토어가 참조하는 원천 이벤트 배치는 1시간 단위로만 적재된다. 배치 시작부터 완료까지 평균 15분이 걸려, 피처 스토어 입장에서는 최악의 경우 75분 지난 데이터를 받게 된다. 배치 주기를 더 좁히려면 별도 인프라 투자가 필요해 아직 계획에 없다."
+        }
+      }
+    },
+    {
+      "key": "retention-definition-conflict",
+      "topic": "1주 리텐션(재방문율) 산정 기준일",
+      "a": {
+        "type": "fact",
+        "author": "person:kim-dohyun",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "리텐션은 가입일 기준 D+7",
+          "statement": "내가 쓰는 리텐션 쿼리는 가입일을 D0로 놓고 D+7에 세션이 있으면 리텐션된 것으로 센다. dbt 모델 fct_retention이 이 기준으로 짜여 있어서 그대로 참조하고, 다른 팀에 공유할 때도 이 모델 결과 숫자를 그대로 넘겨왔다. 가입 즉시 온보딩 이벤트가 D0에 같이 찍히기 때문에 기준일로 삼기 편했다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:park-jiwoo",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "리텐션은 첫 활성일 기준 D+7",
+          "statement": "내가 애널리틱스 리포트에 쓰는 리텐션은 가입일이 아니라 '첫 세션이 발생한 날'을 D0로 잡고 D+7을 본다. 가입 후 바로 활동하지 않는 회원이 꽤 있어서 가입일 기준으로 하면 리텐션이 실제보다 낮게 나온다고 봐서 이렇게 계산해왔다. 같은 '1주 리텐션'이라는 이름으로 두 수치가 다르게 보고된 적이 있다."
+        }
+      }
+    },
+    {
+      "key": "feature-staleness-tolerance-conflict",
+      "topic": "온/오프라인 피처 정합성 허용 오차",
+      "a": {
+        "type": "fact",
+        "author": "person:han-jiwon",
+        "collab": "collab:ml-recsys",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "허용 오차는 5분 이내",
+          "statement": "랭킹 모델 서빙 기준으로는 온라인 피처와 오프라인 학습 피처의 값 차이가 5분 이상 벌어지면 안 된다고 보고 있다. 그 이상 벌어지면 학습-서빙 스큐로 오프라인 지표와 온라인 지표가 어긋나고, A/B 테스트 결과 해석도 꼬여서 실험 종료 판단이 늦어진다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:seo-yeeun",
+        "collab": "collab:ml-recsys",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "실제 허용 오차는 30분",
+          "statement": "피처 스토어 파이프라인 구조상 온라인 피처가 오프라인 소스와 최대 30분까지 벌어지는 걸 정상 범위로 잡고 운영하고 있다. 5분 이내로 맞추려면 스트리밍 파이프라인을 새로 깔아야 하는데 아직 그 작업은 시작하지 않았고, 우선순위 큐에도 올라가 있지 않다."
+        }
+      }
+    },
+    {
+      "key": "event-field-naming-standard-conflict",
+      "topic": "이벤트 스키마 필드 네이밍 표준",
+      "a": {
+        "type": "fact",
+        "author": "person:han-jiwoo",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "필드명은 camelCase가 표준",
+          "statement": "내가 알기로 이벤트 스키마 필드 네이밍 표준은 여전히 camelCase다. 새 이벤트를 추가할 때도 orderId, userId처럼 camelCase로 필드명을 짓고 있고, API 응답 필드명과도 맞춰야 해서 이 방식을 계속 그대로 쓰고 있다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:kim-dohyun",
+        "collab": "collab:data-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "필드명은 snake_case로 통일됨",
+          "statement": "웨어하우스 쪽 스키마 표준은 order_id, user_id처럼 snake_case로 통일된 지 꽤 됐다. camelCase로 들어오는 필드는 적재 전에 별도 변환 단계를 거쳐야 해서, 원천에서부터 snake_case로 보내달라고 여러 번 요청한 상태다."
+        }
+      }
+    }
+  ]
+}

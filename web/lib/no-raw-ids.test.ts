@@ -8,25 +8,16 @@
 //
 // If a screen legitimately needs one of these, the exemption belongs here, named, with a reason.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { sources } from "./sources";
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-function sources(dir: string): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) out.push(...sources(p));
-    else if (/\.tsx?$/.test(name) && !name.includes(".test.")) out.push(p);
-  }
-  return out;
-}
-
 const files = [join(webRoot, "app"), join(webRoot, "components")]
-  .flatMap(sources)
+  .flatMap((d) => sources(d))
   .map((p) => ({
     // Posix separators, always: node:path returns `components\Actor.tsx` on win32, so every path
     // literal in this file — the OWNERS exemptions included — would silently stop matching there.

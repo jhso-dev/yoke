@@ -1,0 +1,441 @@
+{
+  "collaboration": {
+    "id": "collab:ml-recsys",
+    "title": "추천 랭킹 모델 v3 실험과 피처 스토어 온/오프라인 정합성 작업"
+  },
+  "people": [
+    {
+      "id": "person:han-jiwon",
+      "name": "한지원",
+      "role": "ML 엔지니어 (랭킹)",
+      "team": "추천플랫폼팀"
+    },
+    {
+      "id": "person:seo-yeeun",
+      "name": "서예은",
+      "role": "데이터 엔지니어 (피처 스토어)",
+      "team": "추천플랫폼팀"
+    },
+    {
+      "id": "person:jang-doyoon",
+      "name": "장도윤",
+      "role": "MLOps 테크리드",
+      "team": "추천플랫폼팀"
+    }
+  ],
+  "records": [
+    {
+      "key": "rank-v3-report",
+      "type": "decision",
+      "author": "person:han-jiwon",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "랭킹 모델 v3(2-stage: candidate generation + LightGBM re-ranker)를 트래픽 50%에서 4주 추가 관찰하기로 하고, 100% rollout은 보류한다. 오프라인 지표는 개선됐지만 온라인 1차 지표(clicks per session)가 유의수준을 넘지 못했다.",
+        "rationale": "## 배경\n추천 홈피드 랭킹은 2025-11월부터 v2(GBDT 단일 스테이지)를 운영해왔다. v2는 후보 3,000개를 candidate generation 없이 통째로 스코어링해 p99 레이턴시가 280ms까지 늘어났고, 오프라인 nDCG@20이 몇 달째 정체돼 있었다. v3는 2단계 구조로 새로 설계했다 — candidate generation 단계에서 2-tower 임베딩 ANN(HNSW, ef_search=128)으로 top-500 후보를 뽑고, re-ranking 단계에서 LightGBM(피처 800개)으로 정밀 스코어링한다.\n\n## 가설\n1. ANN 기반 candidate generation으로 후보를 3,000개에서 500개로 줄여도 recall@500이 0.92 이상 유지된다.\n2. re-ranker에 세션 시퀀스 피처(최근 클릭 5개의 임베딩 평균)를 추가하면 오프라인 nDCG@20이 v2 대비 5%p 이상 개선된다.\n3. 오프라인 지표 개선이 온라인 CTR 개선으로 이어진다.\n\n## 실험 설계\n- 기간: 2026-06-15 ~ 2026-06-29(14일), 조기 신호가 애매해 2026-07-13까지 2주 연장.\n- 트래픽: v3 50% / v2(control) 50%, 유저 단위 salted hashing으로 분할, 유효 세션 약 210만 건.\n- 1차 지표(OEC): 세션당 클릭 수(clicks per session).\n- 2차 지표: CTR, dwell time, 노출 후 7일 재방문율.\n- 조기 중단 기준: SRM(Sample Ratio Mismatch) p<0.001 또는 OEC가 -5% 이상 악화 시 즉시 롤백. 실험 기간 동안 SRM 이슈는 관측되지 않았다.\n\n## 오프라인 vs 온라인 결과\n| 지표 | v2(baseline) | v3 | 변화 | 유의성 |\n|---|---|---|---|---|\n| offline nDCG@20 | 0.312 | 0.334 | +7.1% | - |\n| offline recall@500 | - | 0.941 | - | - |\n| online CTR | 4.82% | 4.89% | +1.5% | p=0.21, not sig. |\n| clicks per session | 2.14 | 2.18 | +1.9% | p=0.14, not sig. |\n| p99 latency | 280ms | 165ms | -41% | - |\n| 7일 재방문율 | 31.2% | 31.6% | +1.3%p | p=0.09, not sig. |\n\n## 해석\n오프라인 nDCG는 가설대로 뚜렷이 개선됐고 레이턴시도 크게 줄었지만, 온라인 1차 지표는 유의수준을 넘지 못했다. 두 가지를 원인으로 의심한다.\n1. 학습-서빙 스큐: re-ranker 학습에 쓴 세션 시퀀스 피처는 배치로 하루 1회 갱신되는데, 서빙 시점 피처는 online feature store에서 실시간으로 읽어 최대 6시간 gap이 있었다(incident-train-serve-skew). 이 gap이 오프라인에서는 보이지 않던 시그널 손실을 만들었을 가능성이 있다.\n2. 오프라인 nDCG@20은 상위 20개 순서에 민감하지만, 실제 UI는 무한 스크롤이라 사용자가 20위 밖 아이템도 상당히 소비한다 — 오프라인/온라인 지표 간 목적함수 불일치(fact-offline-online-metric-gap).\n\n## 결정\n- v3를 100%로 즉시 전환하지 않는다.\n- v2/v3 50/50을 4주 더 연장하고, 그 기간에 세션 시퀀스 피처의 online/offline gap을 6시간에서 30분으로 줄이는 작업(adr-feature-store-consistency에서 이미 point-in-time join으로 방향은 정해짐)을 마친 뒤 재평가한다.\n- re-ranker 오프라인 지표를 nDCG@20에서 nDCG@50 + 스크롤 depth 가중 지표로 바꾸는 안은 다음 분기 검토 과제로 남긴다.\n\n## 남은 위험\n- 4주 연장 후에도 온라인 지표가 유의하게 개선되지 않으면 v3 투자 대비 효과 부재로 프로젝트 자체를 재검토해야 한다.\n- candidate generation의 ANN 인덱스는 임베딩 재색인 주기(migration-embedding-reindex에서 결정)에 강하게 의존하는데, 주기를 단축하면 GPU 비용이 늘어난다 — 비용 대비 효과 검증 전까지는 보수적으로 접근한다.\n- 라벨 품질 감사에서 드러난 dwell time 5초 미만 클릭의 노이즈(meeting-label-quality-audit)가 이번 실험 기간 데이터에도 섞여 있어, 재평가 시점에는 필터링된 라벨로 재학습한 모델로 다시 실험해야 한다.",
+        "rejected_alternatives": [
+          "단일 스테이지 GBDT를 유지하고 피처만 추가하는 안 — p99 레이턴시 개선이 없어 기각",
+          "candidate generation을 규칙 기반 카테고리 필터로 단순화하는 안 — recall@500이 0.78까지 떨어져 기각",
+          "온라인 지표 검증 없이 오프라인 nDCG 개선만으로 100% rollout하는 안 — OEC 검증 없이는 리스크가 커서 기각"
+        ]
+      }
+    },
+    {
+      "key": "adr-feature-store-consistency",
+      "type": "decision",
+      "author": "person:seo-yeeun",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "온라인 서빙과 오프라인 학습 간 피처 정합성을 point-in-time join 기반 피처 로그로 보장한다. 기존 캐시 TTL 연장 방식은 폐기한다.",
+        "rationale": "배경: 2026-06-03 랭킹 모델 재학습 후 온라인 CTR이 순간적으로 -8.1% 하락한 사고(incident-train-serve-skew)의 근본 원인을 분석한 결과, 학습 시점 피처 값과 서빙 시점 피처 값이 최대 6시간 차이 나는 요청이 전체의 약 12%였다. 기존에는(old-decision-feature-cache-ttl) 온라인 피처 캐시 TTL을 10분에서 60분으로 늘려 캐시 히트율을 올리는 방식으로 대응했는데, 이는 오히려 skew를 키우는 방향이었다.\n\n검토한 접근:\n1. 온라인 피처를 스트리밍으로 실시간 재계산 — 인프라 비용과 레이턴시 부담이 커서 기각.\n2. 캐시 TTL을 피처별로 더 세밀히 튜닝 — 근본 원인(학습/서빙 계산 경로 분기)을 해결하지 못해 기각.\n3. 피처 로그(point-in-time join) 도입 — 서빙 시점에 실제로 사용된 피처 값을 그대로 로그로 남기고, 학습 데이터는 이 로그에서 point-in-time join으로 구성해 학습/서빙이 같은 값을 보도록 코드 레벨에서 보장.\n\n결정: 3번안을 채택한다. 온라인 서빙 경로에서 피처 조회 시점에 (entity_id, feature_name, value, ts)를 Kafka topic `feature-serving-log`에 비동기로 남기고, 오프라인 학습 파이프라인은 이 로그를 Iceberg 테이블로 적재해 학습 데이터 생성 시 as-of join 한다.\n\n적용 범위: 1차로 re-ranker의 세션 시퀀스 피처와 유저 임베딩에 적용하고, candidate generation 임베딩은 2단계로 이후 적용한다.\n\n트레이드오프: 피처 로그 저장 비용이 일 평균 40GB 늘고, as-of join 쿼리가 기존 배치 join 대비 약 1.8배 느려진다. 그래도 skew로 인한 온라인 지표 하락 리스크가 이 비용보다 크다고 판단했다.\n\n검증 계획: 적용 후 4주간 online/offline 피처 값을 하루 1만 건씩 샘플링 비교해 mismatch율을 12%에서 1% 미만으로 낮추는 것을 목표로 한다.\n\n롤아웃 순서: 1주차엔 re-ranker 세션 시퀀스 피처만 feature-serving-log 경로로 전환하고 기존 배치 스냅샷 경로는 병행 유지(dual-write)한다. 2주차엔 mismatch율을 확인하고 문제 없으면 배치 스냅샷 경로를 제거한다. 3~4주차엔 유저 임베딩 피처를 같은 방식으로 전환한다. Iceberg 테이블 파티션은 (date, feature_name)으로 잡아 as-of join 쿼리가 특정 날짜 범위만 스캔하도록 최적화했다.",
+        "rejected_alternatives": [
+          "온라인 피처 실시간 스트리밍 재계산 — 인프라 비용·레이턴시 부담이 커서 기각",
+          "피처별 캐시 TTL 세분화 튜닝 — 학습/서빙 계산 경로 분기라는 근본 원인을 해결하지 못해 기각"
+        ]
+      }
+    },
+    {
+      "key": "migration-embedding-reindex",
+      "type": "decision",
+      "author": "person:jang-doyoon",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "유저/아이템 임베딩 재색인 주기를 6시간에서 2시간으로 단축한다. 차원은 128을 유지한다.",
+        "rationale": "배경: 콜드스타트 아이템(등록 후 24시간 이내)의 추천 노출이 재색인 주기 6시간 동안 지연돼, 신규 매물의 초기 노출 기회를 놓친다는 피드백이 반복됐다. 재색인 주기 단축안과 임베딩 차원 확대안(128→256)을 함께 검토했다.\n\n검토 1 — 차원 확대(128→256): 오프라인 recall@500이 0.941에서 0.948로 소폭 개선됐지만, ANN 인덱스 크기가 2배로 늘어 서빙 메모리가 노드당 8GB에서 15GB로 증가한다. GPU 비용 대비 개선폭이 작아 기각.\n\n검토 2 — 재색인 주기 단축(6h→2h): 콜드스타트 아이템이 평균 5.2시간 뒤에나 후보군에 들어오던 것이 1.1시간으로 단축될 것으로 추정된다(시뮬레이션 기준). 재색인 배치는 GPU 4장(A10G)에서 평균 47분 소요되고, 2시간 주기로도 다음 배치 시작 전 여유가 있음을 확인했다.\n\n결정: 재색인 주기 2시간, 차원 128 유지.\n\n마이그레이션 계획:\n1. 2026-08-05: 재색인 스케줄러(Airflow DAG `embedding-reindex`)의 trigger interval을 6h에서 2h로 변경, 스테이징에서 1주 관찰.\n2. 2026-08-12: 프로덕션 적용 — GPU 배치 큐(incident-gpu-batch-backlog에서 다룬 적체 이슈 해결 확인 후) 여유를 재확인한다.\n3. 2026-08-19: 콜드스타트 아이템 노출 지연 시간을 재측정, 목표는 1.5시간 이내.\n\n리스크: 재색인 빈도가 늘면서 GPU 비용이 월 약 320만 원 증가할 것으로 예상된다. ANN 인덱스 스왑 중 짧은 순간(약 3초) 이중 인덱스를 메모리에 유지해야 해 메모리 여유가 20% 이상 필요하다.\n\n모니터링: 재색인 배치가 끝날 때마다 신규/갱신 임베딩 건수와 배치 소요 시간을 `embedding-reindex` 대시보드에 기록하고, 소요 시간이 90분을 넘기면 Slack #mlops-oncall로 알림을 보내도록 설정했다. GPU 큐 적체(incident-gpu-batch-backlog)가 재발하면 재색인 주기 단축의 전제 조건이 깨지므로, 이 항목은 롤아웃 2단계(2026-08-12) 전 반드시 재확인한다. 롤백 조건도 함께 정했다 — 재색인 실패율이 3회 연속 배치 중 1회 이상이거나, 콜드스타트 노출 지연이 오히려 악화되면 즉시 6시간 주기로 되돌린다.",
+        "rejected_alternatives": [
+          "임베딩 차원을 128에서 256으로 확대 — recall 개선폭 대비 서빙 메모리 2배 증가로 기각"
+        ]
+      }
+    },
+    {
+      "key": "meeting-ab-sample-size",
+      "type": "decision",
+      "author": "person:jang-doyoon",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "A/B 테스트 최소 실험 기간을 14일, 최소 트래픽 배분을 20%로 표준화한다.",
+        "rationale": "주간 계절성(주말 대비 평일 CTR 차이 약 15%)을 온전히 2주기 포함해야 재현 가능한 결과라고 볼 수 있다는 데이터팀 분석에 따라 최소 14일로 정했다. 과거 7일 기준으로 조기 종료했던 실험 중 3건이 4주 뒤 재현되지 않아 다시 돌린 이력이 있다. 트래픽 20% 미만에서는 세션당 클릭 수처럼 분산이 낮은 지표에서 검정력(power<0.8)이 부족해 최소 20%로 정했다. 표준화 이전에는 실험마다 팀별로 기간과 트래픽을 임의로 정해 실험 카탈로그(resource-ab-test-portal)에서 결과를 비교하기 어려웠는데, 이번 표준화로 신규 실험 등록 시 최소값 미만이면 포털에서 경고를 띄우도록 했다.",
+        "rejected_alternatives": [
+          "7일 최소 기간 — 주간 계절성 미반영으로 재현성 문제가 반복돼 기각",
+          "5% 트래픽으로 시작해 점진 확대하는 안 — 조기 신호 확인엔 유리하나 검정력 부족 사례가 반복돼 표준안에서는 제외"
+        ]
+      }
+    },
+    {
+      "key": "incident-train-serve-skew",
+      "type": "fact",
+      "author": "person:seo-yeeun",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "학습-서빙 스큐로 CTR -8% 급락, 06-03 롤백",
+        "statement": "2026-06-03 03:10 KST, 재학습된 랭킹 모델 배포 30분 뒤 온라인 CTR이 기준 대비 -8.1% 하락했다. 원인 조사 결과 세션 시퀀스 피처가 학습 시점엔 배치 스냅샷(전날 자정 기준)을, 서빙 시점엔 실시간 online feature store 값을 사용해 최대 6시간 값 차이가 발생했다. 전체 요청의 약 12%가 이 skew 영향권에 있었다. 03:40 KST에 이전 모델 버전으로 롤백했고, 사고 대응 과정에서 feature-serving-log 도입 논의가 시작돼 adr-feature-store-consistency로 이어졌다. 사후 분석 회의에서 온콜 담당자가 처음엔 배포 자체를 의심해 재배포를 두 차례 시도했으나 증상이 반복돼 피처 값 비교로 원인을 좁히기까지 25분이 더 걸린 점이 지적됐다. 재발 방지를 위해 배포 알림에 피처 파이프라인 최근 갱신 시각을 함께 표시하기로 했다."
+      }
+    },
+    {
+      "key": "meeting-coldstart-strategy",
+      "type": "decision",
+      "author": "person:han-jiwon",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "콜드스타트 아이템은 등록 후 첫 2시간 동안 인기도 기반 fallback 노출과 카테고리 유사 임베딩(centroid) 매칭을 병행한다.",
+        "rationale": "신규 아이템은 임베딩이 없거나 상호작용 데이터가 없어 2-tower 모델의 아이템 타워 출력을 신뢰하기 어렵다는 게 문제였다. 같은 카테고리 아이템 임베딩의 평균(centroid)을 임시 임베딩으로 대체 사용하고, 동시에 인기도 기반 상위 노출 슬롯을 1개 확보해 노출 기회 자체를 보장하기로 했다. 재색인 주기가 2시간으로 단축되면(migration-embedding-reindex) 이 fallback 구간도 자연히 2시간으로 줄어든다.",
+        "rejected_alternatives": [
+          "신규 아이템에 랜덤 노출만 부여 — 품질 낮은 아이템도 동일 확률로 노출돼 CTR이 희석돼 기각",
+          "콘텐츠 기반(텍스트/이미지) 임베딩만으로 즉시 서빙 — 별도 인프라 구축 비용이 커 이번 분기엔 보류"
+        ]
+      }
+    },
+    {
+      "key": "incident-gpu-batch-backlog",
+      "type": "fact",
+      "author": "person:jang-doyoon",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "title": "재색인 배치 GPU 큐 07-22 3시간 적체",
+        "statement": "07-22 새벽 임베딩 재색인 배치(A10G x4)가 다른 팀의 LLM 파인튜닝 job과 동일 큐(`gpu-shared-pool`)를 공유하면서 대기가 3시간 넘게 발생했고, 재색인 완료가 예정보다 늦어져 당일 신규 아이템 노출이 약 5시간 밀렸다. 임시로 재색인 job의 priority class를 높여 대응했지만 근본적으로는 GPU pool 분리가 필요해 보인다. 아직 우선순위 조정 방안 검토가 끝나지 않은 초안 상태다. 재색인 주기를 2시간으로 단축하는 계획(migration-embedding-reindex)이 그대로 진행되면 같은 큐 공유 상황에서 적체가 더 잦아질 수 있어, 전용 GPU pool 분리 또는 최소한 재색인 job 전용 priority class 상시 적용 중 하나는 프로덕션 적용 전에 결정해야 한다는 의견이 나왔다."
+      }
+    },
+    {
+      "key": "meeting-label-quality-audit",
+      "type": "decision",
+      "author": "person:seo-yeeun",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "암묵적 피드백(클릭) 라벨에서 dwell time 5초 미만 클릭을 negative로 재라벨링하는 필터를 도입한다.",
+        "rationale": "라벨 품질 감사에서 클릭 후 5초 이내 이탈한 케이스가 전체 클릭의 약 18%였고, 이 중 다수가 실수 클릭이거나 관심도가 낮은 클릭으로 추정됐다. 이 노이즈가 re-ranker 학습에 그대로 positive로 들어가 nDCG 개선을 방해한다고 판단했다. 5초 임계값은 dwell time 분포의 하위 20th percentile 부근에서 정했다. 감사 대상은 최근 8주치 클릭 로그였고, 카테고리별로 편차가 있어(가전 카테고리는 5초 미만 비중이 27%로 특히 높았다) 카테고리별 임계값 차등 적용도 검토했으나 우선은 전체 공통 임계값으로 시작하고 다음 감사에서 재검토하기로 했다.",
+        "rejected_alternatives": [
+          "dwell time 필터 없이 전체 클릭을 positive로 유지 — 노이즈가 반복적으로 학습에 반영되는 문제를 방치해 기각",
+          "10초 임계값 — 정상 탐색 클릭까지 negative로 재분류되는 비율이 약 35%까지 올라가 기각"
+        ]
+      }
+    },
+    {
+      "key": "old-decision-feature-cache-ttl",
+      "type": "decision",
+      "author": "person:seo-yeeun",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "온라인 피처 캐시 TTL을 10분에서 60분으로 늘려 온라인/오프라인 정합성 문제를 완화한다.",
+        "rationale": "작년 기준 캐시 미스로 인한 레이턴시 스파이크가 잦아 TTL을 늘려 히트율을 올리는 방향으로 결정했었다. 이전 클러스터에서는 이 방식으로 p99가 개선되는 것처럼 보였다.",
+        "rejected_alternatives": [
+          "TTL을 10분으로 유지 — 캐시 미스 스파이크 미해결"
+        ]
+      }
+    },
+    {
+      "key": "fact-rollback-threshold-latency",
+      "type": "fact",
+      "author": "person:han-jiwon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "모델 롤백 기준: p99 latency 500ms 초과",
+        "statement": "랭킹 서빙 API의 p99 latency가 500ms를 5분 이상 연속 초과하면 즉시 이전 모델 버전으로 롤백한다. CTR 등 비즈니스 지표 변화는 롤백 트리거로 보지 않는다 — latency는 SLO 위반이 명확하지만 CTR은 노이즈가 커서 자동 트리거로는 부적절하다는 입장이다."
+      }
+    },
+    {
+      "key": "fact-rollback-threshold-metric",
+      "type": "fact",
+      "author": "person:jang-doyoon",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "모델 롤백 기준: CTR -3% 하락 시",
+        "statement": "온라인 CTR이 기준 대비 3% 이상 하락하면 latency 상태와 무관하게 롤백해야 한다는 의견. p99 latency는 배포 직후 일시적으로 튀는 경우가 많아 단독 트리거로 쓰면 false positive 롤백이 잦다고 본다. 아직 팀 내 합의가 끝나지 않은 초안이다."
+      }
+    },
+    {
+      "key": "fact-shadow-traffic-issue",
+      "type": "fact",
+      "author": "person:han-jiwon",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "섀도 트래픽 비교 중 로그 중복 이슈",
+        "statement": "v3 섀도 트래픽 테스트 중 응답은 실제 유저에게 반환하지 않고 로깅만 했는데, 로깅 파이프라인이 실제 트래픽과 섀도 트래픽을 같은 topic에 태그 없이 적재해 오프라인 지표 집계 시 두 배로 카운트되는 문제를 발견했다. 태그 필드를 추가해 재집계해야 한다. 아직 재집계 전 초안 상태."
+      }
+    },
+    {
+      "key": "term-two-stage-ranking",
+      "type": "term",
+      "author": "person:han-jiwon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "2단계 랭킹 (2-stage ranking)",
+        "statement": "이 회사에서 '2단계 랭킹'은 candidate generation(임베딩 ANN으로 수백~수천 개 후보 추출) 다음에 re-ranking(GBDT 등으로 정밀 스코어링) 단계를 거치는 구조를 가리킨다. 전체 후보를 통째로 스코어링하던 v2와 구분하려고 쓰는 말이다."
+      }
+    },
+    {
+      "key": "term-feature-skew",
+      "type": "term",
+      "author": "person:seo-yeeun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "스큐 (skew)",
+        "statement": "이 회사에서 그냥 '스큐'라고 하면 대부분 학습-서빙 스큐(train-serve skew)를 뜻한다. 클래스 불균형이나 데이터 분포 편향이 아니라, 학습 시점 피처 값과 서빙 시점 피처 값의 불일치를 가리키는 좁은 의미로 쓴다. incident-train-serve-skew 이후 이 용법이 팀 전체에 굳어졌다."
+      }
+    },
+    {
+      "key": "resource-recsys-dashboard",
+      "type": "resource",
+      "author": "person:jang-doyoon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "추천 지표 대시보드",
+        "statement": "홈피드/검색 추천의 온라인 CTR, 세션당 클릭 수, offline nDCG/recall을 모델 버전별로 비교하는 대시보드. 배포 후 첫 48시간은 매일 아침 스탠드업에서 확인한다.",
+        "url": "https://grafana.internal.example.com/d/reco-metrics"
+      }
+    },
+    {
+      "key": "fact-offline-online-metric-gap",
+      "type": "fact",
+      "author": "person:han-jiwon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "오프라인 nDCG와 온라인 CTR 불일치 패턴",
+        "statement": "최근 세 번의 모델 실험(v2.1, v2.2, v3)에서 공통으로 오프라인 nDCG@20은 개선됐지만 온라인 CTR 개선폭은 유의하지 않았다. 무한 스크롤 UI에서 20위 밖 아이템도 상당히 소비되는 비중이 높아, 상위 20개에 집중된 오프라인 지표가 실제 사용 패턴을 완전히 대변하지 못하는 것으로 추정된다."
+      }
+    },
+    {
+      "key": "const-min-ab-days",
+      "type": "fact",
+      "author": "person:jang-doyoon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "A/B 최소 실험 기간",
+        "statement": "A/B 테스트 최소 실험 기간은 14일, 최소 트래픽 배분은 20%."
+      }
+    },
+    {
+      "key": "const-embedding-dim",
+      "type": "fact",
+      "author": "person:seo-yeeun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "유저/아이템 임베딩 차원",
+        "statement": "2-tower 임베딩 차원은 128로 고정, v3에서도 그대로 유지."
+      }
+    },
+    {
+      "key": "const-reindex-interval-old",
+      "type": "fact",
+      "author": "person:seo-yeeun",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "예전 재색인 주기",
+        "statement": "작년 기준 임베딩 재색인 주기는 6시간이었다(2026-08부터 2시간으로 단축)."
+      }
+    },
+    {
+      "key": "const-gpu-batch-size",
+      "type": "fact",
+      "author": "person:jang-doyoon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "재색인 배치 GPU 스펙",
+        "statement": "임베딩 재색인 배치는 A10G GPU 4장, 배치 크기 8192로 실행."
+      }
+    },
+    {
+      "key": "const-candidate-topk-old",
+      "type": "fact",
+      "author": "person:han-jiwon",
+      "size": "line",
+      "state": "stale",
+      "attributes": {
+        "title": "이전 candidate generation top-K",
+        "statement": "작년 기준 candidate generation은 top-300만 추출했다(v3부터 top-500)."
+      }
+    },
+    {
+      "key": "const-cold-start-fallback-popularity-window",
+      "type": "fact",
+      "author": "person:seo-yeeun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "콜드스타트 인기도 집계 윈도우",
+        "statement": "콜드스타트 fallback 인기도 점수는 최근 24시간 클릭 수 기준으로 집계."
+      }
+    },
+    {
+      "key": "contact-oncall-mlops",
+      "type": "fact",
+      "author": "person:jang-doyoon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "MLOps 온콜 연락 경로",
+        "statement": "재색인/서빙 장애 온콜은 Slack #mlops-oncall, PagerDuty 서비스명 `reco-serving`."
+      }
+    },
+    {
+      "key": "term-feature-freshness-sla",
+      "type": "term",
+      "author": "person:seo-yeeun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "피처 신선도 SLA",
+        "statement": "online feature store 값이 실제 이벤트 대비 30분 이내여야 한다는 내부 기준."
+      }
+    },
+    {
+      "key": "resource-feature-store-runbook",
+      "type": "resource",
+      "author": "person:seo-yeeun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "피처 스토어 운영 런북",
+        "statement": "피처 파이프라인 장애 대응 순서와 재처리 방법 정리.",
+        "url": "https://wiki.internal.example.com/mlops/feature-store-runbook"
+      }
+    },
+    {
+      "key": "resource-ab-test-portal",
+      "type": "resource",
+      "author": "person:jang-doyoon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "A/B 테스트 신청/모니터링 포털",
+        "statement": "실험 등록, 트래픽 배분, 실시간 OEC를 확인하는 내부 포털.",
+        "url": "https://experiments.internal.example.com"
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "relates_to",
+      "from": "rank-v3-report",
+      "to": "adr-feature-store-consistency"
+    },
+    {
+      "type": "relates_to",
+      "from": "rank-v3-report",
+      "to": "migration-embedding-reindex"
+    },
+    {
+      "type": "relates_to",
+      "from": "rank-v3-report",
+      "to": "fact-offline-online-metric-gap"
+    },
+    {
+      "type": "relates_to",
+      "from": "rank-v3-report",
+      "to": "meeting-ab-sample-size"
+    },
+    {
+      "type": "relates_to",
+      "from": "rank-v3-report",
+      "to": "meeting-label-quality-audit"
+    },
+    {
+      "type": "relates_to",
+      "from": "adr-feature-store-consistency",
+      "to": "incident-train-serve-skew"
+    },
+    {
+      "type": "relates_to",
+      "from": "adr-feature-store-consistency",
+      "to": "term-feature-freshness-sla"
+    },
+    {
+      "type": "relates_to",
+      "from": "adr-feature-store-consistency",
+      "to": "resource-feature-store-runbook"
+    },
+    {
+      "type": "relates_to",
+      "from": "migration-embedding-reindex",
+      "to": "const-embedding-dim"
+    },
+    {
+      "type": "relates_to",
+      "from": "migration-embedding-reindex",
+      "to": "const-reindex-interval-old"
+    },
+    {
+      "type": "relates_to",
+      "from": "meeting-coldstart-strategy",
+      "to": "const-cold-start-fallback-popularity-window"
+    },
+    {
+      "type": "relates_to",
+      "from": "incident-gpu-batch-backlog",
+      "to": "const-gpu-batch-size"
+    },
+    {
+      "type": "relates_to",
+      "from": "incident-gpu-batch-backlog",
+      "to": "contact-oncall-mlops"
+    },
+    {
+      "type": "relates_to",
+      "from": "term-two-stage-ranking",
+      "to": "const-candidate-topk-old"
+    },
+    {
+      "type": "relates_to",
+      "from": "resource-recsys-dashboard",
+      "to": "fact-offline-online-metric-gap"
+    },
+    {
+      "type": "relates_to",
+      "from": "resource-ab-test-portal",
+      "to": "meeting-ab-sample-size"
+    },
+    {
+      "type": "relates_to",
+      "from": "meeting-ab-sample-size",
+      "to": "const-min-ab-days"
+    },
+    {
+      "type": "supersedes",
+      "from": "adr-feature-store-consistency",
+      "to": "old-decision-feature-cache-ttl"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "fact-rollback-threshold-latency",
+      "to": "fact-rollback-threshold-metric"
+    }
+  ]
+}

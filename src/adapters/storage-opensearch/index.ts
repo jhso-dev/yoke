@@ -41,14 +41,15 @@
 // sentinel are different queries in OpenSearch too, and one sentinel across three adapters is one rule
 // to remember.
 
-import { serializeText } from "../../core/embedding.js";
+import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { tokenize } from "../../core/rank.js";
+import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
+  orderByIds,
   type Page,
   page,
   type StoragePort,
@@ -321,24 +322,6 @@ export class OpenSearchStorage implements StoragePort {
     return dim;
   }
 
-  /** A database has ONE vector space. The dimension is declared in the mapping, so OpenSearch itself
-   * refuses a mismatched write — this check exists to make the refusal say what to do about it, and to
-   * apply the same rule to READS, where a wrong-width query would otherwise be answered out of an
-   * index built by a different model (SPEC "The vector index"). */
-  private dimensionError(
-    current: number,
-    given: number,
-    reading: boolean,
-  ): Error {
-    return new Error(
-      `embedding dimension changed: the vector index holds ${current}-dimension vectors and this ${
-        reading ? "query" : "one"
-      } is ${given}. ` +
-        `A database has one vector space — re-index every record with the new model: ` +
-        `yoke backfill --embeddings --rebuild`,
-    );
-  }
-
   private async ensureVectorIndex(dim: number, rebuild = false): Promise<void> {
     const name = this.idx(VECTORS);
     if (rebuild) {
@@ -348,7 +331,7 @@ export class OpenSearchStorage implements StoragePort {
     }
     const current = await this.readVectorDim();
     if (current !== null) {
-      if (current !== dim) throw this.dimensionError(current, dim, false);
+      if (current !== dim) throw dimensionMismatch(current, dim, false);
       return;
     }
     await this.req("PUT", `/${name}`, {
@@ -391,7 +374,7 @@ export class OpenSearchStorage implements StoragePort {
     const dim = await this.readVectorDim();
     if (dim === null) return [];
     if (dim !== embedding.length)
-      throw this.dimensionError(dim, embedding.length, true);
+      throw dimensionMismatch(dim, embedding.length, true);
     await this.ready(this.idx(VECTORS));
     const res = await this.req<SearchResponse<{ id: string }>>(
       "POST",
@@ -402,12 +385,10 @@ export class OpenSearchStorage implements StoragePort {
         _source: ["id"],
       },
     );
-    const out: Entity[] = [];
-    for (const h of res.hits.hits) {
-      const e = await this.getEntity(h._source.id);
-      if (e) out.push(e);
-    }
-    return out;
+    // One batch read, NOT one per hit: `similar` is on the hybrid-retrieval path, so it runs on
+    // every query injection with k = limit x 3 — the largest N+1 in the read paths (v5.5).
+    // getEntities preserves the id order it is given, which is why score order survives.
+    return this.getEntities(res.hits.hits.map((h) => h._source.id));
   }
 
   // --- reads ---------------------------------------------------------------------------------
@@ -462,6 +443,30 @@ export class OpenSearchStorage implements StoragePort {
     return hit ? this.toEntity(hit._source) : null;
   }
 
+  /** Batch point read (v5.5) — one search instead of one per id. The stored `latest` flag is what
+   * makes it a single call: without it the query would have to sort per id, which a `terms` filter
+   * cannot do. `size` is exactly the number asked for, since `latest` leaves one doc per id. */
+  async getEntities(ids: string[]): Promise<Entity[]> {
+    if (ids.length === 0) return [];
+    await this.ready(this.idx(ENTITIES));
+    const res = await this.req<SearchResponse<EntityDoc>>(
+      "POST",
+      `/${this.idx(ENTITIES)}/_search`,
+      {
+        size: ids.length,
+        query: {
+          bool: {
+            filter: [{ terms: { id: ids } }, { term: { latest: true } }],
+          },
+        },
+      },
+    );
+    return orderByIds(
+      res.hits.hits.map((h) => this.toEntity(h._source)),
+      ids,
+    );
+  }
+
   async neighbors(
     id: string,
     relType?: string,
@@ -496,8 +501,16 @@ export class OpenSearchStorage implements StoragePort {
     await this.ready(this.idx(ENTITIES));
     // Required prefix clauses match; optional exact clauses score. See policy 3 — prefix queries are
     // constant-score, so on their own they rank every hit identically.
-    const must = tokens.map((t) => ({ prefix: { txt: { value: t } } }));
-    const should = tokens.map((t) => ({ match: { txt: t } }));
+    //
+    // Past AND_TERM_LIMIT tokens the prefix clauses move into `should` and one of them is enough
+    // (SPEC search clause 8). `minimum_should_match` is set explicitly rather than left to the
+    // must-less default, because that default has moved between Lucene versions and this adapter
+    // targets every OpenSearch distribution.
+    const prefixes = tokens.map((t) => ({ prefix: { txt: { value: t } } }));
+    const exact = tokens.map((t) => ({ match: { txt: t } }));
+    const loose = !requireEveryTerm(tokens.length, q.terms);
+    const must = loose ? [] : prefixes;
+    const should = loose ? [...prefixes, ...exact] : exact;
     const filter: unknown[] = [
       { term: { latest: true } },
       { term: { ns: normalizeNs(q.ns) ?? "" } },
@@ -515,7 +528,9 @@ export class OpenSearchStorage implements StoragePort {
       `/${this.idx(ENTITIES)}/_search`,
       {
         size: q.limit ?? DEFAULT_SEARCH_LIMIT,
-        query: { bool: { must, should, filter } },
+        query: {
+          bool: { must, should, filter, minimum_should_match: loose ? 1 : 0 },
+        },
         // Score first, then id — the tiebreak is what makes every backend agree on a total order.
         sort: [{ _score: "desc" }, { id: "asc" }],
       },

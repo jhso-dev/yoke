@@ -26,6 +26,7 @@ import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
+import { readEntities } from "../../ports/storage.js";
 import { injectDetail, summarize, ULID } from "../display.js";
 import { openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
@@ -95,12 +96,28 @@ function personName(e: Entity, ontology: TypeDef[]): string | undefined {
  * in `citation()`: the citation is the audit pointer and an id is what makes it one — names are not
  * unique and they change, so a renamed person must not rewrite history.
  *
- * ponytail: one point read per distinct actor per request, memoized. A page of 100 rows by 3 authors
- * costs 3 reads. Batch it via a port method only if a profile ever says these reads matter.
+ * A profile DID eventually say these reads matter (v5.5). `prefetch` resolves a whole response's
+ * actors in one batch read, because the memo only helps when authors repeat and in a real corpus they
+ * do not: an anchored graph at depth 3 spent **1,595 of its 1,715** port calls here, one per distinct
+ * author, and the traversal it was blamed on accounted for 117.
  */
 function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
   const seen = new Map<string, string | undefined>();
-  return async (actorId: string): Promise<string | undefined> => {
+  const remember = (e: Entity) =>
+    seen.set(e.id, e.type === "person" ? personName(e, ontology) : undefined);
+  /** Resolve every actor these rows name, in one read. Ids that resolve to nothing — or to something
+   * that is not a person — are memoized as "no name", which is what the point read would conclude. */
+  const prefetch = async (
+    rows: Array<{ provenance: { actor: string } }>,
+  ): Promise<void> => {
+    const missing = [...new Set(rows.map((r) => r.provenance.actor))].filter(
+      (id) => !seen.has(id),
+    );
+    if (missing.length === 0) return;
+    for (const id of missing) seen.set(id, undefined);
+    for (const e of await readEntities(store, missing)) remember(e);
+  };
+  const nameOf = async (actorId: string): Promise<string | undefined> => {
     if (!seen.has(actorId)) {
       // Every actor is looked up. This used to skip any id containing a colon, on the theory that a
       // colon means a machine actor ('yoke:system', 'connector:github-pr') and a ULID never has one —
@@ -111,13 +128,12 @@ function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
       // ids that only the caller knows. Cost of dropping it: one memoized point read per distinct
       // machine actor per request.
       const e = await store.getEntity(actorId);
-      seen.set(
-        actorId,
-        e?.type === "person" ? personName(e, ontology) : undefined,
-      );
+      if (e) remember(e);
+      else seen.set(actorId, undefined);
     }
     return seen.get(actorId);
   };
+  return { nameOf, prefetch };
 }
 
 /** The audit-visible knowledge row shape shared by every screen (citation everywhere).
@@ -212,15 +228,54 @@ async function graphEntities(
   };
 }
 
+/**
+ * How many `neighbors` calls are in flight at once. The graph reads issue one per node, and a frontier
+ * is bounded only by `limit` (2000) — an unbounded `Promise.all` over it opens a socket per node, which
+ * a remote backend answers with a connection error rather than a slow reply. 16 is the same order as
+ * the workflow concurrency cap and well under any server's default connection limit.
+ */
+const FANOUT = 16;
+
+/** Map with bounded concurrency, preserving input order. */
+async function mapLimit<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  limit = FANOUT,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  for (let i = 0; i < items.length; i += limit) {
+    const chunk = items.slice(i, i + limit);
+    const done = await Promise.all(chunk.map(fn));
+    done.forEach((r, j) => {
+      out[i + j] = r;
+    });
+  }
+  return out;
+}
+
+/**
+ * Edges among a known node set — both ends inside it, so the client never has to draw a dangling one.
+ *
+ * The `neighbors` calls are issued together and folded afterwards **in the original id order**, which
+ * is what keeps the answer byte-identical to the sequential version: the fold, including the early
+ * return when `limit` is reached, still walks ids in the order the caller gave them. Awaiting inside
+ * the loop instead made a 334-node view 334 sequential round trips (v5.5).
+ *
+ * ponytail: still one call per node — `neighbors` takes a single id, and a batch form is a port method
+ * with four implementations and a conformance case behind it. Concurrency was the free half; add the
+ * port method when a measurement says the remaining round trips cost more than the wall clock does.
+ */
 async function visibleGraphRelations(
   store: YokeStore,
   ids: Set<string>,
   inNs: (x: { ns?: string | null }) => boolean,
   limit: number,
 ) {
+  const order = [...ids];
+  const perNode = await mapLimit(order, (id) => store.neighbors(id));
   const edges = new Map<string, Relation>();
-  for (const id of ids) {
-    for (const r of await store.neighbors(id)) {
+  for (const rels of perNode) {
+    for (const r of rels) {
       if (!inNs(r) || edges.has(r.id) || !ids.has(r.from) || !ids.has(r.to))
         continue;
       edges.set(r.id, r);
@@ -299,9 +354,42 @@ export function createUiHandler(
   const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
-  /** 403 + false when denied, so callers early-return. */
-  const deny = (res: ServerResponse): boolean => {
-    sendJson(res, 403, { error: "forbidden" });
+  /**
+   * Authorize, and on refusal answer 403 naming the scope that would have granted it.
+   *
+   * The body used to be `{"error":"forbidden"}` and nothing else. Found by running the check the
+   * roadmap had been carrying as a human-verification item: a read-only token is refused `verify`
+   * correctly, and the person holding it is told only that something was forbidden — not which
+   * permission to ask for, and not whether the refusal was about this record's type or the namespace.
+   * "Errors explain what went wrong and how to fix it."
+   *
+   * Only the REQUIRED scope is named, never the token's own. What the caller holds does not change
+   * what they have to go and ask for, and the handler would have to be threaded the principal to say
+   * it — surface bought for nothing.
+   *
+   * Returns true when refused, so call sites stay `if (denied(...)) return;`.
+   */
+  const denied = (
+    res: ServerResponse,
+    action: "read" | "write" | "verify",
+    type?: string,
+  ): boolean => {
+    if (authorize(action, type)) return false;
+    // The scope grammar is `action` | `ns:action` | `ns:type:action` (serve/rbac.ts), and a wildcard
+    // in either position also grants it — so the message names the grant needed, not one exact string
+    // that would read as the only acceptable spelling.
+    const where = [
+      type === undefined ? null : `type '${type}'`,
+      ns === null ? null : `namespace '${ns}'`,
+    ].filter(Boolean);
+    sendJson(res, 403, {
+      error:
+        `forbidden: this credential has no '${action}' scope` +
+        (where.length ? ` for ${where.join(" in ")}` : ""),
+      required: action,
+      ...(type === undefined ? {} : { type }),
+      ...(ns === null ? {} : { ns }),
+    });
     return true;
   };
   /** One audit row for a knowledge read, in the `<subject> -> <id> …` shape every other action
@@ -326,21 +414,32 @@ export function createUiHandler(
    * once per request rather than per row, and every route reports freshness the same way.
    * Async because it also resolves actor ids to display names; the name memo is created here, per
    * call, so it cannot outlive one response and serve a renamed person their old name. */
-  const asRow = () => {
+  /** Entity rows, relation rows, and the actor-name prefetch — ONE memo behind all three.
+   * `asRow()` and `asRelRow()` used to build a memo each, so a route serializing both read every
+   * author twice; the graph route did exactly that. */
+  const serializers = () => {
     const ontology = store.loadOntology(ns);
     const ts = now();
-    const nameOf = makeActorNames(store, ontology);
-    return async (e: Entity) =>
-      row(e, ontology, ts, await nameOf(e.provenance.actor));
+    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    return {
+      asR: async (e: Entity) =>
+        row(e, ontology, ts, await nameOf(e.provenance.actor)),
+      asRel: async (r: Relation) =>
+        relRow(r, ontology, ts, await nameOf(r.provenance.actor)),
+      prefetch,
+    };
   };
+  const asRow = () => serializers().asR;
   /** The same, for relations — a relation is knowledge with an author too, so its row carries the
    * readable actor for the identical reason. */
-  const asRelRow = () => {
-    const ontology = store.loadOntology(ns);
-    const ts = now();
-    const nameOf = makeActorNames(store, ontology);
-    return async (r: Relation) =>
-      relRow(r, ontology, ts, await nameOf(r.provenance.actor));
+  const asRelRow = () => serializers().asRel;
+  /** Serialize a list: the actors resolve in one batch read, then the rows. Every route that returns
+   * more than one row goes through this — the alternative is a point read per distinct author, which
+   * is what a real corpus has one of per record. */
+  const rowsOf = async <T extends Entity>(xs: T[]) => {
+    const { asR, prefetch } = serializers();
+    await prefetch(xs);
+    return Promise.all(xs.map(asR));
   };
 
   return async function handle(
@@ -372,7 +471,7 @@ export function createUiHandler(
       // The topbar says who you are signed in as. Under --auth that actor is a person entity id, so
       // without resolution the header reads as a ULID.
       const actorName = authenticated
-        ? await makeActorNames(store, store.loadOntology(ns))(actor)
+        ? await makeActorNames(store, store.loadOntology(ns)).nameOf(actor)
         : undefined;
       sendJson(res, 200, {
         auth: deps.authRequired ?? false,
@@ -385,7 +484,7 @@ export function createUiHandler(
     }
 
     if (method === "GET" && path === "/api/review") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       // The other queue: verified records past their type's TTL. SPEC's injection filter has said
       // since v1 that "viewing stale is the job of review/CLI" and neither showed one, so stale
       // knowledge left injection with nobody told — the failure docs/RESEARCH.md's freshness findings
@@ -405,7 +504,7 @@ export function createUiHandler(
         // `scanned` travels with the rows: the walk is bounded, so a screen that printed only the
         // count would be claiming a corpus-wide number this did not compute.
         sendJson(res, 200, {
-          items: await Promise.all(items.map(asRow())),
+          items: await rowsOf(items),
           next,
           scanned,
         });
@@ -417,11 +516,7 @@ export function createUiHandler(
       // whoever adds multi-reviewer aggregation; this route is not currently enforcing it, and the
       // comment that used to say "only this reviewer's list" described a filter that is not here.
       const drafts = await store.listEntities({ status: "draft", ns });
-      sendJson(
-        res,
-        200,
-        await Promise.all(newestFirst(drafts.items).map(asRow())),
-      );
+      sendJson(res, 200, await rowsOf(newestFirst(drafts.items)));
       return;
     }
 
@@ -429,7 +524,7 @@ export function createUiHandler(
     // ontology type can use this endpoint by naming that type — and only that type.
     if (method === "GET" && path === "/api/entities") {
       const type = url.searchParams.get("type") ?? undefined;
-      if (!authorize("read", type) && deny(res)) return;
+      if (denied(res, "read", type)) return;
       const q = {
         ns,
         type,
@@ -439,7 +534,7 @@ export function createUiHandler(
       };
       const p = await store.listEntities(q);
       sendJson(res, 200, {
-        items: await Promise.all(p.items.map(asRow())),
+        items: await rowsOf(p.items),
         next: p.next,
       });
       return;
@@ -455,7 +550,7 @@ export function createUiHandler(
     // and briefing screens already do it this way). Getting everything is `inject`, or the CLI.
     if (method === "GET" && path === "/api/search") {
       const type = url.searchParams.get("type") ?? undefined;
-      if (!authorize("read", type) && deny(res)) return;
+      if (denied(res, "read", type)) return;
       const text = (url.searchParams.get("q") ?? "").trim();
       if (!text) {
         sendJson(res, 400, { error: "q is required" });
@@ -478,7 +573,7 @@ export function createUiHandler(
         text,
       );
       sendJson(res, 200, {
-        items: await Promise.all(items.map(asRow())),
+        items: await rowsOf(items),
         next: null,
         truncated: found.length > limit,
         limit,
@@ -493,8 +588,7 @@ export function createUiHandler(
       const e = await store.getEntity(id);
       // Authorize on the loaded type before answering, and 404 after — so a denied caller cannot
       // use the 404-vs-403 difference to probe which ids exist.
-      const ok = e ? authorize("read", e.type) : authorize("read");
-      if (!ok && deny(res)) return;
+      if (denied(res, "read", e?.type)) return;
       if (!e || normalizeNs(e.ns) !== normalizeNs(ns)) {
         sendJson(res, 404, { error: "not found" });
         return;
@@ -542,7 +636,7 @@ export function createUiHandler(
     }
 
     if (method === "GET" && path === "/api/conflicts") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       const rels = (await store.listRelations({ type: "conflicts_with", ns }))
         .items;
       const asR = asRow();
@@ -570,7 +664,7 @@ export function createUiHandler(
     // the screen claims to show. Audited as `inject_preview`, distinct from `inject`, so a human
     // checking does not pollute the record of what an agent was actually told.
     if (method === "GET" && path === "/api/inject") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       const query = url.searchParams.get("q") ?? "";
       const scope = url.searchParams.get("scope") ?? undefined;
       if (!query && !scope)
@@ -613,14 +707,18 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      const asR = asRow();
+      const { asR, prefetch } = serializers();
       sendJson(res, 200, {
         query,
         scope: scope ?? null,
         asOf: asOfParam ?? null,
         includeDraft,
         omitted,
-        items: await Promise.all(items.map((it) => asR(it.entity))),
+        items: await (async () => {
+          const es = items.map((it) => it.entity);
+          await prefetch(es);
+          return Promise.all(es.map(asR));
+        })(),
       });
       return;
     }
@@ -631,11 +729,10 @@ export function createUiHandler(
     // When truncated, an edge may reference a node outside `nodes`; that is documented, and only
     // possible in the case the banner already flags.
     if (method === "GET" && path === "/api/graph") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       const limit = intParam(url, "limit", 300, 2000);
       const scope = url.searchParams.get("scope");
-      const asR = asRow();
-      const asRel = asRelRow();
+      const { asR, asRel, prefetch } = serializers();
       const inNs = (x: { ns?: string | null }) =>
         normalizeNs(x.ns) === normalizeNs(ns);
 
@@ -645,34 +742,48 @@ export function createUiHandler(
         const edges = new Map<string, Relation>();
         const anchor = await store.getEntity(scope);
         if (anchor && inNs(anchor)) nodes.set(scope, anchor);
+        // One hop at a time, and each hop is TWO waits rather than two per node: the frontier's
+        // `neighbors` calls go out together, then the entities the hop discovered are read in a single
+        // batch. The previous shape awaited inside a triple-nested loop and, measured against the live
+        // OpenSearch demo, one 2-hop open cost 480 round trips — the heaviest read path in the product.
+        //
+        // The fold order still follows the frontier, so which nodes survive the `limit` cut does not
+        // depend on which request finished first.
         let frontier = [scope];
         for (let d = 0; d < depth && nodes.size < limit; d++) {
-          const next: string[] = [];
-          for (const id of frontier) {
-            for (const r of await store.neighbors(id)) {
+          const perNode = await mapLimit(frontier, (id) => store.neighbors(id));
+          const discovered: string[] = [];
+          frontier.forEach((id, i) => {
+            for (const r of perNode[i]) {
               if (!inNs(r) || edges.has(r.id)) continue;
               edges.set(r.id, r);
               const other = r.from === id ? r.to : r.from;
               if (nodes.has(other) || other === id) continue;
-              const e = await store.getEntity(other);
-              if (e && inNs(e)) {
-                nodes.set(other, e);
-                next.push(other);
-              }
+              // Not added to `nodes` yet: the ns check needs the row, and the row comes below. Pushing
+              // it here would let a later relation in the same hop skip it as already-seen.
+              discovered.push(other);
             }
+          });
+          const next: string[] = [];
+          for (const e of await readEntities(store, discovered)) {
+            if (!inNs(e) || nodes.has(e.id)) continue;
+            nodes.set(e.id, e);
+            next.push(e.id);
           }
           frontier = next;
         }
         const kept = [...nodes.values()].slice(0, limit);
         const keptIds = new Set(kept.map((e) => e.id));
+        const keptEdges = [...edges.values()].filter(
+          (r) => keptIds.has(r.from) && keptIds.has(r.to),
+        );
+        // Nodes AND edges in one prefetch: both carry an author, and a graph of 517 nodes has roughly
+        // 517 distinct ones, so the memo alone bought nothing.
+        await prefetch([...kept, ...keptEdges]);
         sendJson(res, 200, {
           anchor: scope,
           nodes: await Promise.all(kept.map(asR)),
-          edges: await Promise.all(
-            [...edges.values()]
-              .filter((r) => keptIds.has(r.from) && keptIds.has(r.to))
-              .map(asRel),
-          ),
+          edges: await Promise.all(keptEdges.map(asRel)),
           next: { nodes: null, edges: null },
           truncated: nodes.size > kept.length,
           limit,
@@ -690,6 +801,7 @@ export function createUiHandler(
       );
       const keptIds = new Set(ents.items.map((e) => e.id));
       const rels = await visibleGraphRelations(store, keptIds, inNs, limit);
+      await prefetch([...ents.items, ...rels.items]);
       sendJson(res, 200, {
         anchor: null,
         nodes: await Promise.all(ents.items.map(asR)),
@@ -704,7 +816,7 @@ export function createUiHandler(
     // Audit viewer: the append-only trail, namespace-scoped. Most-recent-N, oldest-first — the same
     // direction `yoke audit` prints, so a paging client does not have to reverse it.
     if (method === "GET" && path === "/api/audit") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       const limit = intParam(url, "limit", 200, 2000);
       const events = store.listAudit({
         since: url.searchParams.get("since") ?? undefined,
@@ -717,7 +829,7 @@ export function createUiHandler(
       // heavily across events (the same knowledge injected again and again), so a shared memo turns
       // what would be limit×refs point reads into one per distinct id.
       const auditOnt = store.loadOntology(ns);
-      const nameOf = makeActorNames(store, auditOnt);
+      const { nameOf } = makeActorNames(store, auditOnt);
       const seen = new Map<string, { type: string; summary: string } | null>();
       const resolve = async (id: string) => {
         if (!seen.has(id)) {
@@ -773,19 +885,19 @@ export function createUiHandler(
     }
 
     if (method === "GET" && path === "/api/ontology") {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       sendJson(res, 200, store.loadOntology(ns));
       return;
     }
 
     if (method === "GET" && path === "/api/tokens") {
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       sendJson(res, 200, store.listTokens());
       return;
     }
 
     if (method === "POST" && path === "/api/tokens") {
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       const body = await readBody(req);
       const name = body.name;
       const scopes = body.scopes;
@@ -817,7 +929,7 @@ export function createUiHandler(
     }
 
     if (method === "DELETE" && path.startsWith("/api/tokens/")) {
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       const name = decodeURIComponent(path.slice("/api/tokens/".length));
       if (!name) {
         sendJson(res, 400, { error: "token name is required" });
@@ -832,7 +944,7 @@ export function createUiHandler(
     }
 
     if (method === "GET" && path.startsWith("/api/persona/")) {
-      if (!authorize("read") && deny(res)) return;
+      if (denied(res, "read")) return;
       const id = decodeURIComponent(path.slice("/api/persona/".length));
       const ts = now();
       const result = await personaQuery(store, store.loadOntology(ns), id, ts, {
@@ -849,10 +961,15 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      const asR = asRow();
+      const { asR, prefetch } = serializers();
       sendJson(res, 200, {
-        decisions: await Promise.all(result.decisions.map(asR)),
-        facts: await Promise.all(result.facts.map(asR)),
+        ...(await (async () => {
+          await prefetch([...result.decisions, ...result.facts]);
+          return {
+            decisions: await Promise.all(result.decisions.map(asR)),
+            facts: await Promise.all(result.facts.map(asR)),
+          };
+        })()),
       });
       return;
     }
@@ -863,7 +980,7 @@ export function createUiHandler(
     ) {
       const action = path === "/api/verify" ? "verify" : "deprecate";
       // Both verify and deprecate are governance actions → gated on the verify permission.
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       const ids = await readIds(req);
       const ts = now();
       const fn = action === "verify" ? verify : deprecate;
@@ -876,7 +993,7 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      sendJson(res, 200, await Promise.all(done.map(asRow())));
+      sendJson(res, 200, await rowsOf(done));
       return;
     }
 
@@ -899,7 +1016,7 @@ export function createUiHandler(
       }
       // Per-type write permission — the same key the read routes pass, so a `ns:fact:write` token
       // can create facts and nothing else.
-      if (!authorize("write", type) && deny(res)) return;
+      if (denied(res, "write", type)) return;
       const ontology = store.loadOntology(ns);
       if (ontology.length === 0) {
         sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
@@ -964,7 +1081,7 @@ export function createUiHandler(
         // neither lets someone believe their record was checked when it was not.
         sendJson(res, 201, {
           ...(await asRow()(entity)),
-          duplicates: await Promise.all(duplicates.map(asRow())),
+          duplicates: await rowsOf(duplicates),
           duplicateDetection,
         });
         return;
@@ -984,7 +1101,7 @@ export function createUiHandler(
     // itself would be circular), which makes it the most powerful action here. Append-only per name,
     // so an existing name is a new version — a migration, exactly as it is from the CLI.
     if (method === "POST" && path === "/api/ontology") {
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       const def = (await readBody(req)).def;
       if (
         !def ||
@@ -1012,7 +1129,7 @@ export function createUiHandler(
     // `write` because that is what it produces — edges, through the same gate, attributed to each
     // record's recorded author rather than to whoever pressed the button.
     if (method === "POST" && path === "/api/backfill") {
-      if (!authorize("write") && deny(res)) return;
+      if (denied(res, "write")) return;
       const ontology = store.loadOntology(ns);
       if (ontology.length === 0) {
         sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
@@ -1048,7 +1165,7 @@ export function createUiHandler(
     // that reason, and it writes the `rename_type` audit row for the reason the store documents:
     // it is the one mutation the append-only history cannot record, because it rewrites those rows.
     if (method === "POST" && path === "/api/rename-type") {
-      if (!authorize("verify") && deny(res)) return;
+      if (denied(res, "verify")) return;
       const body = await readBody(req);
       const { from, to } = body;
       if (typeof from !== "string" || typeof to !== "string" || !from || !to) {

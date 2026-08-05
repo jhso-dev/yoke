@@ -163,10 +163,27 @@ port capabilities, etc. See SPEC).
       CSP / body-limit / static-asset baseline
 - [x] Frontend rebuild: Next.js `output: 'export'` + React + d3-force → one static
       bundle, still served by the existing node:http server on one port
-- [ ] Install UX holds: `npm ci` size and wall time measured before and after, and a
-      failed web build still leaves a working CLI
-      (code done — install.sh degrades gracefully; the before/after measurement on a
-      clean machine is on the human-verification list below)
+- [x] Install UX holds: `npm ci` size and wall time measured before and after, and a
+      failed web build still leaves a working CLI — **measured 2026-08-05**, on a fresh clone with a
+      cold npm cache. It did not hold, and the number was not the web bundle's fault:
+
+      | | wall | on disk |
+      | --- | --- | --- |
+      | `npm ci` (root, devDeps included) | 31 s | **693 MB** node_modules |
+      | `npm run build:cli` | 1 s | 1.9 MB dist |
+      | `npm run build:web` | 10 s | +408 MB `web/node_modules` |
+      | **`npm ci --omit=dev`** — what `npx yoke` costs a user | 4 s | **581 MB** |
+
+      **531 MB of that 581 MB was kuzu** — 91% of an end user's download, for a backend reachable only
+      by naming `kind: "kuzu"` in a `--shards` config. It is now a devDependency, so this repo's
+      conformance suite still runs against it (24/24) and a consumer install is **581 MB → 44 MB**. A
+      config that names a kuzu shard fails with `npm install kuzu` rather than MODULE_NOT_FOUND,
+      verified in a tree that genuinely lacks it. The web toolchain, the thing this box was written to
+      watch, turned out to be the smaller half and only lands on a source install
+- [x] Graceful degradation verified in the same run: with `build:web` forced to fail, `--help`, `init`
+      and `GET /api/review` all work, and with no bundle anywhere `GET /` answers **503** naming
+      `npm run build:web`. One nuance worth knowing — a *previously* built `web/out` is still served,
+      so the degradation only shows on a machine where the web build has never succeeded
 - [x] Regression closed: a check that *executes* the shipped client bundle, not one
       that greps the HTML for markers (see the v2.5 note)
 - [x] Scale: injection stays correct and bounded at 10M records. Five defects, all measured
@@ -232,15 +249,37 @@ boxes above are checked for what automation proves, not for this:
       own usage guard, so a briefing was impossible from the terminal.
       The lesson is the v2.5 lesson again, one level up: a green suite proves the payloads, and
       the payloads were right every time. Nothing in it looked at what a person sees.
-- [ ] one `--auth` login with a read-only token, confirming verify is refused with a
-      message naming the scope
-- [ ] one graph-explorer open against a ≥100k-row DB, confirming the truncation banner and
-      that `POST /mcp` keeps answering while it is open
-      (the banner half is now seen daily — a 301-entity Neo4j corpus trips it at the 200-node cap
-      and reads `showing 200 of 201+`. What is still unverified is the ≥100k part and whether MCP
-      keeps answering underneath it, which is the half this item exists for)
-- [ ] `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
-      after, and a forced web-build failure still leaving a working CLI
+- [x] one `--auth` login with a read-only token, confirming verify is refused with a
+      message naming the scope (2026-08-05) — and it was not. `yoke serve --auth` on a two-token
+      database: the reader gets 200 on `GET /api/entities`, **403 on `POST /api/verify`**, the record
+      stays `draft`, the `read,verify` token promotes it to `verified` on the same call, no credential
+      gets 401, and the trail attributes the promotion to `token:promoter`. The refusal body, however,
+      was `{"error":"forbidden"}` — the holder of a read-only token learned that something was refused
+      and not which permission to ask for. Now
+      `{"error":"forbidden: this credential has no 'verify' scope", "required":"verify"}`, pinned by a
+      test. This is what the item was for: the behaviour was right and the message was not, and no
+      amount of green CI was going to say so
+- [x] one graph-explorer open against a ≥100k-row DB, confirming the truncation banner and
+      that `POST /mcp` keeps answering while it is open — **done 2026-08-04** against 1,000,000
+      entities / 3,005,000 relations in one sqlite file, through `yoke serve` (the process that serves
+      both halves, so a graph read that blocked the loop would take MCP with it). `?limit=2000` →
+      334 nodes, `truncated: true`; `?limit=3000` → **HTTP 400** naming the maximum, so over-max is an
+      error and not a silent cap; `POST /mcp` `yoke_inject` **12/12 answered, worst 33 ms**, during 8
+      concurrent max-limit graph reads; `/api/entities` in 1 ms afterwards.
+      Two findings the open produced, neither a regression, both worth knowing:
+      **(a)** `limit` is divided across entity types, so a corpus concentrated in one type shows
+      `ceil(limit/types)` nodes — 334 of the 2,000 asked for. Honest (the banner fires) and stingy.
+      **(b)** an un-anchored view of a large corpus draws almost no edges (14 among 334 nodes), because
+      only edges with *both* ends in the sampled node set are kept and 334 nodes drawn from a million by
+      id order are rarely connected. Correct per its contract, useless to look at. The anchored view is
+      the one that works at scale, and it is now the cheap one
+- [x] `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
+      after, and a forced web-build failure still leaving a working CLI — **done 2026-08-05**, the
+      numbers and the kuzu finding are in the v2.5 "Install UX holds" box above. It was the same
+      measurement written down twice, and it did not need a different machine, only a directory
+      without this repo's `node_modules`: a fresh clone with its own cold npm cache is that. What
+      "clean machine" was protecting against was a warm cache flattering the wall time, which the
+      cold-cache column reports honestly
 
 What automation does prove today: every route and endpoint answers against a real
 server, the shipped bundle's scripts parse, all ten screens exist as exported pages,
@@ -275,18 +314,163 @@ placeholder string in the inject box on the web.
 
 Open, and in this order — the first is the gate on the third by docs/RESEARCH.md's own argument:
 
-- [ ] **Read a real `yoke audit --shape` trail.** The command shipped in v5.2 and nothing has consumed
-      it, so the workload ratio that decides whether graph expansion pays is instrumented and still
-      unknown. Having the command is not having the answer
-- [ ] **A gold set, and retrieval metrics over it** (recall@k, nDCG). `eval/inject-quality.ts`
-      measures safety only — contamination and missed contradictions — so nothing in the repo can say
-      whether a retrieval change helped. v5.3's own ceiling is the argument: when one half of the
-      hybrid returns nothing, RRF degenerates to the other half's order, and eight hand-written
-      queries cannot tell you how often that happens
-- [ ] **Multi-hop traversal** (`inject` walks exactly one relation hop) and **global aggregation** —
-      both gated on the trail above, not on appetite
-- [ ] **Identity resolution across connector sources** — the same person arriving from Slack, GitHub
-      and an RDB mapping is three `person` records today
+- [x] **Read a real `yoke audit --shape` trail** (2026-08-05) — and the answer is that there is no
+      workload yet, which is worth more written down than left as "unknown". The only non-synthetic
+      trail (`./yoke.db`, the store this repo's own `.mcp.json` points at) holds **5 inject rows, 100%
+      plain, 0% anchored, 0% briefing**, all from one dogfooding session on 2026-07-14. The
+      instrumentation is not the problem: a demo database shows 3 `inject_preview` and 9 other audited
+      actions, so the web tier writes its trail, and `emitShapes` excludes previews on purpose — a
+      person clicking a screen does not answer "what do agents ask". n=5 is not a ratio. What it does
+      say is that the direction points away from graph expansion rather than toward it
+      **Decided before the next data arrives, so it cannot be a number chosen to be met:** revisit
+      multi-hop when the trail holds **≥200 `inject` rows from real agent sessions** and
+      **anchored + briefing ≥ 40%** of them. Until then the answer is not "we don't know", it is "the
+      workload we can see does not ask for it"
+- [x] **A gold set, and retrieval metrics over it** (recall@k, nDCG) — done in v5.5 below. The answer
+      to "how often does RRF degenerate": on every question-shaped query in the set
+- [x] **Multi-hop traversal and global aggregation** — done in v5.7 below. The gate above was
+      **circular and is retired**: workload composition measures *adoption*, and adoption of a
+      capability that does not exist is necessarily zero. Nothing is in service, so there are no users
+      generating anchored injections, which are the thing multi-hop would deepen. That gate is sound for
+      choosing between built capabilities competing for one corpus's traffic; as a gate on building one
+      it always answers no. The trail stays instrumented for the question it can answer — once both
+      shapes exist and are reachable, it says which ones people use
+- [x] **Identity resolution across sources** — done in v5.6 below. Note the premise was wrong in a way
+      worth keeping: Slack and GitHub store the author as an attribute string and mint no `person` at
+      all, so it was never "three records" — it was one plus two opaque strings. `same_as` resolves the
+      duplicate-record half (two RDB mappings, a mapped person beside a hand-filed one); minting a
+      person for an unrecognised handle is a policy this repo still does not have, and refuses to invent
+
+## v5.5 — the read paths stop paying per row
+
+- [x] **Batch point reads (`getEntities`)** — every read path in core was a loop of `getEntity`, which
+      costs nothing on sqlite and is a network round trip per iteration on a remote backend. Measured
+      against the live OpenSearch demo with one script on both sides of the change, identical results
+      throughout: a briefing **56 → 2** round trips, query injection **63 → 4**, `similar(k=60)`
+      **61 → 2**, bulk `verify` of 54 ids **217 → 164** (its read half 54 → 1; the rest are the
+      append-only writes). Optional capability with a core-side fallback, so kuzu correctly declines
+      it. `similar` was the largest of these and the newest: v5.3 put it on every query injection with
+      `k = limit × 3`, and each hit was a point read. Neo4j was already batched there — one backend
+      had solved it and the contract had not noticed
+- [x] **`verify`/`deprecate` refuse before they write** — the read loop threw on the first unknown id,
+      after promoting every id ahead of it. A half-applied governance action, found by moving the read
+      out of the loop rather than by a report
+
+- [x] **A gold set, and retrieval metrics over it** — 66 queries over the 504-record demo corpus, each
+      naming the records that answer it, scored through `inject()` (`npm run eval:retrieval`). It
+      immediately paid for itself by turning v5.3's stated ceiling into a measurement: on **all 55**
+      question-shaped queries the keyword half returns **zero** rows, so RRF degeneracy is not an edge
+      case in this workload but the operating condition, and the embedder is load-bearing rather than
+      optional — with none configured, an agent's question returns nothing. The keyword half is not the
+      problem: given a keyword-shaped query it recalls **90.9%**. `search` is AND-of-prefix-tokens, so a
+      sentence is an unsatisfiable conjunction (docs/RESEARCH.md). Same numbers on sqlite and
+      OpenSearch, which is the first measurement that could have exposed a backend leaking into core
+- [x] **The demo corpus lives in the repo** (`scripts/demo-corpus/`, one backend-agnostic loader).
+      It had survived being erased from a live Neo4j only because the scratch files were still there
+
+- [x] **The graph routes stopped paying per author** — an anchored open at depth 3 made 1,715 port
+      calls, of which **1,595 were actor-name resolution**: one point read per distinct author, twice
+      over, because the entity and relation serializers each built their own memo. The traversal
+      everyone would have blamed was 117 of them. A memo helps only when authors repeat and in a real
+      corpus they do not. Now one batch read per response, shared: **122** calls, byte-identical
+      response. Against live OpenSearch, depth 2 went **489 → 65** round trips and depth 3 became
+      possible at all — the old shape's request storm failed the server before it answered
+
+## v5.7 — the two question shapes graph retrieval wins on
+
+docs/RESEARCH.md §5 named three shapes where graph retrieval measurably beats vector RAG: multi-hop,
+temporal, global aggregation. Temporal shipped in v5.2 as as-of injection. These are the other two.
+
+- [x] **Multi-hop anchored injection** (`inject --depth n`, `yoke_inject { depth }`) — a `decision`
+      carrying `supersedes` is a multi-hop record by construction, and "what replaced the thing that
+      replaced this" was answered with silence. Distance grades what anchoring already made binary:
+      candidates are banded by hop distance and fusion still owns the order within each band, so a
+      deeper walk adds context instead of displacing the subject. Depth 1 is byte-identical to v4.0.
+      Measured on the 517-record demo corpus from one collaboration: depth 1 → 29 records in **1**
+      `neighbors` call, depth 2 → 37 (57 reached) in **49**, depth 3 → 50 (70 reached) in **58**,
+      depth 4 → 131 (207 reached) in **71**. Depth 4 is 26% of the corpus, which answers how deep is
+      useful: past 3, everything is context and therefore nothing is
+- [x] **Two rules had to generalise, and one of them was a latent bug** — v4.0 skipped the
+      `authored_by` edge leaving *the anchor*. At depth 2 the un-generalised rule hands an agent the
+      author of every neighbour, which is exactly the roster problem `membership: true` exists to
+      prevent, arriving through a relation type nobody marked. Now skipped leaving any node. Membership
+      is skipped at every hop on the same rule as depth 1
+- [x] **The walk is bounded and never silently** — `WALK_BUDGET = 128` expansions, breadth-first so a
+      cut always removes the farthest band, frontiers expanded in id order so a truncated walk is
+      reproducible rather than dependent on relation order (invariant 2). `inject` returns
+      `walk: { depth, nodes, truncated }` and the front tiers turn it into words, because an agent that
+      reads a budget-truncated walk as the whole neighbourhood answers from part of the graph
+- [x] **Global aggregation** (`yoke overview`, `yoke_overview`) — the question no `inject` can answer at
+      any limit, because retrieval returns a top-k of a query and this is about the shape of the whole.
+      Structure, never a summary: GraphRAG answers this shape by LLM-summarising communities, and a
+      summary of knowledge is a claim nobody verified. Type/status counts by **effective** status (so
+      the gap between "stored verified" and "injectable today" is finally one number — 132 of the demo
+      corpus's 517 records are stale), a relation census, the most-connected records, and the authors
+      of verified knowledge
+- [x] **Two defects the tests caught before shipping.** Authors read from `provenance.actor` ranks
+      **reviewers**, because `verify` replaces provenance — in a corpus with one reviewer it credits
+      everything to that person. Now counted off the `authored_by` edge, which is also what
+      `personaQuery` anchors on, so an overview naming persona candidates and a persona built from one
+      cannot disagree. And degree counting `authored_by` puts **people** at the top of a list meant to
+      say what knowledge clusters, since every record has exactly one author edge — excluded from
+      degree, still in the census
+- [x] **Aggregation memory was O(corpus) and is now O(ids)** — the first draft held every entity so the
+      hub list could carry full records: **511 MB of RSS** at 1M entities / 3M relations, a read whose
+      memory is the size of the corpus, which is the class docs/SCALE.md holds five of. Only `top` are
+      ever returned, so they are re-read by id in one batch call (v5.5). **420 MB**, and 29 ms / 5 pages
+      on the demo corpus against 12.2 s / 8,010 pages at 1M. Stated ceiling: the id sets are still
+      O(entities), so 10M needs counting in the backend rather than in core
+- [x] **The demo corpus was unusable over MCP** — `scripts/load-demo-corpus.mjs` never seeded the
+      `yoke:system` bootstrap actor, so `yoke mcp` refused the database it produced with "not
+      initialized" while the CLI and web UI read it happily. Found by pointing a real MCP client at it,
+      which is the only surface that checks. The loader seeds it now, idempotently
+
+## v5.6 — a question stops being an unsatisfiable conjunction
+
+- [x] **Long queries are a disjunction** (SPEC search clause 8) — `search` required every query term,
+      which is right for the two or three someone types into a wiki and wrong for a sentence. Past
+      three tokens a record now matches on any term and clause 6's ranking decides what the caller
+      sees. Over the gold set, on sqlite: recall@10 **15.2% → 58.5%**, nDCG **14.1% → 45.8%**,
+      accuracy@1 **13.6% → 37.9%**; the question-shaped cohort went from **0 of 91** relevant records
+      found to **41 of 91**. The keyword-shaped cohort did not pay for it — **90.9% → 95.5%**, because
+      a four-term keyword query was hitting the same wall. Confirmed on live OpenSearch: 58/109 found
+      on both engines, identical accuracy@1
+- [x] **The rule lives in one place** — five adapters and the in-memory fake had each inlined
+      `qTokens.every(...)`, so the semantics were six copies of a decision the contract stated once.
+      The new conformance case caught the sixth immediately: the fake kept passing the strict half
+      after every real adapter had moved on
+- [x] **The keyword half of RRF carries weight 0.1** — clause 8 improved every keyword-only number and
+      quietly cost the *hybrid* path **12 points of accuracy@1** (65.2% → 53.0%), because rank-based
+      fusion had no way to know that a disjunctive keyword list's rank 1 is worth less than a vector
+      rank 1. Found by the gold set scoring both columns on every run, not by a report. Swept rather
+      than chosen, and the top is a plateau; at 0.1 the hybrid path ends up **above** where v5.5 left
+      it (recall 87.2 → 88.4%, nDCG 74.3 → 76.1%) with the keyword-shaped cohort untouched at 100%
+
+- [x] **A lookup is not a question** — clause 8 charged the connector idempotency probe 8x. It searches
+      for one exact `external_id` (a GitHub comment URL is ten tokens) and then filters for it exactly,
+      so the disjunction made it score every record sharing the word "github": **34 ms and 0 rows → 292
+      ms and 1,000 rows**, per ingested item, at 1M entities. Correctness held, which is what would have
+      kept it quiet. `TextQuery.terms: "all"` restores the conjunction for callers that are looking
+      something up, and the probe drops to **3 ms**. Not fixed with a heuristic in the caller: probing
+      by "the id's most distinctive tokens" drops the discriminator (`file:notes/2026-07-01.md#3` loses
+      the `#3`) and a probe that silently misses re-ingests the record
+- [x] **One person, several records** (`same_as`) — two source systems describing the same colleague
+      produced two `person` records and nothing said they were one, so a persona built from either was
+      half that person's judgment presented as all of it. The link is knowledge, not config: an ordinary
+      `yoke link <alias> same_as <canonical>` through the gate, versioned and reversible, needing no new
+      command. Followed both ways and transitively (a direction that changed the answer would mean two
+      accounts of one person), namespace-filtered before following, and marked `membership` so a
+      briefing never hands an agent the person's *other record* as a finding. No fuzzy matching, for the
+      reason `github-pr` already refused to guess a login → person mapping
+
+What made the disjunction safe was that ranking arrived first, in v5.1. While `search` returned
+storage order, the AND was the port's only precision and loosening it would have handed an agent the
+oldest N records containing any one word. Two clauses in the same file, two releases apart, where the
+second retired the first's reason for existing.
+
+Left standing deliberately: **there is no batch form of `getEntity(id, version)`**, so `listVersions`'s
+fallback — and as-of injection through it — is still a loop. Versions are a dense 1..n and a governed
+record has two or three, whereas the loops closed above scale with the corpus. Nothing has measured it.
 
 ## Version-promotion rule
 

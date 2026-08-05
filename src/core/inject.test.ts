@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { commit } from "./commit.js";
 import type { Embedder } from "./embedding.js";
-import { inject } from "./inject.js";
+import { inject, WALK_BUDGET } from "./inject.js";
 import { deprecate, verify } from "./lifecycle.js";
 import { seedOntology } from "./ontology.js";
 import type { Provenance } from "./types.js";
@@ -208,6 +208,164 @@ describe("inject scoped (v4.0)", () => {
       limit: 1,
     });
     expect(items).toHaveLength(1);
+  });
+});
+
+// Multi-hop (v5.7). "What replaced the thing that replaced this" is two hops, and one hop answered it
+// with silence — the shape docs/RESEARCH.md §5 says graph retrieval measurably wins on.
+describe("inject scoped: multi-hop", () => {
+  /**
+   * A chain: anchor -> a -> b -> c, each link a plain relates_to.
+   *
+   * Minted in REVERSE (c first) on purpose. ULIDs ascend with creation, so creating a, b, c in chain
+   * order would make id order and distance order the same sequence — and every ordering assertion
+   * below would pass on the pre-existing `id` tiebreak alone, proving nothing about distance.
+   */
+  async function chain() {
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "gateway rewrite" } },
+      prov,
+      now,
+    );
+    const c = await addFact("hop three");
+    const b = await addFact("hop two");
+    const a = await addFact("hop one");
+    await link(a, ws.id);
+    await link(b, a);
+    await link(c, b);
+    await verify(port, [ws.id, a, b, c], "alice", now);
+    return { ws: ws.id, a, b, c };
+  }
+
+  it("defaults to one hop, exactly as v4.0 did", async () => {
+    const s = await chain();
+    const res = await inject(port, ont, "", now, { scope: s.ws });
+    expect(res.items.map((i) => i.entity.id)).toEqual([s.a]);
+    // No walk stats at depth 1: there is no walk to describe, and adding the field would change
+    // every existing caller's output for a feature they did not ask for.
+    expect(res.walk).toBeUndefined();
+  });
+
+  it("reaches further with depth, nearest first", async () => {
+    const s = await chain();
+    const res = await inject(port, ont, "", now, { scope: s.ws, depth: 3 });
+    // Order is the contract: distance leads the briefing sort. The three share a last_confirmed and
+    // their ids DESCEND along the chain (see `chain`), so this sequence is only producible by sorting
+    // on distance — the id tiebreak alone would return it reversed.
+    expect(res.items.map((i) => i.entity.id)).toEqual([s.a, s.b, s.c]);
+    expect(res.walk).toEqual({ depth: 3, nodes: 3, truncated: false });
+  });
+
+  it("holds a record at its SHORTEST distance, and terminates on a cycle", async () => {
+    const s = await chain();
+    await link(s.c, s.ws); // c is now 1 hop as well as 3, and the chain is a cycle
+    const res = await inject(port, ont, "", now, { scope: s.ws, depth: 3 });
+    expect(res.walk?.nodes).toBe(3); // three records, not three plus revisits
+    // c is reachable in one hop now, so it must not sort behind b.
+    const order = res.items.map((i) => i.entity.id);
+    expect(order.indexOf(s.c)).toBeLessThan(order.indexOf(s.b));
+  });
+
+  it("does not hand over the author of every neighbour", async () => {
+    // v4.0 dropped `authored_by` leaving the ANCHOR. Generalised in v5.7: at depth 2 the old rule
+    // walked the hop-1 record's own authored_by edge and delivered its author as knowledge — the
+    // roster problem `membership: true` exists to prevent, arriving through an unmarked relation type.
+    await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Alice" } },
+      prov,
+      now,
+      { existingId: "alice" },
+    );
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "billing" } },
+      prov,
+      now,
+    );
+    const fact = await addFact("authored by alice");
+    await link(fact, ws.id);
+    await verify(port, [ws.id, fact, "alice"], "alice", now);
+
+    const res = await inject(port, ont, "", now, { scope: ws.id, depth: 2 });
+    expect(res.items.map((i) => i.entity.id)).toEqual([fact]);
+  });
+
+  it("still refuses a roster at the second hop", async () => {
+    // `works_on` is membership. A depth-2 walk from a collaboration reaches its members' other work
+    // through them, and the members themselves must stay out of the briefing either way.
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "search revamp" } },
+      prov,
+      now,
+    );
+    const { entity: person } = await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Kim" } },
+      prov,
+      now,
+    );
+    await commit(
+      port,
+      ont,
+      { type: "works_on", attributes: {}, from: person.id, to: ws.id },
+      prov,
+      now,
+    );
+    const fact = await addFact("real knowledge about the work");
+    await link(fact, ws.id);
+    await verify(port, [ws.id, person.id, fact], "alice", now);
+
+    const res = await inject(port, ont, "", now, { scope: ws.id, depth: 2 });
+    expect(res.items.map((i) => i.entity.id)).toEqual([fact]);
+  });
+
+  it("bounds the walk and says so", async () => {
+    // A hub wide enough to exhaust WALK_BUDGET. Without the budget this is one `neighbors` call per
+    // node in the corpus — the class of unbounded read docs/SCALE.md recorded five of.
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "wide" } },
+      prov,
+      now,
+    );
+    const ids: string[] = [];
+    for (let i = 0; i < WALK_BUDGET + 20; i++) {
+      const f = await addFact(`spoke ${i}`);
+      await link(f, ws.id);
+      ids.push(f);
+    }
+    await verify(port, [ws.id, ...ids], "alice", now);
+
+    const res = await inject(port, ont, "", now, { scope: ws.id, depth: 2 });
+    // Every spoke is one hop, so all of them are IN the set — the budget stops the second-hop
+    // expansion, not the first-hop collection.
+    expect(res.walk?.nodes).toBe(WALK_BUDGET + 20);
+    expect(res.walk?.truncated).toBe(true);
+    // depth 1 with the same corpus is never truncated: one expansion, one budget unit.
+    const shallow = await inject(port, ont, "", now, { scope: ws.id });
+    expect(shallow.walk).toBeUndefined();
+  });
+
+  it("with a query, a nearer record leads a farther one", async () => {
+    const s = await chain();
+    const far = await addFact("hop nothing, matches the query");
+    await verify(port, [far], "alice", now);
+    // All four contain "hop". Unanchored relevance would order them by BM25; the anchor grades them
+    // by distance first and lets fusion own the order inside each band.
+    const res = await inject(port, ont, "hop", now, { scope: s.ws, depth: 2 });
+    const order = res.items.map((i) => i.entity.id);
+    expect(order.indexOf(s.a)).toBeLessThan(order.indexOf(s.b));
+    expect(order.indexOf(s.b)).toBeLessThan(order.indexOf(far));
+    expect(order).toContain(far); // scope prioritizes, it does not imprison
   });
 });
 
@@ -576,6 +734,31 @@ describe("hybrid retrieval: the vector half of the Embedder contract", () => {
     expect(hybrid.items.map((i) => i.entity.id).sort()).toEqual(
       [keyword, vectorOnly].sort(),
     );
+  });
+
+  it("does not let a loose keyword hit outrank the vector half's best (v5.6)", async () => {
+    // The regression clause 8 introduced and KEYWORD_WEIGHT closes. A four-token query is a
+    // disjunction, so the keyword list fills with records sharing one word and ranks them
+    // confidently; at equal fusion weight its rank-1 displaced a vector rank-1 the keyword half had
+    // never seen, costing 12 points of accuracy@1 over the gold set.
+    const LONG = `${QUERY} hovercraft zeppelin monorail`;
+    const near: Embedder = async (text) =>
+      text === LONG || text.includes("quatrain") ? NEAR : FAR;
+
+    // Order of creation is load-bearing: both records are rank 1 of their own list, so at equal
+    // weight the fused scores TIE and the ULID tiebreak decides. Minting the keyword record first
+    // makes it win that tie, which is what makes this check fail when the weight is removed. Reverse
+    // the two lines and it passes for the wrong reason.
+    const oneTermMatch = await addFact("hovercraft ferry winter timetable");
+    // Shares no token with the query at all — reachable only through the vector half.
+    const vectorOnly = await addFactWith("quatrain enjambment caesura", near);
+    await verify(port, [oneTermMatch, vectorOnly], "alice", now);
+
+    const items = (
+      await inject(port, ont, LONG, now, { embedder: near })
+    ).items.map((i) => i.entity.id);
+    expect(items).toContain(oneTermMatch); // the disjunction still reaches it — clause 8
+    expect(items[0]).toBe(vectorOnly); // but it does not lead. At weight 1.0 it did
   });
 
   it("returns the keyword list untouched when the embedder yields nothing", async () => {

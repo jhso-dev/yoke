@@ -1,0 +1,485 @@
+{
+  "aged": [
+    {
+      "key": "web-bundle-budget-2026q1",
+      "type": "fact",
+      "author": "person:jang-minho",
+      "collab": "collab:web-design-system",
+      "age_days": 210,
+      "size": "line",
+      "attributes": {
+        "title": "웹 초기 번들 예산(1분기 기준)",
+        "statement": "2026년 1분기 기준 라우트당 First Load JS 예산은 gzip 150KB, LCP 목표는 2.8초였다."
+      }
+    },
+    {
+      "key": "android-min-os-2025h2",
+      "type": "fact",
+      "author": "person:han-dojin",
+      "collab": "collab:mobile-app",
+      "age_days": 230,
+      "size": "line",
+      "attributes": {
+        "title": "Android 최소 지원 버전(작년 말)",
+        "statement": "작년 12월 기준 Android 최소 지원 버전은 API 24(Android 7.0)였다."
+      }
+    },
+    {
+      "key": "ios-min-os-2026-jan",
+      "type": "fact",
+      "author": "person:choi-yeonwoo",
+      "collab": "collab:mobile-app",
+      "age_days": 195,
+      "size": "line",
+      "attributes": {
+        "title": "iOS 최소 지원 버전(연초 기준)",
+        "statement": "2026년 1월 기준 iOS 최소 지원 버전은 iOS 13이었고, App Store 통계로 커버리지 96%를 근거로 삼았다."
+      }
+    },
+    {
+      "key": "contrast-ratio-2025-dec",
+      "type": "fact",
+      "author": "person:yoon-dain",
+      "collab": "collab:web-design-system",
+      "age_days": 245,
+      "size": "line",
+      "attributes": {
+        "title": "대비율 기준(작년 말)",
+        "statement": "작년 12월 초 기준 접근성 QA 통과 기준은 WCAG AA 4.5:1 하나만이었다."
+      }
+    },
+    {
+      "key": "crash-free-target-2025-dec",
+      "type": "fact",
+      "author": "person:song-arim",
+      "collab": "collab:mobile-app",
+      "age_days": 225,
+      "size": "para",
+      "attributes": {
+        "title": "지난 분기 크래시프리 목표치",
+        "statement": "2025년 4분기 기준 보정 크래시프리 목표는 99.5%였다. 이 수치는 그 해 3분기 평균 99.1%에서 상향한 값으로, ANR과 iOS 워치독 강제 종료(백그라운드 8초 초과)를 크래시로 합산한 보정값 기준이었다. 당시 목표 설정 근거는 스토어 리뷰에서 '자꾸 꺼짐'류 언급이 분기당 60건 수준으로 줄어야 한다는 CS 쪽 요청과, 신규 크래시 리포팅 파이프라인 도입 전 마지막 목표치라는 점이었다. 목표 산정 과정에서는 iOS/Android를 구분하지 않고 단일 수치로 관리했는데, 그때는 두 플랫폼 파편화 정도가 지금만큼 크지 않다는 전제가 있었다. 또한 저사양 단말 비중이 지금보다 낮았던 시절 데이터라, 이후 저가 단말 프로모션으로 유입된 사용자층을 반영하면 같은 99.5%가 여전히 현실적인 목표인지도 의문이다. 새 파이프라인 도입 이후 측정 방식이 바뀌었을 가능성이 있어 이 목표치가 지금도 유효한지, 그리고 플랫폼별로 분리해야 하는지는 재확인이 필요하다."
+      }
+    },
+    {
+      "key": "design-token-name-2025-sep",
+      "type": "fact",
+      "author": "person:han-seoyeon",
+      "collab": "collab:web-design-system",
+      "age_days": 310,
+      "size": "line",
+      "attributes": {
+        "title": "구 브랜드 토큰 이름(작년 하반기)",
+        "statement": "2025년 9월 말 기준 브랜드 색상 토큰 이름은 --color-brand-500(#FF6B00)였다."
+      }
+    },
+    {
+      "key": "ab-flag-onboarding-2025-aug",
+      "type": "fact",
+      "author": "person:han-dojin",
+      "collab": "collab:mobile-app",
+      "age_days": 340,
+      "size": "line",
+      "attributes": {
+        "title": "구 온보딩 A/B 플래그",
+        "statement": "작년 8월 말 기준 enable_new_onboarding_v1 플래그 기본값은 false, 실험군 20%였다."
+      }
+    },
+    {
+      "key": "image-cache-cap-2025-oct",
+      "type": "fact",
+      "author": "person:jang-minho",
+      "collab": "collab:web-design-system",
+      "age_days": 305,
+      "size": "short",
+      "attributes": {
+        "title": "구 웹 이미지 캐시 상한(작년 10월)",
+        "statement": "2025년 10월 초 기준 웹 클라이언트의 브라우저 Cache Storage 이미지 캐시 상한은 30MB였다. 초과분은 LRU로 축출했고, 당시 모바일 4G 환경 재방문 캐시 히트율 약 62%를 근거로 잡은 값이었다. 이후 이미지 포맷을 AVIF 우선으로 바꾸면서 평균 파일 크기가 줄어, 같은 히트율을 유지하려면 상한값 재산정이 필요할 수 있다."
+      }
+    },
+    {
+      "key": "store-rollout-policy-2025h2",
+      "type": "fact",
+      "author": "person:choi-yeonwoo",
+      "collab": "collab:mobile-app",
+      "age_days": 355,
+      "size": "para",
+      "attributes": {
+        "title": "작년 하반기 스토어 단계적 출시 정책",
+        "statement": "2025년 8월 중순 기준 스토어 단계적 출시(phased release) 비율은 5% → 20% → 50% → 100% 4단계였고, 각 단계 최소 24시간 관찰 후 크래시프리 저하가 0.3%p 이내면 다음 단계로 넘어가는 규칙이었다. 이 규칙은 그 해 상반기에 있었던 결제 스키마 변경 사고(특정 단말군에서만 재현되던 크래시가 50% 시점에서야 발견돼 롤백까지 총 9시간 걸린 사건) 이후 도입됐다. 당시엔 조직이 지금처럼 iOS/Android/PM으로 나뉘기 전이라 단계별 관찰 담당자가 명확히 정해져 있지 않았고, 관찰 결과를 어디에 기록할지도 정해진 채널이 없어 담당자 개인 메모에만 남는 경우가 많았다는 점도 후속 개선 과제로 남겨졌었다. 그 시절 배포 빈도는 월 1~2회 수준이라 단계별 24시간 관찰이 부담스럽지 않았지만, 지금은 배포가 훨씬 잦아졌을 텐데 같은 관찰 시간을 유지하고 있는지도 함께 확인해야 한다. 지금 조직 체계와 관찰 담당, 그리고 단계 비율 자체가 그대로인지 재확인이 필요하다."
+      }
+    },
+    {
+      "key": "client-api-timeout-2025-jun",
+      "type": "fact",
+      "author": "person:han-dojin",
+      "collab": "collab:mobile-app",
+      "age_days": 410,
+      "size": "line",
+      "attributes": {
+        "title": "구 클라이언트 API 타임아웃 기본값",
+        "statement": "2025년 6월 기준 모바일 클라이언트 API 클라이언트 기본 타임아웃은 5초, 재시도 1회였다."
+      }
+    },
+    {
+      "key": "design-token-rename-decision",
+      "type": "decision",
+      "author": "person:han-seoyeon",
+      "collab": "collab:web-design-system",
+      "age_days": 440,
+      "size": "short",
+      "attributes": {
+        "conclusion": "브랜드 색상 토큰을 --color-brand-500에서 --color-primary-500으로 리네이밍하고, 구 이름은 alias로 2개 마이너 버전만 유지한다.",
+        "rationale": "Figma Variables 쪽 명명 규칙이 semantic 이름(primary/secondary)으로 이미 통일돼 있는데 코드 쪽만 brand-500 같은 스타일 가이드 용어를 쓰고 있어, 디자이너가 코드를 보고 어떤 값인지 매칭하는 데 매번 확인이 필요했다. 리네이밍으로 이 매칭 비용을 없애기로 했다.",
+        "rejected_alternatives": [
+          "이름은 그대로 두고 문서에 매핑표만 추가 — 문서를 안 보는 신규 합류자가 계속 헷갈릴 것으로 판단해 기각"
+        ]
+      }
+    },
+    {
+      "key": "deep-link-promo-scheme-decision",
+      "type": "decision",
+      "author": "person:song-arim",
+      "collab": "collab:mobile-app",
+      "age_days": 470,
+      "size": "short",
+      "attributes": {
+        "conclusion": "프로모션 랜딩 화면 딥링크는 myapp://promo/{campaignId}?ref={source} 형식으로 통일한다.",
+        "rationale": "당시 마케팅 채널마다 딥링크 파라미터 이름이 제각각이라(campaign_id, cid, promoId 혼재) 트래킹 서버에서 소스 귀속이 어긋나는 사례가 반복됐다. 화면 하나로 규약을 통일해 이 문제를 없애기로 했다.",
+        "rejected_alternatives": [
+          "채널별 파라미터 이름을 서버 쪽에서 흡수 — 신규 채널이 추가될 때마다 서버 매핑 테이블을 계속 늘려야 해서 근본 해결이 아니라고 판단"
+        ]
+      }
+    },
+    {
+      "key": "bundle-budget-2025-mar-decision",
+      "type": "decision",
+      "author": "person:jang-minho",
+      "collab": "collab:web-design-system",
+      "age_days": 495,
+      "size": "para",
+      "attributes": {
+        "conclusion": "라우트당 First Load JS 예산을 gzip 220KB로 설정하고, 초과 라우트는 다음 스프린트 안건으로만 자동 등록한다(머지 차단은 하지 않음).",
+        "rationale": "당시 상품 목록 페이지가 이미 210KB였고 3rd party 스크립트(리뷰 위젯, 채팅 SDK) 비중이 커서 170KB 이하로는 당장 못 줄인다는 게 실측 결과였다. 머지를 막으면 스프린트 일정에 바로 지장이 생기니 일단 경고만 하고 예산 초과 라우트 목록을 매주 집계해 점진적으로 줄이자는 절충안이었다. 당시 팀 내부에서는 220KB가 '당장 지킬 수 있는 최대치'일 뿐 이상적인 목표는 아니라는 공감대가 있었고, 3rd party 스크립트를 지연 로딩이나 서버 사이드 태깅으로 옮기는 작업이 끝나면 3개월 안에 170KB로 재조정하자는 이야기가 회의록에 남아 있다. 다만 그 재조정 작업이 실제로 진행됐는지, 지금 예산이 여전히 220KB인지는 이 기록만으로는 알 수 없다.",
+        "rejected_alternatives": [
+          "즉시 170KB로 낮추고 미달 라우트는 배포 차단 — 3rd party 스크립트 제거에 최소 한 스프린트가 필요해 당장 적용하면 정상 배포가 다 막힘",
+          "예산 자체를 없애고 팀 자율에 맡김 — 예산 없이 방치됐던 이전 사고를 반복하게 될 것으로 판단"
+        ]
+      }
+    },
+    {
+      "key": "webview-min-version-2024",
+      "type": "fact",
+      "author": "person:choi-yeonwoo",
+      "collab": "collab:mobile-app",
+      "age_days": 750,
+      "size": "short",
+      "attributes": {
+        "title": "2년 전 임베디드 WebView 최소 버전",
+        "statement": "2024년 7월 기준 인앱 WebView 최소 지원 버전은 Android WebView 80, iOS WKWebView는 iOS 12 기준이었다. 당시는 하이브리드 화면(공지, 이벤트) 비중이 지금보다 커서 WebView 자체 최소 버전이 별도로 관리됐는데, 이후 RN 전환 논의가 시작되며 이 값이 계속 추적되고 있는지는 불확실하다."
+      }
+    },
+    {
+      "key": "a11y-audit-cycle-decision-2024",
+      "type": "decision",
+      "author": "person:yoon-dain",
+      "collab": "collab:web-design-system",
+      "age_days": 820,
+      "size": "short",
+      "attributes": {
+        "conclusion": "접근성 감사는 분기 1회, 신규 화면 출시 직후 1회 추가로 진행한다.",
+        "rationale": "팀이 지금처럼 나뉘기 전, 접근성 QA 인력이 1명뿐이라 상시 점검이 불가능했다. 최소한 분기 정기 감사와 신규 화면 직후 감사 두 가지만이라도 지키자는 게 당시 현실적인 합의였다.",
+        "rejected_alternatives": [
+          "매 PR마다 자동 스캔만으로 대체 — axe-core 자동 스캔이 색상 대비·포커스 순서 일부를 못 잡아 수동 감사를 완전히 대체할 수 없다고 판단"
+        ]
+      }
+    },
+    {
+      "key": "store-rollout-policy-2024-decision",
+      "type": "decision",
+      "author": "person:song-arim",
+      "collab": "collab:mobile-app",
+      "age_days": 880,
+      "size": "para",
+      "attributes": {
+        "conclusion": "스토어 단계적 출시는 10% → 100% 2단계로 단순화하고, 10% 단계는 최소 6시간만 관찰한다.",
+        "rationale": "당시 조직 규모가 작아 매 배포마다 4단계씩 관찰할 인력이 없었다. 배포 빈도도 지금보다 낮아(월 1~2회) 6시간 관찰이면 주요 크래시는 대체로 드러난다는 게 그때까지의 경험적 판단이었다. 결제 관련 변경은 이 정책에서 예외로 두고 별도로 더 길게(24시간 이상) 관찰하기로 했었다. 이 2단계 정책은 이후 상반기에 있었던 결제 스키마 변경 사고를 계기로 다시 4단계로 되돌아간 것으로 알려져 있는데, 그 결정이 언제 어떤 문서로 남았는지는 이 기록에는 없어 별도 확인이 필요하다.",
+        "rejected_alternatives": [
+          "1% → 10% → 50% → 100% 4단계 유지 — 당시 인력으로는 매 단계 관찰이 물리적으로 불가능하다고 판단",
+          "관찰 없이 즉시 100% — 결제 스키마 변경 이력이 있어 최소한의 단계는 필요하다고 판단"
+        ]
+      }
+    },
+    {
+      "key": "design-token-legacy-2023",
+      "type": "fact",
+      "author": "person:han-seoyeon",
+      "collab": "collab:web-design-system",
+      "age_days": 1150,
+      "size": "short",
+      "attributes": {
+        "title": "3년 전 디자인 토큰 체계",
+        "statement": "2023년 6월 기준 색상 토큰은 티어 구분 없이 컴포넌트 파일마다 Sass 변수($blue-500 등)로 하드코딩돼 있었고, 다크모드 자체가 없었다. 당시 컴포넌트 수는 60개 남짓으로 지금의 절반 이하였다. 지금 3-tier 토큰 체계와는 완전히 다른 시절 기록이라 사실상 참고용 유물이다."
+      }
+    },
+    {
+      "key": "min-os-decision-2023",
+      "type": "decision",
+      "author": "person:choi-yeonwoo",
+      "collab": "collab:mobile-app",
+      "age_days": 1300,
+      "size": "short",
+      "attributes": {
+        "conclusion": "최소 지원 버전을 iOS 9, Android 5.0(API 21)으로 정한다.",
+        "rationale": "3년 전 당시 활성 단말 중 이 버전 미만 비중이 3% 수준이라 커버리지 손실이 적다고 판단했다. 그 시절 팀 규모로는 다양한 OS 버전별 QA 회귀를 다 돌리기도 버거워, 지원 범위를 넓게 잡되 신규 API는 최대한 안 쓰는 쪽으로 타협했다.",
+        "rejected_alternatives": [
+          "iOS 11, Android 7.0으로 상향 — 당시 활성 단말 커버리지 손실이 8% 이상으로 추정돼 신규 유입에 타격이 크다고 판단해 기각"
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "key": "conflict-min-os-version",
+      "topic": "Android 최소 지원 버전을 얼마로 올릴지",
+      "a": {
+        "type": "decision",
+        "author": "person:han-dojin",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "Android 최소 지원 버전을 API 26(Android 8.0)으로 올려야 한다.",
+          "rationale": "Crashlytics 기준 최근 90일 크래시의 38%가 API 24~25 단말에서 발생하는데, 이 구간 MAU 비중은 2.1%뿐이다. TLS 1.3 미지원과 Doze 모드 이전 백그라운드 정책 차이가 원인이라 코드로 우회하기보다 지원을 끊는 게 유지보수 비용상 낫다.",
+          "rejected_alternatives": [
+            "현행(API 24) 유지 — 크래시 비중과 MAU 비중의 비대칭이 너무 커서 유지보수 부담이 계속 누적됨"
+          ]
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:bae-jiho",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 15,
+        "attributes": {
+          "title": "실사용자 분포상 API 24 유지 필요",
+          "statement": "CS 문의 로그를 기준으로 최근 3개월간 접수된 '앱이 안 켜져요' 문의 중 41%가 API 24~25 단말 사용자였고, 이 중 다수가 저가 단말 프로모션으로 신규 유입된 고객이었다. 이 시점에 지원을 끊으면 해당 유입 채널 자체가 CS 컴플레인으로 이어질 것으로 우려된다. 개발팀 크래시 데이터는 이해하지만 실제 문의량 기준으로는 아직 끊을 시점이 아니라고 본다."
+        }
+      }
+    },
+    {
+      "key": "conflict-api-timeout",
+      "topic": "모바일 클라이언트 API 타임아웃 기준",
+      "a": {
+        "type": "fact",
+        "author": "person:choi-yeonwoo",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "클라이언트 API 타임아웃 3초여야 함",
+          "statement": "iOS 쪽 UX 테스트에서 API 응답이 3초를 넘기면 사용자가 화면을 이탈하거나 앱을 강제 종료하는 비율이 눈에 띄게 늘었다. 타임아웃을 3초로 짧게 잡고, 대신 실패 시 자동 재시도 1회를 붙이는 게 체감 반응성 확보에 낫다는 게 우리 쪽 결론이다."
+        }
+      },
+      "b": {
+        "type": "decision",
+        "author": "person:song-yerim",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "API 게이트웨이 표준 타임아웃은 8초로 유지한다.",
+          "rationale": "p99 응답 시간이 6초대인 엔드포인트(정산 조회, 추천 랭킹 조합)가 이미 여러 개 있어, 3초로 클라이언트를 맞추면 정상 응답인데도 타임아웃으로 잘려나가는 요청이 다수 발생한다. 백엔드 쪽에서 8초 미만으로 낮추려면 해당 엔드포인트들의 구조 개선이 먼저 필요하다.",
+          "rejected_alternatives": [
+            "엔드포인트별 타임아웃 차등 적용 — 클라이언트 구현 복잡도가 커지고 신규 API 추가할 때마다 값을 정해야 해서 표준화 취지에 안 맞음"
+          ]
+        }
+      }
+    },
+    {
+      "key": "conflict-cwv-vs-feature",
+      "topic": "웹 성능 예산 유지 vs 프로모션 기능 추가",
+      "a": {
+        "type": "decision",
+        "author": "person:jang-minho",
+        "collab": "collab:web-design-system",
+        "size": "para",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "Core Web Vitals 예산(LCP 2.5초, INP 200ms, CLS 0.1)은 프로모션 랜딩 화면에도 예외 없이 적용한다.",
+          "rationale": "지난 분기 프로모션 랜딩에 트래킹 스크립트 3개가 추가로 붙으면서 LCP p75가 2.5초에서 3.6초로 나빠진 사례가 있었다. 예외를 한 번 허용하면 다음 캠페인마다 또 예외를 요구받게 되고, 결국 예산 자체가 무의미해진다. 트래킹은 필요하지만 지연 로딩이나 서버 사이드 태깅 같은 대안으로 예산 안에서 해결해야 한다.",
+          "rejected_alternatives": [
+            "캠페인 기간에만 한시적으로 예산 완화 — 캠페인이 끊이지 않고 이어지는 지금 상황상 '한시적'이 사실상 상시가 될 것으로 판단"
+          ]
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:song-arim",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "프로모션 전환율 위해 배너·트래킹 스크립트 필요",
+          "statement": "최근 캠페인 데이터를 보면 실시간 재고 배너와 3rd party 트래킹 픽셀이 붙은 랜딩의 전환율이 그렇지 않은 랜딩보다 22% 높았다. 성능 예산 때문에 이 요소들을 못 붙이면 캠페인 성과 목표(전환율 KPI)를 못 맞춘다. 예산보다 전환율이 우선인 캠페인은 개별 승인이라도 받을 수 있어야 한다."
+        }
+      }
+    },
+    {
+      "key": "conflict-breaking-change-notice",
+      "topic": "디자인 시스템 breaking change 공지 기간",
+      "a": {
+        "type": "decision",
+        "author": "person:han-seoyeon",
+        "collab": "collab:web-design-system",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "컴포넌트 breaking change는 배포 최소 4주 전 공지를 원칙으로 유지한다.",
+          "rationale": "과거 공지 없는 breaking change로 소비 팀 화면이 조용히 깨진 사고 이후 정한 최소 유예 기간이다. 4주 미만으로 줄이면 소비 팀이 마이그레이션 코드를 검토·테스트할 시간이 부족해져 같은 사고가 재발할 위험이 크다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:oh-taeyang",
+        "collab": "collab:qa-release",
+        "size": "para",
+        "age_days": 0,
+        "attributes": {
+          "title": "실제로는 릴리스 3~5일 전에야 공지가 도달함",
+          "statement": "최근 2개 릴리스 트레인을 기준으로 보면, 디자인 시스템 쪽 breaking change 공지가 #design-system 채널에는 4주 전에 올라갔을지 몰라도 실제로 릴리스 담당인 우리 쪽까지 전달돼 스테이징 통합 테스트에 반영된 시점은 배포 3~5일 전이었다. 공지 채널과 실제 영향받는 릴리스 일정 사이에 확인 단계가 하나 빠져 있어서, 문서상 4주 정책과 무관하게 릴리스 엔지니어 입장에서 체감하는 리드타임은 며칠에 불과하다."
+        }
+      }
+    },
+    {
+      "key": "conflict-forced-update-trigger",
+      "topic": "강제 업데이트 발동 기준",
+      "a": {
+        "type": "fact",
+        "author": "person:choi-yeonwoo",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "보정 크래시프리 99.5% 미만이면 강제 업데이트",
+          "statement": "특정 빌드의 보정 크래시프리 비율이 배포 후 48시간 내 99.5% 밑으로 떨어지면, 원인 버전과 상관없이 최신 버전 강제 업데이트를 검토 대상에 올린다는 게 개발 쪽 기준이다. 지표 기반이라 사람이 판단하기 전에 자동으로 알람이 뜬다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:bae-sua",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "일일 CS 문의 500건 이상이면 강제 업데이트 요청",
+          "statement": "크래시프리 지표만 보면 놓치는 문제가 있다. 특정 버전에서 결제 실패나 로그인 반복 튕김처럼 크래시로는 안 잡히지만 CS 문의가 폭증하는 케이스가 있었는데, 그때 개발 쪽 크래시 지표는 정상 범위였다. 우리 기준으로는 특정 버전 관련 일일 CS 문의가 500건을 넘으면 크래시 지표와 무관하게 강제 업데이트를 검토해야 한다고 본다."
+        }
+      }
+    },
+    {
+      "key": "conflict-js-bundle-budget-target",
+      "topic": "웹 JS 번들 사이즈 예산 목표치",
+      "a": {
+        "type": "fact",
+        "author": "person:jang-minho",
+        "collab": "collab:web-design-system",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "라우트당 gzip 150KB로 낮춰야 함",
+          "statement": "최근 RUM 데이터에서 번들 사이즈와 이탈률의 상관관계가 뚜렷하게 나타나, 지금 예산으로는 부족하다고 본다. 상품 목록 페이지를 150KB까지 줄이는 실험에서 이탈률이 4%p 개선됐다. 디자인 시스템 v2 컴포넌트가 무겁더라도 이 목표는 유지해야 한다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:han-seoyeon",
+        "collab": "collab:web-design-system",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "디자인 시스템 v2 컴포넌트 고려하면 220KB까지는 필요",
+          "statement": "v2 컴포넌트는 접근성 속성과 애니메이션 로직이 추가되면서 v1 대비 컴포넌트당 평균 크기가 늘었다. 150KB로 예산을 잡으면 소비 팀들이 v2 마이그레이션 자체를 미룰 유인이 생긴다. 마이그레이션이 끝나고 실측치가 안정된 다음에 예산을 다시 낮추는 게 순서상 맞다고 본다."
+        }
+      }
+    },
+    {
+      "key": "conflict-contrast-ratio-standard",
+      "topic": "웹 접근성 대비율 기준(AA vs AAA)",
+      "a": {
+        "type": "fact",
+        "author": "person:yoon-dain",
+        "collab": "collab:web-design-system",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "본문 텍스트는 AAA 7:1까지 요구해야 함",
+          "statement": "최근 접근성 감사에서 저시력 사용자 인터뷰를 진행했는데, AA 기준(4.5:1)을 만족하는 화면에서도 '흐릿해서 읽기 힘들다'는 피드백이 반복됐다. 최소한 본문 텍스트만이라도 AAA 기준(7:1)으로 올리는 게 실제 사용성에 맞다고 본다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:jang-minho",
+        "collab": "collab:web-design-system",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "AA 4.5:1이면 충분, 디자인 톤 유지 필요",
+          "statement": "AAA 기준까지 올리면 브랜드 컬러 팔레트 중 상당수가 텍스트 색상으로 못 쓰게 돼 디자인 톤이 크게 흔들린다. 법적·업계 표준으로도 AA가 통상 기준이고, 저시력 사용자 대응은 대비율 상향보다 폰트 크기 조절 기능 제공 쪽이 더 현실적인 해법이라고 본다."
+        }
+      }
+    },
+    {
+      "key": "conflict-crash-free-target-platform",
+      "topic": "플랫폼별 크래시프리 목표치",
+      "a": {
+        "type": "fact",
+        "author": "person:choi-yeonwoo",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "iOS는 99.7% 목표가 맞다",
+          "statement": "iOS는 단말 파편화가 Android보다 훨씬 적고, 워치독 강제 종료 원인도 대부분 코드로 특정 가능하다. 최근 2개 분기 연속 99.6% 이상을 달성한 만큼 목표를 99.7%로 올려도 무리 없다고 본다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:han-dojin",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "Android는 99.3%가 현실적",
+          "statement": "Android는 제조사·칩셋 조합이 너무 다양해서 특정 저가 단말군에서만 재현되는 ANR이 매 분기 몇 건씩 나온다. iOS와 같은 99.7%를 목표로 잡으면 매번 미달로 보고해야 해서 목표 자체의 신뢰도가 떨어진다. 플랫폼별로 다른 목표치를 쓰는 게 맞다."
+        }
+      }
+    },
+    {
+      "key": "conflict-staged-rollout-speed",
+      "topic": "스토어 단계적 출시 속도",
+      "a": {
+        "type": "fact",
+        "author": "person:song-arim",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "10%에서 24시간 이내 100%로 올려야 함",
+          "statement": "캠페인 연동 배포가 많아지면서, 단계적 출시가 느리면 캠페인 시작 시점에 절반도 안 되는 사용자만 신규 버전을 받는 문제가 반복됐다. 크래시 지표에 이상이 없으면 10% 단계에서 24시간 안에 100%까지 빠르게 올려야 캠페인 일정에 맞출 수 있다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:choi-yeonwoo",
+        "collab": "collab:mobile-app",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "10%→25%→50%→100%, 단계마다 48시간 관찰 필요",
+          "statement": "일부 크래시는 특정 단말군에서만 재현되고 재현 빈도도 낮아 24시간 안에는 신호가 안 잡히는 경우가 실제로 있었다. 최소 48시간씩 관찰하며 4단계로 나눠 올리는 쪽이 안전하다. 캠페인 일정은 배포 자체를 캠페인보다 최소 1주 앞당기는 방식으로 맞춰야지, 관찰 기간을 줄이는 방식으로 맞추면 안 된다."
+        }
+      }
+    }
+  ]
+}

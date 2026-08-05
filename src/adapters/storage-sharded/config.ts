@@ -107,8 +107,24 @@ export async function makeShard(spec: ShardSpec): Promise<StoragePort> {
       return new SqliteStorage(spec.path as string);
     }
     case "kuzu": {
-      const { KuzuStorage } = await import("../storage-kuzu/index.js");
-      return new KuzuStorage(spec.path as string);
+      // kuzu is not a runtime dependency: its native binding is 531 MB, which was **91% of what
+      // `npx yoke` downloaded** (measured 2026-08-05, docs/ROADMAP.md v2.5) for a backend reachable
+      // only by naming `kind: "kuzu"` in a shard config. It is a devDependency, so this repo's own
+      // tests and CI still run the full conformance suite against it.
+      //
+      // The failure is caught here rather than left as MODULE_NOT_FOUND because the caller wrote a
+      // config file, not an import, and the stack trace of a dynamic import names neither.
+      let mod: typeof import("../storage-kuzu/index.js");
+      try {
+        mod = await import("../storage-kuzu/index.js");
+      } catch (e) {
+        throw new Error(
+          `this shard config names a kuzu shard, and the kuzu package is not installed. ` +
+            `It ships separately because its native binding is ~530 MB: npm install kuzu\n` +
+            `  (original error: ${(e as Error).message})`,
+        );
+      }
+      return new mod.KuzuStorage(spec.path as string);
     }
     case "qdrant": {
       const { QdrantStorage } = await import("../storage-qdrant/index.js");

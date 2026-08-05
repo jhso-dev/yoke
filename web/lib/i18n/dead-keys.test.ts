@@ -9,23 +9,14 @@
 // The reverse direction (a screen reading a key that does not exist) is already a type error, since
 // every locale is typed as `typeof en`. This covers the other side.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { sources } from "../sources";
 import { en } from "./en";
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-
-function sources(dir: string): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) out.push(...sources(p));
-    else if (/\.tsx?$/.test(name) && !name.includes(".test.")) out.push(p);
-  }
-  return out;
-}
 
 /** Looked up by computed key (`t.nav[l.key]`, `t.audit.meaning[e.action]`), so no source file
  * spells the leaf out. Checked as a group instead: something must still read the group. */
@@ -41,7 +32,7 @@ function leaves(obj: object, prefix = ""): string[] {
 
 describe("i18n dictionary", () => {
   const source = [join(webRoot, "app"), join(webRoot, "components")]
-    .flatMap(sources)
+    .flatMap((d) => sources(d))
     .map((p) => readFileSync(p, "utf8"))
     .join("\n");
 

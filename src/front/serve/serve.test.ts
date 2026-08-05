@@ -161,7 +161,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     expect((await authGet("/api/review")).status).toBe(401);
   });
 
-  it("read-only token: GET ok, POST /api/verify → 403", async () => {
+  it("read-only token: GET ok, POST /api/verify → 403 naming the scope", async () => {
     expect((await authGet("/api/review", readToken)).status).toBe(200);
     const verifyRes = await authPost(
       "/api/verify",
@@ -169,6 +169,15 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
       readToken,
     );
     expect(verifyRes.status).toBe(403);
+    // The body was `{"error":"forbidden"}` until 2026-08-05, which told the holder of a read-only
+    // token that something was refused and not which permission to go and ask for. Found by finally
+    // running the check the roadmap had been carrying as a human-verification item.
+    const body = (await verifyRes.json()) as {
+      error: string;
+      required?: string;
+    };
+    expect(body.error).toContain("'verify' scope");
+    expect(body.required).toBe("verify");
   });
 
   it("read-only token: POST /api/entity and /api/link → 403", async () => {
@@ -579,6 +588,7 @@ describe("serve smoke (auth off)", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       "yoke_commit",
       "yoke_inject",
+      "yoke_overview",
       "yoke_persona",
       "yoke_record_decision",
       "yoke_use_scope",

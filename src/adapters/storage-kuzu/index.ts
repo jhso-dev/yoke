@@ -8,7 +8,7 @@ import kuzu from "kuzu";
 import { serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { rankByRelevance, tokenize } from "../../core/rank.js";
+import { matchesTokens, rankByRelevance, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
@@ -223,14 +223,15 @@ export class KuzuStorage implements StoragePort {
     )) as unknown as (EntityRow & { txt: string })[];
     // Prefix-tolerant token match over serialized text (Kuzu has no FTS5). Tokens split on any
     // non-letter/non-number char, so JSON punctuation separates but an attached particle stays on
-    // its stem — every query token must prefix some entity token. Searching "parseArgs" thus finds
-    // the token "parseArgs로" (Korean suffix tolerance, conformance case 6b).
+    // its stem — a query token prefixes some entity token. Searching "parseArgs" thus finds the
+    // token "parseArgs로" (Korean suffix tolerance, conformance case 6b). AND up to
+    // AND_TERM_LIMIT terms, OR beyond it — the rule itself lives in core so all five backends
+    // cannot drift (SPEC search clause 8).
     const qTokens = tokenize(q.text);
     const wantNs = normalizeNs(q.ns);
-    const matched = latestByVersion(all).filter((r) => {
-      const eTokens = tokenize(r.txt);
-      return qTokens.every((qt) => eTokens.some((et) => et.startsWith(qt)));
-    });
+    const matched = latestByVersion(all).filter((r) =>
+      matchesTokens(qTokens, r.txt, q.terms),
+    );
     const filtered = matched.filter(
       (r) =>
         // "" sentinel normalizes to null so the default ns sees only default rows (10.1 isolation).

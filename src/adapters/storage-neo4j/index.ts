@@ -20,14 +20,15 @@
 // kuzu made, for the same reason.
 
 import neo4j, { type Driver, type Session } from "neo4j-driver-lite";
-import { serializeText } from "../../core/embedding.js";
+import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { tokenize } from "../../core/rank.js";
+import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
+  orderByIds,
   type Page,
   page,
   type StoragePort,
@@ -105,9 +106,11 @@ const LUCENE_SPECIAL = /([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g;
 /**
  * A search query as Lucene: `+tok* tok` per token. Two clauses, and both are load-bearing.
  *
- * `+tok*` is REQUIRED and does the matching — prefix tolerance is conformance case 6b (a query for
- * `parseArgs` must reach the token `parseArgs로`, because Hangul are letters and stay attached to
- * their stem) and the repeated `+` gives 6c, multi-word AND in any order.
+ * `+tok*` matches — prefix tolerance is conformance case 6b (a query for `parseArgs` must reach the
+ * token `parseArgs로`, because Hangul are letters and stay attached to their stem) and the repeated
+ * `+` gives 6c, multi-word AND in any order. Past AND_TERM_LIMIT tokens the `+` is dropped, which is
+ * Lucene's own default operator and makes the query a disjunction the index's score then ranks
+ * (SPEC search clause 8).
  *
  * `tok` is OPTIONAL and does the RANKING. Found by the conformance suite: Lucene rewrites a wildcard
  * as a CONSTANT_SCORE query, so a query of `+tok*` alone scores every hit identically and "best match
@@ -118,10 +121,11 @@ const LUCENE_SPECIAL = /([+\-!(){}[\]^"~*?:\\/]|&&|\|\|)/g;
  * Returns null when the query has no usable tokens, which the caller turns into an empty result rather
  * than a Lucene syntax error.
  */
-function luceneQuery(text: string): string | null {
+function luceneQuery(text: string, terms?: "auto" | "all"): string | null {
   const tokens = tokenize(text).map((t) => t.replace(LUCENE_SPECIAL, "\\$1"));
   if (tokens.length === 0) return null;
-  return tokens.map((t) => `+${t}* ${t}`).join(" ");
+  const req = requireEveryTerm(tokens.length, terms) ? "+" : "";
+  return tokens.map((t) => `${req}${t}* ${t}`).join(" ");
 }
 
 export class Neo4jStorage implements StoragePort {
@@ -285,11 +289,7 @@ export class Neo4jStorage implements StoragePort {
     }
     if (this.vectorDim !== null) {
       if (this.vectorDim !== dim) {
-        throw new Error(
-          `embedding dimension changed: the vector index holds ${this.vectorDim}-dimension vectors and this one is ${dim}. ` +
-            `A database has one vector space — re-index every record with the new model: ` +
-            `yoke backfill --embeddings --rebuild`,
-        );
+        throw dimensionMismatch(this.vectorDim, dim, false);
       }
       return;
     }
@@ -323,6 +323,25 @@ export class Neo4jStorage implements StoragePort {
           });
     const node = rows[0]?.e as { properties: EntityRow } | undefined;
     return node ? rowToEntity(node.properties) : null;
+  }
+
+  /** Batch point read (v5.5) — one Cypher for the whole set. The latest-version collapse is the same
+   * two-step `similar` already uses, which is why Neo4j was the one backend whose `similar` was not
+   * an N+1 to begin with. */
+  async getEntities(ids: string[]): Promise<Entity[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.run(
+      `MATCH (e:Entity) WHERE e.id IN $ids
+       WITH e.id AS eid, max(e.version) AS mv
+       MATCH (e:Entity {id:eid, version:mv}) RETURN e`,
+      { ids },
+    );
+    return orderByIds(
+      rows.map((row) =>
+        rowToEntity((row.e as { properties: EntityRow }).properties),
+      ),
+      ids,
+    );
   }
 
   /**
@@ -366,7 +385,7 @@ export class Neo4jStorage implements StoragePort {
    * return a stale version and no collapse pass is needed here.
    */
   async search(q: TextQuery): Promise<Entity[]> {
-    const lucene = luceneQuery(q.text);
+    const lucene = luceneQuery(q.text, q.terms);
     if (lucene === null) return [];
     const wantNs = normalizeNs(q.ns) ?? "";
     const statuses = Array.isArray(q.status)
@@ -403,10 +422,7 @@ export class Neo4jStorage implements StoragePort {
     // Reads get the same dimension check as writes: querying the old index with a new model's vector
     // answers out of a different vector space, which looks like a result and is not one.
     if (this.vectorDim !== embedding.length) {
-      throw new Error(
-        `embedding dimension changed: the vector index holds ${this.vectorDim}-dimension vectors and this query is ${embedding.length}. ` +
-          `Re-index every record with the current model: yoke backfill --embeddings --rebuild`,
-      );
+      throw dimensionMismatch(this.vectorDim, embedding.length, true);
     }
     const rows = await this.run(
       `CALL db.index.vector.queryNodes($index, $k, $vec) YIELD node AS v, score

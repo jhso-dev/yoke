@@ -1,0 +1,505 @@
+{
+  "aged": [
+    {
+      "key": "nodepool-max-aged",
+      "type": "fact",
+      "author": "person:yoon-daeun",
+      "collab": "collab:infra-sre",
+      "age_days": 205,
+      "size": "line",
+      "attributes": {
+        "title": "EKS 노드풀 스케일 한도",
+        "statement": "지난 분기 기준 온디맨드 노드풀 max가 40대였다."
+      }
+    },
+    {
+      "key": "pg-timeout-aged",
+      "type": "fact",
+      "author": "person:oh-taemin",
+      "collab": "collab:payments-platform",
+      "age_days": 220,
+      "size": "short",
+      "attributes": {
+        "title": "PG 연동 타임아웃",
+        "statement": "지난 분기 기준 PG사 결제 승인 타임아웃은 3초로 설정돼 있었고, 3초를 초과하면 재시도 없이 바로 실패 처리했다. 당시 PG사 응답 지연이 잦아 재시도 로직을 붙일지 논의만 하고 실제 반영은 안 된 상태였다. 지금은 PG사 SLA가 바뀌었을 수 있어 재확인이 필요하다."
+      }
+    },
+    {
+      "key": "oncall-response-sla-aged",
+      "type": "fact",
+      "author": "person:choi-yerim",
+      "collab": "collab:infra-sre",
+      "age_days": 230,
+      "size": "line",
+      "attributes": {
+        "title": "SRE 온콜 1차 대응 SLA",
+        "statement": "지난 분기 기준 1차 대응 목표는 15분이었다."
+      }
+    },
+    {
+      "key": "circuit-breaker-threshold-aged",
+      "type": "fact",
+      "author": "person:jung-arim",
+      "collab": "collab:payments-platform",
+      "age_days": 240,
+      "size": "line",
+      "attributes": {
+        "title": "결제 서킷브레이커 임계값",
+        "statement": "지난 분기 기준 실패율 50% 초과 시 서킷브레이커가 열렸다."
+      }
+    },
+    {
+      "key": "incident-channel-aged",
+      "type": "fact",
+      "author": "person:bae-sua",
+      "collab": "collab:support-admin",
+      "age_days": 250,
+      "size": "line",
+      "attributes": {
+        "title": "장애 공지 채널",
+        "statement": "지난 분기 기준 장애 공지는 #incident-war-room으로 갔다."
+      }
+    },
+    {
+      "key": "legacy-monitoring-channel-aged",
+      "type": "fact",
+      "author": "person:han-seojun",
+      "collab": "collab:infra-sre",
+      "age_days": 320,
+      "size": "short",
+      "attributes": {
+        "title": "구 모니터링 알림 채널",
+        "statement": "작년 하반기에는 Datadog 알림이 Slack #alerts-legacy 채널로 전송됐고, 온콜 담당자는 별도 페이저 앱 없이 이 채널 알림만 보고 장애를 감지해 대응했다. 채널을 놓치면 알림도 같이 놓치는 구조라 야간 시간대 누락 사례가 몇 차례 있었다. 이후 알림 채널이 통합되거나 페이저 도구 자체가 교체됐을 가능성이 있어 현재 알림 라우팅을 다시 확인해야 한다."
+      }
+    },
+    {
+      "key": "v2-settlement-deadline-aged",
+      "type": "fact",
+      "author": "person:oh-taemin",
+      "collab": "collab:payments-platform",
+      "age_days": 340,
+      "size": "para",
+      "attributes": {
+        "title": "v2 정산 배치 마감 시각",
+        "statement": "v2 정산 배치 시절에는 매일 03:00 KST까지 정산 배치가 끝나야 정산 담당자가 09:00 업무 시작 전 결과를 확인할 수 있었다. 당시 배치는 단일 배치 잡으로 구성돼 있었고, 트랜잭션 건수가 늘면서 종종 03:00을 넘겨 04:30까지 지연되는 일이 있었다. 지연이 잦아지자 알림을 03:30 시점에 한 번 쏘도록 임시로 붙여뒀는데, 이후 배치 구조가 바뀌었는지 알림 시점과 마감 시각이 지금도 유효한지 확인이 필요하다. 정산 담당 부서가 재편되면서 이 배치를 지금 누가 모니터링하는지도 같이 확인해야 한다. 또한 당시에는 배치가 실패하면 담당자에게 전화로 직접 연락하는 방식이었는데, 지금도 그 연락 체계가 유지되고 있는지, 아니면 자동 알림 체계로 바뀌었는지도 함께 점검할 필요가 있다."
+      }
+    },
+    {
+      "key": "old-failover-threshold-aged",
+      "type": "fact",
+      "author": "person:choi-donghyun",
+      "collab": "collab:backend-api",
+      "age_days": 310,
+      "size": "line",
+      "attributes": {
+        "title": "API 게이트웨이 페일오버 기준",
+        "statement": "작년 하반기 기준 연속 5xx 10회에 페일오버가 트리거됐다."
+      }
+    },
+    {
+      "key": "oncall-rotation-cycle-aged",
+      "type": "fact",
+      "author": "person:yoon-daeun",
+      "collab": "collab:infra-sre",
+      "age_days": 355,
+      "size": "line",
+      "attributes": {
+        "title": "SRE 온콜 로테이션 주기",
+        "statement": "작년 하반기 기준 온콜은 인프라팀 전체가 1주 단위로 순환하며 돌았다."
+      }
+    },
+    {
+      "key": "deprecated-service-slo-aged",
+      "type": "fact",
+      "author": "person:jung-arim",
+      "collab": "collab:payments-platform",
+      "age_days": 430,
+      "size": "short",
+      "attributes": {
+        "title": "폐기된 결제알림 서비스 SLO",
+        "statement": "2024년 4분기 기준 결제알림 서비스가 결제 서비스와 별도의 컴포넌트로 존재했고 SLO는 월간 가용성 99.9%로 관리됐다. 이후 결제 서비스에 통합되면서 별도 SLO 관리가 없어지고 결제 서비스 SLO에 흡수됐다는 이야기가 있는데, 통합 여부와 현재 결제 서비스 SLO 기준을 다시 확인해야 한다."
+      }
+    },
+    {
+      "key": "pre-split-ownership-decision",
+      "type": "decision",
+      "author": "person:han-seojun",
+      "collab": "collab:infra-sre",
+      "age_days": 450,
+      "size": "para",
+      "attributes": {
+        "conclusion": "팀 분리 전에는 인프라팀이 결제 인프라 온콜까지 전담하기로 결정했다.",
+        "rationale": "당시 결제 서비스 전담 SRE가 없어서 인프라팀이 결제 인프라의 배포·모니터링·장애 대응을 함께 맡는 게 인력 운용상 효율적이라고 판단했다. 결제팀 백엔드 엔지니어들은 애플리케이션 로직에만 집중하고, 인프라단 이슈는 전부 인프라팀 온콜로 에스컬레이션하는 구조였다. 이 구조 덕분에 결제팀은 별도로 온콜 로테이션을 짤 필요가 없었고, 인프라팀은 결제 도메인 지식 없이도 인프라 계층 문제만 보면 됐기 때문에 초기 인력이 적을 때는 합리적인 분업이었다. 다만 장애 발생 시 원인이 애플리케이션 로직인지 인프라인지 판단하는 데 시간이 걸려서, 결제팀 엔지니어가 뒤늦게 합류하는 경우가 잦았다는 부작용도 함께 인지하고 있었다.",
+        "rejected_alternatives": [
+          "결제팀 내 전담 SRE 채용",
+          "결제 인프라 온콜을 결제팀·인프라팀 공동 로테이션으로 운영"
+        ]
+      }
+    },
+    {
+      "key": "old-cluster-nodepool-decision",
+      "type": "decision",
+      "author": "person:yoon-daeun",
+      "collab": "collab:infra-sre",
+      "age_days": 470,
+      "size": "short",
+      "attributes": {
+        "conclusion": "이전 클러스터(EKS 1.27)에서 노드풀을 스팟/온디맨드로 분리하기로 결정했다.",
+        "rationale": "당시 스팟 인스턴스 회수 빈도가 낮아 배치 워크로드는 스팟, 상시 트래픽은 온디맨드로 나누면 비용을 아낄 수 있다고 판단했다. 스팟 회수 알림을 받아 온디맨드로 자동 드레인하는 스크립트도 같이 붙여서, 회수가 발생해도 배치가 잠깐 지연되는 정도로 끝나고 서비스 트래픽에는 영향이 없도록 구성했다.",
+        "rejected_alternatives": [
+          "전체 온디맨드 단일 노드풀 유지",
+          "전체 스팟 전환"
+        ]
+      }
+    },
+    {
+      "key": "payments-escalation-decision",
+      "type": "decision",
+      "author": "person:jung-arim",
+      "collab": "collab:payments-platform",
+      "age_days": 490,
+      "size": "short",
+      "attributes": {
+        "conclusion": "결제 인프라 장애 에스컬레이션은 1차 온콜 무응답 10분 후 2차로 넘기기로 결정했다.",
+        "rationale": "당시 1차 온콜 인원이 적어 무응답 시간이 길어지는 경우가 잦았고, 너무 짧게 잡으면 화장실이나 이동 중처럼 잠깐 못 받는 상황에도 2차가 계속 깨어나 피로도가 높아진다는 지적이 있었다. 그래서 1차가 대응할 최소한의 여유를 주는 선에서 10분을 기준으로 잡았다.",
+        "rejected_alternatives": [
+          "1차 온콜 인원 증원",
+          "무응답 5분 기준으로 단축"
+        ]
+      }
+    },
+    {
+      "key": "old-payment-failover-aged",
+      "type": "fact",
+      "author": "person:oh-taemin",
+      "collab": "collab:payments-platform",
+      "age_days": 750,
+      "size": "line",
+      "attributes": {
+        "title": "결제 API 페일오버 기준",
+        "statement": "2년 전에는 연속 타임아웃 3회가 페일오버 기준이었다."
+      }
+    },
+    {
+      "key": "pre-split-incident-ownership-decision",
+      "type": "decision",
+      "author": "person:choi-donghyun",
+      "collab": "collab:backend-api",
+      "age_days": 800,
+      "size": "para",
+      "attributes": {
+        "conclusion": "백엔드 API팀 분리 전에는 장애 대응 1차 창구를 인프라팀이 전담하기로 결정했다.",
+        "rationale": "당시 API 서비스가 단일 모놀리스였고 서비스 경계가 불명확해 장애 발생 시 어느 팀 소관인지 판단하는 데 시간이 걸렸다. 그래서 모든 장애의 1차 트리아지를 인프라팀이 맡고, 원인이 특정 도메인으로 좁혀지면 그때 해당 팀에 넘기는 방식으로 운영했다. 도메인팀들은 각자 코드 오너십은 있었지만 장애 대응 프로세스나 온콜 체계는 따로 갖추지 않았고, 원인이 애플리케이션 로직으로 확인된 뒤에야 담당 엔지니어가 호출되는 구조였다. 서비스가 분리되고 나서야 도메인별로 온콜과 장애 대응 프로세스를 각자 갖추기 시작했고, 그 전까지는 이 방식이 장애 대응의 유일한 안전망이었으며 인프라팀 온콜 부담도 그만큼 컸다.",
+        "rejected_alternatives": [
+          "서비스별 담당팀이 처음부터 1차 대응",
+          "장애 트리아지 전담 조직 신설"
+        ]
+      }
+    },
+    {
+      "key": "monitoring-consolidation-decision",
+      "type": "decision",
+      "author": "person:han-seojun",
+      "collab": "collab:infra-sre",
+      "age_days": 850,
+      "size": "short",
+      "attributes": {
+        "conclusion": "여러 알림 채널을 Datadog 단일 채널로 통합하기로 결정했다.",
+        "rationale": "채널이 나뉘어 있어 온콜 담당자가 알림을 놓치는 사례가 반복됐다. 서비스별로 알림 채널을 따로 파둔 탓에 온콜 담당자가 여러 채널을 동시에 지켜봐야 했고, 새로 합류한 인원은 어느 채널을 봐야 하는지부터 헷갈려하는 문제가 있었다.",
+        "rejected_alternatives": [
+          "채널별 담당자 지정 유지",
+          "PagerDuty로 전면 교체"
+        ]
+      }
+    },
+    {
+      "key": "ancient-slo-aged",
+      "type": "fact",
+      "author": "person:han-seojin",
+      "collab": "collab:payments-platform",
+      "age_days": 1200,
+      "size": "short",
+      "attributes": {
+        "title": "3년 전 결제 서비스 SLO",
+        "statement": "그 당시 결제 서비스 SLO는 월간 가용성 99.5%였고, 다운타임 예산은 월 약 3시간 40분이었다. 그 예산을 넘기면 그 달은 신규 기능 배포를 잠정 중단하고 안정화 작업만 하기로 되어 있었다. 이후 SLO가 상향 조정됐다는 이야기만 들었고 현재 공식 수치와 다운타임 예산 정책이 아직 그대로인지 확인이 필요하다."
+      }
+    },
+    {
+      "key": "early-oncall-rotation-decision",
+      "type": "decision",
+      "author": "person:han-seojun",
+      "collab": "collab:infra-sre",
+      "age_days": 1300,
+      "size": "para",
+      "attributes": {
+        "conclusion": "창업 초기에는 온콜을 2주 단위로 순환하기로 결정했다.",
+        "rationale": "당시 SRE 인원이 3명뿐이라 1주 단위로 돌리면 한 사람이 한 달에 한 번 이상 연속으로 온콜을 맡아야 해서, 2주 단위로 늘려 소진을 줄이기로 했다. 대신 온콜 기간이 길어지는 만큼 야간 알림 임계값을 높여 불필요한 호출을 줄이는 조치를 같이 넣었고, 온콜 기간 중 하루는 낮에 쉴 수 있도록 다른 인원이 대신 봐주는 완충일도 정해뒀다. 인원이 늘어나면 다시 1주 단위로 되돌리기로 잠정 합의했었는데, 그 합의가 이후 실제로 이행됐는지, 아니면 2주 단위가 관행으로 굳어버렸는지는 따로 확인된 적이 없다. 인원 충원이 몇 차례 있었던 것으로 아는데 그때마다 로테이션 주기 재검토가 안건으로 올라왔다는 기록은 남아 있지 않다.",
+        "rejected_alternatives": [
+          "1주 단위 유지하며 인원 충원",
+          "온콜 없이 당직자가 상시 대기"
+        ]
+      }
+    }
+  ],
+  "conflicts": [
+    {
+      "key": "pg-timeout-vs-gateway-timeout",
+      "topic": "PG 결제 승인 타임아웃 vs API 게이트웨이 표준 타임아웃",
+      "a": {
+        "type": "fact",
+        "author": "person:oh-taemin",
+        "collab": "collab:payments-platform",
+        "size": "short",
+        "age_days": 30,
+        "attributes": {
+          "title": "PG 결제 승인 타임아웃",
+          "statement": "PG사 결제 승인 API는 응답 지연이 잦아 타임아웃을 8초로 잡고 있다. 8초보다 짧게 잡으면 정상 승인 건도 타임아웃으로 실패 처리돼 정산 불일치가 생긴 사례가 있어서, 결제 트랜잭션에 한해 게이트웨이 전역 타임아웃 예외를 적용해 달라고 요청한 상태다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:song-yerim",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 20,
+        "attributes": {
+          "title": "게이트웨이 표준 타임아웃",
+          "statement": "API 게이트웨이는 모든 다운스트림 호출에 3초 타임아웃을 전역 정책으로 적용한다. 특정 도메인만 예외를 주면 게이트웨이 설정이 서비스별로 갈라져 관리가 어려워지고, 3초를 넘기는 호출은 대개 그 자체로 장애 신호이므로 타임아웃을 늘리기보다 PG 연동 쪽에서 비동기 처리로 바꾸는 게 맞다고 본다."
+        }
+      }
+    },
+    {
+      "key": "oncall-escalation-vs-cs-response",
+      "topic": "온콜 에스컬레이션 시간 vs CS 1차 응답 기대 시간",
+      "a": {
+        "type": "decision",
+        "author": "person:han-seojun",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "1차 온콜이 20분 내 무응답이면 2차로 에스컬레이션한다.",
+          "rationale": "1차 온콜에게 최소한의 진단 시간을 줘야 오탐으로 인한 불필요한 2차 호출을 줄일 수 있다. 너무 짧게 잡으면 원인 파악도 전에 2차가 계속 깨어나 온콜 전체의 피로도만 올라간다고 본다.",
+          "rejected_alternatives": [
+            "10분 기준",
+            "무조건 5분 기준 즉시 에스컬레이션"
+          ]
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:bae-jiho",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "CS 1차 공지 기대 시간",
+          "statement": "CS는 장애 발생 인지 후 5분 안에 고객 대상 1차 공지(상태 페이지·인앱)가 나가야 문의 폭주를 막을 수 있다고 본다. 온콜 에스컬레이션이 20분 걸리면 그 사이 CS는 아무 근거 없이 문의에 응대해야 해서, 최소 5분 내에는 '확인 중' 수준의 공지라도 나가야 한다는 입장이다."
+        }
+      }
+    },
+    {
+      "key": "deploy-freeze-vs-release-window",
+      "topic": "배포 금지 시간대 vs 릴리스 창",
+      "a": {
+        "type": "decision",
+        "author": "person:choi-yerim",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "금요일 15시 이후~월요일 오전까지는 배포를 전면 금지한다.",
+          "rationale": "주말 온콜 인원이 평일보다 적어서, 금요일 오후 배포 후 문제가 생기면 대응이 늦어지는 사례가 반복됐다. 특히 야간·주말에는 배포 롤백 판단을 내려줄 시니어가 없어 장애가 오래 방치된 적도 있었다.",
+          "rejected_alternatives": [
+            "금요일 배포 허용, 대신 배포 후 2시간 모니터링 의무화",
+            "주말 온콜 증원 후 배포 금지 해제"
+          ]
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:oh-taeyang",
+        "collab": "collab:qa-release",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "2주 스프린트 릴리스 창",
+          "statement": "2주 스프린트는 금요일에 종료돼 금요일 오후가 QA 완료 직후 릴리스하기 가장 안정적인 창이다. 다음 주 월요일로 미루면 그 사이 다른 브랜치가 머지되면서 회귀 테스트를 다시 돌려야 해 릴리스 지연이 누적된다. 월요일 릴리스로 바꾸려면 스프린트 종료일 자체를 옮기는 논의가 먼저 필요하다."
+        }
+      }
+    },
+    {
+      "key": "circuit-breaker-threshold-service-vs-platform",
+      "topic": "서킷브레이커 실패율 임계값",
+      "a": {
+        "type": "fact",
+        "author": "person:han-jiwoo",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "주문 서비스 서킷브레이커 임계값",
+          "statement": "주문 서비스는 다운스트림 재고 서비스 호출 실패율이 30%를 넘으면 서킷을 연다. 주문 실패가 매출과 직결돼 있어 플랫폼 표준보다 낮은 임계값을 쓰고 있고, 이 값을 표준에 맞춰 올리면 장애 전파를 늦게 감지하게 된다고 본다. 재고 서비스가 불안정했던 이력이 있어 낮은 임계값을 유지하는 편이 안전하다는 입장이다."
+        }
+      },
+      "b": {
+        "type": "decision",
+        "author": "person:yoon-daeun",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "플랫폼 표준 서킷브레이커 임계값은 실패율 50%로 통일한다.",
+          "rationale": "임계값을 서비스마다 다르게 두면 공용 서킷브레이커 라이브러리 설정이 늘어나고, 30% 같은 낮은 값은 일시적 지연 스파이크에도 서킷이 자주 열려 정상 트래픽까지 차단하는 부작용이 있었다.",
+          "rejected_alternatives": [
+            "서비스별 임계값 자유 설정 허용",
+            "실패율 대신 응답시간 기준으로 전환"
+          ]
+        }
+      }
+    },
+    {
+      "key": "incident-severity-criteria",
+      "topic": "장애 심각도(Sev) 등급 판정 기준",
+      "a": {
+        "type": "decision",
+        "author": "person:jung-arim",
+        "collab": "collab:payments-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "결제 실패율이 1% 이상이면 Sev1로 판정한다.",
+          "rationale": "결제는 실패율 1%만 넘어도 금액 기준으로 영향이 크고 정산까지 틀어질 수 있어 전사 기준보다 엄격하게 잡는다. 결제 실패는 트래픽 비중이 낮아도 환불·재시도 처리 비용이 커서 조기 대응이 필요하다고 본다.",
+          "rejected_alternatives": [
+            "전사 공통 기준(5%) 그대로 적용",
+            "결제 실패 건수 절대치 기준"
+          ]
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:choi-donghyun",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "전사 Sev1 기준",
+          "statement": "전사 인시던트 기준으로는 전체 트래픽의 5% 이상이 영향을 받아야 Sev1이다. 결제처럼 일부 도메인이 자체적으로 더 낮은 기준을 쓰면 Sev1 선포가 잦아져 전사 공지·임원 보고 프로세스가 남발된다는 문제가 있다. 도메인별 예외를 인정하면 다른 팀들도 각자 기준을 만들어달라고 할 우려도 있다."
+        }
+      }
+    },
+    {
+      "key": "payment-failover-manual-vs-auto",
+      "topic": "결제 리전 페일오버를 수동으로 할지 자동으로 할지",
+      "a": {
+        "type": "decision",
+        "author": "person:han-seojin",
+        "collab": "collab:payments-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "리전 장애 징후가 보이면 최소 5분은 지켜본 뒤 수동으로 전환한다.",
+          "rationale": "일시적 지연 스파이크로 자동 전환이 발동하면 오히려 트래픽이 두 리전에 걸쳐 꼬여 정산 중복 문제가 생긴 적이 있어 사람이 판단하는 편이 안전하다. 그 사고 이후로 자동 전환에 대한 신뢰가 낮아진 상태다.",
+          "rejected_alternatives": ["완전 자동 전환", "3분 기준으로 단축"]
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:oh-taemin",
+        "collab": "collab:payments-platform",
+        "size": "short",
+        "age_days": 60,
+        "attributes": {
+          "title": "자동 페일오버 스크립트 운영 현황",
+          "statement": "실제로는 에러율이 2분 이상 지속되면 자동 전환 스크립트가 이미 동작하도록 구성해 뒀다. 야간 온콜 인원이 적어서 5분씩 사람이 지켜보고 판단하는 방식은 현실적으로 잘 안 지켜지고, 스크립트가 먼저 반응하는 경우가 대부분이라 규정과 실제 운영이 어긋나 있다."
+        }
+      }
+    },
+    {
+      "key": "oncall-rotation-cycle-conflict",
+      "topic": "결제 인프라 온콜 로테이션 주기",
+      "a": {
+        "type": "fact",
+        "author": "person:choi-yerim",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "인프라팀 온콜 로테이션",
+          "statement": "인프라팀 전체 온콜은 1주 단위로 순환한다. 결제 인프라만 예외를 두면 로테이션 관리 도구와 페이저 스케줄이 이원화돼 운영이 복잡해지고, 다른 팀도 자기 도메인만 예외로 해달라고 요청할 근거가 생긴다. 예외를 한 번 인정하면 전체 스케줄 일관성이 무너진다고 본다."
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:jung-arim",
+        "collab": "collab:payments-platform",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "결제 인프라 온콜 실제 운영",
+          "statement": "결제 인프라는 정산 배치가 몰리는 특정 시간대에 장애가 집중되는 패턴이 있어서, 1주 단위로는 같은 사람이 그 패턴을 파악하기 전에 로테이션이 끝나 버린다. 2주 단위로 돌려야 정산 배치 이슈 대응 숙련도가 쌓인다고 보고, 실제로 그렇게 운영해 온 지 오래됐다."
+        }
+      }
+    },
+    {
+      "key": "incident-notice-channel-timing",
+      "topic": "장애 공지를 내부·외부 중 어디에 먼저, 언제 낼지",
+      "a": {
+        "type": "decision",
+        "author": "person:han-seojun",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "장애 발생 시 내부 채널(#incident)에는 즉시, 외부 공지는 원인 범위가 파악된 후에 낸다.",
+          "rationale": "원인이 불명확한 상태에서 외부에 먼저 공지하면 추정이 틀렸을 때 정정 공지를 또 내야 해서 오히려 신뢰도가 떨어진 경험이 있다.",
+          "rejected_alternatives": [
+            "감지 즉시 외부에도 동시 공지",
+            "외부 공지는 CS 판단에 위임"
+          ]
+        }
+      },
+      "b": {
+        "type": "fact",
+        "author": "person:bae-sua",
+        "collab": "collab:support-admin",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "상태 페이지 공지 기대 시점",
+          "statement": "고객 문의는 장애 발생 후 5분 안에 몰리기 시작하는데, 원인 파악까지 기다리면 이미 문의가 쌓인 뒤에 공지가 나가 CS 대응이 항상 뒤늦다. 정확한 원인이 아니어도 '장애 인지, 확인 중' 수준의 공지는 5분 내에 먼저 나가야 CS가 근거를 가지고 응대할 수 있다."
+        }
+      }
+    },
+    {
+      "key": "retry-policy-conflict",
+      "topic": "장애 시 클라이언트 재시도 정책",
+      "a": {
+        "type": "fact",
+        "author": "person:song-yerim",
+        "collab": "collab:backend-api",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "title": "클라이언트 재시도 정책",
+          "statement": "클라이언트단에서는 5xx 응답에 대해 exponential backoff로 최대 3회까지 재시도하도록 안내하고 있다. 재시도 없이 바로 실패 처리하면 일시적 장애에도 사용자가 즉시 에러를 보게 돼 경험이 나빠지고, 재시도 문의가 CS로 몰리는 부작용도 있었다."
+        }
+      },
+      "b": {
+        "type": "decision",
+        "author": "person:choi-yerim",
+        "collab": "collab:infra-sre",
+        "size": "short",
+        "age_days": 0,
+        "attributes": {
+          "conclusion": "게이트웨이 레벨에서는 멱등성이 보장되지 않는 엔드포인트에 대해 재시도를 금지한다.",
+          "rationale": "일부 엔드포인트(결제 승인 등)는 멱등키가 없어 재시도가 중복 처리로 이어질 위험이 있어, 재시도는 멱등성이 확인된 엔드포인트에만 화이트리스트로 허용하기로 했다.",
+          "rejected_alternatives": [
+            "전 엔드포인트 재시도 허용",
+            "재시도 전면 금지"
+          ]
+        }
+      }
+    }
+  ]
+}

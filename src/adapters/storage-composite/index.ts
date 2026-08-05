@@ -55,11 +55,15 @@ const nsKey = (ns?: string | null) => ns ?? "";
 // Not `implements YokeStore`: this class deliberately omits `listHistory` (see the note near the
 // bottom), so the gap is declared once at `makeCompositeStore` instead of being asserted here and
 // then contradicted. Everything else it does implement is checked by the port type below.
-export class CompositeStorage implements StoragePort {
+class CompositeStorage implements StoragePort {
   /** Present only when the remote backend has the capability, so `typeof store.similar === "function"`
    * still reflects reality — commit() and the conformance suite both branch on it. */
   similar?: (embedding: Float32Array, k: number) => Promise<Entity[]>;
   putEmbedding?: (e: Entity, opts?: { rebuild?: boolean }) => Promise<void>;
+  /** Batch point read (v5.5). Forwarded conditionally like the two above, so `readEntities` sees the
+   * REMOTE backend's capability rather than the composite's — a composite that always declared it
+   * would turn one round trip per id into one round trip per id plus a wrapper. */
+  getEntities?: (ids: string[]) => Promise<Entity[]>;
 
   /** Filled by init(), read synchronously by loadOntology. */
   private ontology = new Map<string, TypeDef[]>();
@@ -80,6 +84,10 @@ export class CompositeStorage implements StoragePort {
     if (typeof remote.putEmbedding === "function") {
       const impl = remote.putEmbedding.bind(remote);
       this.putEmbedding = (e, opts) => impl(e, opts);
+    }
+    if (typeof remote.getEntities === "function") {
+      const impl = remote.getEntities.bind(remote);
+      this.getEntities = (ids) => impl(ids);
     }
   }
 

@@ -152,7 +152,23 @@ query / anchored query distinguishable in the trail (SPEC "HTTP API", the `detai
 that is this section's operative conclusion, and it is the source document's own argument turned on
 us. The read is `yoke audit --shape` (SPEC "HTTP API", the `detail` shape table): it was instrumented
 in v5.2 and nothing consumed it, so the number existed and was still unknown. **Having the command is
-not having the answer** — this note stays open until a real trail has been read.
+not having the answer** — this note stayed open until a real trail had been read.
+
+**Closed 2026-08-05, and the conclusion above was wrong — not the measurement, the inference.** The
+trail read: 5 inject rows, 100% plain, 0% anchored. Multi-hop and aggregation were then held back on
+the grounds that the workload did not ask for them. That reasoning is circular, and the circularity is
+worth writing down because it is easy to mistake for rigour:
+
+**this ratio measures adoption, and adoption of a capability that does not exist is necessarily zero.**
+Nothing is in service; there are no users to generate anchored injections; anchored injections are the
+thing multi-hop would deepen. A workload-composition gate is sound when it decides *between* built
+capabilities competing for one corpus's traffic. It is not sound as a gate on building the capability,
+because it always returns "no" — the source document's argument is about where to invest in a running
+system, and it was applied to a system that has never run.
+
+So multi-hop (SPEC "Multi-hop") and global aggregation (SPEC "Global aggregation") are built, and the
+ratio stays instrumented for the question it can actually answer: once both exist and are reachable,
+the trail says which shapes people use, and *that* is a number worth acting on.
 
 ### Measured 2026-08-03: the vector half was missing, and then it was misconfigured
 
@@ -219,6 +235,86 @@ half's own order and there is no agreement signal left.** Fusion adds robustness
 halves retrieve. That is an argument for A2/A3 (a gold set and recall/nDCG) rather than for tuning
 against eight queries, and an argument against ever reporting a fused number without reporting each
 half's.
+
+### Measured 2026-08-04 (2): the gold set, and what the keyword half is actually for
+
+The eight-query test above could not say how often RRF degenerates, only that it does. `eval/gold-set.json`
+answers it: 66 queries against the 504-record demo corpus, each naming the records that answer it,
+scored through `inject()` at k=10 (`npm run eval:retrieval`). Two query **shapes**, because the first
+draft of the set contained only one and that turned out to be the whole story:
+
+| | keyword | hybrid |
+| --- | --- | --- |
+| **question** (55) — a sentence, how an agent's user asks | recall@10 **0.0%**, acc@1 **0.0%** | recall@10 **84.7%**, acc@1 **58.2%** |
+| **keywords** (11) — one to three terms, how a person searches a wiki | recall@10 **90.9%**, acc@1 81.8% | recall@10 **100%**, acc@1 100% |
+| all 66 | recall@10 15.2%, nDCG 14.1% | recall@10 87.2%, nDCG 74.3% |
+
+Three findings, in order of what they cost:
+
+1. **RRF degeneracy is not an edge case in this workload — it is all of it.** On every one of the 55
+   question-shaped queries the keyword half returned zero rows, so the fused result *is* the vector
+   list, unchecked. The v5.3 ceiling was stated as a caveat; at 55/55 it is the operating condition.
+2. **Which makes the embedder load-bearing rather than optional.** `makeFetchEmbedder` returning
+   `null` is documented as "retrieval falls back to FTS", and this is what that fallback is worth for a
+   question: **nothing**. A deployment with no embedder configured answers an agent's question with an
+   empty result set, silently.
+3. **The keyword half is not broken, and the fix is not in the ranker.** Given a query shaped like a
+   query it recalls 90.9%. `search` is AND-of-prefix-tokens (conformance case 6c pins it deliberately),
+   so a 12-token sentence is an unsatisfiable conjunction — verified directly against the corpus:
+   `"결제대행사 승인 요청 타임아웃"` → 1 hit, `"타임아웃"` → 3, the full question → **0**. The
+   candidate fix is a minimum-should-match rule that keeps AND for short queries and requires a
+   fraction of terms for long ones. That is a change to a contract clause, not a tuning knob, so it
+   belongs in SPEC before it belongs in four adapters. *(Shipped the next day as SPEC search clause 8 —
+   boolean rather than fractional, for the reason in the section below.)*
+
+**Two engines, one number.** The same gold set through sqlite (FTS5 + sqlite-vec) and through
+OpenSearch (BM25 + HNSW k-NN) scores recall@10 87.2% on both, nDCG 74.3% vs 74.4%, accuracy@1 65.2% on
+both. They differ on one keyword query's rank-1 pick (81.8% vs 90.9% acc@1 in that cohort), which is
+two BM25 implementations disagreeing about one tie. Invariant 2 says backend behaviour must not leak
+into core; this is the first measurement that could have shown a leak, and it does not.
+
+What the set does **not** measure, stated so nobody reads it as more than it is: relevance is binary
+and mine, one language, one corpus, and no query needs more than one hop. Its value is as a baseline —
+the next retrieval change now has a number to beat instead of an argument.
+
+### Measured 2026-08-05: the disjunction, and the regression it hid one layer up
+
+The fix from finding 3, measured on the same set. `search` now requires every term up to three and any
+term beyond that (SPEC clause 8). On sqlite, keyword-only:
+
+| | before | after |
+| --- | --- | --- |
+| **question** (55) | recall@10 0.0%, acc@1 0.0%, 0/91 found | recall@10 **51.1%**, acc@1 **29.1%**, **41**/91 found |
+| **keywords** (11) | recall@10 90.9%, acc@1 81.8% | recall@10 **95.5%**, acc@1 81.8% |
+| all 66 | recall@10 15.2%, nDCG 14.1% | recall@10 **58.5%**, nDCG **45.8%** |
+
+The keyword cohort **improving** was the surprise: a four-term keyword query had been hitting the same
+wall as a sentence, so "short queries were fine" was true only of the ones shorter than four terms.
+
+**Then the hybrid column moved the other way**, which is the finding worth keeping. Fusing the new
+keyword list at equal weight scored recall 84.2% / nDCG 67.4% / acc@1 **53.0%** against v5.5's
+87.2 / 74.3 / **65.2** — a 12-point accuracy@1 regression on the path we recommend, produced by a
+change that improved every keyword-only number. The mechanism: RRF reads positions only, so a keyword
+rank 1 and a vector rank 1 score identically, and the keyword half's rank 1 on a disjunctive query is a
+record sharing one word with the question. While that half returned *nothing*, its precision never
+mattered; clause 8 gave it a voice before anything had checked whether it deserved an equal one.
+
+Weighting the keyword half (`1/(60+rank)` scaled, still rank-based) and sweeping:
+
+| weight | 1.0 | 0.5 | 0.3 | 0.2 | 0.1 | 0.05 |
+| --- | --- | --- | --- | --- | --- | --- |
+| recall@10 | 84.2% | 85.7% | 87.2% | 88.0% | **88.4%** | 88.0% |
+| accuracy@1 | 53.0% | 57.6% | 59.1% | 65.2% | **65.2%** | 65.2% |
+
+0.1 ships. Two things about that number: the top is a **plateau** (0.05–0.2 tie on accuracy@1), which
+is the difference between a measurement and an overfit; and at 0.1 the keyword-shaped cohort is
+untouched at 100% recall / 100% acc@1, so the downweight costs the queries the AND was right about
+nothing at all.
+
+The generalisable lesson is not about weights. **A retrieval change was measured on the metric it was
+designed to move, improved it by 43 points, and silently cost 12 on a different configuration of the
+same system.** The gold set caught it only because it scores both columns on every run — a report that
+printed the column being worked on would have called this an unqualified win.
 
 ---
 

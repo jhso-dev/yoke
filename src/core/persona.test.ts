@@ -139,6 +139,75 @@ describe("personaQuery", () => {
     const res = await personaQuery(port, ont, "alex", "2027-06-01T00:00:00Z");
     expect(res.facts).toEqual([]);
   });
+
+  // One person, several records (v5.6). Two source systems mapping the same colleague is the case
+  // that actually occurs, and before `same_as` a persona built from either record was half that
+  // person's judgment presented as all of it.
+  describe("same_as: one person, several records", () => {
+    /** alias --same_as--> canonical, filed through the gate like any other claim. */
+    async function link(from: string, to: string) {
+      await commit(
+        port,
+        ont,
+        { type: "same_as", attributes: {}, from, to },
+        prov("admin"),
+        now,
+      );
+    }
+
+    it("unions the knowledge of every record that is the same person", async () => {
+      const fromRdb = await add("fact", { note: "deploys on fridays" }, "a-hr");
+      const fromNotes = await add(
+        "fact",
+        { note: "owns the gateway" },
+        "a-git",
+      );
+      await verify(port, [fromRdb, fromNotes], "admin", now);
+      await link("a-git", "a-hr");
+
+      // Asked about EITHER record, the answer is the whole person — the direction of the link is for
+      // whoever reads it, not for the resolver.
+      for (const anchor of ["a-hr", "a-git"]) {
+        const res = await personaQuery(port, ont, anchor, now);
+        expect(res.facts.map((e) => e.id).sort()).toEqual(
+          [fromRdb, fromNotes].sort(),
+        );
+      }
+    });
+
+    it("terminates on a cycle and does not repeat a record", async () => {
+      const f = await add("fact", { note: "one fact, three records" }, "a1");
+      await verify(port, [f], "admin", now);
+      // a1 -> a2 -> a3 -> a1. A visited set is the only thing between this and a hang.
+      await link("a1", "a2");
+      await link("a2", "a3");
+      await link("a3", "a1");
+
+      const res = await personaQuery(port, ont, "a2", now);
+      expect(res.facts.map((e) => e.id)).toEqual([f]); // reached transitively, exactly once
+    });
+
+    // Namespace isolation of the closure itself is in identity.test.ts: through persona it would be
+    // vacuous, since inject re-filters candidates by ns and the leak never reaches this assertion.
+
+    it("keeps the alias out of the briefing anchored on the person", async () => {
+      // `same_as` is marked membership: the person's OTHER record is not a finding about them.
+      const f = await add("fact", { note: "real knowledge" }, "b1");
+      await verify(port, [f], "admin", now);
+      await link("b2", "b1");
+      const b2 = await commit(
+        port,
+        ont,
+        { type: "person", attributes: { name: "B, from the other system" } },
+        prov("admin"),
+        now,
+      );
+      await verify(port, [b2.entity.id], "admin", now);
+
+      const res = await personaQuery(port, ont, "b1", now);
+      expect(res.facts.map((e) => e.id)).toEqual([f]);
+    });
+  });
 });
 
 describe("renderPersonaSkill", () => {

@@ -7,23 +7,14 @@
 // capitalised. A key used in `title=`/`aria-label=` is a sentence, not a label, and is left alone —
 // which is why the match excludes attribute positions.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { sources } from "../sources";
 import { en } from "./en";
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-
-function sources(dir: string): string[] {
-  const out: string[] = [];
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) out.push(...sources(p));
-    else if (/\.tsx$/.test(name) && !name.includes(".test.")) out.push(p);
-  }
-  return out;
-}
 
 /** A JSX child expression container: `{…}` NOT preceded by `=` (an attribute) or `$` (a template
  * hole). Nested braces are deliberately not crossed — `[^{}]*` keeps this to the simple containers a
@@ -48,7 +39,7 @@ function value(path: string): unknown {
 describe("English button labels", () => {
   const labels = new Set<string>();
   for (const f of [join(webRoot, "app"), join(webRoot, "components")]
-    .flatMap(sources)
+    .flatMap((d) => sources(d, /\.tsx$/))
     .filter((f) => !f.includes(`components${"/"}ui${"/"}`))) {
     const src = readFileSync(f, "utf8");
     for (const control of src.match(CONTROL) ?? [])

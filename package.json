@@ -1,7 +1,7 @@
 {
   "name": "yoke",
   "version": "0.1.0",
-  "description": "Knowledge your AI can trust — ontology-based knowledge DB with governed context injection for AI agents",
+  "description": "Knowledge your AI can trust \u2014 ontology-based knowledge DB with governed context injection for AI agents",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -38,13 +38,13 @@
     "build:web": "npm --prefix web install --no-audit --no-fund && npm --prefix web exec next build web && node scripts/copy-web.mjs",
     "dev:web": "npm --prefix web exec next dev web -p 4801",
     "test:bundle": "vitest run src/front/ui/bundle.smoke.test.ts",
-    "typecheck:web": "npm --prefix web install --no-audit --no-fund --silent && npm --prefix web exec tsc -- -p web --noEmit"
+    "typecheck:web": "npm --prefix web install --no-audit --no-fund --silent && npm --prefix web exec tsc -- -p web --noEmit",
+    "eval:retrieval": "tsx eval/retrieval-quality.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.2.0",
     "jose": "^6.2.3",
-    "kuzu": "^0.11.3",
     "neo4j-driver-lite": "^6.2.0",
     "pg": "^8.16.0",
     "sqlite-vec": "^0.1.9",
@@ -56,6 +56,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.10",
     "@types/pg": "^8.11.0",
+    "kuzu": "^0.11.3",
     "tsx": "^4.23.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

@@ -64,3 +64,29 @@ export function makeFetchEmbedder(env: Env): Embedder {
     }
   };
 }
+
+/**
+ * The dimension-mismatch refusal, for every backend with a vector index.
+ *
+ * SPEC "The vector index" requires this failure to name both widths and the command that fixes it, on
+ * reads and writes alike. Four adapters implemented that clause in SEVEN places, and the wordings had
+ * already drifted: the write paths said "with the new model", the read paths said "with the current
+ * model" and dropped the sentence explaining why a database has one vector space. A message is not
+ * backend behaviour, so one copy costs no coupling (invariant 2 is about behaviour) — and a person
+ * hitting this on qdrant and on sqlite should not have to work out whether they are the same problem.
+ *
+ * `reading` picks the noun, which is the only thing that legitimately differs: a query has the wrong
+ * width, or a vector being written does.
+ */
+export function dimensionMismatch(
+  current: number,
+  given: number,
+  reading: boolean,
+): Error {
+  return new Error(
+    `embedding dimension changed: the vector index holds ${current}-dimension vectors ` +
+      `and this ${reading ? "query" : "one"} is ${given}. ` +
+      "A database has one vector space — re-index every record with the new model: " +
+      "yoke backfill --embeddings --rebuild",
+  );
+}

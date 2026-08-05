@@ -32,7 +32,7 @@ export function makeEntity(over: Partial<Entity> = {}): Entity {
   };
 }
 
-export function makeRelation(
+function makeRelation(
   from: string,
   to: string,
   over: Partial<Relation> = {},
@@ -193,6 +193,48 @@ export const conformanceCases: ConformanceCase[] = [
     },
   },
   {
+    // (6e) search: past AND_TERM_LIMIT terms the query becomes a DISJUNCTION (SPEC clause 8).
+    // Case 6c pins the strict half and this one pins the loose half, so an adapter cannot satisfy
+    // the suite by picking one rule — which is what five separately-inlined `every()` calls were.
+    //
+    // The defect it closes was measured, not imagined: over eval/gold-set.json the AND found 0 of 91
+    // relevant records across 55 question-shaped queries, because a sentence names terms no single
+    // record contains all of. An agent asking a question received nothing and no error.
+    name: "search past the AND term limit matches any term, not every term",
+    async run(port) {
+      const e = makeEntity({
+        attributes: { title: "quokka ferry schedule winter" },
+      });
+      await port.putEntity(e);
+      // Four tokens, two of them absent from the record — the shape of a real question.
+      eq(await port.search({ text: "quokka ferry hovercraft submarine" }), [e]);
+      // Still bounded by the terms actually asked for: no overlap, no result. A backend that
+      // dropped the query text entirely would pass the line above and fail this one.
+      eq(
+        await port.search({ text: "hovercraft submarine zeppelin monorail" }),
+        [],
+      );
+      // And the strict half is unchanged at the boundary: three tokens still require all three.
+      eq(await port.search({ text: "quokka ferry hovercraft" }), []);
+      // `terms: "all"` opts back into the conjunction at any length. The connector idempotency probe
+      // needs it — a lookup for one known id has nothing to gain from recall and pays 8x for it.
+      eq(
+        await port.search({
+          text: "quokka ferry hovercraft submarine",
+          terms: "all",
+        }),
+        [],
+      );
+      eq(
+        await port.search({
+          text: "quokka ferry schedule winter",
+          terms: "all",
+        }),
+        [e],
+      );
+    },
+  },
+  {
     // (6d) search returns the BEST match first, not the first-stored match. Before this, sqlite
     // returned FTS5's rowid order and kuzu/qdrant sliced whatever order their scan produced, so
     // `limit` silently meant "an arbitrary N" — measured at 1M rows, the top 50 by insertion order
@@ -270,6 +312,38 @@ export const conformanceCases: ConformanceCase[] = [
     name: "getEntity returns null when absent",
     async run(port) {
       assert.equal(await port.getEntity("missing-id"), null);
+    },
+  },
+  {
+    // (7d) getEntities (v5.5): the point-read loop as one round trip. Optional, so this case is the
+    // only place its four clauses are pinned — and the ordering one is the reason it exists at all,
+    // since an adapter that returned storage order would silently destroy `similar`'s ranking while
+    // still looking like a ranking.
+    name: "getEntities returns latest versions in ids order, omitting absent and collapsing duplicates",
+    async run(port) {
+      if (!port.getEntities) return;
+      const a = makeEntity({ type: "batchRead", attributes: { title: "a" } });
+      const b = makeEntity({ type: "batchRead", attributes: { title: "b" } });
+      await port.putEntity(a);
+      await port.putEntity(b);
+      // A second version of b, so "latest" is observed rather than assumed.
+      const b2: Entity = {
+        ...b,
+        version: 2,
+        status: "verified",
+        attributes: { title: "b2" },
+      };
+      await port.putEntity(b2);
+
+      // Asked for b THEN a — neither storage order nor id order. The answer follows the request.
+      eq(await port.getEntities([b.id, a.id]), [b2, a]);
+      // An absent id drops out; it does not become a hole that shifts the rest.
+      eq(await port.getEntities([a.id, "no-such-batch-id", b.id]), [a, b2]);
+      // Duplicates collapse to one row.
+      eq(await port.getEntities([a.id, a.id]), [a]);
+      // Empty in, empty out — and not "the whole corpus", which is what an unguarded IN () or an
+      // empty match-any filter degenerates to on some engines.
+      eq(await port.getEntities([]), []);
     },
   },
   {
