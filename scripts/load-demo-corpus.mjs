@@ -68,6 +68,23 @@ await store.init();
 const ontology = seedOntology();
 await store.saveOntology(ontology);
 
+// The bootstrap actor, which `yoke init` normally seeds. Without it `yoke mcp` refuses the database
+// outright ("not initialized") — so the corpus loaded here was readable by the CLI and the web UI and
+// unusable over the one interface the product exists to serve. Found by pointing a real MCP client at
+// it. Idempotent: skipped when the row is already there, so re-running the loader is still safe.
+if (!(await store.getEntity("yoke:system"))) {
+  const at = "2025-01-01T00:00:00.000Z";
+  const { entity } = await commit(
+    store,
+    ontology,
+    { type: "person", attributes: { name: "yoke" } },
+    { actor: "yoke:system", origin: "seed", occurred_at: at },
+    at,
+    { existingId: "yoke:system" },
+  );
+  await verify(store, [entity.id], "yoke:system", at);
+}
+
 const add = async (input, actor, at, existingId) => {
   const { entity } = await commit(
     store,

@@ -328,9 +328,13 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
       workload we can see does not ask for it"
 - [x] **A gold set, and retrieval metrics over it** (recall@k, nDCG) — done in v5.5 below. The answer
       to "how often does RRF degenerate": on every question-shaped query in the set
-- [ ] **Multi-hop traversal** (`inject` walks exactly one relation hop) and **global aggregation** —
-      both gated on the trail above, not on appetite. Now gated on a **measured** 0% anchored rather
-      than on an unknown, with the threshold that would reopen it stated above
+- [x] **Multi-hop traversal and global aggregation** — done in v5.7 below. The gate above was
+      **circular and is retired**: workload composition measures *adoption*, and adoption of a
+      capability that does not exist is necessarily zero. Nothing is in service, so there are no users
+      generating anchored injections, which are the thing multi-hop would deepen. That gate is sound for
+      choosing between built capabilities competing for one corpus's traffic; as a gate on building one
+      it always answers no. The trail stays instrumented for the question it can answer — once both
+      shapes exist and are reachable, it says which ones people use
 - [x] **Identity resolution across sources** — done in v5.6 below. Note the premise was wrong in a way
       worth keeping: Slack and GitHub store the author as an attribute string and mint no `person` at
       all, so it was never "three records" — it was one plus two opaque strings. `same_as` resolves the
@@ -371,6 +375,55 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
       corpus they do not. Now one batch read per response, shared: **122** calls, byte-identical
       response. Against live OpenSearch, depth 2 went **489 → 65** round trips and depth 3 became
       possible at all — the old shape's request storm failed the server before it answered
+
+## v5.7 — the two question shapes graph retrieval wins on
+
+docs/RESEARCH.md §5 named three shapes where graph retrieval measurably beats vector RAG: multi-hop,
+temporal, global aggregation. Temporal shipped in v5.2 as as-of injection. These are the other two.
+
+- [x] **Multi-hop anchored injection** (`inject --depth n`, `yoke_inject { depth }`) — a `decision`
+      carrying `supersedes` is a multi-hop record by construction, and "what replaced the thing that
+      replaced this" was answered with silence. Distance grades what anchoring already made binary:
+      candidates are banded by hop distance and fusion still owns the order within each band, so a
+      deeper walk adds context instead of displacing the subject. Depth 1 is byte-identical to v4.0.
+      Measured on the 517-record demo corpus from one collaboration: depth 1 → 29 records in **1**
+      `neighbors` call, depth 2 → 37 (57 reached) in **49**, depth 3 → 50 (70 reached) in **58**,
+      depth 4 → 131 (207 reached) in **71**. Depth 4 is 26% of the corpus, which answers how deep is
+      useful: past 3, everything is context and therefore nothing is
+- [x] **Two rules had to generalise, and one of them was a latent bug** — v4.0 skipped the
+      `authored_by` edge leaving *the anchor*. At depth 2 the un-generalised rule hands an agent the
+      author of every neighbour, which is exactly the roster problem `membership: true` exists to
+      prevent, arriving through a relation type nobody marked. Now skipped leaving any node. Membership
+      is skipped at every hop on the same rule as depth 1
+- [x] **The walk is bounded and never silently** — `WALK_BUDGET = 128` expansions, breadth-first so a
+      cut always removes the farthest band, frontiers expanded in id order so a truncated walk is
+      reproducible rather than dependent on relation order (invariant 2). `inject` returns
+      `walk: { depth, nodes, truncated }` and the front tiers turn it into words, because an agent that
+      reads a budget-truncated walk as the whole neighbourhood answers from part of the graph
+- [x] **Global aggregation** (`yoke overview`, `yoke_overview`) — the question no `inject` can answer at
+      any limit, because retrieval returns a top-k of a query and this is about the shape of the whole.
+      Structure, never a summary: GraphRAG answers this shape by LLM-summarising communities, and a
+      summary of knowledge is a claim nobody verified. Type/status counts by **effective** status (so
+      the gap between "stored verified" and "injectable today" is finally one number — 132 of the demo
+      corpus's 517 records are stale), a relation census, the most-connected records, and the authors
+      of verified knowledge
+- [x] **Two defects the tests caught before shipping.** Authors read from `provenance.actor` ranks
+      **reviewers**, because `verify` replaces provenance — in a corpus with one reviewer it credits
+      everything to that person. Now counted off the `authored_by` edge, which is also what
+      `personaQuery` anchors on, so an overview naming persona candidates and a persona built from one
+      cannot disagree. And degree counting `authored_by` puts **people** at the top of a list meant to
+      say what knowledge clusters, since every record has exactly one author edge — excluded from
+      degree, still in the census
+- [x] **Aggregation memory was O(corpus) and is now O(ids)** — the first draft held every entity so the
+      hub list could carry full records: **511 MB of RSS** at 1M entities / 3M relations, a read whose
+      memory is the size of the corpus, which is the class docs/SCALE.md holds five of. Only `top` are
+      ever returned, so they are re-read by id in one batch call (v5.5). **420 MB**, and 29 ms / 5 pages
+      on the demo corpus against 12.2 s / 8,010 pages at 1M. Stated ceiling: the id sets are still
+      O(entities), so 10M needs counting in the backend rather than in core
+- [x] **The demo corpus was unusable over MCP** — `scripts/load-demo-corpus.mjs` never seeded the
+      `yoke:system` bootstrap actor, so `yoke mcp` refused the database it produced with "not
+      initialized" while the CLI and web UI read it happily. Found by pointing a real MCP client at it,
+      which is the only surface that checks. The loader seeds it now, idempotently
 
 ## v5.6 — a question stops being an unsatisfiable conjunction
 

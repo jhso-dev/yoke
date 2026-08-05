@@ -112,6 +112,7 @@ describe("yoke MCP server", () => {
     expect(names).toEqual([
       "yoke_commit",
       "yoke_inject",
+      "yoke_overview",
       "yoke_persona",
       "yoke_record_decision",
       "yoke_use_scope",

@@ -9,9 +9,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type { AuditEvent } from "../../adapters/storage-sqlite/index.js";
+import { overview } from "../../core/aggregate.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
-import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
+import {
+  BRIEFING_LIMIT,
+  citation,
+  inject,
+  WALK_BUDGET,
+} from "../../core/inject.js";
 import { resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
@@ -175,13 +181,24 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .string()
           .optional()
           .describe(
-            "Entity id to scope the injection to (one relation hop) — e.g. a collaboration id to " +
+            "Entity id to scope the injection to — e.g. a collaboration id to " +
               'retrieve only the knowledge linked to that unit of work. Pass "" to query ' +
               "without any scope when a session scope is pinned",
           ),
+        depth: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "How many relation hops out from `scope` to walk (default 1). Use 2 or 3 to follow " +
+              "chains: a decision that superseded a decision, or what the neighbouring work knows. " +
+              "Nearer records are always ordered first, so a deeper walk adds context rather than " +
+              "displacing the subject. Ignored without `scope`",
+          ),
       },
     },
-    async ({ query, includeDraft, limit, scope }) => {
+    async ({ query, includeDraft, limit, scope, depth }) => {
       if (!authorize("read")) return forbidden();
       const ts = now();
       const anchor = effectiveScope(scope);
@@ -189,15 +206,22 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // returned all 300 in full, ~15k tokens, because someone pinned a scope. Default it, and let an
       // explicit limit override. Only the briefing — a query is already narrowed by its own terms.
       const briefing = anchor !== undefined && !query;
-      const { items, omitted } = await inject(store, ontology, query, ts, {
-        includeDraft,
-        limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
-        ns,
-        scope: anchor,
-        // The same embedder the commit gate gets (SPEC "Hybrid retrieval"). Without it an agent's
-        // query was keyword-only while its writes were being embedded — half a vector index.
-        embedder,
-      });
+      const { items, omitted, walk } = await inject(
+        store,
+        ontology,
+        query,
+        ts,
+        {
+          includeDraft,
+          limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
+          ns,
+          scope: anchor,
+          depth,
+          // The same embedder the commit gate gets (SPEC "Hybrid retrieval"). Without it an agent's
+          // query was keyword-only while its writes were being embedded — half a vector index.
+          embedder,
+        },
+      );
       // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
       // unscoped one, and which of the two agents actually do is the measurement that decides whether
@@ -226,6 +250,19 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           `[${items.length} of ${items.length + omitted} records on this scope, most recently confirmed first. ` +
             `The other ${omitted} are NOT lost: ask yoke_inject a specific question and it searches ` +
             `everything, scope-linked results first. Raise "limit" to see more of the briefing.]`,
+        );
+      // A multi-hop walk, in words, for the same reason `omitted` is: a truncated walk means absence
+      // is not evidence, and a model has to be told that rather than handed a boolean.
+      if (walk)
+        blocks.push(
+          `[Walked ${walk.depth} relation hop(s) from ${anchor}, reaching ${walk.nodes} record(s). ` +
+            `Nearer records come first.` +
+            (walk.truncated
+              ? ` The walk stopped at its ${WALK_BUDGET}-node budget, so the OUTERMOST hop is ` +
+                `incomplete — do not read a gap there as "no such knowledge"; ask a specific question ` +
+                `instead, which searches everything.`
+              : "") +
+            "]",
         );
       return ok(blocks.join("\n\n"));
     },
@@ -294,6 +331,72 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       if (rejected_alternatives)
         attributes.rejected_alternatives = rejected_alternatives;
       return doCommit({ type: "decision", attributes }, actor, scope);
+    },
+  );
+
+  server.registerTool(
+    "yoke_overview",
+    {
+      description:
+        "Describe the SHAPE of the whole knowledge base: how many records of each type and in what " +
+        "state, which records the rest of the corpus is organised around, and whose verified " +
+        "knowledge it holds. " +
+        "Call this when the question is about the corpus rather than answerable from it — starting on " +
+        "an unfamiliar codebase or team, deciding who to ask, or checking whether a topic is covered " +
+        "at all before concluding it is not. " +
+        "It returns structure, never a summary: no claim here was written by anyone, so nothing in it " +
+        "is quotable as knowledge. Use yoke_inject for that, and the ids below are where to aim it.",
+      inputSchema: {
+        top: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "How many hubs and authors to list (default 10). Counts always cover everything.",
+          ),
+      },
+    },
+    async ({ top }) => {
+      if (!authorize("read")) return forbidden();
+      const ts = now();
+      const o = await overview(store, ontology, ts, { ns, top });
+      // Audited like every other read that returns knowledge attributes — a hub row carries a record's
+      // own text (SPEC "Any route that returns knowledge attributes writes an audit row").
+      store.logAudit?.({
+        actor: defaultActor,
+        action: "overview",
+        detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
+        at: ts,
+        ns,
+      });
+      const typeLines = Object.entries(o.entities.byType)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([type, c]) => {
+          const parts = (["verified", "draft", "stale", "deprecated"] as const)
+            .filter((k) => c[k] > 0)
+            .map((k) => `${c[k]} ${k}`);
+          return `  ${type}: ${parts.join(", ")}`;
+        });
+      const blocks = [
+        `${o.entities.total} records, ${o.relations.total} relations.`,
+        `By type (only 'verified' is injectable; 'stale' means it exists but has passed its ` +
+          `freshness window, so injection withholds it):\n${typeLines.join("\n")}`,
+        `Most connected records — what the corpus is organised around. Authorship and roster edges ` +
+          `are excluded, since those touch everything. Anchor yoke_inject on one of these ids with ` +
+          `\`scope\` to read its context:\n` +
+          o.hubs
+            .map(
+              (h) =>
+                `  ${h.entity.id} (${h.entity.type}, ${h.degree} links) ${JSON.stringify(h.entity.attributes).slice(0, 160)}`,
+            )
+            .join("\n"),
+        `Verified knowledge by author — pass one of these to yoke_persona to read their judgment. ` +
+          `Counted from the authorship edge, so these are authors, not whoever approved the ` +
+          `records:\n` +
+          o.authors.map((a) => `  ${a.actor} (${a.verified})`).join("\n"),
+      ];
+      return ok(blocks.join("\n\n"));
     },
   );
 

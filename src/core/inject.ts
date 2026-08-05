@@ -15,6 +15,41 @@ export interface InjectItem {
   citation: string;
 }
 
+/** What a multi-hop anchor walk actually did (SPEC "Multi-hop"). Numbers only — front adapters turn
+ * them into words, the same division of labour `omitted` already has. */
+export interface WalkStats {
+  /** Deepest distance actually reached. Below the requested depth means the graph ran out, or the
+   * budget did — `truncated` is which. */
+  depth: number;
+  /** Size of the hop set the walk produced, before status filtering and before `limit`. */
+  nodes: number;
+  /** True when WALK_BUDGET stopped the expansion, so the farthest band is incomplete. */
+  truncated: boolean;
+}
+
+export interface InjectResult {
+  items: InjectItem[];
+  omitted: number;
+  /** Present only when the walk went deeper than one hop. */
+  walk?: WalkStats;
+}
+
+/**
+ * How many nodes a multi-hop walk expands the edges of, breadth-first.
+ *
+ * A bound rather than a guess about graph shape: `neighbors` is one call per expanded node, so an
+ * unbounded walk over a hub is the same class of defect docs/SCALE.md recorded five of — a read whose
+ * cost is set by the corpus rather than by the caller. Breadth-first means what a cut removes is
+ * always the farthest band, which is the band that mattered least.
+ *
+ * Never silent: the cut sets `walk.truncated`.
+ *
+ * ponytail: 128 is one round trip per node on a remote backend, sequentially. Raise it, or add bounded
+ * concurrency (the UI's graph route already needed `mapLimit` at FANOUT 16), when a real multi-hop
+ * workload is measured against something that is not sqlite.
+ */
+export const WALK_BUDGET = 128;
+
 /**
  * The recommended default cap for an anchored briefing, for front adapters to apply.
  *
@@ -203,11 +238,19 @@ export async function inject(
     scope?: string;
     scopeRel?: string;
     scopeDir?: "in" | "out";
+    /** Relation hops the anchor walk takes (SPEC "Multi-hop"). Default 1 — the v4.0 behaviour, byte
+     * for byte. Only meaningful with `scope`. */
+    depth?: number;
     asOf?: string;
     embedder?: Embedder;
   },
-): Promise<{ items: InjectItem[]; omitted: number }> {
+): Promise<InjectResult> {
   const scope = opts?.scope;
+  /** Set only when the walk went deeper than one hop — see SPEC "Multi-hop". */
+  let walk: WalkStats | undefined;
+  /** id -> shortest hop distance from the anchor. Empty on the unscoped path, which has no anchor to
+   * measure from; the briefing sort below reads it, so it lives out here rather than in the branch. */
+  const distance = new Map<string, number>();
   // Every freshness and status decision below is made at this instant. `now` stays the parameter so
   // the clock is still injected (SPEC "Time injection"); `asOf` overrides it for one read.
   const readAt = opts?.asOf ?? now;
@@ -237,21 +280,50 @@ export async function inject(
         .filter((t) => t.kind === "relation" && t.membership)
         .map((t) => t.name),
     );
-    // One relation hop → the other-end entity ids (never the scope itself).
-    const hopIds = new Set<string>();
-    for (const r of await port.neighbors(
-      scope,
-      opts?.scopeRel,
-      opts?.scopeDir,
-    )) {
-      // The anchor's own author is metadata about the anchor, not knowledge in its context. Without
-      // this, every anchored injection would carry whoever filed the anchor (since the gate records
-      // authorship on every entity). Authorship pointing AT the anchor is the persona hop and stays.
-      if (r.type === "authored_by" && r.from === scope) continue;
-      if (opts?.scopeRel === undefined && membership.has(r.type)) continue;
-      const other: string = r.from === scope ? r.to : r.from;
-      if (other !== scope) hopIds.add(other);
+    // The anchor walk: `depth` relation hops out, breadth-first, each id held at its SHORTEST
+    // distance (SPEC "Multi-hop"). At depth 1 this is the single `neighbors` call it always was.
+    const depth = Math.max(1, opts?.depth ?? 1);
+    let frontier = [scope];
+    let expanded = 0;
+    let truncated = false;
+    for (let d = 1; d <= depth && frontier.length > 0; d++) {
+      const next: string[] = [];
+      // Sorted so a budget-truncated walk removes the same nodes every run: `neighbors` promises no
+      // ordering, so without this the cut would depend on the backend (invariant 2).
+      for (const node of [...frontier].sort()) {
+        if (expanded >= WALK_BUDGET) {
+          truncated = true;
+          break;
+        }
+        expanded++;
+        for (const r of await port.neighbors(
+          node,
+          opts?.scopeRel,
+          opts?.scopeDir,
+        )) {
+          // An author is metadata about the record, not knowledge in its context. v4.0 dropped this
+          // for the anchor only; at depth 2 that hands over the author of every neighbour, which is
+          // the roster problem `membership` exists to prevent arriving through an unmarked relation
+          // type. Authorship pointing AT a node is still the persona hop and stays.
+          if (r.type === "authored_by" && r.from === node) continue;
+          if (opts?.scopeRel === undefined && membership.has(r.type)) continue;
+          const other: string = r.from === node ? r.to : r.from;
+          // Never the anchor itself, and never demote a record already reached more cheaply.
+          if (other === scope || distance.has(other)) continue;
+          distance.set(other, d);
+          next.push(other);
+        }
+      }
+      frontier = next;
     }
+    const hopIds = new Set(distance.keys());
+    // Only reported when it means something: at depth 1 there is no walk to describe.
+    if (depth > 1)
+      walk = {
+        depth: Math.max(0, ...distance.values()),
+        nodes: hopIds.size,
+        truncated,
+      };
     if (query) {
       // Full query results, scope-linked ones first (stable partition) — the
       // working context leads, org-wide matches still included.
@@ -263,10 +335,14 @@ export async function inject(
       // The hop partition stays the OUTER order: fusion decides relevance within each half, and the
       // working context still leads. Anchoring is not a relevance signal, it is a priority one.
       const hits = await retrieve();
-      candidates = [
-        ...hits.filter((e) => hopIds.has(e.id)),
-        ...hits.filter((e) => !hopIds.has(e.id)),
-      ];
+      // Partitioned by distance ascending, then everything the walk never reached. At depth 1 this is
+      // the same two-band split v4.0 made; deeper, a hop-1 record still leads a hop-3 one, and fusion
+      // keeps owning the order WITHIN each band. Distance is a priority signal, not a relevance one.
+      const band = (e: Entity) => distance.get(e.id) ?? Number.MAX_SAFE_INTEGER;
+      candidates = hits
+        .map((e, i) => ({ e, i }))
+        .sort((a, b) => band(a.e) - band(b.e) || a.i - b.i)
+        .map((x) => x.e);
     } else {
       // No query: a briefing of the working context — the hop set only.
       //
@@ -309,6 +385,10 @@ export async function inject(
   if (scope && !query) {
     items.sort(
       (a, b) =>
+        // Nearest first. A hop-3 record is context; a hop-1 record is the subject. Absent from the map
+        // cannot happen on this path (every candidate came out of the walk), so the fallback is only
+        // there to keep the comparator total.
+        (distance.get(a.entity.id) ?? 0) - (distance.get(b.entity.id) ?? 0) ||
         // Verified before draft (only differ when includeDraft is on).
         Number(b.effectiveStatus === "verified") -
           Number(a.effectiveStatus === "verified") ||
@@ -327,5 +407,9 @@ export async function inject(
   // within the over-fetched window rather than the whole corpus: `search` is a top-k, so a number
   // for "everything that matched" is not knowable without materializing it, which is the thing that
   // crashed. Under-reporting a truncation the reader can see is better than a guess they cannot.
-  return { items: limited, omitted: items.length - limited.length };
+  return {
+    items: limited,
+    omitted: items.length - limited.length,
+    ...(walk ? { walk } : {}),
+  };
 }

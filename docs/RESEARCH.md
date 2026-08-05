@@ -152,7 +152,23 @@ query / anchored query distinguishable in the trail (SPEC "HTTP API", the `detai
 that is this section's operative conclusion, and it is the source document's own argument turned on
 us. The read is `yoke audit --shape` (SPEC "HTTP API", the `detail` shape table): it was instrumented
 in v5.2 and nothing consumed it, so the number existed and was still unknown. **Having the command is
-not having the answer** — this note stays open until a real trail has been read.
+not having the answer** — this note stayed open until a real trail had been read.
+
+**Closed 2026-08-05, and the conclusion above was wrong — not the measurement, the inference.** The
+trail read: 5 inject rows, 100% plain, 0% anchored. Multi-hop and aggregation were then held back on
+the grounds that the workload did not ask for them. That reasoning is circular, and the circularity is
+worth writing down because it is easy to mistake for rigour:
+
+**this ratio measures adoption, and adoption of a capability that does not exist is necessarily zero.**
+Nothing is in service; there are no users to generate anchored injections; anchored injections are the
+thing multi-hop would deepen. A workload-composition gate is sound when it decides *between* built
+capabilities competing for one corpus's traffic. It is not sound as a gate on building the capability,
+because it always returns "no" — the source document's argument is about where to invest in a running
+system, and it was applied to a system that has never run.
+
+So multi-hop (SPEC "Multi-hop") and global aggregation (SPEC "Global aggregation") are built, and the
+ratio stays instrumented for the question it can actually answer: once both exist and are reachable,
+the trail says which shapes people use, and *that* is a number worth acting on.
 
 ### Measured 2026-08-03: the vector half was missing, and then it was misconfigured
 

@@ -588,6 +588,7 @@ describe("serve smoke (auth off)", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       "yoke_commit",
       "yoke_inject",
+      "yoke_overview",
       "yoke_persona",
       "yoke_record_decision",
       "yoke_use_scope",

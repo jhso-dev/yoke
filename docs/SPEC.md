@@ -517,6 +517,92 @@ entry points**: a `collaboration` anchor is the shared working context, a `perso
   Default is every relation type, both directions — right for a collaboration, whose point is
   everything attached to the work.
 
+#### Multi-hop (v5.7)
+
+`opts.depth` (default **1**) is how many relation hops the anchor walk takes. Only meaningful with
+`scope`. At `depth: 1` every byte of the result is what v4.0 produced — the generalisation must not
+move the default.
+
+Why it exists: a `decision` carrying `supersedes` and rejected alternatives is a multi-hop record by
+construction, and multi-hop is one of the three question shapes where graph retrieval measurably beats
+vector RAG (docs/RESEARCH.md §5). "What replaced the thing that replaced this" is two hops, and one hop
+answered it with silence.
+
+- **Distance is a priority signal, not a relevance one**, which is the same thing v4.0 already said
+  about anchoring — this only grades what was binary. With a query: candidates are partitioned by
+  distance ascending (1, then 2, … then everything the walk never reached), and fusion still owns the
+  order *within* each band. Without a query: distance leads the briefing sort, ahead of
+  verified-before-draft and freshness. A hop-3 record is context; a hop-1 record is the subject.
+- **A record is held at its shortest distance.** Cycles and diamonds are ordinary graph shapes here,
+  not corruption, and a record reachable in 1 hop and again in 3 is a 1-hop record.
+- **`authored_by` leaving *any* node is skipped, not just the anchor's.** v4.0 dropped the anchor's own
+  author as metadata about the anchor. At depth 2 the un-generalised rule hands an agent the author of
+  every neighbour, which is the roster problem `membership: true` exists to prevent, arriving through a
+  relation type nobody marked. Authorship pointing *at* a node is still the persona hop and stays.
+- **`membership` is skipped at every hop**, on the same rule as depth 1: unless the caller named that
+  type in `scopeRel`.
+- **The walk is bounded, and never silently.** `WALK_BUDGET = 128` nodes have their edges expanded,
+  breadth-first, so what a budget cut removes is always the farthest band. Frontiers are expanded in
+  `id` order so a truncated walk is reproducible rather than dependent on the order a backend returns
+  relations in (invariant 2, the same reason the briefing sort has an `id` tiebreak). `inject` returns
+  `walk: { depth, nodes, truncated }` whenever it walked more than one hop — the deepest distance
+  actually reached, the size of the hop set, and whether the budget stopped it. Front adapters turn
+  those numbers into words, exactly as they do for `omitted`: an agent that reads a budget-truncated
+  two-hop walk as the whole neighbourhood answers from part of the graph without knowing it.
+- **Deeper walks surface sibling anchors.** A record attached to two collaborations makes the second
+  collaboration a hop-2 result, so at depth 3 the demo corpus returns `collaboration` records among the
+  knowledge. That is not new — anchoring on a record already returned its collaboration in v4.0 — and
+  the type is in the output, so a reader can tell context from subject.
+- **Stated ceiling: one `neighbors` call per expanded node, sequential.** At `depth: 1` that is the
+  single call it always was. Measured on the demo corpus from one collaboration: depth 1 → 29 records
+  injected in **1** call, depth 2 → 37 (57 reached) in **49**, depth 3 → 50 (70 reached) in **58**,
+  depth 4 → 131 (207 reached) in **71**. Depth 4 is 26% of the whole corpus, which is the practical
+  answer to how deep is useful: past 3, "everything is context" and nothing is. The batch form would be a sixth port method with five implementations
+  behind it, and `WALK_BUDGET` already bounds the count — measure a real multi-hop workload before
+  buying that.
+
+### Global aggregation (v5.7)
+
+The third question shape graph retrieval measurably wins on (docs/RESEARCH.md §5), after multi-hop and
+temporal. **"What does this organisation actually know?" is unanswerable by retrieval at any limit** —
+every retrieval path returns a top-k of a query, and the question is about the shape of the whole.
+
+`overview(port, ontology, now, { ns, top })` → type/status counts, a relation census, the most-connected
+records, and who the verified knowledge came from. Exposed as `yoke overview` and `yoke_overview`.
+
+- **Structure, never a summary.** GraphRAG answers this shape by LLM-summarising graph communities.
+  yoke does not: this document already refuses synthesis and results framed as an answer, and a
+  summary of knowledge is a claim nobody verified. What comes back is a map — counts, degrees, ids —
+  and the tool description says so, because an agent handed prose would quote it.
+- **Counts are by EFFECTIVE status.** `stale` is computed from the ontology's TTL at read time and
+  stored nowhere, so this is the only place the difference between "stored verified" and "injectable
+  today" appears as a number. Consequence: two overviews of an unchanged corpus at two instants
+  legitimately differ.
+- **Authorship comes off the `authored_by` edge, never `provenance.actor`.** `verify` replaces
+  provenance, so on a verified record that field names whoever *promoted* it — an authors list built
+  from it ranks reviewers, calls them authors, and in a corpus with a single reviewer credits
+  everything to one person. The gate mirrors the real author into an edge and promoting does not pass
+  through the gate, so the edge is the durable claim. It is also what `personaQuery` anchors on, so an
+  overview naming persona candidates and a persona built from one of them cannot disagree.
+- **Degree excludes `authored_by` and `membership` types.** Every record has exactly one author edge,
+  so counting them adds a constant to everything and puts *people* at the top of a list meant to say
+  what knowledge clusters — the "a roster is not knowledge" rule, one surface over. The relation
+  **census** still counts every type: that answers "what is in the store", and the per-type breakdown
+  is where a reader sees the split.
+- **`top` cuts the two ranked lists and never the counts.** An aggregate over a window is not an
+  aggregate.
+- **Stated ceiling: two full enumeration scans plus one batch read, paged at 500.** Not sampled, on
+  purpose — a quietly approximate count is worse than a slow one. Measured: **29 ms / 5 pages** on the
+  517-record demo corpus, **12.2 s / 8,010 pages / 420 MB RSS** at 1M entities and 3M relations. Memory
+  is the id sets, not the records: the first draft held every entity so the hub list could carry full
+  records and cost **511 MB**, which is a read whose memory is the size of the corpus. Only `top` of
+  them are ever returned, so they are re-read by id at the end. *ponytail: no incremental counters and
+  no cache, and the id sets are still O(entities) — at 10M this needs counting in the backend rather
+  than in core. Add either when a deployment runs this often enough to notice.*
+- A corpus organised around anchor records will report those anchors as its hubs — on the demo corpus
+  all ten are `collaboration` records. That is a true description of it, not a defect, and the type
+  column is how a reader tells.
+
 **Capture-side linking**: `yoke add --scope <id>`, and the `scope` argument on `yoke_commit` /
 `yoke_record_decision`, link new knowledge to a scope entity via a `relates_to` relation created
 through a second gate-passing commit at the front tier (core `commit` is untouched).
@@ -546,6 +632,7 @@ picks the wrong scope.
 | `yoke_record_decision` | a commit shortcut dedicated to decision entities |
 | `yoke_persona` | person-anchored injection ("what would Alex do") |
 | `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
+| `yoke_overview` | the shape of the whole corpus — structure, never a summary (see "Global aggregation") |
 
 ## HTTP API (v5.0 contract)
 
@@ -699,7 +786,8 @@ yoke graph [--limit n]     # the entity/relation graph, bounded, truncation repo
 yoke review [--stale] [--type t]   # list drafts; --stale lists verified records past their TTL
 yoke verify <id...>        # promote (batch), refresh last_confirmed — also how a stale record is re-confirmed
 yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction)
-yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]   # retrieve, with citations
+yoke inject <query> [--include-draft] [--limit n] [--scope id] [--depth n] [--as-of ts]   # retrieve, with citations
+yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
 yoke conflicts             # list conflicts_with
 yoke history <id>          # every version of one id (the append-only rows)
 yoke audit [--since ts] [--limit n] [--shape]   # the injection / governance audit trail; --shape counts workload composition

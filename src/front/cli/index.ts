@@ -26,10 +26,11 @@ import {
 } from "../../connectors/rdb-mapping.js";
 import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
+import { overview } from "../../core/aggregate.js";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
-import { BRIEFING_LIMIT, inject } from "../../core/inject.js";
+import { BRIEFING_LIMIT, inject, WALK_BUDGET } from "../../core/inject.js";
 import {
   deprecate,
   listVersions,
@@ -89,6 +90,7 @@ type Values = {
   embeddings?: boolean;
   rebuild?: boolean;
   shape?: boolean;
+  depth?: string;
 };
 
 const OPTIONS = {
@@ -129,6 +131,7 @@ const OPTIONS = {
   embeddings: { type: "boolean" },
   rebuild: { type: "boolean" },
   shape: { type: "boolean" },
+  depth: { type: "string" },
 } as const;
 
 type Env = Record<string, string | undefined>;
@@ -181,9 +184,10 @@ getting started:
   init                      create ./yoke.db and seed the ontology
   add <type> --attr k=v     stage knowledge (enters as draft)
   review / verify <id...>   inspect and promote drafts
-  inject <query>            retrieve verified knowledge with citations
+  inject <query>            retrieve verified knowledge with citations (--scope id, --depth n)
 
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
+  overview                  the shape of the whole corpus: types, hubs, authors (--limit n)
   link <from> <relation> <to>   record a relation (works_on, supersedes, relates_to …)
 capture:    connect github-pr|slack|notes|rdb
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
@@ -726,6 +730,7 @@ async function cmdInject(
     console.error(
       "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]\n" +
         "       yoke inject --scope <id>            briefing of that working context\n" +
+        "       yoke inject --scope <id> --depth 2  and what that context's context knows\n" +
         "       yoke inject <query> --as-of <ts>    what this would have injected then",
     );
     return 1;
@@ -739,13 +744,15 @@ async function cmdInject(
     // Same default as the MCP tool and the web route: an anchored briefing is capped, a query is not.
     // Without it, `yoke inject --scope <collaboration>` dumps every record ever attached to that work.
     const briefing = v.scope !== undefined && !query;
-    const { items, omitted } = await inject(store, ontology, query, ts, {
+    const { items, omitted, walk } = await inject(store, ontology, query, ts, {
       includeDraft: v["include-draft"],
       limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
       ns,
       // The MCP tool has always passed a scope; the CLI never did, so the two front ends could not
       // reproduce each other's results (WEB-UI's CLI-achievable rule).
       scope: v.scope,
+      // Relation hops the anchor walk takes (SPEC "Multi-hop"). 1 = the v4.0 behaviour.
+      depth: v.depth === undefined ? undefined : Number(v.depth),
       asOf: v["as-of"],
       // Hybrid retrieval (SPEC "Hybrid retrieval"): the same env-configured embedder the gate uses,
       // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
@@ -771,6 +778,15 @@ async function cmdInject(
       lines.push(
         `-- ${items.length} of ${items.length + omitted} on this scope (freshest first); ` +
           `the rest are reachable by querying, or raise --limit`,
+      );
+    // A multi-hop walk reports what it actually did, in words. `truncated` is the one that changes how
+    // the output should be read: the farthest band is incomplete, so absence is not evidence.
+    if (walk)
+      lines.push(
+        `-- walked ${walk.depth} hop(s) from the anchor, ${walk.nodes} record(s) reached` +
+          (walk.truncated
+            ? `; the walk hit its ${WALK_BUDGET}-node budget, so the outermost hop is incomplete`
+            : ""),
       );
     // Draft-invisibility fix: zero verified hits, but drafts match → say so, don't imply the
     // knowledge simply isn't there. --json output stays the raw items array (contract unchanged).
@@ -864,6 +880,61 @@ function emitShapes(v: Values, events: AuditEvent[]): number {
   ].join("\n");
   emit(v, human, { total, ...counts, asOf, skipped: { previews, other } });
   return 0;
+}
+
+/**
+ * `yoke overview` — the shape of the whole corpus (SPEC "Global aggregation").
+ *
+ * The one question no `inject` can answer at any limit: retrieval returns a top-k of a query, and this
+ * is about the whole. Structure only, never a summary — a summary of knowledge is a claim nobody
+ * verified, and this document refuses synthesis.
+ */
+async function cmdOverview(v: Values, env: Env): Promise<number> {
+  const ns = resolveNs(v.ns, env);
+  return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
+    const top = v.limit === undefined ? undefined : Number(v.limit);
+    const o = await overview(store, ontology, now(), { ns, top });
+    // Types with nothing in them are noise on a screen whose job is showing what IS here.
+    const typeRows = Object.entries(o.entities.byType)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([type, c]) => {
+        const parts = (["verified", "draft", "stale", "deprecated"] as const)
+          .filter((k) => c[k] > 0)
+          .map((k) => `${c[k]} ${k}`);
+        return `  ${type.padEnd(14)} ${parts.join(", ")}`;
+      });
+    const relRows = Object.entries(o.relations.byType)
+      .sort((a, b) => b[1] - a[1])
+      .map(([type, n]) => `  ${type.padEnd(14)} ${n}`);
+    // Hubs and authors are resolved to something readable: a ULID is never what a person reads for
+    // meaning, and `summarize` is the same renderer every other command uses.
+    const hubRows = o.hubs.map(
+      (h) =>
+        `  ${String(h.degree).padStart(4)}  ${h.entity.type.padEnd(13)} ${summarize(h.entity, ontology)}`,
+    );
+    const authorRows = o.authors.map(
+      (a) => `  ${String(a.verified).padStart(4)}  ${a.actor}`,
+    );
+    const human = [
+      `${o.entities.total} records, ${o.relations.total} relations${ns ? ` in ${ns}` : ""}`,
+      "",
+      "by type",
+      ...(typeRows.length ? typeRows : ["  (none)"]),
+      "",
+      "relations",
+      ...(relRows.length ? relRows : ["  (none)"]),
+      "",
+      "most connected (authorship and rosters excluded — they connect everything)",
+      ...(hubRows.length ? hubRows : ["  (none)"]),
+      "",
+      "verified knowledge by author (from authored_by, not who promoted it)",
+      ...(authorRows.length ? authorRows : ["  (none)"]),
+    ].join("\n");
+    emit(v, human, o);
+    return 0;
+  });
 }
 
 async function cmdConflicts(v: Values, env: Env): Promise<number> {
@@ -1466,6 +1537,8 @@ export async function runCli(
         return await cmdAudit(values, env);
       case "conflicts":
         return await cmdConflicts(values, env);
+      case "overview":
+        return await cmdOverview(values, env);
       case "ontology":
         return await cmdOntology(rest, values, env);
       case "connect":
