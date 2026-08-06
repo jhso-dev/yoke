@@ -6,10 +6,12 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Actor } from "../../components/Actor";
+import { Downstream } from "../../components/Downstream";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
+import type { Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -47,6 +49,7 @@ function ReviewBody() {
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
+  const [downstream, setDownstream] = useState<Knowledge[]>([]);
 
   const toggle = (id: string) =>
     setChosen((s) => {
@@ -60,7 +63,10 @@ function ReviewBody() {
     setActionError(null);
     try {
       const ids = [...chosen];
-      await (kind === "verify" ? api.verify(ids) : api.deprecate(ids));
+      if (kind === "verify") await api.verify(ids);
+      // Retiring names what rested on the batch (v5.8) — the queue is where governance happens, so it
+      // is the last place that should drop the answer `yoke deprecate` gives.
+      else setDownstream((await api.deprecate(ids)).downstream);
       setChosen(new Set());
       // Both queues: verifying a draft can only remove it from drafts, but re-confirming a stale
       // record removes it from stale, and a deprecate acts on whichever list you were looking at.
@@ -160,6 +166,8 @@ function ReviewBody() {
             : t.review.staleScanned(rows.length, stale.data?.scanned ?? 0)}
         </span>
       </div>
+      {/* Below the toolbar for the same reason as the entity screen: it is what pressing Deprecate did. */}
+      <Downstream rows={downstream} />
       {/* The walk is bounded, so an unfinished scan is said in words rather than implied by a count. */}
       {tab === "stale" && stale.data?.next && (
         <Alert variant="warn">{t.review.staleMore}</Alert>

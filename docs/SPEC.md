@@ -32,7 +32,7 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 ## Default ontology (seed)
 
 - entity types: `person`, `fact`, `decision` (attributes: conclusion, rationale, rejected_alternatives[]), `term`, `resource`, `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). It declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature
-- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → collaboration, v4.0), `same_as` (person → person, v5.6 — see "Identity across sources")
+- relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (reserved), `works_on` (person → collaboration, v4.0), `same_as` (person → person, v5.6 — see "Identity across sources"), `derived_from` (record → the knowledge it rests on, v5.8 — see "Derivation")
 - **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
 - **Bootstrap**: `yoke init` seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself). All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
@@ -359,6 +359,57 @@ embedding provider being down must never reject a record (see "Embedder contract
 legitimately exist with no vector, and coverage is repaired by backfill rather than by refusing the
 write.
 
+### Derivation (v5.8 — what rests on this)
+
+`derived_from`: an edge from a record to the knowledge its author says it rests on.
+
+Why it exists: **deprecating a record is not a fix unless what rests on it can be found.** This is the
+stale queue's rule one surface over — flagging decay does not repair it, routing it to the thing that
+has to change does. The audit trail already records both halves (`inject` logs the ids it returned,
+`persona` logs the ids it exported) and cannot answer the question: the two events share no join key,
+and the trail is per-client local sqlite rather than knowledge, so it is not traversable by
+`neighbors` and does not move with the record between backends. An edge is.
+
+- **Written at the front tier**, as an ordinary gate-passing commit — the same place and mechanism as
+  the `relates_to` that `scope` files. The distinction this repo already draws: `conflicts_with` lives
+  inside the gate because it is derived from the *content* being committed; a derivation is
+  caller-declared, so it belongs where the caller is. **Core `commit` is unchanged.**
+- **Caller-asserted, exactly like `provenance.actor`** — lenient on write. The edge claims "the author
+  declared this basis", never "the system observed it". It is not inferred from the audit trail: an
+  agent that injected 50 records and wrote one decision did not derive that decision from 50 records,
+  and a guess here files a false basis under a decision where no reader is positioned to catch it —
+  the rule that already forbids inferring identity from a similar name.
+- **Not `membership`.** The evidence under a decision *is* knowledge. Consequence, deliberate: the
+  anchored walk traverses it, since `inject` follows every non-membership type when `scopeRel` is
+  unset, so a collaboration briefing reaches the basis of the decisions it returns. Bounded by `depth`
+  and `WALK_BUDGET` and verified-filtered like every other candidate. **Measured: depth 1 is
+  unchanged** — a derivation edge joins two records and touches no anchor, so it is first followed at
+  depth 2, and the default injection returns what it always did.
+- **persona cannot reach one**, and the operative reason is that it is a one-hop walk from a *person*:
+  derivation edges run record → record, so none of them touches the anchor. `scopeRel: 'authored_by'`
+  narrows that hop further. Both hold, which matters because presenting a fact this person did not
+  author as their judgment is the impersonation rule under "persona" — and unlike a `membership` flag,
+  this one is a property of the graph's shape rather than a marking somebody has to remember to apply.
+- No self-edge, and duplicate sources in one call collapse to one edge. **Skipped entirely when the
+  ontology in force does not declare the type** — stage 4b's rule, and it is load-bearing here: the
+  seed applies to new DBs only, so every DB written before v5.8 lacks `derived_from`, and without the
+  guard an agent passing the argument would see its own commit reported as rejected *after* the
+  knowledge was stored. The response carries how many edges were filed rather than assuming, because
+  0-on-an-unmigrated-DB is otherwise indistinguishable from success.
+- Referential integrity is **not** checked, as for every other relation — the gate validates the type
+  and the provenance, not that the endpoints exist.
+- Read back with `neighbors(id, 'derived_from', 'in')` = what rests on this. **Every retire path reports
+  it** — `yoke deprecate` and `POST /api/deprecate`, which the entity, review and conflicts screens all
+  render through one component. Parity runs both directions here: WEB-UI.md forbids a screen doing what
+  the CLI cannot, and the workbench being the weaker surface for the governance act it exists to host is
+  the same defect facing the other way. The moment of retiring is the one moment someone is looking.
+  Named, not counted — "3 records rest on this" routes nobody, which is the stale queue's lesson again.
+  **Breaking:** `yoke deprecate --json` and `POST /api/deprecate` are now `{ deprecated, downstream }`
+  rather than a bare array; `POST /api/verify` is unchanged, since only retiring gained a second
+  question. `downstream` is present-and-empty rather than absent, so a client never has to tell "no
+  dependents" from "this build does not report them".
+  One hop only (`downstreamOf`); a dependent's own dependents surface when *it* is retired in turn.
+
 ## Injection (context injection)
 
 `inject(query, opts)`:
@@ -630,6 +681,7 @@ picks the wrong scope.
 | `yoke_inject` | contextual query → inject verified knowledge (with citations) |
 | `yoke_commit` | load knowledge (through the gate) |
 | `yoke_record_decision` | a commit shortcut dedicated to decision entities |
+| ↳ both take `derived_from: string[]` | the citation ids this record rests on (see "Derivation") — optional, caller-asserted, never inferred |
 | `yoke_persona` | person-anchored injection ("what would Alex do") |
 | `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
 | `yoke_overview` | the shape of the whole corpus — structure, never a summary (see "Global aggregation") |
@@ -656,7 +708,7 @@ endpoint shares it at `POST /mcp`.
 | `GET /api/graph` | `listEntities` + `listRelations` | read | no |
 | `GET /api/audit` | `listAudit({since, ns, limit})` | read | no |
 | `POST /api/verify` | `verify` | verify | yes |
-| `POST /api/deprecate` | `deprecate` | verify | yes |
+| `POST /api/deprecate` | `deprecate` + `downstreamOf` | verify | yes |
 | `POST /api/entity` | `commit({type, attributes})` (+ a `relates_to` commit when `scope` is given) | write (typed) | no — the v1 row records it |
 | `POST /api/link` | `commit({type, attributes, from, to})` | write (typed) | no — same |
 | `POST /api/backfill` | `backfillAuthorship`, or `backfillEmbeddings` with `{embeddings:true, rebuild?}` | write | no — the edges it creates record it, and a vector is not knowledge |
@@ -785,7 +837,7 @@ yoke list [--type t] [--status s] [--limit n] [--after id]   # enumerate (keyset
 yoke graph [--limit n]     # the entity/relation graph, bounded, truncation reported
 yoke review [--stale] [--type t]   # list drafts; --stale lists verified records past their TTL
 yoke verify <id...>        # promote (batch), refresh last_confirmed — also how a stale record is re-confirmed
-yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction)
+yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction) — reports what derived_from it
 yoke inject <query> [--include-draft] [--limit n] [--scope id] [--depth n] [--as-of ts]   # retrieve, with citations
 yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
 yoke conflicts             # list conflicts_with
@@ -793,6 +845,7 @@ yoke history <id>          # every version of one id (the append-only rows)
 yoke audit [--since ts] [--limit n] [--shape]   # the injection / governance audit trail; --shape counts workload composition
 yoke ontology <subcmd>     # inspect types / migrate
 yoke persona <person>      # generate/export a persona skill (SKILL.md)
+yoke persona --check <file> # audit an exported SKILL.md against the store now; exit 1 if any source moved
 yoke backfill              # derive missing authored_by edges (upgrade path, idempotent)
 yoke backfill --embeddings [--rebuild] [--limit n] [--after id]   # repair vector coverage; --rebuild changes dimension
 yoke rename-type <from> <to>   # rename an ontology type in the declaration AND every stored row
@@ -843,6 +896,26 @@ asked which rows are covered; `putEmbedding` is keyed by `id`, so re-running is 
 **Primary path — real-time MCP injection**: the `yoke_persona` tool. At call time it runs a person-anchored injection over the verified knowledge and returns text with citations — the same flow as ordinary knowledge injection. Since every call is a regeneration, the derivative principle is satisfied automatically.
 
 **Fallback path — SKILL.md export** (`yoke persona <person> --out`): an offline snapshot for environments with no MCP connection. frontmatter (name/description) + a citation list + a "no answers without a citation" instruction. The file records its generation time and the source knowledge versions so a stale snapshot can be identified.
+
+**Identifying one** (v5.8 — the clause above was written in v1 and nothing implemented it, so "can be
+identified" meant a person diffing two files by eye). `yoke persona --check <SKILL.md>` re-reads the
+`Source knowledge` line and reports each source against the store as it is *now*:
+
+| verdict | meaning |
+|---|---|
+| `ok` | same version, still injectable |
+| `outdated` | the record has a newer version — the snapshot quotes superseded wording |
+| `stale` | verified but past its TTL: no longer injectable |
+| `deprecated` | retired |
+| `superseded` | something `supersedes` it |
+| `missing` | not in the store on this `--ns` |
+
+- **Exit code 1 when any source is not `ok`**, so the check is usable as a CI or pre-commit gate. The
+  point of a snapshot that names its sources is that something other than a person can read them.
+- Parsing is the inverse of `renderPersonaSkill` and lives beside it, asserted by a render → parse
+  round trip. A format the writer and reader disagree about is the failure mode of every snapshot.
+- It reports; it does not regenerate. Regeneration is `yoke persona <person>`, and choosing when to
+  re-export a file that is already in someone's prompt is not a decision a checker should take.
 
 ## Embedder contract
 

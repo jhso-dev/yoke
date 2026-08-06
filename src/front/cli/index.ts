@@ -33,6 +33,7 @@ import { makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, inject, WALK_BUDGET } from "../../core/inject.js";
 import {
   deprecate,
+  downstreamOf,
   listVersions,
   staleEntities,
   verify,
@@ -40,6 +41,8 @@ import {
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import { seedOntology, type TypeDef } from "../../core/ontology.js";
 import {
+  checkPersonaSources,
+  parsePersonaSources,
   personaQuery,
   renderPersonaSkill,
   safeName,
@@ -91,6 +94,7 @@ type Values = {
   rebuild?: boolean;
   shape?: boolean;
   depth?: string;
+  check?: string;
 };
 
 const OPTIONS = {
@@ -132,6 +136,7 @@ const OPTIONS = {
   rebuild: { type: "boolean" },
   shape: { type: "boolean" },
   depth: { type: "string" },
+  check: { type: "string" },
 } as const;
 
 type Env = Record<string, string | undefined>;
@@ -170,6 +175,22 @@ function emit(v: Values, human: string, data: unknown): void {
 
 function formatEntity(e: Entity | Relation): string {
   return `${e.id}  ${e.type}  ${e.status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
+}
+
+/**
+ * A record in one line for a report someone has to ACT on: `summarize` for the words, the id kept
+ * because acting means running another command against it.
+ *
+ * Not `formatEntity`, which dumps `attributes` whole — one governed decision's rationale is a page of
+ * prose, so a routing list built from it scrolls the answer off the screen. Measured on the demo
+ * corpus: two dependents filled the terminal.
+ */
+function label(
+  e: { id: string; type?: string; attributes?: Record<string, unknown> },
+  ontology: TypeDef[],
+): string {
+  if (e.type === undefined || e.attributes === undefined) return e.id;
+  return `${summarize({ type: e.type, attributes: e.attributes }, ontology)}  [${e.type} ${e.id}]`;
 }
 
 /** --shards <file> (or YOKE_SHARDS) if set, else undefined — the single-sqlite fast path. */
@@ -697,6 +718,8 @@ async function cmdDeprecate(
   const actor = resolveActor(v, env);
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
     const ts = now();
     const done = await deprecate(store, positionals, actor, ts);
     // Retiring knowledge changes what every future injection returns, so it belongs in the trail
@@ -708,11 +731,24 @@ async function cmdDeprecate(
       at: ts,
       ns,
     });
-    emit(
-      v,
-      `deprecated ${done.length}: ${done.map((e) => e.id).join(" ")}`,
-      done,
+    // What rests on it (v5.8). Retiring a record is not a repair unless the records built on it can be
+    // found, and the moment of retiring is the one moment someone is looking. Read AFTER the transition
+    // so a failed deprecate reports nothing, and named rather than counted — "3 records" routes nobody.
+    const downstream = await downstreamOf(
+      store,
+      done.map((e) => e.id),
+      ns,
     );
+    const human = [
+      `deprecated ${done.length}: ${done.map((e) => e.id).join(" ")}`,
+    ];
+    if (downstream.length > 0) {
+      human.push(
+        `${downstream.length} record(s) declared they rest on this — re-examine:`,
+      );
+      for (const d of downstream) human.push(`  ${label(d, ontology)}`);
+    }
+    emit(v, human.join("\n"), { deprecated: done, downstream });
     return 0;
   });
 }
@@ -1246,9 +1282,12 @@ async function cmdPersona(
   v: Values,
   env: Env,
 ): Promise<number> {
+  if (v.check !== undefined) return await cmdPersonaCheck(v, env);
   const id = positionals[0];
   if (!id) {
-    console.error("usage: yoke persona <person-id> [--out dir]");
+    console.error(
+      "usage: yoke persona <person-id> [--out dir]\n       yoke persona --check <SKILL.md>",
+    );
     return 1;
   }
   const ns = resolveNs(v.ns, env);
@@ -1285,6 +1324,70 @@ async function cmdPersona(
       sources,
     });
     return 0;
+  });
+}
+
+/**
+ * `yoke persona --check <SKILL.md>` — audit an exported snapshot against the store now (SPEC persona
+ * "Identifying one"). The export has recorded its source versions since v1 and nothing read them back.
+ *
+ * Exit 1 when any source moved, so this works as a CI or pre-commit gate: the point of a snapshot that
+ * names its sources is that something other than a person can read them. fs stays in this tier — core
+ * takes the parsed header, never a path.
+ */
+async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
+  const file = v.check as string;
+  let md: string;
+  try {
+    md = readFileSync(file, "utf8");
+  } catch {
+    console.error(`cannot read: ${file}`);
+    return 1;
+  }
+  const header = parsePersonaSources(md);
+  if (!header.recognized) {
+    console.error(
+      `not an exported persona (no "Source knowledge" line): ${file}`,
+    );
+    return 1;
+  }
+  const ns = resolveNs(v.ns, env);
+  return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
+    const checks = await checkPersonaSources(
+      store,
+      ontology,
+      header.sources,
+      now(),
+      { ns },
+    );
+    const moved = checks.filter((c) => c.verdict !== "ok");
+    const lines = checks.map(
+      (c) =>
+        // Verdict first, because a reader scans this column and stops at the first thing that is not ok.
+        // Then the record in words: a report a person is meant to act on cannot be a list of ULIDs.
+        `${c.verdict.padEnd(11)}${label(c, ontology)}${
+          c.verdict === "outdated" ? `  (v${c.version} → v${c.current})` : ""
+        }`,
+    );
+    if (header.unparsed.length > 0)
+      lines.push(
+        `unreadable  ${header.unparsed.join(", ")} — hand-edited header?`,
+      );
+    lines.push(
+      moved.length === 0
+        ? `${checks.length} sources, all current`
+        : `${moved.length} of ${checks.length} sources moved — re-export with: yoke persona <person> --out <dir>`,
+    );
+    emit(v, lines.join("\n"), {
+      file,
+      sources: checks,
+      unparsed: header.unparsed,
+      moved: moved.length,
+    });
+    // Unparsed tokens are a failure too: a source that cannot be read is not a source that is fine.
+    return moved.length > 0 || header.unparsed.length > 0 ? 1 : 0;
   });
 }
 

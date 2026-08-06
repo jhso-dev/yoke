@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Citation } from "../../components/Citation";
+import { Downstream } from "../../components/Downstream";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Pagination, usePage } from "../../components/Pagination";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -25,12 +26,15 @@ export default function Conflicts() {
   const pairs = useAsync(() => api.conflicts(), []);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
+  const [downstream, setDownstream] = useState<Knowledge[]>([]);
 
   async function retire(id: string) {
     setBusy(id);
     setActionError(null);
     try {
-      await api.deprecate([id]);
+      // Resolving a contradiction is a deprecate, so it owes the same answer (v5.8): a decision that
+      // rested on the side you just retired is exactly what someone needs to look at next.
+      setDownstream((await api.deprecate([id])).downstream);
       pairs.reload();
     } catch (e) {
       setActionError(e);
@@ -86,6 +90,7 @@ export default function Conflicts() {
       <h1>{t.conflicts.heading}</h1>
       <p className="lede">{t.conflicts.lede}</p>
       <ErrorBanner error={pairs.error ?? actionError} />
+      <Downstream rows={downstream} />
       {pairs.loading ? (
         <div className="panel">
           <div className="empty">{t.common.loading}</div>

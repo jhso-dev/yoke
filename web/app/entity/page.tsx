@@ -15,6 +15,7 @@ import {
 import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { DirectionIcon } from "../../components/DirectionIcon";
+import { Downstream } from "../../components/Downstream";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
 import { LinkRecord } from "../../components/LinkRecord";
@@ -25,7 +26,7 @@ import { recordLabel, shortId } from "../../lib/citation";
 import { copyText } from "../../lib/clipboard";
 import { useT } from "../../lib/i18n";
 import { isDocument } from "../../lib/markdown";
-import { isMissing } from "../../lib/types";
+import { isMissing, type Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -66,6 +67,7 @@ function EntityBody() {
   const id = useSearchParams().get("id") ?? "";
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
+  const [downstream, setDownstream] = useState<Knowledge[]>([]);
   const detail = useAsync(
     () => (id ? api.entity(id) : Promise.resolve(null)),
     [id],
@@ -79,7 +81,10 @@ function EntityBody() {
     setBusy(true);
     setActionError(null);
     try {
-      await (kind === "verify" ? api.verify([id]) : api.deprecate([id]));
+      if (kind === "verify") await api.verify([id]);
+      // Retiring answers what rests on it (v5.8). Kept in state rather than announced, because the
+      // records are meant to be opened — a toast cannot hold a link.
+      else setDownstream((await api.deprecate([id])).downstream);
       detail.reload();
     } catch (e) {
       setActionError(e);
@@ -161,6 +166,9 @@ function EntityBody() {
           </Link>
         </Button>
       </div>
+      {/* Below the buttons, not above them: this is the consequence of pressing Deprecate, and putting
+          it between the record heading and its own controls made the controls read as the table's. */}
+      <Downstream rows={downstream} />
 
       <div className="panel">
         <div className="panel-head">{t.common.attributes}</div>

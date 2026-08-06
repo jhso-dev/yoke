@@ -195,7 +195,11 @@ describe("runCli", () => {
 
     // deprecate → disappears from inject
     expect(await runCli(["deprecate", id, "--db", db, "--json"])).toBe(0);
-    expect(JSON.parse(logs.at(-1) as string)[0].status).toBe("deprecated");
+    // `--json` is { deprecated, downstream } rather than a bare array as of v5.8: the command now
+    // answers two questions, and what rests on a retired record is the half a script needs to route.
+    expect(JSON.parse(logs.at(-1) as string).deprecated[0].status).toBe(
+      "deprecated",
+    );
     expect(
       await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
     ).toBe(0);
@@ -331,6 +335,111 @@ describe("runCli", () => {
 
     // absent person → exit 1
     expect(await runCli(["persona", "nobody", "--db", db])).toBe(1);
+  });
+
+  // persona --check (v5.8): SPEC has said since v1 that the recorded source versions exist "so a stale
+  // snapshot can be identified", and nothing read them back. Exit code is the contract — this is meant
+  // to be usable as a CI gate, so a green file must be 0 and a moved source must be 1.
+  it("persona --check passes a fresh export and fails once a source is retired", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--actor",
+        "yoke:system",
+        "--attr",
+        "note=deploys are on fridays",
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+    expect(
+      await runCli(["verify", id, "--db", db, "--actor", "yoke:system"]),
+    ).toBe(0);
+    const out = join(dir, `check-${Math.random().toString(36).slice(2)}`);
+    expect(
+      await runCli(["persona", "yoke:system", "--db", db, "--out", out]),
+    ).toBe(0);
+    const file = join(out, "persona-yoke-system", "SKILL.md");
+
+    // Nothing has moved yet.
+    expect(await runCli(["persona", "--check", file, "--db", db])).toBe(0);
+    expect(logs.at(-1)).toContain("all current");
+
+    // Retire the one source → non-zero, and the report names the record rather than only its id.
+    expect(
+      await runCli(["deprecate", id, "--db", db, "--actor", "yoke:system"]),
+    ).toBe(0);
+    expect(
+      await runCli(["persona", "--check", file, "--db", db, "--json"]),
+    ).toBe(1);
+    const report = JSON.parse(logs.at(-1) as string);
+    expect(report.moved).toBe(1);
+    expect(report.sources[0].verdict).toBe("deprecated");
+    expect(report.sources[0].attributes.note).toBe("deploys are on fridays");
+    // ...and the human report reads as words plus the id, not as a JSON dump: one governed decision's
+    // rationale is a page of prose, so a routing list built from `formatEntity` scrolls off the screen.
+    expect(await runCli(["persona", "--check", file, "--db", db])).toBe(1);
+    expect(logs.join("\n")).toContain(
+      "deprecated deploys are on fridays  [fact ",
+    );
+  });
+
+  it("persona --check refuses a file that is not an export, and one that does not exist", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const notAnExport = join(dir, "readme.md");
+    writeFileSync(notAnExport, "# just a readme\n");
+    expect(await runCli(["persona", "--check", notAnExport, "--db", db])).toBe(
+      1,
+    );
+    expect(errs.at(-1)).toContain("not an exported persona");
+    expect(
+      await runCli(["persona", "--check", join(dir, "nope.md"), "--db", db]),
+    ).toBe(1);
+    expect(errs.at(-1)).toContain("cannot read");
+  });
+
+  // deprecate names what rests on the retired record (v5.8) — "3 records" routes nobody.
+  it("deprecate reports the records that declared they derive from it", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const addFact = async (note: string) => {
+      expect(
+        await runCli([
+          "add",
+          "fact",
+          "--db",
+          db,
+          "--attr",
+          `note=${note}`,
+          "--json",
+        ]),
+      ).toBe(0);
+      return JSON.parse(logs.at(-1) as string).id as string;
+    };
+    const basis = await addFact("the queue is at-least-once");
+    const dependent = await addFact("consumers must be idempotent");
+    expect(
+      await runCli(["link", dependent, "derived_from", basis, "--db", db]),
+    ).toBe(0);
+
+    expect(await runCli(["deprecate", basis, "--db", db, "--json"])).toBe(0);
+    const res = JSON.parse(logs.at(-1) as string);
+    expect(res.deprecated[0].status).toBe("deprecated");
+    expect(res.downstream.map((e: { id: string }) => e.id)).toEqual([
+      dependent,
+    ]);
+
+    // Retiring something nothing rests on reports an empty list, not a missing key.
+    expect(await runCli(["deprecate", dependent, "--db", db, "--json"])).toBe(
+      0,
+    );
+    expect(JSON.parse(logs.at(-1) as string).downstream).toEqual([]);
   });
 
   it("backfill derives authorship edges for pre-upgrade knowledge, idempotently", async () => {

@@ -17,6 +17,7 @@ import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
 import {
   deprecate,
+  downstreamOf,
   effectiveStatus,
   listVersions,
   staleEntities,
@@ -993,7 +994,23 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      sendJson(res, 200, await rowsOf(done));
+      if (action === "verify") {
+        sendJson(res, 200, await rowsOf(done));
+        return;
+      }
+      // Deprecating names what rests on it (v5.8) — the same answer `yoke deprecate` prints, because
+      // this screen is the governance workbench and cannot be the weaker surface for its own job.
+      // Rows, not ids: the notice is meant to be clicked through.
+      sendJson(res, 200, {
+        deprecated: await rowsOf(done),
+        downstream: await rowsOf(
+          await downstreamOf(
+            store,
+            done.map((e) => e.id),
+            ns,
+          ),
+        ),
+      });
       return;
     }
 

@@ -24,6 +24,10 @@ export const ko: typeof en = {
     reconfirm: "재확인",
     verifyHint: "레코드를 승격하거나 오래된 레코드를 재확인합니다",
     deprecate: "폐기",
+    // 한국어는 수 일치를 하지 않으므로 en의 단·복수 분기를 흉내내지 않는다. 대신 숫자가 무엇의 개수인지를
+    // 문장이 말하게 한다 — 이름 뒤에 벌거벗은 정수를 두는 것이 stale 담당자 패널에서 이미 한 번 문제였다.
+    downstream: (n: number) =>
+      `방금 폐기한 레코드에 기대고 있는 레코드 ${n}건 — 재검토하세요:`,
     link: "연결",
     linking: "연결 중…",
     expand: "펼치기",

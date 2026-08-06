@@ -6,9 +6,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { commit } from "./commit.js";
-import { verify } from "./lifecycle.js";
+import { deprecate, verify } from "./lifecycle.js";
 import { seedOntology } from "./ontology.js";
-import { personaQuery, renderPersonaSkill } from "./persona.js";
+import {
+  checkPersonaSources,
+  parsePersonaSources,
+  personaQuery,
+  renderPersonaSkill,
+} from "./persona.js";
 import type { Entity } from "./types.js";
 
 const ont = seedOntology();
@@ -286,5 +291,185 @@ describe("renderPersonaSkill", () => {
       Do not speak as if you were Alex; cite the records.
       "
     `);
+  });
+});
+
+// ── --check: auditing an exported snapshot (v5.8) ──────────────────────────────────────────────────
+// The export has carried `id@vN` since v1 and nothing read it back, so "a stale snapshot can be
+// identified" was a person diffing two files. Each case below isolates ONE cause: a fixture that is
+// simultaneously stale and outdated proves nothing about either, since one verdict masks the other.
+
+describe("parsePersonaSources", () => {
+  it("round-trips renderPersonaSkill's header", async () => {
+    const d = await add(
+      "decision",
+      { conclusion: "use SQLite", rationale: "zero-config" },
+      "alex",
+    );
+    const f = await add("fact", { note: "ships fridays" }, "alex");
+    await verify(port, [d, f], "alex", now);
+    // The real person record, so this round-trips what the CLI actually writes.
+    await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Alex" } },
+      prov("admin"),
+      now,
+      { existingId: "alex" },
+    );
+    const person = (await port.getEntity("alex")) as Entity;
+    const md = renderPersonaSkill(
+      person,
+      await personaQuery(port, ont, "alex", now),
+      now,
+    );
+
+    const header = parsePersonaSources(md);
+    expect(header.recognized).toBe(true);
+    expect(header.unparsed).toEqual([]);
+    // v2: the gate writes v1 as a draft and verify appends the verified row.
+    expect(header.sources).toEqual([
+      { id: d, version: 2 },
+      { id: f, version: 2 },
+    ]);
+  });
+
+  it("reports an unreadable token instead of dropping it, and a foreign file as unrecognized", () => {
+    const bad = parsePersonaSources("Source knowledge (2): 01AAA@v1, 01BBB");
+    expect(bad.sources).toEqual([{ id: "01AAA", version: 1 }]);
+    expect(bad.unparsed).toEqual(["01BBB"]);
+    expect(parsePersonaSources("# just a readme").recognized).toBe(false);
+    expect(parsePersonaSources("Source knowledge (0): (none)")).toEqual({
+      sources: [],
+      unparsed: [],
+      recognized: true,
+    });
+  });
+
+  it("keeps a namespace-prefixed id whole (the id, not the version, holds the colon)", () => {
+    expect(
+      parsePersonaSources("Source knowledge (1): acme:01AAA@v3").sources,
+    ).toEqual([{ id: "acme:01AAA", version: 3 }]);
+  });
+});
+
+describe("checkPersonaSources", () => {
+  /** A verified fact, exported at its current version. */
+  async function exported(
+    type = "fact",
+    attrs: Record<string, unknown> = { note: "ships fridays" },
+  ) {
+    const id = await add(type, attrs, "alex");
+    const [row] = await verify(port, [id], "alex", now);
+    return { id, version: row.version };
+  }
+
+  it("all current → ok", async () => {
+    const src = await exported();
+    const [c] = await checkPersonaSources(port, ont, [src], now);
+    expect(c.verdict).toBe("ok");
+    // Enough of the record travels back for a caller to label it. Core does not render the label —
+    // picking the attribute that means something needs the ontology-aware `summarize`, which is front
+    // tier, and core imports no adapter.
+    expect(c.attributes).toEqual({ note: "ships fridays" });
+    expect(c.type).toBe("fact");
+  });
+
+  it("a newer version → outdated, and names both versions", async () => {
+    const src = await exported();
+    // Re-commit bumps the version AND resets status to draft, so verify again — otherwise the verdict
+    // would be `draft` and this case would silently stop testing version drift.
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { note: "ships thursdays now" } },
+      prov("alex"),
+      now,
+      { existingId: src.id },
+    );
+    await verify(port, [entity.id], "alex", now);
+
+    const [c] = await checkPersonaSources(port, ont, [src], now);
+    expect(c.verdict).toBe("outdated");
+    expect(c.version).toBe(src.version);
+    expect(c.current).toBe(src.version + 2);
+  });
+
+  it("past its TTL → stale, while a longer-lived type beside it stays ok", async () => {
+    const fact = await exported();
+    const decision = await exported("decision", {
+      conclusion: "use SQLite",
+      rationale: "zero-config",
+    });
+    // fact ttl_days 180, decision 365 — one instant that separates them.
+    const later = "2027-06-01T00:00:00Z";
+    const checks = await checkPersonaSources(
+      port,
+      ont,
+      [fact, decision],
+      later,
+    );
+    expect(checks.map((c) => c.verdict)).toEqual(["stale", "ok"]);
+  });
+
+  it("retired → deprecated", async () => {
+    const src = await exported();
+    await deprecate(port, [src.id], "alex", now);
+    const [c] = await checkPersonaSources(port, ont, [src], now);
+    expect(c.verdict).toBe("deprecated");
+  });
+
+  it("something supersedes it → superseded, outranking the version bump it also has", async () => {
+    const src = await exported();
+    const replacement = await exported();
+    await commit(
+      port,
+      ont,
+      {
+        type: "supersedes",
+        attributes: {},
+        from: replacement.id,
+        to: src.id,
+      },
+      prov("alex"),
+      now,
+    );
+    // Also move its version, so this asserts the PRECEDENCE and not merely that one branch fires:
+    // without the supersedes lookup the verdict is `outdated`, which is the wrong thing to hand a
+    // reader when a replacement exists.
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { note: "superseded wording" } },
+      prov("alex"),
+      now,
+      { existingId: src.id },
+    );
+    await verify(port, [entity.id], "alex", now);
+
+    const [c] = await checkPersonaSources(port, ont, [src], now);
+    expect(c.verdict).toBe("superseded");
+  });
+
+  it("not in this namespace → missing (neighbors takes no ns, so the filter is here)", async () => {
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { note: "tenant fact" } },
+      prov("alex"),
+      now,
+      { ns: "acme" },
+    );
+    await verify(port, [entity.id], "alex", now);
+    const src = { id: entity.id, version: 2 };
+
+    expect(
+      (await checkPersonaSources(port, ont, [src], now, { ns: "acme" }))[0]
+        .verdict,
+    ).toBe("ok");
+    // Same id, default ns: present in storage, absent from this reader's world.
+    expect((await checkPersonaSources(port, ont, [src], now))[0].verdict).toBe(
+      "missing",
+    );
   });
 });

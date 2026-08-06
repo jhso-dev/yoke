@@ -21,6 +21,10 @@ export const en = {
     reconfirm: "Re-confirm",
     verifyHint: "promote a record or re-confirm a stale one",
     deprecate: "Deprecate",
+    /** Shown after retiring a record, above the records that declared they rest on it. Says what to DO
+     * with the list — a heading that only named the relationship would leave a reader looking at links. */
+    downstream: (n: number) =>
+      `${n} ${n === 1 ? "record rests" : "records rest"} on what you just retired — re-examine:`,
     link: "Link",
     linking: "Linking…",
     expand: "Expand",

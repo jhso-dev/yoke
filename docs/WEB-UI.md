@@ -229,3 +229,34 @@ a second ranker; presenting results as an answer; and search over anything but s
 **CLI parity is unchanged and binding.** `yoke search` already exists and predates this box; it
 gains `--status` so the two surfaces can express the same query, and the `search` audit row so the
 trail does not depend on which interface was used.
+
+## Amendment (2026-08-06): parity is a floor on BOTH surfaces
+
+The constraint stated three times above is one-directional — no screen may do what the CLI cannot —
+and it was read here as the whole of it. It is not. `yoke deprecate` gained the records that declared
+they rest on the retired one (SPEC "Derivation"), and the plan was to leave the web tier without it on
+the grounds that the invariant only forbids the other direction.
+
+That was wrong, and this amendment says why so the reasoning does not come back. **This is the
+governance workbench.** Retiring knowledge is not an incidental thing it can do; it is the act the
+screen exists to host. A surface that hosts the act while dropping the answer that makes the act a
+repair — what now has to change — is the same defect as UI-only logic, arriving from the other side:
+one surface knows something the other does not, and which one you used decides what you learn.
+
+So the floor is: **a governance action must answer the same questions wherever it is invoked.** Not
+every CLI flag needs a control — `--json`, `--after`, `--shards` are plumbing — and this is not a demand
+for feature symmetry. It binds the *answer* to a governance write, not the ergonomics of asking.
+
+Concretely: `POST /api/deprecate` returns `{ deprecated, downstream }`, and the entity, review and
+conflicts screens render it through **one** component (`Downstream`). One component rather than three
+copies is what keeps a fourth deprecate button from being added without it — the failure mode this
+amendment exists to prevent is a screen that quietly omits the answer, and three hand-written notices
+are three chances to omit it.
+
+A banner, not a toast: the point is to open the records. `/api/verify` keeps its bare-array shape —
+only retiring gained a second question, and changing both would break every verify caller for nothing.
+
+**The route had no test.** Not a thin one — none, in either `ui.test.ts` or `serve.test.ts`, while
+`/api/verify` had five. That is how the shape change could have shipped unnoticed, and it is worth
+recording as its own finding: the untested route was the one performing the destructive half of the
+lifecycle.

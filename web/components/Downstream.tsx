@@ -1,0 +1,40 @@
+"use client";
+
+import { Alert } from "@/components/ui/alert";
+import { useT } from "../lib/i18n";
+import type { Knowledge } from "../lib/types";
+import { KnowledgeTable } from "./KnowledgeTable";
+
+/**
+ * What rested on a record that was just deprecated (`derived_from`, v5.8).
+ *
+ * Retiring a record is not a repair unless the records built on it can be found — the stale queue's
+ * rule one surface over. So this appears at the moment of retiring, which is the one moment someone is
+ * looking, and it names each record instead of counting them: "3 records" routes nobody.
+ *
+ * The heading is an Alert and the records go through `KnowledgeTable`, which is not a layout preference:
+ * the first draft joined the labels inline with commas and two governed decisions — whose summaries run
+ * to 60 characters each — rendered as one unreadable paragraph. It also showed knowledge without its
+ * citation, which `KnowledgeTable` exists to make impossible ("knowledge is always shown with its source
+ * and version", WEB-UI.md). One component, both problems.
+ *
+ * Every deprecate button in the app renders this, so no screen can be the surface that quietly drops
+ * the answer.
+ */
+export function Downstream({ rows }: { rows: Knowledge[] }) {
+  const t = useT();
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <Alert variant="warn">{t.common.downstream(rows.length)}</Alert>
+      {/* Its own bottom margin, which no other `.panel` carries: the convention in globals.css is
+          `.panel + .panel`, i.e. panels arrive in a run and the gap lives on the following one. This
+          panel appears mid-page next to controls, so nothing supplies that gap and the table butted
+          straight into the Verify/Deprecate buttons. Adjacent margins collapse to the max, so a panel
+          after this one still sits 14px away rather than 28. */}
+      <div className="panel mb-[14px]">
+        <KnowledgeTable rows={rows} />
+      </div>
+    </>
+  );
+}

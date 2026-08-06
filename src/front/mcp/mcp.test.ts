@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { BRIEFING_LIMIT } from "../../core/inject.js";
+import { downstreamOf } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
 import { runCli } from "../cli/index.js";
@@ -447,5 +448,103 @@ describe("resolveScope (key/id → collaboration lookup)", () => {
     expect(await resolveScope(port, null, "auth")).toEqual(want); // by title
     expect(await resolveScope(port, null, "ZZZ-999")).toBeNull(); // no match
     port.close();
+  });
+});
+
+// derived_from (v5.8) — an agent declaring what its record rests on. SPEC "Derivation": caller-asserted,
+// filed at this tier as an ordinary gate-passing commit (like the scope's relates_to), never inferred.
+describe("yoke_commit / yoke_record_decision derived_from", () => {
+  /** A session whose ontology is `seedOntology()` minus some types — an un-migrated DB. */
+  async function sessionWithout(...omit: string[]) {
+    const store = new SqliteStorage(db);
+    await store.init();
+    const server = createYokeMcpServer({
+      store,
+      ontology: seedOntology().filter((t) => !omit.includes(t.name)),
+      defaultActor: "yoke:system",
+    });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0" });
+    await Promise.all([server.connect(serverT), client.connect(clientT)]);
+    return {
+      client,
+      async close() {
+        await client.close();
+        await server.close();
+        store.close();
+      },
+    };
+  }
+
+  /** Reads the graph back through a fresh connection, the way a separate CLI run would. */
+  async function downstream(id: string) {
+    const store = new SqliteStorage(db);
+    await store.init();
+    try {
+      return (await downstreamOf(store, [id])).map((e) => e.id);
+    } finally {
+      store.close();
+    }
+  }
+
+  async function commitFact(client: Client, note: string): Promise<string> {
+    const r = await client.callTool({
+      name: "yoke_commit",
+      arguments: { type: "fact", attributes: { note } },
+    });
+    return JSON.parse(text(r)).id;
+  }
+
+  it("files one edge per cited id, reports how many, and makes the decision findable from its basis", async () => {
+    const s = await openSession();
+    const basis = await commitFact(s.client, "derived-from basis A");
+    const other = await commitFact(s.client, "derived-from basis B");
+    const rec = await s.client.callTool({
+      name: "yoke_record_decision",
+      arguments: {
+        conclusion: "adopt A over B",
+        rationale: "A is already in production",
+        // Repeated on purpose: a duplicate citation is one edge, not two.
+        derived_from: [basis, other, basis],
+      },
+    });
+    const out = JSON.parse(text(rec));
+    await s.close();
+
+    expect(out.derived_from).toBe(2);
+    expect(await downstream(basis)).toEqual([out.id]);
+    expect(await downstream(other)).toEqual([out.id]);
+  });
+
+  it("a DB predating the type still commits, and says 0 rather than letting the agent assume", async () => {
+    const s = await sessionWithout("derived_from");
+    const basis = await commitFact(s.client, "basis on an un-migrated db");
+    const rec = await s.client.callTool({
+      name: "yoke_commit",
+      arguments: {
+        type: "fact",
+        attributes: { note: "rests on the above" },
+        derived_from: [basis],
+      },
+    });
+    const out = JSON.parse(text(rec));
+    await s.close();
+
+    // The knowledge is in — a derived edge must never fail the caller's own commit (gate stage 4b's rule).
+    expect(out.status).toBe("draft");
+    expect(out.derived_from).toBe(0);
+    expect(await downstream(basis)).toEqual([]);
+  });
+
+  it("omitting it files nothing and does not mention it", async () => {
+    const s = await openSession();
+    const r = await s.client.callTool({
+      name: "yoke_commit",
+      arguments: { type: "fact", attributes: { note: "no declared basis" } },
+    });
+    const out = JSON.parse(text(r));
+    await s.close();
+    expect(out.derived_from).toBeUndefined();
+    expect(await downstream(out.id)).toEqual([]);
   });
 });

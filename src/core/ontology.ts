@@ -122,5 +122,10 @@ export function seedOntology(): TypeDef[] {
     // rather than its name that applies: this edge is not knowledge. Without it, a briefing anchored on
     // a person would hand an agent the person's OTHER record as a finding.
     { name: "same_as", kind: "relation", attrs: {}, membership: true },
+    // What a record rests on (v5.8). Deliberately NOT `membership`, unlike the two above: the evidence
+    // under a decision is knowledge, so an anchored briefing SHOULD reach it. persona is unaffected —
+    // it passes `scopeRel: 'authored_by'`, so it never traverses this and cannot present a fact the
+    // person did not author as their judgment.
+    { name: "derived_from", kind: "relation", attrs: {} },
   ];
 }

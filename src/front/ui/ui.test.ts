@@ -234,6 +234,79 @@ describe("ui API", () => {
     expect(after.some((d: { id: string }) => d.id === factId)).toBe(false);
   });
 
+  // /api/deprecate had no test at all, which is how the shape change below could have shipped unnoticed:
+  // the route now answers TWO questions (v5.8), because the workbench is where governance happens and
+  // `yoke deprecate` names what rests on a retired record. WEB-UI.md's parity constraint cuts both ways.
+  it("deprecate names the records that rest on what it retired", async () => {
+    const ont = store.loadOntology(null);
+    const basis = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { title: "the queue is at-least-once" } },
+      prov,
+      now,
+    );
+    const dependent = await commit(
+      store,
+      ont,
+      {
+        type: "decision",
+        attributes: {
+          conclusion: "consumers must be idempotent",
+          rationale: "redelivery is expected",
+        },
+      },
+      prov,
+      now,
+    );
+    await commit(
+      store,
+      ont,
+      {
+        type: "derived_from",
+        attributes: {},
+        from: dependent.entity.id,
+        to: basis.entity.id,
+      },
+      prov,
+      now,
+    );
+    await verify(store, [basis.entity.id, dependent.entity.id], "tester", now);
+
+    const res = await post("/api/deprecate", { ids: [basis.entity.id] });
+    expect(res.deprecated[0].id).toBe(basis.entity.id);
+    expect(res.deprecated[0].status).toBe("deprecated");
+    // Rows, not ids — the notice is meant to be clicked through, and a citation is what makes a row
+    // renderable at all (KnowledgeTable's rule).
+    expect(res.downstream.map((r: { id: string }) => r.id)).toEqual([
+      dependent.entity.id,
+    ]);
+    expect(res.downstream[0].summary).toBe("consumers must be idempotent");
+    expect(res.downstream[0].citation).toContain(dependent.entity.id);
+
+    // Nothing rests on the dependent, and the key is present-and-empty rather than absent: a client
+    // that has to distinguish "no dependents" from "this build does not report them" has been given
+    // two meanings for one missing field.
+    const none = await post("/api/deprecate", { ids: [dependent.entity.id] });
+    expect(none.downstream).toEqual([]);
+  });
+
+  // verify keeps the bare-array shape it has always had: only deprecate gained a second question, and
+  // changing both would break every verify caller for nothing.
+  it("verify still answers with a bare array", async () => {
+    const ont = store.loadOntology(null);
+    const d = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { title: "shape guard" } },
+      prov,
+      now,
+    );
+    const res = await post("/api/verify", { ids: [d.entity.id] });
+    expect(Array.isArray(res)).toBe(true);
+    expect(res[0].status).toBe("verified");
+  });
+
   it("review lists newest drafts first", async () => {
     const ont = store.loadOntology(null);
     const older = await commit(

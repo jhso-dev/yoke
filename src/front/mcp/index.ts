@@ -77,6 +77,15 @@ export async function resolveScope(
   return found ? asEntity(found) : null;
 }
 
+// Identical on both write tools. The wording IS the mechanism: a derivation is caller-asserted (SPEC
+// "Derivation"), so what the agent is told decides whether the edge means anything. Naming the two tools
+// that hand out ids keeps it to records that were actually retrieved, and "omit rather than guess" is
+// there because a padded list files a false basis under a decision where no reader can catch it.
+const DERIVED_FROM_DESC =
+  "Ids of the knowledge this record rests on. Cite only ids that yoke_inject or yoke_persona actually " +
+  "returned to you and that you actually used. Omit rather than guess — these edges are how deprecating " +
+  "a record finds what has to change, so a wrong basis is worse than none.";
+
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }] });
 const err = (text: string) => ({ ...ok(text), isError: true });
 
@@ -104,7 +113,12 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   // Input actor > server startup env (defaultActor) > 'yoke:system' (already folded into defaultActor).
   const resolveActor = (actor?: string) => actor ?? defaultActor;
 
-  async function doCommit(input: EntityInput, actor?: string, scope?: string) {
+  async function doCommit(
+    input: EntityInput,
+    actor?: string,
+    scope?: string,
+    derivedFrom?: string[],
+  ) {
     if (!authorize("write", input.type)) return forbidden();
     const ts = now();
     const prov = {
@@ -125,16 +139,28 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // A second gate-passing commit at the front tier — core commit stays untouched (like conflicts_with,
       // but that lives inside commit for decisions; this is caller-driven so it belongs here).
       const linkTo = effectiveScope(scope);
-      if (linkTo) {
+      const edges: Array<[string, string]> = linkTo
+        ? [["relates_to", linkTo]]
+        : [];
+      // Derivation (v5.8) travels this same road for the same reason: the caller declares its basis, so
+      // the edge belongs where the caller is. Deduped and self-edge-free — citing one record twice, or
+      // citing the record being written, files one edge and none respectively.
+      //
+      // Skipped when the ontology in force does not declare the type, on stage 4b's rule: this DB may
+      // predate the seed (`derived_from` is v5.8 and the seed applies to new DBs only), and a derived
+      // edge must never fail the caller's own commit — the knowledge is already stored by this point.
+      if (ontology.some((t) => t.name === "derived_from"))
+        for (const src of new Set(derivedFrom ?? []))
+          if (src && src !== entity.id) edges.push(["derived_from", src]);
+      for (const [type, to] of edges)
         await commit(
           store,
           ontology,
-          { type: "relates_to", attributes: {}, from: entity.id, to: linkTo },
+          { type, attributes: {}, from: entity.id, to },
           prov,
           ts,
           { ns },
         );
-      }
       return ok(
         JSON.stringify({
           id: entity.id,
@@ -142,6 +168,15 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           status: entity.status,
           // Similar-knowledge candidates — no auto-merge. Included in the result for the agent to judge.
           duplicates: duplicates.map((d) => ({ id: d.id, type: d.type })),
+          // How many derivation edges were actually filed. Reported rather than assumed: on a DB that
+          // never migrated the type this is 0 while the commit succeeded, and an agent told nothing
+          // would believe it had recorded a basis that is not there.
+          ...(derivedFrom?.length
+            ? {
+                derived_from: edges.filter((e) => e[0] === "derived_from")
+                  .length,
+              }
+            : {}),
         }),
       );
     } catch (e) {
@@ -293,10 +328,14 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
             "Entity id (e.g. a collaboration) to link the new knowledge to via a relates_to relation. " +
               'Pass "" to record outside the pinned session scope',
           ),
+        derived_from: z
+          .array(z.string())
+          .optional()
+          .describe(DERIVED_FROM_DESC),
       },
     },
-    ({ type, attributes, actor, scope }) =>
-      doCommit({ type, attributes }, actor, scope),
+    ({ type, attributes, actor, scope, derived_from }) =>
+      doCommit({ type, attributes }, actor, scope, derived_from),
   );
 
   server.registerTool(
@@ -324,13 +363,29 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
             "Entity id (e.g. a collaboration) to link this decision to via a relates_to relation. " +
               'Pass "" to record outside the pinned session scope',
           ),
+        derived_from: z
+          .array(z.string())
+          .optional()
+          .describe(DERIVED_FROM_DESC),
       },
     },
-    ({ conclusion, rationale, rejected_alternatives, actor, scope }) => {
+    ({
+      conclusion,
+      rationale,
+      rejected_alternatives,
+      actor,
+      scope,
+      derived_from,
+    }) => {
       const attributes: Record<string, unknown> = { conclusion, rationale };
       if (rejected_alternatives)
         attributes.rejected_alternatives = rejected_alternatives;
-      return doCommit({ type: "decision", attributes }, actor, scope);
+      return doCommit(
+        { type: "decision", attributes },
+        actor,
+        scope,
+        derived_from,
+      );
     },
   );
 

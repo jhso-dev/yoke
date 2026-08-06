@@ -472,6 +472,63 @@ Left standing deliberately: **there is no batch form of `getEntity(id, version)`
 fallback — and as-of injection through it — is still a loop. Versions are a dense 1..n and a governed
 record has two or three, whereas the loops closed above scale with the corpus. Nothing has measured it.
 
+## v5.8 — a record's basis, and reading a snapshot back
+
+Read across from Cloudflare OS (2026-08), whose one transferable idea is not its permission model but
+**observation propagation**: track what an agent read, carry it with the output, re-verify it when the
+output is opened. We already had the first half twice over — `inject` and `persona` both log the ids
+they returned — and neither half was ever read back. Both items below close the loop from a different
+end, and neither needed a storage-port change.
+
+- [x] **`derived_from`, a seed relation type** — the audit trail records the read and the write as two
+      events with no join key, in per-client local sqlite that `neighbors` cannot traverse and that does
+      not move with the record between backends. An edge does. Filed at the **front tier** as an
+      ordinary gate-passing commit, which is where this repo already put the `scope` link and wrote down
+      why: `conflicts_with` is inside the gate because it derives from the content, a derivation is
+      caller-declared. **core/commit.ts is unchanged.** Caller-asserted like `provenance.actor` —
+      lenient on write — and never inferred from the trail, because an agent that injected 50 records
+      and wrote one decision did not derive it from 50
+- [x] **Deprecating names what rests on it** — the stale queue's lesson one surface over: flagging decay
+      does not repair it, handing it to the thing that has to change does. `downstreamOf` (one incoming
+      hop, ns-filtered) and `yoke deprecate` prints the records, not a count, because "3 records" routes
+      nobody. Breaking: `deprecate --json` is `{ deprecated, downstream }`
+- [x] **Not `membership`, and measured rather than assumed** — the evidence under a decision *is*
+      knowledge, so the anchored walk should reach it. Depth 1 is byte-identical: a derivation edge joins
+      two records and touches no anchor, so it is first followed at depth 2. persona cannot reach one at
+      all, and the operative reason is the graph's shape rather than a flag someone has to remember —
+      a one-hop walk from a *person* meets no record → record edge
+- [x] **`yoke persona --check <SKILL.md>`** — SPEC said from v1 that the export records source versions
+      "so a stale snapshot can be identified", and nothing could read them, so identifying one meant a
+      person diffing two files by eye. Another clause written and never built — the stale queue (v5.2)
+      was the same find, and SPEC labels it that way in its own heading. Six verdicts ranked
+      most-actionable first, one per source since the remedy for every non-`ok` is the same re-export.
+      **Exit 1 when any
+      source moved**, which is the whole point: a snapshot that names its sources is only worth the bytes
+      if something other than a person can read them
+- [x] **The parser lives beside the writer, asserted by a round trip** — a format the two halves
+      disagree about is the failure mode of every snapshot. An unreadable token is reported, not dropped:
+      a source that cannot be read is not a source that is fine
+
+The `superseded` verdict outranks `outdated`, and the test proves the ranking rather than the branch —
+the fixture's version is *also* moved, so killing the supersession lookup produces exactly `outdated`.
+Checked by killing it: that is the failure message.
+
+- [x] **Every retire path reports it, web included** — first draft shipped this to the CLI only, on the
+      reading that parity forbids a screen doing what the CLI cannot and says nothing about the reverse.
+      Corrected: this is the *governance workbench*, and hosting the act while dropping the answer that
+      makes it a repair is the same defect facing the other way. `POST /api/deprecate` →
+      `{ deprecated, downstream }`, rendered by **one** component across the entity, review and
+      conflicts screens, so a fourth deprecate button cannot be added without it. WEB-UI.md carries the
+      amendment and the reasoning that was wrong. `/api/verify` keeps its array
+- [x] **`/api/deprecate` had no test at all** — none, in `ui.test.ts` or `serve.test.ts`, while
+      `/api/verify` had five. Which is how a response-shape change could have shipped unnoticed, and is
+      its own finding: the untested route was the one performing the destructive half of the lifecycle
+
+Left standing deliberately: **one hop, not the transitive closure** — a
+dependent's own dependents surface when it is retired in turn, so the walk is iterative by construction.
+And nothing yet **prompts** an agent to cite a basis beyond the tool description; whether agents
+actually populate `derived_from` is the measurement that decides if any of this earns its keep.
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

@@ -4,6 +4,7 @@
 // Time is injected — never call new Date() in core (SPEC: inject the clock).
 
 import { readEntities, type StoragePort } from "../ports/storage.js";
+import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity, Status } from "./types.js";
 
@@ -69,6 +70,38 @@ export function deprecate(
   now: string,
 ): Promise<Entity[]> {
   return transition(port, ids, actor, now, "deprecated");
+}
+
+/**
+ * Records that declare they rest on any of `ids` — one incoming `derived_from` hop (SPEC "Derivation").
+ *
+ * Retiring a record is not a repair unless what rests on it can be found. This is the stale queue's rule
+ * one surface over: flagging decay does not fix it, handing it to the thing that has to change does.
+ *
+ * Entities rather than ids, because every caller renders this for a person to act on and a bare ULID is
+ * not something anyone can act on.
+ *
+ * Namespace-filtered on the relation, for the reason `identitySet` is: `neighbors` takes no `ns`, so
+ * without it an edge filed by one tenant reports a dependent in another.
+ *
+ * ponytail: one hop, not the transitive closure. A dependent's own dependents surface when THAT record is
+ * retired in turn, so the walk is iterative by construction; add a closure if a real corpus turns up
+ * chains deep enough that one hop misleads.
+ */
+export async function downstreamOf(
+  port: StoragePort,
+  ids: string[],
+  ns?: string | null,
+): Promise<Entity[]> {
+  const wantNs = normalizeNs(ns);
+  const dependents = new Set<string>();
+  for (const id of new Set(ids))
+    for (const r of await port.neighbors(id, "derived_from", "in"))
+      if (normalizeNs(r.ns) === wantNs) dependents.add(r.from);
+  // A record is never its own downstream. The front tier refuses to file a self-edge, but a hand-filed
+  // `yoke link X derived_from X` reaches storage like any other relation.
+  for (const id of ids) dependents.delete(id);
+  return readEntities(port, [...dependents].sort());
 }
 
 /**
