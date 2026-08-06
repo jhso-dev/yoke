@@ -166,14 +166,25 @@ function ReviewBody() {
       )}
       {tab === "stale" && owners.length > 0 && (
         <div className="panel" style={{ padding: "10px 14px" }}>
-          <span className="muted">{t.review.staleOwners}</span>{" "}
-          {owners.map(([id, o], i) => (
-            <span key={id}>
-              {i > 0 && <span className="muted">, </span>}
-              <Actor actor={id} actorName={o.name} />
-              <span className="muted"> {t.review.staleOwnerCount(o.n)}</span>
-            </span>
-          ))}
+          <p className="muted mb-2">{t.review.staleOwners}</p>
+          {/* A grid, not a comma-joined sentence. Thirty owners rendered inline read as one paragraph of
+              prose that happened to contain names — the reader has to parse it to find their own, which
+              is the opposite of a work queue. Columns put the names in a scannable list and let the
+              counts line up, which is the only reason the counts are worth showing per row at all. */}
+          <ul className="grid list-none grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-x-4 gap-y-1 p-0">
+            {owners.map(([id, o]) => (
+              <li
+                key={id}
+                className="flex items-baseline justify-between gap-2"
+              >
+                <Actor actor={id} actorName={o.name} />
+                {/* Tabular figures so a column of counts aligns on the digit rather than the glyph. */}
+                <span className="muted tabular-nums">
+                  {t.review.staleOwnerCount(o.n)}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       <div className="panel">
