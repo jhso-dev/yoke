@@ -149,7 +149,9 @@ export const ko: typeof en = {
     staleScanned: (n: number, scanned: number) =>
       `살펴본 verified 레코드 ${scanned}개 중 ${n}개가 기한을 넘겼습니다`,
     staleMore: "아직 살펴보지 않은 레코드가 남아 있습니다",
-    staleOwners: "이 레코드를 기록한 사람에게 물어보세요:",
+    // Was singular and said "this record" while listing thirty people about a hundred records.
+    staleOwners:
+      "이 사람들에게 재확인을 요청하세요 — 숫자는 각자가 기록한 오래된 레코드 수입니다:",
     staleOwnerCount: (n: number) => `${n}`,
   },
   browse: {
@@ -313,6 +315,10 @@ export const ko: typeof en = {
     nodes: "노드",
     nodesNote:
       "그래프와 같은 데이터를 키보드와 스크린 리더로 탐색할 수 있습니다",
+    expanded: (nodes: number, links: number) =>
+      `레코드 +${nodes}개, 관계 +${links}개`,
+    expandedNothing:
+      "이미 그려져 있습니다 — 이 레코드에서 한 단계 안에 새로운 것이 없습니다",
   },
   audit: {
     heading: "감사 로그",

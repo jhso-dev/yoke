@@ -31,6 +31,7 @@ import {
   truncationNotice,
 } from "../../lib/graph";
 import { useT } from "../../lib/i18n";
+import { announce } from "../../lib/toast";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -71,14 +72,35 @@ function GraphBody() {
     };
   }, [anchor]);
 
-  const expand = useCallback(async (id: string) => {
-    try {
-      const more = await api.graph({ scope: id, depth: 1, limit: MAX_NODES });
-      setGraph((g) => (g ? mergeGraph(g, more) : toGraph(more)));
-    } catch (e) {
-      setError(e);
-    }
-  }, []);
+  const t = useT();
+  // Expanding says what it did, because for a long time it did not. A node's neighbours are often
+  // already on screen — the highest-degree node in this corpus is the account that authored 40 visible
+  // records, so expanding the FIRST row of the node table adds exactly nothing — and 25 new nodes among
+  // 200 is easy to miss even when it worked. A silent no-op reads as a broken button. The rest of this
+  // product refuses to be silent about what it withheld (`omitted`, the truncation banners); this is
+  // the same rule applied to what it added.
+  const expand = useCallback(
+    async (id: string) => {
+      try {
+        const more = await api.graph({ scope: id, depth: 1, limit: MAX_NODES });
+        setGraph((g) => {
+          if (!g) return toGraph(more);
+          const merged = mergeGraph(g, more);
+          const nodes = merged.nodes.length - g.nodes.length;
+          const links = merged.links.length - g.links.length;
+          announce(
+            nodes || links
+              ? t.graph.expanded(nodes, links)
+              : t.graph.expandedNothing,
+          );
+          return merged;
+        });
+      } catch (e) {
+        setError(e);
+      }
+    },
+    [t],
+  );
 
   const types = useMemo(
     () => [...new Set(graph?.nodes.map((n) => n.type) ?? [])].sort(),
@@ -93,7 +115,6 @@ function GraphBody() {
     () => membershipTypes(ontology.data ?? []),
     [ontology.data],
   );
-  const t = useT();
   const notice = graph ? truncationNotice(graph) : null;
   const chosen = graph?.nodes.find((n) => n.id === selected) ?? null;
   const sortedNodes = useMemo(

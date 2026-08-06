@@ -151,7 +151,11 @@ export const en = {
       `${n} aged out among the ${scanned} verified record(s) examined`,
     staleMore: "more records left to examine",
     // The point of the screen: a stale record's fix is a person, so name them.
-    staleOwners: "Ask the people who recorded these:",
+    // The number needs a unit. It rendered as "노태경 7, 오태민 5, …" — a name and a naked integer,
+    // which a reader has to guess at, and the heading is the one place to say it once instead of
+    // repeating it thirty times.
+    staleOwners:
+      "Ask these people to re-confirm — the number is how many aged-out records each of them recorded:",
     staleOwnerCount: (n: number) => `${n}`,
   },
   browse: {
@@ -316,6 +320,9 @@ export const en = {
     empty: "no records to display in this namespace",
     nodes: "nodes",
     nodesNote: "Navigate the same data with a keyboard or screen reader",
+    expanded: (nodes: number, links: number) =>
+      `+${nodes} records, +${links} relations`,
+    expandedNothing: "already drawn — nothing new one step from this record",
   },
   audit: {
     heading: "Audit",
