@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Load the demo corpus (scripts/demo-corpus/) through the same commit gate and the same `openStore`
 // path a person or an agent uses. **Nothing here is backend-specific** — the only difference between
-// loading into sqlite, Neo4j and OpenSearch is which environment variable is set, which is what makes
-// this evidence that the port abstraction holds rather than each adapter having its own ingest route.
+// loading into sqlite and loading into OpenSearch is which environment variable is set, which is what
+// makes this evidence that the port abstraction holds rather than each adapter having its own ingest
+// route.
 //
 //   node scripts/load-demo-corpus.mjs [local.db]
 //
 //   (nothing set)            everything into that one sqlite file
-//   YOKE_NEO4J_URL=...       knowledge into Neo4j, this client's audit + tokens into the sqlite file
-//   YOKE_OPENSEARCH_URL=...  the same split with OpenSearch
+//   YOKE_OPENSEARCH_URL=...  knowledge into OpenSearch, this client's audit + tokens into the sqlite file
 //   YOKE_EMBED_URL=...       optional; without it the corpus loads with no vectors, which is a
 //                            complete corpus (SPEC "The vector index") minus the hybrid half of
 //                            retrieval. The load says which of the two it did.

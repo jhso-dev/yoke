@@ -146,8 +146,8 @@ Surveyed 2026-08-02, and the finding was the opposite of the intuition that scal
   time and traverse the induced subgraph at query time.
 - **`sqlite-vec` is brute force**, which caps it in the low millions
   ([release notes](https://alexgarcia.xyz/blog/2024/sqlite-vec-stable-release/index.html)). That cap
-  is sqlite's, not the port's: OpenSearch answers `similar` with Lucene HNSW and Neo4j with its
-  native vector index, so ANN behind `similar?()` is a matter of which backend you point at.
+  is sqlite's, not the port's: OpenSearch answers `similar` with Lucene HNSW, so ANN behind
+  `similar?()` is a matter of which backend you point at.
 
 So the FTS-first design is the right one on current evidence. What was wrong was how it was being
 called, not what it was calling.

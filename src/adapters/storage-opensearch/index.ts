@@ -1,9 +1,9 @@
 // storage-opensearch — the OpenSearch implementation of StoragePort (v5.4).
 //
-// The second remote backend, and the cheapest one to own: OpenSearch speaks REST, so this takes a
-// `fetchImpl` and adds **no dependency at all** — where neo4j needed
-// `neo4j-driver-lite` (3.8 MB) because Bolt is a binary protocol. Injectable fetch is also what makes
-// it fakeable, so a company without a spare cluster is not locked out of the tests.
+// The remote backend, and a cheap one to own: OpenSearch speaks REST, so this takes a `fetchImpl` and
+// adds **no dependency at all** — a backend speaking a binary protocol would have to ship a driver
+// with it. Injectable fetch is also what makes it fakeable, so a company without a spare cluster is
+// not locked out of the tests.
 //
 // Native BM25 and native k-NN, no native traversal: `neighbors` is a term query on from_id/to_id,
 // which is what sqlite does too (docs/BACKENDS.md capability matrix). The k-NN plugin ships inside
@@ -23,23 +23,22 @@
 //     versions only, in a total id order, through a cursor that cannot skip a row. `collapse` plus
 //     `search_after` can approximate that, but a `status` filter would then match ANY version rather
 //     than the one being returned. So `putEntity` sets `latest: true` and clears it on older versions
-//     of the same id — the same shape as neo4j stripping `txt` and sqlite's FTS delete+insert.
+//     of the same id — the same shape as sqlite's FTS delete+insert.
 //  3. **Prefix terms are required, exact terms are what score.** A `prefix` query is constant-score
 //     in Lucene, so a query built only from prefixes ranks every hit identically and "best match
-//     first" silently degrades to insertion order. This is the exact trap the neo4j adapter hit with
-//     wildcards. Required prefix clauses do the matching; optional `match` clauses do the ranking.
+//     first" silently degrades to insertion order — the same defect a wildcard-only query has, and
+//     easy to walk into. Required prefix clauses do the matching; optional `match` clauses rank.
 //     Prefix matching is not optional here: measured against a real server, `match: "재시도"` returns
 //     **0 hits** on text containing `재시도는`, because the standard analyzer keeps the particle
 //     attached. Same reason sqlite quotes-and-stars every token.
 //  4. **Vectors live in their own index, keyed by entity id.** Measured: with vectors on the entity
 //     documents, a k-NN search for one record returned it twice, once per version. Keying by id makes
 //     `putEmbedding` a derived-index write that creates no version and invalidates no citation
-//     (SPEC "The vector index"), which is the same reason sqlite has `entity_vec` and neo4j has
-//     `(:EntityVec)`.
+//     (SPEC "The vector index"), which is the same reason sqlite has `entity_vec`.
 //
-// ns is stored as "" for the default shared namespace, matching neo4j. A missing field and a
-// sentinel are different queries in OpenSearch too, and one sentinel across the adapters is one rule
-// to remember.
+// ns is stored as "" for the default shared namespace rather than left absent: a missing field and a
+// sentinel are different queries in OpenSearch, and `core/namespace.ts` already treats "" and null as
+// the same namespace, so the sentinel needs no translation on the way in.
 
 import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
@@ -215,7 +214,7 @@ export class OpenSearchStorage implements StoragePort {
     await this.ensureIndex(this.idx(RELATIONS), RELATION_MAPPING);
     await this.ensureIndex(this.idx(ONTOLOGY), ONTOLOGY_MAPPING);
     // VECTORS is created lazily: its mapping declares the dimension, which is not known until the
-    // first vector arrives. Same lazy shape as sqlite's vec0 table and neo4j's vector index.
+    // first vector arrives. Same lazy shape as sqlite's vec0 table.
   }
 
   close(): void {

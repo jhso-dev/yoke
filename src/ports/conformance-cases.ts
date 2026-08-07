@@ -1,7 +1,7 @@
 // StoragePort conformance cases — runner-neutral (plain node:assert, no vitest).
 // Consumers: the vitest wrapper in conformance.ts (sqlite and sharded), plus the
-// neo4j and opensearch suites, which import the cases directly so they can skip
-// themselves when no server is reachable.
+// opensearch suite, which imports the cases directly so it can skip itself when no
+// server is reachable.
 //
 // The cases are SELF-SCOPING — case-unique types, ns values and search tokens —
 // because a runner may share one database across all of them. Nothing does today,

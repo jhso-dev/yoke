@@ -1,10 +1,9 @@
 // storage-opensearch tests — against a REAL OpenSearch, skipped when none is reachable.
 //
-// No fake carries this suite, for the same reason neo4j has none at all: the behaviour under test is
-// the ENGINE's — BM25 ranking, prefix-term matching against an analyzer's output, k-NN ordering, and
-// near-real-time visibility. A fake would encode this adapter's own beliefs about all four and prove
-// none of them. The `fetchImpl` seam stays available for anyone who wants one; the suite deliberately
-// does not use it.
+// No fake carries this suite, because the behaviour under test is the ENGINE's — BM25 ranking,
+// prefix-term matching against an analyzer's output, k-NN ordering, and near-real-time visibility. A
+// fake would encode this adapter's own beliefs about all four and prove none of them. The `fetchImpl`
+// seam stays available for anyone who wants one; the suite deliberately does not use it.
 //
 //   docker run -d --name yoke-opensearch -p 9200:9200 \
 //     -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
@@ -12,8 +11,8 @@
 //     opensearchproject/opensearch:2
 //   YOKE_TEST_OPENSEARCH_URL=http://localhost:9200 npm test
 //
-// Like the neo4j suite, this ERASES the indices it points at (see the wipe below). Never point it at a
-// cluster holding anything you want — docs/BACKENDS.md says why that warning exists.
+// This ERASES the `yoketest_*` indices on the cluster it points at (see the wipe below). The prefix is
+// what keeps it off anything else, so never widen it — docs/BACKENDS.md says why that warning exists.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -119,9 +118,9 @@ suite("opensearch policies that are contract, not implementation", () => {
   });
 
   it("ranks by relevance, which needs the exact clause and not just the prefix one", async () => {
-    // Regression guard for the trap the neo4j adapter hit with wildcards: a `prefix` query is
-    // CONSTANT_SCORE in Lucene, so a query built only from prefixes ranks every hit identically and
-    // "best match first" silently degrades to whatever the tiebreak is.
+    // Regression guard for a trap that is easy to walk into: a `prefix` query is CONSTANT_SCORE in
+    // Lucene, so a query built only from prefixes ranks every hit identically and "best match first"
+    // silently degrades to whatever the tiebreak is.
     const prefix = "yoketest_rank_";
     await wipe(prefix);
     const store = make(prefix);
@@ -226,7 +225,7 @@ suite("opensearch policies that are contract, not implementation", () => {
   it("returns one vector hit per entity, not one per version", async () => {
     // Measured before the design was chosen: with vectors on the entity documents, a k-NN search
     // returned the same record once per version. Keying the vector index by entity id is what fixes
-    // it, and it is the same reason sqlite has `entity_vec` and neo4j has `(:EntityVec)`.
+    // it, and it is the same reason sqlite has `entity_vec`.
     const prefix = "yoketest_veckey_";
     await wipe(prefix);
     const store = make(prefix);
