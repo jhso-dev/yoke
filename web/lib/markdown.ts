@@ -13,7 +13,7 @@
 // So: headings, both list kinds, tables, and two inline marks. The four constructs with zero
 // occurrences are not implemented — an unused branch is a branch nobody has ever seen run.
 //
-// ponytail: no nesting, no fences, no links. A nested list renders as flat items and a fence renders
+// ceiling: no nesting, no fences, no links. A nested list renders as flat items and a fence renders
 // as paragraphs — degraded, never dropped, which is the property that matters when the input is
 // someone's knowledge. Add a construct when a corpus shows it, not before.
 

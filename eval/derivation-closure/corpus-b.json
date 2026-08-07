@@ -1,0 +1,588 @@
+{
+  "domain": "data platform",
+  "records": [
+    {
+      "key": "f1",
+      "type": "fact",
+      "statement": "Airflow 2.6 스케줄러가 단일 인스턴스로 돌고 있고, 새벽 2시-4시 사이 동시 실행 태스크가 400개를 넘으면 스케줄러 하트비트가 30초 이상 지연된다."
+    },
+    {
+      "key": "f2",
+      "type": "fact",
+      "statement": "warehouse는 BigQuery이고, 월 스캔 비용의 68%가 상위 12개 대시보드 쿼리에서 발생한다. 이들 대부분은 events_raw 전체를 파티션 필터 없이 읽는다."
+    },
+    {
+      "key": "f3",
+      "type": "fact",
+      "statement": "events_raw는 ingest_date로 일 파티션되어 있으나 클러스터링 키가 없고, 단일 파티션 평균 크기가 240GB다."
+    },
+    {
+      "key": "f4",
+      "type": "fact",
+      "statement": "결제 서비스가 Debezium CDC로 보내는 order 토픽에 스키마 레지스트리가 붙어 있지 않아, 프로듀서가 필드를 지워도 소비 측에서 배포 전에는 알 수 없다."
+    },
+    {
+      "key": "f5",
+      "type": "fact",
+      "statement": "2월 3일 order_summary 배치가 6시간 지연됐다. 원인은 결제팀이 discount_amount 컬럼 타입을 int에서 decimal로 바꿨고, 우리 파서가 조용히 null을 채운 것이다."
+    },
+    {
+      "key": "d1",
+      "type": "decision",
+      "conclusion": "order 토픽부터 시작해 CDC 토픽 전체에 Confluent Schema Registry를 도입하고, 프로듀서 측 호환성 모드를 BACKWARD로 강제한다.",
+      "rationale": "2월 3일 사고는 파서 버그가 아니라 계약 부재 문제다. 레지스트리가 없으니 프로듀서가 파괴적 변경을 배포하는 것을 아무도 막지 못한다. BACKWARD 모드면 필드 삭제와 타입 축소가 프로듀서 배포 시점에 거절된다.",
+      "derived_from": ["f4", "f5"]
+    },
+    {
+      "key": "f6",
+      "type": "fact",
+      "statement": "Schema Registry 도입 후 첫 3주간 프로듀서 배포가 7건 거절됐고, 그중 5건은 실제로 우리 파이프라인을 깨뜨렸을 변경이었다."
+    },
+    {
+      "key": "d2",
+      "type": "decision",
+      "conclusion": "events_raw에 user_id, event_name 복합 클러스터링을 적용하고, 상위 12개 대시보드 쿼리에 파티션 필터를 필수로 넣도록 리뷰 게이트를 만든다.",
+      "rationale": "파티션당 240GB인데 필터가 없으면 한 번 조회에 수십 TB가 스캔된다. 클러스터링만으로는 부족하고 파티션 필터 강제가 실제 비용을 줄인다. 두 가지를 같이 해야 의미 있는 절감이 나온다.",
+      "derived_from": ["f2", "f3"]
+    },
+    {
+      "key": "f7",
+      "type": "fact",
+      "statement": "d2 적용 후 월 BigQuery 스캔 비용이 4200만원에서 1850만원으로 떨어졌다. 절감의 대부분은 파티션 필터 강제에서 나왔고 클러스터링 기여는 15% 정도로 측정됐다."
+    },
+    {
+      "key": "f8",
+      "type": "fact",
+      "statement": "dbt 프로젝트에 모델이 340개 있고, 전체 full-refresh에 5시간 20분이 걸린다. 이 중 마케팅 어트리뷰션 모델 8개가 3시간을 차지한다."
+    },
+    {
+      "key": "f9",
+      "type": "fact",
+      "statement": "dbt 모델 340개 중 incremental 전략을 쓰는 것은 41개뿐이고, 나머지는 table materialization으로 매일 전체 재생성된다."
+    },
+    {
+      "key": "d3",
+      "type": "decision",
+      "conclusion": "일 증가량이 전체의 5% 미만인 팩트 테이블은 incremental로 전환한다. 우선 마케팅 어트리뷰션 8개 모델부터 착수한다.",
+      "rationale": "full-refresh 5시간 20분 중 3시간이 어트리뷰션 8개다. 여기만 incremental로 바꿔도 야간 윈도우가 크게 여유로워진다. 전체 340개를 한꺼번에 바꾸는 것은 백필 검증 비용이 감당 불가라 단계적으로 간다.",
+      "derived_from": ["f8", "f9"]
+    },
+    {
+      "key": "f10",
+      "type": "fact",
+      "statement": "어트리뷰션 모델을 incremental로 전환한 뒤, late-arriving 클릭 이벤트 때문에 3일치 lookback window가 필요하다는 것이 확인됐다. lookback 없이 돌렸을 때 전환 집계가 평균 2.7% 누락됐다."
+    },
+    {
+      "key": "f11",
+      "type": "fact",
+      "statement": "데이터 SLA 문서가 없고, 다운스트림 팀 4곳이 각자 다른 시각을 기대하고 있다. 재무팀은 오전 6시, 그로스팀은 오전 9시, CS팀은 정오를 기준으로 잡고 있다."
+    },
+    {
+      "key": "d4",
+      "type": "decision",
+      "conclusion": "테이블을 tier1/tier2/tier3로 분류하고 tier1만 오전 7시 freshness SLA를 명시적으로 보장한다. tier2는 정오, tier3는 best-effort로 둔다.",
+      "rationale": "모든 테이블에 오전 6시를 약속하면 야간 윈도우가 물리적으로 부족하다. 기대치가 팀마다 다르니 우리가 등급을 정해서 먼저 선언하는 것이 협상보다 빠르다. 재무팀 마감 요건만 tier1에 넣으면 실제 비즈니스 리스크는 덮인다.",
+      "derived_from": ["f11", "f8"]
+    },
+    {
+      "key": "f12",
+      "type": "fact",
+      "statement": "tier1으로 분류된 테이블은 19개이고, 그 의존 그래프의 리프까지 따라가면 실제로 오전 7시 전에 완료되어야 하는 dbt 모델은 63개다."
+    },
+    {
+      "key": "f13",
+      "type": "fact",
+      "statement": "Airflow DAG 중 34개가 다른 DAG의 완료를 ExternalTaskSensor로 poke 방식 대기하고 있고, 이 센서 태스크들이 워커 슬롯의 약 22%를 점유한다."
+    },
+    {
+      "key": "d5",
+      "type": "decision",
+      "conclusion": "ExternalTaskSensor를 모두 reschedule 모드로 바꾸고, 신규 크로스 DAG 의존은 Airflow Dataset 기반으로만 선언한다.",
+      "rationale": "poke 모드 센서가 워커 슬롯 22%를 놀면서 잡고 있다. 스케줄러가 이미 동시성 한계에서 하트비트 지연을 겪는 상황이라 슬롯 회수가 직접적인 완화책이다. Dataset은 센서 자체를 없애므로 신규분에는 그쪽이 맞다.",
+      "derived_from": ["f13", "f1"]
+    },
+    {
+      "key": "f14",
+      "type": "fact",
+      "statement": "reschedule 전환 후 워커 슬롯 점유가 22%에서 4%로 떨어졌고, 야간 피크 동시 실행 태스크가 400개 아래로 유지된다."
+    },
+    {
+      "key": "f15",
+      "type": "fact",
+      "statement": "3월 12일 events_raw 적재가 4시간 멈췄다. Kafka Connect S3 sink의 커밋 오프셋이 리밸런싱 중 유실되어 같은 파일이 중복 적재됐고, 우리는 이를 8시간 뒤에 대시보드 숫자 이상으로 알았다."
+    },
+    {
+      "key": "f16",
+      "type": "fact",
+      "statement": "적재 파이프라인에 행 수 기준 이상 감지가 전혀 없다. 유일한 모니터링은 Airflow 태스크 실패 알림이고, 데이터가 틀렸지만 태스크가 성공하는 경우는 잡히지 않는다."
+    },
+    {
+      "key": "d6",
+      "type": "decision",
+      "conclusion": "적재 직후 volume anomaly check를 필수 단계로 넣는다. 전일 동시간대 대비 행 수가 ±30% 밖이면 다운스트림을 차단하고 온콜을 호출한다.",
+      "rationale": "3월 12일 사고는 태스크가 성공했는데 데이터가 틀린 전형적인 케이스였고, 8시간 늦게 발견됐다. 실패 알림만으로는 구조적으로 잡을 수 없다. 임계값 30%는 지난 90일 일별 변동 분포의 p99에서 잡았다.",
+      "derived_from": ["f15", "f16"]
+    },
+    {
+      "key": "f17",
+      "type": "fact",
+      "statement": "volume anomaly check 도입 후 첫 달에 알림이 23건 발생했고, 그중 실제 사고는 3건, 프로모션이나 공휴일로 인한 정상 급변이 20건이었다."
+    },
+    {
+      "key": "d7",
+      "type": "decision",
+      "conclusion": "volume check의 임계값을 고정 ±30%에서 요일별 baseline 기반으로 바꾸고, 마케팅 캘린더에 등록된 프로모션 기간은 자동 예외 처리한다.",
+      "rationale": "오탐률 87%면 온콜이 알림을 무시하기 시작하고, 그러면 체크가 없는 것과 같다. 정상 급변 20건 대부분이 주말 패턴과 프로모션이었으니 두 요인만 모델에 넣어도 오탐이 크게 줄어든다.",
+      "derived_from": ["f17", "d6"]
+    },
+    {
+      "key": "f18",
+      "type": "fact",
+      "statement": "요일별 baseline 전환 후 월 알림이 23건에서 6건으로, 오탐이 20건에서 3건으로 줄었다. 실제 사고 3건은 모두 계속 잡혔다."
+    },
+    {
+      "key": "f19",
+      "type": "fact",
+      "statement": "BigQuery on-demand 요금으로 쓰고 있고, 월 스캔량이 1850만원 수준에서 안정화됐다. 500슬롯 연간 약정으로 바꾸면 월 고정비가 약 1400만원이다."
+    },
+    {
+      "key": "f20",
+      "type": "fact",
+      "statement": "쿼리 부하가 오전 8시-10시와 오후 2시-4시에 집중되고, 그 시간대 순간 슬롯 사용량이 1200슬롯을 넘는다. 나머지 시간은 200슬롯 아래다."
+    },
+    {
+      "key": "d8",
+      "type": "decision",
+      "conclusion": "on-demand를 유지하고 slot reservation으로 전환하지 않는다. 대신 예약 검토는 월 스캔 비용이 3000만원을 넘거나 부하 곡선이 평탄해지면 다시 한다.",
+      "rationale": "500슬롯 약정은 명목상 싸지만 피크에 1200슬롯을 쓰는 부하에서는 대시보드 지연이 발생하고, 피크를 커버하려면 약정 규모가 커져서 이득이 사라진다. 부하가 뾰족한 동안은 on-demand가 맞다.",
+      "derived_from": ["f19", "f20"]
+    },
+    {
+      "key": "f21",
+      "type": "fact",
+      "statement": "데이터 계약을 Schema Registry로만 관리하다 보니 의미 수준 계약, 즉 컬럼 nullable 여부나 허용 enum 값 같은 것은 여전히 문서에도 코드에도 없다."
+    },
+    {
+      "key": "d9",
+      "type": "decision",
+      "conclusion": "Avro 스키마에 담기지 않는 의미 계약은 dbt contract와 not_null, accepted_values 테스트로 warehouse 진입점에서 검증한다. 프로듀서에게 추가 도구를 요구하지 않는다.",
+      "rationale": "레지스트리는 구조 호환성까지만 막아주고 값의 의미는 못 막는다. 프로듀서 팀에 새 계약 도구를 또 도입하라고 하면 채택이 안 되므로, 우리 쪽 진입점에서 잡는 것이 현실적이다.",
+      "derived_from": ["f21", "d1"]
+    },
+    {
+      "key": "f22",
+      "type": "fact",
+      "statement": "dbt contract를 tier1 19개 테이블에 적용했더니, 기존 데이터에서 not_null을 위반하는 컬럼이 11개 발견됐고 그중 4개는 다운스트림이 이미 잘못된 집계를 내고 있었다."
+    },
+    {
+      "key": "f23",
+      "type": "fact",
+      "statement": "user_profile 테이블은 운영 MySQL을 하루 한 번 전체 덤프해서 덮어쓰는 방식이고, 덤프 시간이 45분이며 그 동안 소스 DB의 replica lag가 최대 12분까지 벌어진다."
+    },
+    {
+      "key": "f24",
+      "type": "fact",
+      "statement": "user_profile은 tier1이고 하루 변경 행이 전체 2400만 행의 0.3% 수준이다."
+    },
+    {
+      "key": "d10",
+      "type": "decision",
+      "conclusion": "user_profile을 전체 덤프에서 Debezium CDC 기반 증분 병합으로 전환한다.",
+      "rationale": "일 변경률이 0.3%인 테이블을 매일 2400만 행 전체 덤프하는 것은 replica lag까지 유발하며 낭비다. CDC는 이미 order 토픽으로 운영 경험이 있고 레지스트리도 붙어 있어 추가 인프라가 필요 없다.",
+      "derived_from": ["f23", "f24", "d1"]
+    },
+    {
+      "key": "f25",
+      "type": "fact",
+      "statement": "user_profile CDC 전환 후 소스 DB replica lag 피크가 12분에서 40초로 줄었고, warehouse 반영 지연은 하루에서 3분으로 줄었다."
+    },
+    {
+      "key": "f26",
+      "type": "fact",
+      "statement": "CDC 증분 병합에서 hard delete는 tombstone 이벤트로만 알 수 있고, 우리 MERGE 문이 초기 구현에서 tombstone을 무시해 삭제된 유저 1만 2천 건이 warehouse에 남아 있었다."
+    },
+    {
+      "key": "d11",
+      "type": "decision",
+      "conclusion": "CDC 대상 테이블의 MERGE는 tombstone을 명시적으로 DELETE로 처리하고, 주 1회 소스와 행 수 및 PK 해시 대조 검증을 돌린다.",
+      "rationale": "tombstone 누락은 조용히 틀리는 종류의 버그라 코드 리뷰로 잡히지 않았다. 증분 방식으로 가는 대가로 정합성 검증을 정기적으로 붙여야 한다.",
+      "derived_from": ["f26", "d10"]
+    },
+    {
+      "key": "f27",
+      "type": "fact",
+      "statement": "주간 PK 해시 대조에서 order 테이블도 소스와 3200건 차이가 나는 것이 발견됐다. 원인은 Debezium snapshot 중 발생한 변경이 일부 누락된 것이었다."
+    },
+    {
+      "key": "f28",
+      "type": "fact",
+      "statement": "Airflow를 2.6에서 2.9로 올린 뒤 스케줄러를 2 replica로 띄웠고, 하트비트 지연이 피크에도 5초 아래로 유지된다."
+    },
+    {
+      "key": "f29",
+      "type": "fact",
+      "statement": "GDPR 삭제 요청 처리 시 events_raw에서 특정 user_id를 지우려면 파티션 전체를 재작성해야 하고, 90일치를 훑는 데 4시간과 약 60만원의 스캔 비용이 든다."
+    },
+    {
+      "key": "d12",
+      "type": "decision",
+      "conclusion": "삭제 요청은 즉시 처리하지 않고 주 1회 배치로 모아 처리한다. 요청 접수 후 최대 7일 내 삭제를 정책으로 선언한다.",
+      "rationale": "요청 하나마다 4시간과 60만원이 드는 구조에서 즉시 처리는 비용이 선형으로 폭증한다. 법적 요건은 30일 이내이므로 7일 배치로도 충분히 안전하다.",
+      "derived_from": ["f29"]
+    },
+    {
+      "key": "f30",
+      "type": "fact",
+      "statement": "events_raw 파티션 만료를 설정하지 않아 3년치 데이터가 쌓여 있고, 스토리지 비용이 월 900만원이다. 실제 쿼리의 94%는 최근 90일만 본다."
+    },
+    {
+      "key": "d13",
+      "type": "decision",
+      "conclusion": "events_raw는 400일 파티션 만료를 걸고, 그 이전 데이터는 Parquet으로 GCS Coldline에 아카이브한다. 아카이브는 external table로만 조회 가능하게 한다.",
+      "rationale": "쿼리 94%가 90일 내인데 3년을 hot에 두는 것은 낭비다. 다만 연간 비교 분석 요구가 있어 90일이 아니라 400일로 잡았다. 아카이브를 external table로 두면 접근은 가능하되 느려서 자연스럽게 억제된다.",
+      "derived_from": ["f30", "f2"]
+    },
+    {
+      "key": "f31",
+      "type": "fact",
+      "statement": "GCS Coldline 아카이브 후 warehouse 스토리지 비용이 월 900만원에서 240만원으로 줄었고, 아카이브 external table 조회는 월 2-3건 발생한다."
+    },
+    {
+      "key": "f32",
+      "type": "fact",
+      "statement": "dbt 모델의 43%가 테스트를 하나도 갖고 있지 않고, 테스트가 있는 모델도 대부분 unique와 not_null 두 개만 있다."
+    },
+    {
+      "key": "d14",
+      "type": "decision",
+      "conclusion": "테스트 커버리지를 모델 수 기준으로 올리지 않고 tier1 계보에 포함된 63개 모델에만 집중해서 관계 무결성과 값 범위 테스트를 채운다.",
+      "rationale": "340개 전체에 테스트를 붙이는 것은 리뷰 부담만 늘고 정작 중요한 것을 못 지킨다. SLA를 보장한 tier1 계보가 깨지는 것이 유일하게 진짜 사고다.",
+      "derived_from": ["f32", "f12", "d4"]
+    },
+    {
+      "key": "f33",
+      "type": "fact",
+      "statement": "tier1 계보 63개 모델에 테스트를 채우는 데 3주가 걸렸고, 그 과정에서 조인 키 중복으로 인한 fan-out 버그 2건을 발견해 수정했다."
+    },
+    {
+      "key": "f34",
+      "type": "fact",
+      "statement": "4월 22일 배포에서 dbt incremental 모델의 unique_key 오타로 order_fact에 중복 행이 3일간 쌓였고, 재무 리포트 매출이 실제보다 8% 높게 나갔다."
+    },
+    {
+      "key": "f35",
+      "type": "fact",
+      "statement": "dbt CI는 변경된 모델만 빌드하고 다운스트림은 검증하지 않는다. 4월 22일 오타는 CI를 통과했다."
+    },
+    {
+      "key": "d15",
+      "type": "decision",
+      "conclusion": "dbt CI에 state:modified+ 로 다운스트림까지 빌드하고, tier1 계보에 닿는 PR은 프로덕션 데이터 샘플로 행 수 대조를 추가로 돌린다.",
+      "rationale": "변경된 모델만 빌드하는 CI는 4월 22일 케이스를 구조적으로 잡을 수 없다. 전체 빌드는 CI 시간이 감당 안 되니 tier1 계보에 닿을 때만 무거운 검증을 붙이는 것이 균형점이다.",
+      "derived_from": ["f34", "f35", "d4"]
+    },
+    {
+      "key": "f36",
+      "type": "fact",
+      "statement": "state:modified+ 도입 후 tier1 PR의 CI 시간이 평균 6분에서 24분으로 늘었고, 개발자 불만이 나왔지만 2개월간 중복 행 사고는 재발하지 않았다."
+    },
+    {
+      "key": "f37",
+      "type": "fact",
+      "statement": "온콜 로테이션이 4명이고, 지난 3개월 야간 호출 41건 중 28건이 upstream 소스 시스템 지연으로 우리가 할 수 있는 조치가 없는 건이었다."
+    },
+    {
+      "key": "d16",
+      "type": "decision",
+      "conclusion": "upstream 지연으로 tier2, tier3 테이블이 늦는 경우는 야간 호출하지 않고 아침에 처리한다. tier1만 야간 페이지를 유지한다.",
+      "rationale": "조치할 수 없는 호출이 68%면 온콜이 소진된다. tier 등급을 이미 선언했으니 페이지 정책도 그 등급을 따라야 일관된다.",
+      "derived_from": ["f37", "d4"]
+    },
+    {
+      "key": "f38",
+      "type": "fact",
+      "statement": "야간 호출이 월 14건에서 4건으로 줄었고, tier2 지연이 아침에 처리되어 실제 다운스트림 컴플레인이 발생한 것은 2건이었다."
+    },
+    {
+      "key": "f39",
+      "type": "fact",
+      "statement": "Kafka 클러스터가 3 broker이고 order 토픽 파티션이 6개다. 결제 트래픽 성장으로 피크 시 consumer lag이 40만 건까지 쌓인다."
+    },
+    {
+      "key": "d17",
+      "type": "decision",
+      "conclusion": "order 토픽 파티션을 6에서 24로 늘리고 consumer를 4 인스턴스로 확장한다. broker는 늘리지 않는다.",
+      "rationale": "lag의 원인은 broker I/O가 아니라 consumer 병렬도 부족이다. 파티션을 늘리면 순서 보장 단위가 좁아지지만 order는 order_id 키 기준 파티셔닝이라 키 내 순서는 유지된다.",
+      "derived_from": ["f39"]
+    },
+    {
+      "key": "f40",
+      "type": "fact",
+      "statement": "파티션 확장 후 피크 consumer lag이 40만 건에서 2만 건으로 줄었다."
+    },
+    {
+      "key": "f41",
+      "type": "fact",
+      "statement": "데이터 카탈로그가 없어서 다운스트림 팀이 컬럼 의미를 물어보는 슬랙 질문이 주당 평균 11건 들어온다. 같은 질문이 반복되는 비율이 절반 정도다."
+    },
+    {
+      "key": "d18",
+      "type": "decision",
+      "conclusion": "별도 카탈로그 도구를 도입하지 않고 dbt docs를 사내에 호스팅한다. description 작성은 tier1 계보 63개 모델에 대해 필수로 한다.",
+      "rationale": "DataHub나 OpenMetadata는 운영 부담이 크고 우리 팀 규모에 맞지 않는다. dbt에 이미 메타데이터가 있으니 그것을 노출하는 것이 가장 싸다. 범위는 테스트와 같은 기준으로 맞춘다.",
+      "derived_from": ["f41", "d14"]
+    },
+    {
+      "key": "f42",
+      "type": "fact",
+      "statement": "dbt docs 호스팅 후 슬랙 질문이 주 11건에서 6건으로 줄었다. 남은 질문은 대부분 description으로 답할 수 없는 비즈니스 로직 질문이었다."
+    },
+    {
+      "key": "f43",
+      "type": "fact",
+      "statement": "batch orchestration이 Airflow에 있고 스트리밍은 Flink에 있는데, 두 시스템 사이에 공통 lineage가 없어 사고 시 영향 범위 파악이 수동이다."
+    },
+    {
+      "key": "f44",
+      "type": "fact",
+      "statement": "5월 8일 events_raw 스키마에 새 필드가 추가됐을 때, 그것을 읽는 Flink job 3개 중 2개가 알 수 없는 필드로 실패했다. Airflow 쪽은 영향이 없었다."
+    },
+    {
+      "key": "d19",
+      "type": "decision",
+      "conclusion": "Flink job의 역직렬화를 관용 모드로 바꿔 알 수 없는 필드를 무시하게 한다. 통합 lineage 도구 도입은 이번 분기에는 하지 않는다.",
+      "rationale": "5월 8일 사고의 직접 원인은 lineage 부재가 아니라 엄격한 역직렬화다. 역직렬화만 고치면 같은 사고가 재발하지 않고, lineage는 사고 대응 속도 문제라 우선순위가 낮다.",
+      "derived_from": ["f44", "f43"]
+    },
+    {
+      "key": "f45",
+      "type": "fact",
+      "statement": "Flink 관용 역직렬화 전환 후 events_raw에 필드가 4번 추가됐고 실패는 없었다."
+    },
+    {
+      "key": "f46",
+      "type": "fact",
+      "statement": "백필 작업이 프로덕션 dbt와 같은 BigQuery 프로젝트에서 돌아서, 4월 대규모 백필 중 오전 피크 대시보드 쿼리가 최대 90초까지 지연됐다."
+    },
+    {
+      "key": "d20",
+      "type": "decision",
+      "conclusion": "백필은 별도 GCP 프로젝트에서 실행하고 오전 8시-10시, 오후 2시-4시에는 스케줄을 금지한다.",
+      "rationale": "부하 피크 시간대가 명확히 분리되어 있으니 시간대 회피만으로도 충돌 대부분이 사라진다. 프로젝트 분리는 비용 귀속도 명확하게 해준다.",
+      "derived_from": ["f46", "f20"]
+    },
+    {
+      "key": "f47",
+      "type": "fact",
+      "statement": "프로듀서 팀 3곳 중 2곳이 Schema Registry 호환성 검사를 CI에 넣었고, 남은 1곳(검색팀)은 배포 시점에만 확인해서 롤백이 2번 발생했다."
+    },
+    {
+      "key": "f48",
+      "type": "fact",
+      "statement": "tier1 19개 테이블의 오전 7시 SLA 달성률이 지난 60일간 96.7%다. 미달 5건 중 4건이 upstream 소스 지연이고 1건이 우리 배포 실수였다."
+    },
+    {
+      "key": "d21",
+      "type": "decision",
+      "conclusion": "SLA를 99%로 올리지 않고 96.7% 수준을 공식 목표로 명문화한다. 대신 미달 시 다운스트림에 자동 공지를 보낸다.",
+      "rationale": "미달의 80%가 우리 통제 밖의 upstream 지연이라 우리 노력으로 99%를 만들 수 없다. 지킬 수 없는 숫자를 약속하는 것보다 미달을 빨리 알리는 것이 다운스트림에 더 유용하다.",
+      "derived_from": ["f48", "d4"]
+    },
+    {
+      "key": "f49",
+      "type": "fact",
+      "statement": "SLA 미달 자동 공지 도입 후 재무팀이 마감 일정을 조정할 수 있게 되어, 미달로 인한 에스컬레이션이 3건에서 0건으로 줄었다."
+    },
+    {
+      "key": "f50",
+      "type": "fact",
+      "statement": "월 warehouse 총비용은 컴퓨트 1850만원, 스토리지 240만원으로 안정화됐다. 6개월 전 대비 55% 감소다."
+    },
+    {
+      "key": "f51",
+      "type": "fact",
+      "statement": "dbt full-refresh 시간이 5시간 20분에서 2시간 10분으로 줄었고, 야간 윈도우에 3시간 여유가 생겼다."
+    },
+    {
+      "key": "d22",
+      "type": "decision",
+      "conclusion": "확보한 야간 윈도우 여유 3시간을 새 파이프라인 추가가 아니라 tier1 계보의 재실행 버퍼로 남긴다.",
+      "rationale": "SLA 미달의 상당 부분이 upstream 지연이었고, 재실행 여유가 없으면 한 번 늦으면 그대로 미달이다. 윈도우를 새 작업으로 다시 채우면 6개월 전 상태로 돌아간다.",
+      "derived_from": ["f51", "f48", "d21"]
+    },
+    {
+      "key": "f52",
+      "type": "fact",
+      "statement": "Airflow DAG 수가 6개월간 112개에서 148개로 늘었고, 이 중 27개는 3개월 이상 다운스트림 조회가 전혀 없는 테이블을 생성하고 있다."
+    },
+    {
+      "key": "d23",
+      "type": "decision",
+      "conclusion": "조회 로그 기준 90일간 접근이 없는 테이블은 소유팀에 통보 후 30일 뒤 DAG와 함께 삭제한다.",
+      "rationale": "148개 DAG 중 27개가 아무도 안 보는 테이블을 만들고 있고, 이것들이 스케줄러 부하와 온콜 알림에 그대로 기여한다. 조회 로그가 있으니 판단을 사람 의견이 아니라 데이터로 할 수 있다.",
+      "derived_from": ["f52"]
+    },
+    {
+      "key": "f53",
+      "type": "fact",
+      "statement": "삭제 통보 27건 중 소유팀이 유지를 요청한 것은 4건이었고, 그중 2건은 분기 리포트에만 쓰이는 케이스였다."
+    }
+  ],
+  "events": [
+    {
+      "deprecate": "f2",
+      "why": "대시보드 툴을 Looker에서 Metabase로 옮기면서 쿼리 형태가 완전히 바뀌었고, 이제 비용 상위는 소수의 대시보드가 아니라 수백 개의 애드혹 탐색 쿼리에 넓게 퍼져 있다.",
+      "reexamine": [
+        {
+          "key": "d2",
+          "verdict": "survives",
+          "why": "상위 12개 쿼리라는 전제는 사라졌지만 클러스터링과 파티션 필터 강제 자체는 파티션 240GB라는 물리적 사실(f3)에서 정당화되고, 애드혹 쿼리가 많아진 지금 파티션 필터 강제는 오히려 더 중요해졌다."
+        },
+        {
+          "key": "f7",
+          "verdict": "survives",
+          "why": "이미 관측된 절감 실적이고 측정 시점의 사실로 유효하다. 다만 향후 절감 추정의 근거로 재사용할 때는 새 쿼리 프로필을 다시 봐야 한다."
+        },
+        {
+          "key": "d13",
+          "verdict": "survives",
+          "why": "아카이브 결정의 실제 근거는 쿼리 94%가 90일 내라는 f30이다. f2는 비용 압박의 맥락으로 인용됐을 뿐이고 결론은 그대로 성립한다."
+        },
+        {
+          "key": "d2",
+          "verdict": "survives",
+          "why": "중복 항목이 아니라 리뷰 게이트 범위 재정의가 필요하다는 점을 별도로 남긴다. 상위 12개 쿼리 목록에 게이트를 걸던 운영 방식은 애드혹 중심 환경에서 무의미해져 게이트 대상을 재정의해야 한다."
+        }
+      ]
+    },
+    {
+      "deprecate": "d4",
+      "why": "전사 데이터 거버넌스 위원회가 도메인 기반 소유권 모델을 도입하면서 우리 팀이 만든 tier1/2/3 분류를 폐기하고, SLA를 도메인 소유팀이 각자 선언하도록 정책을 바꿨다.",
+      "reexamine": [
+        {
+          "key": "f12",
+          "verdict": "invalidated",
+          "why": "tier1 19개라는 집합 자체가 더 이상 존재하지 않으므로 그 계보 63개 모델이라는 숫자도 정의되지 않는다. 새 도메인 경계 기준으로 다시 계산해야 한다."
+        },
+        {
+          "key": "d14",
+          "verdict": "invalidated",
+          "why": "테스트를 채울 범위를 tier1 계보 63개로 정의한 것이 근거를 잃었다. 테스트를 중요한 곳에 집중한다는 원칙은 유효하지만 범위를 도메인 기준으로 재정의해야 하므로 다시 써야 한다."
+        },
+        {
+          "key": "d15",
+          "verdict": "invalidated",
+          "why": "무거운 CI 검증을 트리거하는 조건이 tier1 계보에 닿는지 여부인데 그 판정 기준이 사라졌다. state:modified+ 부분은 살아남지만 조건부 검증 규칙은 재작성 대상이다."
+        },
+        {
+          "key": "d16",
+          "verdict": "invalidated",
+          "why": "야간 페이지 정책이 tier 등급에 직접 매달려 있었다. 등급이 없어지면 어떤 지연에 페이지할지 판단 기준이 사라져 온콜 정책을 즉시 다시 정해야 한다. 이것은 안전 문제라 방치할 수 없다."
+        },
+        {
+          "key": "d21",
+          "verdict": "invalidated",
+          "why": "tier1 19개 테이블의 오전 7시 SLA라는 대상이 사라졌으므로 96.7%를 무엇에 대한 목표로 명문화하는지가 불명확해졌다. 도메인별 SLA 체계에서 다시 선언해야 한다."
+        },
+        {
+          "key": "d18",
+          "verdict": "survives",
+          "why": "dbt docs를 쓴다는 결론은 도구 선택 판단(운영 부담, 팀 규모)에서 나온 것이고 tier 분류와 무관하게 성립한다. description 필수 범위만 새 기준으로 갈아끼우면 된다."
+        },
+        {
+          "key": "d10",
+          "verdict": "survives",
+          "why": "user_profile을 CDC로 바꾼 진짜 이유는 일 변경률 0.3%와 replica lag이다. tier1이라는 라벨은 우선순위 맥락일 뿐 결론을 지지하지 않는다."
+        },
+        {
+          "key": "d22",
+          "verdict": "survives",
+          "why": "야간 윈도우 여유를 재실행 버퍼로 남긴다는 결론은 upstream 지연이 존재한다는 사실만 필요하고 tier 체계와 무관하게 옳다."
+        },
+        {
+          "key": "f48",
+          "verdict": "invalidated",
+          "why": "측정 대상이 tier1 19개 테이블의 오전 7시 SLA로 정의된 지표라 새 체계에서는 해석할 수 없다. 지금 이 숫자를 인용하면 존재하지 않는 약속의 달성률을 말하게 된다."
+        },
+        {
+          "key": "f33",
+          "verdict": "survives",
+          "why": "발견한 fan-out 버그 2건과 3주 소요는 실제 일어난 일이다. 범위 정의가 바뀌어도 관측 사실로는 유효하다."
+        }
+      ]
+    },
+    {
+      "deprecate": "d19",
+      "why": "Flink를 걷어내고 스트리밍 처리를 전부 BigQuery 연속 쿼리와 Kafka Connect 싱크로 옮겼다. Flink 역직렬화 설정이라는 대상 자체가 없어졌다.",
+      "reexamine": [
+        {
+          "key": "f45",
+          "verdict": "invalidated",
+          "why": "Flink 관용 역직렬화 전환 후 실패 없음이라는 관측은 존재하지 않는 시스템에 대한 진술이 됐다. 새 싱크 경로가 스키마 추가에 어떻게 반응하는지는 다시 확인되지 않았고, 이 기록을 그대로 두면 안전하다고 오해할 수 있다."
+        },
+        {
+          "key": "f43",
+          "verdict": "invalidated",
+          "why": "batch는 Airflow, 스트리밍은 Flink라는 시스템 구성 서술이 더 이상 사실이 아니다. lineage 공백 자체는 남아 있을 수 있으나 문장을 다시 써야 한다."
+        },
+        {
+          "key": "f44",
+          "verdict": "survives",
+          "why": "5월 8일에 실제 일어난 사고 기록이고, 스키마 추가가 소비자를 깨뜨린 사례로서의 교훈은 시스템이 바뀌어도 유효하다."
+        },
+        {
+          "key": "d9",
+          "verdict": "survives",
+          "why": "warehouse 진입점에서 의미 계약을 검증한다는 결론은 Flink 존재와 무관하다. 오히려 스트리밍 소비자가 warehouse 쪽으로 모인 지금 더 잘 맞는다."
+        }
+      ]
+    },
+    {
+      "deprecate": "f30",
+      "why": "리텐션 분석 팀이 신규로 들어오면서 2년치 코호트 조회가 상시 업무가 됐다. 쿼리의 94%가 최근 90일만 본다는 측정은 이제 사실이 아니고 장기 조회 비중이 20%대로 올라왔다.",
+      "reexamine": [
+        {
+          "key": "d13",
+          "verdict": "invalidated",
+          "why": "400일 만료와 Coldline 아카이브를 external table로만 접근하게 한 설계는 장기 조회가 드물다는 전제에 전적으로 기댄다. 2년치 코호트 조회가 상시라면 external table 경로는 성능과 비용 모두에서 견딜 수 없고 리텐션 정책을 다시 설계해야 한다."
+        },
+        {
+          "key": "f31",
+          "verdict": "survives",
+          "why": "당시 관측된 절감액과 조회 건수는 사실이다. 다만 월 2-3건이라는 아카이브 조회 빈도는 이미 과거 수치이므로 현재 상태로 인용하면 안 된다."
+        },
+        {
+          "key": "f50",
+          "verdict": "invalidated",
+          "why": "스토리지 240만원은 400일 만료와 아카이브 정책이 유지된다는 가정 위의 숫자다. 리텐션을 되돌리면 이 비용 구조와 55% 감소라는 결론이 모두 바뀐다."
+        },
+        {
+          "key": "d12",
+          "verdict": "survives",
+          "why": "GDPR 삭제를 주 1회 배치로 모으는 결정은 파티션 재작성 비용(f29)에서 나온다. 보관 기간이 길어지면 훑을 파티션이 늘어 비용 계산은 커지지만 배치로 모으는 결론은 오히려 더 강해진다."
+        },
+        {
+          "key": "f29",
+          "verdict": "survives",
+          "why": "90일치를 훑는 데 4시간이라는 측정은 그대로지만, 보관 기간이 늘면 삭제 대상 범위가 커지므로 실제 소요는 재측정이 필요하다."
+        }
+      ]
+    },
+    {
+      "deprecate": "f39",
+      "why": "Kafka를 자체 운영에서 Confluent Cloud로 이관했다. broker 3대라는 구성과 그 위에서 측정한 consumer lag 수치는 더 이상 우리 인프라를 설명하지 않는다.",
+      "reexamine": [
+        {
+          "key": "d17",
+          "verdict": "survives",
+          "why": "파티션 24개와 consumer 4 인스턴스라는 구성은 이관 후에도 그대로 유지됐고, order_id 키 파티셔닝으로 순서를 보장한다는 논리도 그대로다. broker를 늘리지 않는다는 부분만 매니지드 환경에서 무의미해졌다."
+        },
+        {
+          "key": "f40",
+          "verdict": "survives",
+          "why": "파티션 확장이 lag을 줄였다는 인과는 유효하다. 절대 수치는 이관 전 자체 운영 클러스터 기준이므로 현재 성능 기준선으로 쓰면 안 된다."
+        }
+      ]
+    }
+  ]
+}

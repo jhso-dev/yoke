@@ -518,10 +518,14 @@ Checked by killing it: that is the failure message.
       `/api/verify` had five. Which is how a response-shape change could have shipped unnoticed, and is
       its own finding: the untested route was the one performing the destructive half of the lifecycle
 
-Left standing deliberately: **one hop, not the transitive closure** — a
-dependent's own dependents surface when it is retired in turn, so the walk is iterative by construction.
-And nothing yet **prompts** an agent to cite a basis beyond the tool description; whether agents
-actually populate `derived_from` is the measurement that decides if any of this earns its keep.
+Left standing deliberately: **one hop, not the transitive closure — and that is now measured, not
+provisional** (`eval/derivation-closure`, 2026-08-07). Three blind-generated team corpora, 15
+deprecation events, semantic ground truth: zero truly-invalidated records at graph distance ≥ 2, so
+the closure would have raised invalidated-recall by exactly nothing while adding the only noise in
+the experiment. The binding constraint is **citation coverage** — 52% of genuinely-affected records
+had no `derived_from` path at all — which no walk depth fixes. Agents do populate the field when
+handed the tool (measured 3/3, one session earlier), so coverage grows with use; re-run the harness
+against a real corpus once one has history worth labeling.
 
 ## v5.9 — the supported set, and configuration
 

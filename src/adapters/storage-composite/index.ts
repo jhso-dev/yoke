@@ -19,7 +19,7 @@
 // remote — a shared graph with per-client schemas means two people validating against different
 // schemas — and it has to be sync because 28 call sites read it inside synchronous code.
 //
-// ponytail: that cache is read once per init(). The CLI opens/inits/closes per command so every
+// ceiling: that cache is read once per init(). The CLI opens/inits/closes per command so every
 // invocation is fresh; a long-running `yoke ui`/`serve` will not see an ontology another client
 // changed. Add invalidation when it bites, not before.
 //

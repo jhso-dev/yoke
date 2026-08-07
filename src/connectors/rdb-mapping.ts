@@ -99,7 +99,7 @@ export async function ingestMapped(
   });
 
   // Query each table once; reused by both passes.
-  // ponytail: `SELECT *` over an operator-supplied table name. The mapping file is trusted operator
+  // ceiling: `SELECT *` over an operator-supplied table name. The mapping file is trusted operator
   // config (not end-user input), so raw identifier interpolation is acceptable here; add quoting/allowlist
   // if the mapping ever becomes user-facing.
   const tables = await Promise.all(

@@ -1733,7 +1733,7 @@ export async function runCli(
  *     suite ERASES, and it has erased a real corpus once (docs/BACKENDS.md). One line written and
  *     forgotten should not be able to wipe a database on `npm test`.
  *
- * ponytail: the working directory's `.env`, and that is all. `node --env-file=<path>` already covers
+ * ceiling: the working directory's `.env`, and that is all. `node --env-file=<path>` already covers
  * pointing somewhere else, so a flag of ours would be a second way to say the same thing.
  */
 export function loadDotEnv(file = ".env"): boolean {

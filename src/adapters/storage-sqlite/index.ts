@@ -409,7 +409,7 @@ export class SqliteStorage implements StoragePort {
     // rowid order — insertion order — so `limit` meant "the oldest N matches". Measured at 1M rows,
     // the top 50 by insertion order and the top 50 by bm25 shared ONE record (docs/SCALE.md).
     //
-    // ponytail: ranking costs O(matches), because FTS5 has no top-k early termination (no block-max
+    // ceiling: ranking costs O(matches), because FTS5 has no top-k early termination (no block-max
     // WAND) — it must score every match to know the best 50. Measured at 10M entities: 3.2 s for a
     // term in EVERY document, 3.2 ms at 1% selectivity, 0.1 ms at 0.01%. So the cost is confined to
     // terms so common that ranking on them is nearly meaningless. Upgrade path if a corpus ever

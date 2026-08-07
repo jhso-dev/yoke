@@ -128,7 +128,7 @@ WEB-UI.md — on conflict, those win.
 - `yoke serve --replica-of <path|url>`: serves reads from a local snapshot
   refreshed by interval `.backup()` pull; writes rejected with a clear error
   pointing at the primary. Injection is read-dominant, so this covers the real
-  load pattern. ponytail: interval-pull snapshot replica; move to WAL shipping
+  load pattern. ceiling: interval-pull snapshot replica; move to WAL shipping
   if staleness SLO ever demands it.
 - Sharding: `--shards <config.json>` (v3.6), at the tenant boundary and
   entirely behind the storage port — see 12.1 below and ENTERPRISE.md.

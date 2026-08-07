@@ -115,7 +115,7 @@ Two methods became async because they touch remote rows — **`renameType`** (it
 and **`saveOntology`** (a synchronous fire-and-forget would discard the error). `loadOntology` stays
 synchronous, served from a cache the async `init()` fills.
 
-> ponytail: that cache is read once per `init()`. The CLI opens, inits and closes per command so every
+> ceiling: that cache is read once per `init()`. The CLI opens, inits and closes per command so every
 > invocation is fresh, but a long-running `yoke ui`/`serve` will not see an ontology another client
 > changed. Add invalidation when that actually bites, not before.
 
@@ -280,7 +280,7 @@ filter is the caller's and still runs after, so front adapters over-fetch — se
    backend expresses natively, so one rule survives the conformance suite. FTS5 has no
    minimum-should-match, and a `k`-of-`n` rule there is either a combinatorial expansion of every
    `k`-subset or a post-filter over an OR — the second re-creates "asked for 50, received 29" that
-   clause 6's filter-before-limit exists to prevent. *ponytail: fixed threshold, promote to a
+   clause 6's filter-before-limit exists to prevent. *ceiling: fixed threshold, promote to a
    percentage rule if a measured corpus shows the top-k polluted by one-term matches.*
 
    **`terms: "all"` opts back into the conjunction at any length**, for callers performing a lookup
@@ -340,7 +340,7 @@ and the missing half is indistinguishable from knowledge the person never record
   people; deciding when a handle deserves one is a policy this document does not yet have, and
   `same_as` is the mechanism that policy would resolve *through* once it exists.
 - **No canonical record is elected.** Nothing rewrites an alias's name to the canonical one on a
-  screen, because an alias's own `name` is also a true name for that person. *ponytail: add election
+  screen, because an alias's own `name` is also a true name for that person. *ceiling: add election
   (no outgoing `same_as`, ties by lowest id) when a surface actually shows one person twice.*
 
 **Migration.** `same_as` is a seed type, and the seed applies to new databases only. An existing
@@ -479,7 +479,7 @@ every injection was keyword-only no matter how the embedder was configured. Clos
   clause 8 was gaining 43 on the keyword-only path. The weight applies to RANKS, so the objection above
   is untouched: still no arithmetic on incomparable scores.
   The value was swept, not chosen, and 0.05–0.2 are indistinguishable on accuracy@1 — a plateau is what
-  makes a tuned constant defensible at all. *ponytail: one corpus, one language, one model. A floor for
+  makes a tuned constant defensible at all. *ceiling: one corpus, one language, one model. A floor for
   the weaker half, not an optimum; if two corpora disagree the answer is a per-deployment setting, not
   a better number in `core/inject.ts`.*
 - **`null` from the embedder returns the FTS list untouched**, in the same order as before this
@@ -681,7 +681,7 @@ records, and who the verified knowledge came from. Exposed as `yoke overview` an
   517-record demo corpus, **12.2 s / 8,010 pages / 420 MB RSS** at 1M entities and 3M relations. Memory
   is the id sets, not the records — holding every entity so the hub list could carry full records
   costs **511 MB**, a read whose memory is the size of the corpus. Only `top` of them are ever
-  returned, so they are re-read by id at the end. *ponytail: no incremental counters and
+  returned, so they are re-read by id at the end. *ceiling: no incremental counters and
   no cache, and the id sets are still O(entities) — at 10M this needs counting in the backend rather
   than in core. Add either when a deployment runs this often enough to notice.*
 - A corpus organised around anchor records will report those anchors as its hubs — on the demo corpus

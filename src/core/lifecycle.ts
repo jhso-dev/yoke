@@ -87,9 +87,12 @@ export function deprecate(
  * Namespace-filtered on the relation, for the reason `identitySet` is: `neighbors` takes no `ns`, so
  * without it an edge filed by one tenant reports a dependent in another.
  *
- * ponytail: one hop, not the transitive closure. A dependent's own dependents surface when THAT record is
- * retired in turn, so the walk is iterative by construction; add a closure if a real corpus turns up
- * chains deep enough that one hop misleads.
+ * ceiling: one hop, not the transitive closure — measured, not provisional
+ * (eval/derivation-closure): across three simulated team corpora with chains to depth 4, not one
+ * truly-invalidated record sat at graph distance >= 2, so the closure's entire target population was
+ * empty while it added the only noise in the experiment. What limits this report is citation
+ * coverage (over half the genuinely-affected records had no edge at all), which no walk depth fixes.
+ * A dependent's own dependents still surface when THAT record is retired in turn.
  */
 export async function downstreamOf(
   port: StoragePort,
@@ -213,7 +216,7 @@ const STALE_SCAN_PAGE = 500;
  * - `scanned` is how many verified rows it read to find these. "12 stale among the first 5,000
  *   verified" is honest; "12 stale" after quietly giving up is not.
  *
- * ponytail: a walk with no index behind it — there cannot be one, since the TTL lives in the ontology
+ * ceiling: a walk with no index behind it — there cannot be one, since the TTL lives in the ontology
  * and freshness moves with the clock. If a corpus ever makes this too slow, the fix is a materialized
  * `expires_at` per row maintained by verify, not a smarter walk.
  */

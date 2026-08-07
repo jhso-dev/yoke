@@ -97,7 +97,7 @@ export function makeSlackConnector(opts: {
           const item = toItem(m);
           if (item) yield item;
           if (m.reply_count) {
-            // ponytail: replies fetched in one page; add a cursor loop if a thread ever exceeds it.
+            // ceiling: replies fetched in one page; add a cursor loop if a thread ever exceeds it.
             const thread = await getPage("conversations.replies", {
               channel: opts.channel,
               ts: m.ts,

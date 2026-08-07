@@ -45,3 +45,9 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 - `npm run eval:retrieval -- <db>` — recall@k/nDCG over `eval/gold-set.json`. Needs a loaded corpus
   (`node scripts/load-demo-corpus.mjs <db>`) and an embedder for the hybrid column
 - `typecheck` · `lint` · `test` · `build` must be green in every commit.
+
+## Conventions
+
+- A `ceiling:` comment marks a deliberate simplification: it names the known limit and what would
+  justify lifting it. Don't remove the limit without reading the comment — some ceilings are measured
+  (e.g. `downstreamOf`'s one hop), and lifting those needs new evidence, not just code.

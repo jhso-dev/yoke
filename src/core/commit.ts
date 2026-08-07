@@ -21,7 +21,7 @@ import type {
   RelationInput,
 } from "./types.js";
 
-// ponytail: start with a single threshold constant (0.85). Move to per-type thresholds if precision problems show up in practice.
+// ceiling: start with a single threshold constant (0.85). Move to per-type thresholds if precision problems show up in practice.
 const DUP_THRESHOLD = 0.85;
 
 export class CommitRejected extends Error {

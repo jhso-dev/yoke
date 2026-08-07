@@ -41,7 +41,7 @@ export function parseScope(raw: string): Scope | null {
  * Deny-by-default check: does any scope grant (ns, type, action)?
  * - action must match exactly (no read⊇write, no write⊇verify).
  * - a scope's explicit ns must equal the request ns; a wildcard ns matches anything.
- *   ponytail: the default (null) namespace is matched only by a wildcard-ns scope (a bare
+ *   ceiling: the default (null) namespace is matched only by a wildcard-ns scope (a bare
  *   `action` or `*:...`). Named-ns scopes target that exact ns string. Upgrade to a `default`
  *   keyword if the default ns ever needs finer-than-wildcard grants.
  * - a scope's explicit type must equal the request type; a type-specific scope never grants an

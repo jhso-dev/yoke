@@ -42,7 +42,7 @@ export async function personaQuery(
   // One person can hold several records (`same_as`, v5.6), and a persona built from one of them is
   // half of that person's judgment presented as all of it. Anchor on each and union.
   //
-  // ponytail: one anchored injection per record, sequentially. The set is a person's duplicates — two
+  // ceiling: one anchored injection per record, sequentially. The set is a person's duplicates — two
   // or three — not a corpus walk, so batching this before anything has felt it would be inventing a
   // problem. `identitySet` is a no-op walk (one `neighbors` call) on the ordinary single-record case.
   const ids = await identitySet(port, personId, opts?.ns);

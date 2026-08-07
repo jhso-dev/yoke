@@ -44,7 +44,7 @@ export interface InjectResult {
  *
  * Never silent: the cut sets `walk.truncated`.
  *
- * ponytail: 128 is one round trip per node on a remote backend, sequentially. Raise it, or add bounded
+ * ceiling: 128 is one round trip per node on a remote backend, sequentially. Raise it, or add bounded
  * concurrency (the UI's graph route already needed `mapLimit` at FANOUT 16), when a real multi-hop
  * workload is measured against something that is not sqlite.
  */
@@ -80,7 +80,7 @@ export const BRIEFING_LIMIT = 50;
  * be dropped here. 3x covers a corpus where two thirds of verified knowledge has gone stale, and
  * when it does not the answer is a short page, not a silent one — `omitted` reports the shortfall.
  *
- * ponytail: fixed multiplier, no adaptive re-query. Add the second round trip when a real corpus is
+ * ceiling: fixed multiplier, no adaptive re-query. Add the second round trip when a real corpus is
  * measured returning short pages, not on the strength of this comment.
  */
 const STALE_HEADROOM = 3;
@@ -96,7 +96,7 @@ const candidateQuery = (opts?: {
   // Pushing `verified` down would filter it out before the rewind could restore it — the same
   // cap-before-filter mistake this function exists to fix, one clock further back.
   //
-  // ponytail: that leaves the 3x window as the only bound on an as-of read, so over a corpus that is
+  // ceiling: that leaves the 3x window as the only bound on an as-of read, so over a corpus that is
   // mostly deprecated it can return a short page. Widen the multiplier when a real corpus shows it,
   // not on the strength of this comment.
   ...(opts?.asOf
@@ -139,7 +139,7 @@ const RRF_K = 60;
  * or above where v5.5 left it (recall 87.2 -> 88.4%, nDCG 74.3 -> 76.1%, accuracy@1 65.2% unchanged),
  * so clause 8's gain on the keyword-only path costs the hybrid path nothing.
  *
- * ponytail: one corpus, one language, one embedding model. It is a floor for the weaker half, not a
+ * ceiling: one corpus, one language, one embedding model. It is a floor for the weaker half, not a
  * tuned optimum — re-sweep before trusting it on a corpus that looks different, and if two corpora
  * disagree the answer is a per-deployment setting, not a better number here.
  */

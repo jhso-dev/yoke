@@ -8,7 +8,7 @@ import { recordLabel } from "./citation";
 import type { Edge, GraphData, Knowledge, Status, TypeDef } from "./types";
 
 /**
- * ponytail: hard client-side ceiling on drawn nodes. d3-force uses a quadtree so it scales further,
+ * ceiling: hard client-side ceiling on drawn nodes. d3-force uses a quadtree so it scales further,
  * but past a few hundred nodes a force layout is unreadable regardless of frame rate — the honest
  * answer is to narrow the query, not to draw more. Also stops a future server-side limit bump from
  * melting a browser. Raise it only with a screenshot of it still being legible.

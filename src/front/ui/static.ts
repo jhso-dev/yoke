@@ -81,7 +81,7 @@ function cacheControl(file: string): string {
 /**
  * `default-src 'self'` with inline script/style allowed.
  *
- * ponytail: 'unsafe-inline' in script-src is forced by static export — the exported HTML carries
+ * ceiling: 'unsafe-inline' in script-src is forced by static export — the exported HTML carries
  * an inline bootstrap, and nonces require dynamic rendering, which `output: 'export'` removes. This
  * is a real cost of that choice, not an oversight. Upgrade path: hash each inline <script> at build
  * time and emit a per-file header map here.
