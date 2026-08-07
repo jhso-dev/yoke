@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Citation } from "../../components/Citation";
 import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -145,24 +146,36 @@ function Person({ id }: { id: string }) {
       <ErrorBanner error={who.error ?? persona.error} />
 
       <div className="controls">
-        <input
+        <Input
           placeholder={t.persona.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           aria-label="search"
-          style={{ minWidth: 260 }}
+          className="w-auto min-w-65"
         />
         {/* Counted only while searching: "12 of 12" beside an untouched box is noise, but an empty
             result has to be distinguishable from a person with nothing on record. */}
         {query && (
           <span className="muted">{t.persona.matched(shown, total)}</span>
         )}
-        <Link className="btn" href={`/entity/?id=${encodeURIComponent(id)}`}>
-          {t.common.openAsRecord}
-        </Link>
-        <Link className="btn" href={`/graph/?scope=${encodeURIComponent(id)}`}>
-          {t.common.openInGraph}
-        </Link>
+        <Button
+          asChild
+          variant="secondary"
+          className="border border-border hover:border-primary"
+        >
+          <Link href={`/entity/?id=${encodeURIComponent(id)}`}>
+            {t.common.openAsRecord}
+          </Link>
+        </Button>
+        <Button
+          asChild
+          variant="secondary"
+          className="border border-border hover:border-primary"
+        >
+          <Link href={`/graph/?scope=${encodeURIComponent(id)}`}>
+            {t.common.openInGraph}
+          </Link>
+        </Button>
         <CopyCode value={t.persona.exportHint(id)} />
       </div>
 

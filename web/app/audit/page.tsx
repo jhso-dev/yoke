@@ -2,6 +2,23 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Actor } from "../../components/Actor";
 import { CopyCode } from "../../components/CopyCode";
 import { DirectionIcon } from "../../components/DirectionIcon";
@@ -14,6 +31,11 @@ import { useT } from "../../lib/i18n";
 import { isoFromLocalInput } from "../../lib/time";
 import type { AuditEntry } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
+
+/** Radix Select reserves the empty string for "no selection", so an "all"/"any" option cannot BE the
+ * empty value it means — it carries this token and the handler maps it back. The filter state stays
+ * `""` so the URL and the API call are unchanged. */
+const ANY = "__any";
 
 /**
  * Who was told what, when — answerable without shell access.
@@ -138,41 +160,53 @@ export default function Audit() {
       </p>
       <ErrorBanner error={trail.error} />
       <div className="controls">
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <Label
+          htmlFor="audit-since"
+          className="gap-1.5 text-[inherit] font-[inherit]"
+        >
           {t.audit.since}
-          <input
+          <Input
+            id="audit-since"
             type="datetime-local"
             value={since}
             onChange={(e) => setSince(e.target.value)}
-            aria-label="since"
             // Every timestamp on this screen reads in the viewer's zone, so the filter takes one too.
             title={t.audit.sinceHint}
+            className="w-auto"
           />
-        </label>
-        <select
-          value={action}
-          onChange={(e) => setAction(e.target.value)}
-          aria-label="action"
+        </Label>
+        <Select
+          value={action || ANY}
+          onValueChange={(v) => setAction(v === ANY ? "" : v)}
         >
-          <option value="">{t.audit.allActions}</option>
-          {actions.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-        <select
-          value={actor}
-          onChange={(e) => setActor(e.target.value)}
-          aria-label="actor"
+          <SelectTrigger aria-label="action">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>{t.audit.allActions}</SelectItem>
+            {actions.map((a) => (
+              <SelectItem key={a} value={a}>
+                {a}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={actor || ANY}
+          onValueChange={(v) => setActor(v === ANY ? "" : v)}
         >
-          <option value="">{t.audit.allActors}</option>
-          {actors.map(([id, label]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger aria-label="actor">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>{t.audit.allActors}</SelectItem>
+            {actors.map(([id, label]) => (
+              <SelectItem key={id} value={id}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <span className="muted">
           {t.audit.shown(rows.length, loaded.length)}
         </span>
@@ -184,41 +218,41 @@ export default function Audit() {
           <div className="empty">{t.audit.empty}</div>
         ) : (
           <div className="scroll-x">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t.common.when}</th>
-                  <th>{t.common.actor}</th>
-                  <th>{t.common.action}</th>
-                  <th>{t.common.detail}</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.common.when}</TableHead>
+                  <TableHead>{t.common.actor}</TableHead>
+                  <TableHead>{t.common.action}</TableHead>
+                  <TableHead>{t.common.detail}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {page.items.map((e, i) => (
                   // The index is part of the key because audit_log has no primary key: two identical
                   // events in the same second by the same actor are genuinely indistinguishable. The
                   // rule guards against reordering, and this list is append-only and never reordered.
                   // biome-ignore lint/suspicious/noArrayIndexKey: no id exists to key on.
-                  <tr key={`${e.at}-${e.actor}-${e.action}-${i}`}>
-                    <td className="mono">
+                  <TableRow key={`${e.at}-${e.actor}-${e.action}-${i}`}>
+                    <TableCell className="mono">
                       <Instant iso={e.at} />
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <Actor actor={e.actor} actorName={e.actorName} />
-                    </td>
-                    <td
+                    </TableCell>
+                    <TableCell
                       className="mono"
                       title={t.audit.meaning[e.action] ?? e.action}
                     >
                       {e.action}
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <Detail event={e} />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             <Pagination
               page={page.page}
               pages={page.pages}

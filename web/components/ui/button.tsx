@@ -30,6 +30,16 @@ const buttonVariants = cva(
         xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
         lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+        /** Interactive text, not a box. The two copy-on-click affordances — a record's own id on the
+         * entity screen, and a citation — are prose a reader clicks, and every boxed size would draw a
+         * button where the design has a word. Font and colour are inherited so the caller's
+         * `.mono`/`.muted`/`.cite` still decide how it reads.
+         *
+         * `inline-block` and `whitespace-normal` are load-bearing: the variant base is `inline-flex`
+         * with `whitespace-nowrap`, and a bare <button> is neither. globals.css also targets
+         * `.persona-card .cite button` directly, and unlayered CSS beats every utility set here, so this
+         * variant deliberately sets as little as possible and lets that rule keep winning. */
+        text: "inline-block h-auto rounded-none p-0 text-left font-[inherit] font-normal text-[inherit] tracking-[inherit] whitespace-normal hover:bg-transparent",
         icon: "size-9",
         "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-8",

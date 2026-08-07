@@ -3,7 +3,17 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Actor } from "../../components/Actor";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -21,6 +31,7 @@ import {
   truncationNotice,
 } from "../../lib/graph";
 import { useT } from "../../lib/i18n";
+import { announce } from "../../lib/toast";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -61,14 +72,35 @@ function GraphBody() {
     };
   }, [anchor]);
 
-  const expand = useCallback(async (id: string) => {
-    try {
-      const more = await api.graph({ scope: id, depth: 1, limit: MAX_NODES });
-      setGraph((g) => (g ? mergeGraph(g, more) : toGraph(more)));
-    } catch (e) {
-      setError(e);
-    }
-  }, []);
+  const t = useT();
+  // Expanding says what it did, because for a long time it did not. A node's neighbours are often
+  // already on screen — the highest-degree node in this corpus is the account that authored 40 visible
+  // records, so expanding the FIRST row of the node table adds exactly nothing — and 25 new nodes among
+  // 200 is easy to miss even when it worked. A silent no-op reads as a broken button. The rest of this
+  // product refuses to be silent about what it withheld (`omitted`, the truncation banners); this is
+  // the same rule applied to what it added.
+  const expand = useCallback(
+    async (id: string) => {
+      try {
+        const more = await api.graph({ scope: id, depth: 1, limit: MAX_NODES });
+        setGraph((g) => {
+          if (!g) return toGraph(more);
+          const merged = mergeGraph(g, more);
+          const nodes = merged.nodes.length - g.nodes.length;
+          const links = merged.links.length - g.links.length;
+          announce(
+            nodes || links
+              ? t.graph.expanded(nodes, links)
+              : t.graph.expandedNothing,
+          );
+          return merged;
+        });
+      } catch (e) {
+        setError(e);
+      }
+    },
+    [t],
+  );
 
   const types = useMemo(
     () => [...new Set(graph?.nodes.map((n) => n.type) ?? [])].sort(),
@@ -83,7 +115,6 @@ function GraphBody() {
     () => membershipTypes(ontology.data ?? []),
     [ontology.data],
   );
-  const t = useT();
   const notice = graph ? truncationNotice(graph) : null;
   const chosen = graph?.nodes.find((n) => n.id === selected) ?? null;
   const sortedNodes = useMemo(
@@ -97,23 +128,23 @@ function GraphBody() {
       <h1>{t.graph.heading}</h1>
       <p className="lede">{anchor ? t.graph.ledeAnchored : t.graph.lede}</p>
       <ErrorBanner error={error} />
-      {notice && (
-        <div className="banner" data-kind="warn">
-          {notice}
-        </div>
-      )}
+      {notice && <Alert variant="warn">{notice}</Alert>}
 
       <div className="controls">
         {anchor && (
-          <Link className="btn" href="/graph/">
-            {t.graph.wholeNamespace}
-          </Link>
+          <Button
+            asChild
+            variant="secondary"
+            className="border border-border hover:border-primary"
+          >
+            <Link href="/graph/">{t.graph.wholeNamespace}</Link>
+          </Button>
         )}
         <span className="muted">
           {t.graph.counts(graph?.nodes.length ?? 0, graph?.links.length ?? 0)}
         </span>
         {types.map((t) => (
-          <span key={t} className="pill" style={{ background: "transparent" }}>
+          <Badge key={t} variant="plain">
             <span
               aria-hidden="true"
               style={{
@@ -125,7 +156,7 @@ function GraphBody() {
               }}
             />
             {t}
-          </span>
+          </Badge>
         ))}
         {/* Without this the two edge marks are decoration. The direction is the point: knowledge and
             people point AT the work, which is why an anchor gathers knowledge instead of holding it. */}
@@ -182,38 +213,38 @@ function GraphBody() {
         </div>
         {graph && graph.nodes.length > 0 ? (
           <div className="scroll-x">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t.common.type}</th>
-                  <th>{t.common.record}</th>
-                  <th>{t.common.status}</th>
-                  <th>{t.common.relations}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.common.type}</TableHead>
+                  <TableHead>{t.common.record}</TableHead>
+                  <TableHead>{t.common.status}</TableHead>
+                  <TableHead>{t.common.relations}</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {nodePage.items.map((n) => (
-                  <tr key={n.id}>
-                    <td className="mono">{n.type}</td>
-                    <td>
+                  <TableRow key={n.id}>
+                    <TableCell className="mono">{n.type}</TableCell>
+                    <TableCell>
                       <Link href={`/entity/?id=${encodeURIComponent(n.id)}`}>
                         {n.label}
                       </Link>
-                    </td>
-                    <td>
+                    </TableCell>
+                    <TableCell>
                       <StatusBadge status={n.status} />
-                    </td>
-                    <td className="num">{n.degree}</td>
-                    <td>
+                    </TableCell>
+                    <TableCell className="num">{n.degree}</TableCell>
+                    <TableCell>
                       <Button type="button" onClick={() => expand(n.id)}>
                         {t.common.expand}
                       </Button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
             <Pagination
               page={nodePage.page}
               pages={nodePage.pages}

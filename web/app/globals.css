@@ -359,33 +359,12 @@ h1 {
   overflow-x: auto;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
+/* The table box moved into components/ui/table.tsx (every screen now renders <Table>). These bare
+   element rules could not stay: unlayered CSS beats Tailwind utilities, so while they existed the
+   shadcn Table in this repo set classes that never applied — which is why it had zero importers.
 
-th,
-td {
-  text-align: left;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-
-th {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted-foreground);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-tr:last-child td {
-  border-bottom: none;
-}
-
+   `td.num` stays because it is a call-site choice, not a default, and it still wins for the same
+   reason those rules had to go. */
 td.num {
   font-variant-numeric: tabular-nums;
 }
@@ -477,43 +456,9 @@ td.num {
   text-align: center;
 }
 
-/* --- status pill: colour AND label AND glyph --- */
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-.pill[data-tone="draft"] {
-  color: var(--tone-draft);
-  background: var(--tone-draft-bg);
-  border-style: dashed;
-  border-color: var(--tone-draft);
-}
-.pill[data-tone="verified"] {
-  color: var(--tone-verified);
-  background: var(--tone-verified-bg);
-}
-.pill[data-tone="stale"] {
-  color: var(--tone-stale);
-  background: var(--tone-stale-bg);
-  font-style: italic;
-}
-.pill[data-tone="deprecated"] {
-  color: var(--tone-deprecated);
-  background: var(--tone-deprecated-bg);
-  text-decoration: line-through;
-}
-.pill[data-tone="unknown"] {
-  color: var(--tone-unknown);
-  background: var(--tone-unknown-bg);
-}
+/* The status pill moved into components/ui/badge.tsx as its `tone` variants — same box, same
+   colours, same non-colour signals (draft dashed, stale italic, deprecated struck through). The
+   `--tone-*` tokens it reads still live in theme.css. */
 
 /* --- controls --- */
 
@@ -526,25 +471,10 @@ td.num {
 
    `.btn` survives for <Link> elements that look like buttons — Button's `asChild` is the eventual
    home for those, and they move with their screens. */
-/* Boxed to match Button's `compact` (h-7, px-2.5, 13px) so a link that looks like a button is the
-   same size as one — these sit in the same rows on entity, graph and collaboration. */
-.btn {
-  font: inherit;
-  font-size: 13px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--secondary);
-  color: var(--foreground);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-}
-.btn:hover {
-  border-color: var(--primary);
-  text-decoration: none;
-}
+/* `.btn` is gone: the six links that looked like buttons are `<Button asChild>` now, which is what the
+   note above said would happen. It was boxed to match Button's `compact` size (h-7, px-2.5, 13px)
+   deliberately, so the swap is the same box — the border and the secondary fill that `compact` does not
+   carry travel on the call site instead. */
 
 .controls {
   display: flex;
@@ -558,48 +488,9 @@ td.num {
    Native radios, visually hidden but still the thing focus and screen readers land on: the state IS
    a radio group, so borrowing buttons would mean re-announcing it with aria by hand. Height matches
    .btn (28px) so it sits level in a .controls row. */
-.segmented {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.segmented label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  font-size: 13px;
-  color: var(--muted-foreground);
-  background: var(--background);
-  cursor: pointer;
-}
-
-.segmented label + label {
-  border-left: 1px solid var(--border);
-}
-
-.segmented label[data-active] {
-  background: var(--secondary);
-  color: var(--foreground);
-  font-weight: 500;
-}
-
-/* Off-screen rather than display:none — a hidden input cannot be focused, and this one must be. */
-.segmented input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.segmented label:focus-within {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
-}
+/* The segmented control is a <RadioGroup> now (components/ui/radio-group.tsx): Radix carries the roles
+   and the arrow keys, the segment look travels on className at its one call site, and the native radios
+   that had to be hidden off-screen to be focusable are gone. */
 
 .copy-code {
   display: inline-flex;
@@ -708,27 +599,10 @@ td.num {
   border-color: var(--primary);
 }
 
-/* The native `<input>`/`<select>` still used on browse, audit, inject, persona and login, given the
-   same 32px box as a `sm` Button so a control row is one height instead of three — UA defaults were
-   19-21px beside a 32px button, which is what made the button look oversized rather than the button
-   being large. Checkboxes keep their own box.
-
-   Scoped by class, and `:not([data-slot])` keeps it off shadcn's primitives: an unlayered rule beats
-   any Tailwind utility, so an unguarded `.controls input` would silently override <Input> the same
-   way the bare element rules once overrode <Button>. */
-.controls input:not([type="checkbox"]):not([data-slot]),
-.controls select:not([data-slot]),
-.field input:not([type="checkbox"]):not([data-slot]),
-.field select:not([data-slot]),
-.login input:not([data-slot]) {
-  font: inherit;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--input);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--foreground);
-}
+/* The compatibility layer that gave native `<input>`/`<select>` the same 32px box as a Button is gone
+   with the last of them: browse, audit, inject, persona and login now render <Input> and <Select>, so
+   the `:not([data-slot])` guards it needed matched nothing. Checkboxes and the review radios are the
+   only native controls left — see the note by `.segmented`. */
 
 /* A panel has no padding of its own: its usual content is a full-bleed table, and the padding a
    reader sees comes from the cells. Anything else placed in one — the form rows on browse, entity,
@@ -744,36 +618,18 @@ td.num {
   padding-top: 0;
 }
 
-/* --- banners --- */
+/* The banners are <Alert variant="error|warn|info"> now (components/ui/alert.tsx). The tighter box
+   those variants carry is what `.banner` was; `default` keeps shadcn's, because it is the inline result
+   panel on ontology and the create form, not a page notice.
 
-.banner {
-  padding: 9px 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  margin-bottom: 12px;
-  font-size: 13px;
-}
-.banner[data-kind="error"] {
-  color: var(--tone-deprecated);
-  background: var(--tone-deprecated-bg);
-  border-color: var(--tone-deprecated);
-}
-.banner[data-kind="warn"] {
-  color: var(--tone-draft);
-  background: var(--tone-draft-bg);
-  border-color: var(--tone-draft);
-}
-.banner[data-kind="info"] {
-  background: var(--secondary);
-}
-.banner code {
+   Two rules survive as data-slot selectors rather than class ones, because both are about where an
+   alert SITS rather than what it is: a notice inside a panel takes a margin so its border does not land
+   on the panel's, and inline code in one keeps the mono size. */
+[data-slot="alert"] code {
   font-family: var(--font-mono);
   font-size: 12px;
 }
-/* A banner is its own bordered box, so inside a panel it takes a margin rather than padding, or its
-   border would sit on the panel's. Declared after `.banner` so the cascade reads in specificity
-   order rather than relying on the more specific rule winning from above. */
-.panel > .banner {
+.panel > [data-slot="alert"] {
   margin: 0 12px 12px;
 }
 
@@ -788,12 +644,10 @@ td.num {
   flex-direction: column;
   gap: 10px;
 }
-/* Same `:not([data-slot])` as the sizing rule above so this stays equal in specificity and wins on
-   order — otherwise `font: inherit` there would quietly take the mono face off a pasted token. */
-.login input:not([data-slot]) {
-  font-family: var(--font-mono);
-}
-.login .banner[data-kind="info"] {
+/* The mono face on a pasted token now travels on <Input className="font-mono"> — the rule that used
+   to do it here had to dodge shadcn's primitives with `:not([data-slot])`, and there is no native
+   input left on this screen to style. */
+.login [data-slot="alert"] {
   margin-top: 14px;
 }
 

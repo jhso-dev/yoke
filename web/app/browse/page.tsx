@@ -3,7 +3,16 @@
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CreateButton } from "../../components/CreateButton";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
@@ -11,6 +20,11 @@ import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import type { Knowledge, Page, SearchResult } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
+
+/** Radix Select reserves the empty string for "no selection", so an "all"/"any" option cannot BE the
+ * empty value it means — it carries this token and the handler maps it back. The filter state stays
+ * `""` so the URL and the API call are unchanged. */
+const ANY = "__any";
 
 /**
  * Enumerate what is stored, and search it.
@@ -88,30 +102,38 @@ function BrowseBody() {
       <p className="lede">{t.browse.lede}</p>
       <ErrorBanner error={page.error ?? defs.error} />
       <div className="controls">
-        <select
-          value={type}
-          onChange={(e) => setFilter({ type: e.target.value })}
-          aria-label="type"
+        <Select
+          value={type || ANY}
+          onValueChange={(v) => setFilter({ type: v === ANY ? "" : v })}
         >
-          <option value="">{t.browse.allTypes}</option>
-          {(defs.data ?? [])
-            .filter((d) => d.kind === "entity")
-            .map((d) => (
-              <option key={d.name} value={d.name}>
-                {d.name}
-              </option>
-            ))}
-        </select>
-        <select
-          value={status}
-          onChange={(e) => setFilter({ status: e.target.value })}
-          aria-label="status"
+          <SelectTrigger aria-label="type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>{t.browse.allTypes}</SelectItem>
+            {(defs.data ?? [])
+              .filter((d) => d.kind === "entity")
+              .map((d) => (
+                <SelectItem key={d.name} value={d.name}>
+                  {d.name}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={status || ANY}
+          onValueChange={(v) => setFilter({ status: v === ANY ? "" : v })}
         >
-          <option value="">{t.browse.anyStatus}</option>
-          <option value="draft">draft</option>
-          <option value="verified">verified</option>
-          <option value="deprecated">deprecated</option>
-        </select>
+          <SelectTrigger aria-label="status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>{t.browse.anyStatus}</SelectItem>
+            <SelectItem value="draft">draft</SelectItem>
+            <SelectItem value="verified">verified</SelectItem>
+            <SelectItem value="deprecated">deprecated</SelectItem>
+          </SelectContent>
+        </Select>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -119,13 +141,13 @@ function BrowseBody() {
           }}
           style={{ display: "flex", gap: 8 }}
         >
-          <input
+          <Input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder={t.browse.search}
             title={t.browse.searchHint}
             aria-label="search"
-            style={{ minWidth: 240 }}
+            className="w-auto min-w-60"
           />
           {query && (
             <Button
@@ -149,9 +171,7 @@ function BrowseBody() {
       {/* Never a silent cap. The listing says "more available" through its cursor; search has no
           cursor, so the cap has to be said in words. */}
       {found?.truncated && (
-        <div className="banner" data-kind="warn">
-          {t.browse.searchTruncated(found.limit)}
-        </div>
+        <Alert variant="warn">{t.browse.searchTruncated(found.limit)}</Alert>
       )}
       <div className="panel">
         {page.loading ? (

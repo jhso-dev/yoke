@@ -8,8 +8,9 @@ import type { Status } from "./types";
 
 export interface StatusStyle {
   label: string;
-  /** CSS custom-property suffix (see globals.css: --tone-verified etc.). */
-  tone: string;
+  /** The Badge variant that draws this status (components/ui/badge.tsx). Was a `data-tone` attribute
+   * selecting a CSS rule; typed now, so a tone with no matching variant is a compile error. */
+  tone: "draft" | "verified" | "stale" | "deprecated" | "unknown";
   /** A short glyph reinforcing the label for scanning. */
   glyph: string;
   title: string;

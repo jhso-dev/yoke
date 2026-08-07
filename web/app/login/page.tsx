@@ -2,7 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { ApiError, api } from "../../lib/api";
@@ -54,7 +56,7 @@ export default function Login() {
       <h1>{t.login.heading}</h1>
       <p className="lede">{t.login.lede}</p>
       <form onSubmit={submit}>
-        <input
+        <Input
           type="password"
           autoComplete="off"
           spellCheck={false}
@@ -62,13 +64,15 @@ export default function Login() {
           aria-label={t.login.credential}
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          // A pasted token is a machine string; the mono face is how every id reads here.
+          className="font-mono"
         />
         <Button type="submit" disabled={busy || !value.trim()}>
           {busy ? t.login.checking : t.login.submit}
         </Button>
       </form>
       <ErrorBanner error={error} />
-      <div className="banner" data-kind="info">
+      <Alert variant="info">
         {t.login.noTokenBefore}
         <br />
         <CopyCode value="yoke token create --name alex --scopes read" />
@@ -76,7 +80,7 @@ export default function Login() {
         {t.login.addPrefix}
         <CopyCode value="yoke token create --name alex --scopes read,verify" />
         {t.login.noTokenAfter}
-      </div>
+      </Alert>
     </div>
   );
 }
