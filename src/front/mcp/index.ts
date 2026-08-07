@@ -15,6 +15,7 @@ import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
   citation,
+  entityIdCandidates,
   inject,
   WALK_BUDGET,
 } from "../../core/inject.js";
@@ -149,9 +150,27 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // Skipped when the ontology in force does not declare the type, on stage 4b's rule: this DB may
       // predate the seed (`derived_from` is v5.8 and the seed applies to new DBs only), and a derived
       // edge must never fail the caller's own commit — the knowledge is already stored by this point.
+      const ignored: string[] = [];
       if (ontology.some((t) => t.name === "derived_from"))
-        for (const src of new Set(derivedFrom ?? []))
-          if (src && src !== entity.id) edges.push(["derived_from", src]);
+        for (const raw of new Set(derivedFrom ?? [])) {
+          // The one place a relation endpoint is checked, and only because of what the caller can see:
+          // every surface renders a record as `[fact:01K…@v2]`, so an agent citing "what inject
+          // returned" cites that. Measured: 3 of 3 agents populated the field unprompted and 2 of 3
+          // passed a citation rather than an id. Unresolvable is reported, never filed — an edge
+          // pointing at nothing makes `downstreamOf` answer "nothing rests on this", which is the
+          // silent wrong answer the whole feature exists to prevent.
+          let src: string | undefined;
+          for (const cand of entityIdCandidates(raw)) {
+            if (cand === entity.id) break; // self-citation: not an error, just nothing to file
+            if (await store.getEntity(cand)) {
+              src = cand;
+              break;
+            }
+          }
+          if (src) edges.push(["derived_from", src]);
+          else if (!entityIdCandidates(raw).includes(entity.id))
+            ignored.push(raw);
+        }
       for (const [type, to] of edges)
         await commit(
           store,
@@ -177,6 +196,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
                   .length,
               }
             : {}),
+          // What was passed and could not be resolved, verbatim. Named rather than counted: the caller
+          // has to see the string it sent to learn that a citation is not an id.
+          ...(ignored.length ? { derived_from_ignored: ignored } : {}),
         }),
       );
     } catch (e) {

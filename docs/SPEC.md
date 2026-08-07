@@ -416,8 +416,20 @@ and the trail is per-client local sqlite rather than knowledge, so it is not tra
   guard an agent passing the argument would see its own commit reported as rejected *after* the
   knowledge was stored. The response carries how many edges were filed rather than assuming, because
   0-on-an-unmigrated-DB is otherwise indistinguishable from success.
-- Referential integrity is **not** checked, as for every other relation — the gate validates the type
-  and the provenance, not that the endpoints exist.
+- **The value is normalized, and an unresolvable source is dropped rather than filed.** This is the one
+  place a relation endpoint is checked, and it is checked because of what the caller can see: `inject`
+  and `persona` render a record as `[fact:01K…@v2]`, never as a bare id, so an agent asked for "ids that
+  inject returned to you" cites what it was shown. Measured on three agents given the tool and a
+  realistic task — all three populated the field unprompted, and **two of the three passed
+  `fact:01K…@v2` or `fact:01K…`**, which resolve to nothing. A wrong basis is worse than none, and the
+  tool description saying so does not prevent it.
+
+  So the front tier strips a `[…]` wrapper, a `type:` prefix and an `@vN` suffix, then keeps only ids
+  that resolve. The response reports `derived_from` (edges filed) and, when any were dropped,
+  `derived_from_ignored` with the offending strings — the caller is told, rather than left believing a
+  basis was recorded. Everything else about referential integrity is unchanged: the gate validates the
+  type and the provenance, not that a relation's endpoints exist, and this normalization lives at the
+  front tier rather than in the gate for the same reason the edge itself does.
 - Read back with `neighbors(id, 'derived_from', 'in')` = what rests on this. **Every retire path reports
   it** — `yoke deprecate` and `POST /api/deprecate`, which the entity, review and conflicts screens all
   render through one component. Parity runs both directions here: WEB-UI.md forbids a screen doing what
