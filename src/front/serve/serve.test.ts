@@ -169,9 +169,8 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
       readToken,
     );
     expect(verifyRes.status).toBe(403);
-    // The body was `{"error":"forbidden"}` until 2026-08-05, which told the holder of a read-only
-    // token that something was refused and not which permission to go and ask for. Found by finally
-    // running the check the roadmap had been carrying as a human-verification item.
+    // A bare `{"error":"forbidden"}` tells the holder of a read-only token that something was
+    // refused and not which permission to go and ask for. The 403 names the required scope.
     const body = (await verifyRes.json()) as {
       error: string;
       required?: string;
@@ -181,7 +180,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
   });
 
   it("read-only token: POST /api/entity and /api/link → 403", async () => {
-    // The 2026-07-31 amendment let the web tier create records. It did not let a reader do it —
+    // The web tier may create records. That does not let a READER create one —
     // creation is gated on `write`, per type, exactly like the read routes are gated on `read`.
     expect(
       (await authPost("/api/entity", { type: "fact" }, readToken)).status,
@@ -250,6 +249,33 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
       params: {},
     });
     expect(res.status).toBe(401);
+  });
+
+  // SPEC "Bounded input" holds for every route on this server, and /mcp is the one route that never
+  // reaches the UI handler's readBody — so it needs its own cap, on the only surface that can face a
+  // non-loopback interface.
+  it("MCP endpoint caps the request body and validates content-type", async () => {
+    const big = await fetch(run.base + "/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${readToken}`,
+      },
+      body: `{"pad":"${"x".repeat(257 * 1024)}"}`,
+    });
+    expect(big.status).toBe(400);
+    expect((await big.json()).error).toContain("too large");
+
+    const wrongType = await fetch(run.base + "/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "text/plain",
+        authorization: `Bearer ${readToken}`,
+      },
+      body: "{}",
+    });
+    expect(wrongType.status).toBe(400);
+    expect((await wrongType.json()).error).toContain("content-type");
   });
 });
 

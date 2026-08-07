@@ -81,6 +81,32 @@ describe("runCli", () => {
     expect(found.some((e: { id: string }) => e.id === added.id)).toBe(true);
   });
 
+  // SPEC "A command reports the store it actually opened": the human line names the resolved store,
+  // while `--json`'s `db` stays the LOCAL sqlite path a script was already reading.
+  it("init names the store it opened, and --json keeps db a path", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db, "--json"])).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toMatchObject({
+      db,
+      store: db,
+      seeded: true,
+    });
+    // The plain-sqlite label IS the db path — the two only diverge under --shards or a remote
+    // backend, which storage-sharded's CLI test covers for the case that was actually wrong.
+  });
+
+  it("overview writes the audit row the MCP tool writes — no silent adapter", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await runCli(["overview", "--db", db])).toBe(0);
+    const store = new SqliteStorage(db);
+    await store.init();
+    const rows = store.listAudit().filter((a) => a.action === "overview");
+    store.close();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].detail).toContain("overview ->");
+  });
+
   it("rejects invalid add with exit 1", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

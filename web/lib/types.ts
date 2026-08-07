@@ -123,6 +123,8 @@ export interface InjectPreview {
   includeDraft: boolean;
   /** How many records the limit dropped. >0 means this is a page, not the whole context. */
   omitted: number;
+  /** What a multi-hop walk did — non-null only when depth > 1 was requested and walked. */
+  walk: { depth: number; nodes: number; truncated: boolean } | null;
   items: Knowledge[];
 }
 

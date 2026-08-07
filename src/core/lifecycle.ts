@@ -31,14 +31,19 @@ async function transition(
   const found = new Map(
     (await readEntities(port, ids)).map((e) => [e.id, e] as const),
   );
+  // Distinct: the read is a batch, so a repeated id would otherwise apply the same `prev` twice and
+  // write (id, version+1) twice — two governance rows for one action.
+  const distinct = [...new Set(ids)];
+  // Refuse the WHOLE batch before the first write — do not silently skip unknown ids either, since
+  // promote/retire are explicit actions. TWO loops, not one: validating inside the write loop makes
+  // `verify([known, "nope"])` throw with `known` already promoted, which is a half-applied governance
+  // action nobody asked for.
+  for (const id of distinct)
+    if (!found.has(id))
+      throw new Error(`cannot transition unknown entity: ${id}`);
   const out: Entity[] = [];
-  // Distinct: the read is now a batch, so a repeated id would apply the same `prev` twice and write
-  // (id, version+1) twice. The old loop re-read between writes and produced version+2 instead, which
-  // is two governance rows for one action — not a behaviour worth preserving.
-  for (const id of new Set(ids)) {
-    const prev = found.get(id);
-    // Do not silently skip unknown ids — promote/retire are explicit actions.
-    if (!prev) throw new Error(`cannot transition unknown entity: ${id}`);
+  for (const id of distinct) {
+    const prev = found.get(id) as Entity;
     const next: Entity = {
       ...prev,
       status,

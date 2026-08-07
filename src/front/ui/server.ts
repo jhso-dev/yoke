@@ -680,18 +680,31 @@ export function createUiHandler(
         sendJson(res, 400, { error: "asOf must be an ISO instant" });
         return;
       }
-      const { items, omitted } = await inject(
+      // Same default rule as the MCP tool and the CLI, verbatim: an anchored briefing is capped at
+      // BRIEFING_LIMIT, a query is not (SPEC "the three front adapters apply the default to a
+      // briefing … and never to a query"). Defaulting every call would show 50 where the agent gets
+      // everything — the drift the byte-for-byte claim below forbids, on the one screen whose job is
+      // to rule it out.
+      const explicitLimit = url.searchParams.has("limit")
+        ? intParam(url, "limit", BRIEFING_LIMIT, 500)
+        : undefined;
+      const briefing = scope !== undefined && !query;
+      const { items, omitted, walk } = await inject(
         store,
         store.loadOntology(ns),
         query,
         ts,
         {
           includeDraft,
-          // This route already defaulted to 50; what it lacked was saying so. A preview that quietly
-          // shows 50 of 312 misrepresents what an agent would receive.
-          limit: intParam(url, "limit", BRIEFING_LIMIT, 500),
+          limit: explicitLimit ?? (briefing ? BRIEFING_LIMIT : undefined),
           ns,
           scope,
+          // Relation hops the anchor walk takes (SPEC "Multi-hop", default 1) — the MCP tool takes
+          // this, so a preview without it could not reproduce a depth-2 agent call. Bounded like the
+          // graph route's; core's WALK_BUDGET caps the blast radius regardless.
+          depth: url.searchParams.has("depth")
+            ? intParam(url, "depth", 1, 3)
+            : undefined,
           asOf: asOfParam,
           // Hybrid retrieval (SPEC "Hybrid retrieval"). The preview's whole claim is that it shows
           // byte-for-byte what an agent receives, so retrieving by a different half would break it.
@@ -715,6 +728,9 @@ export function createUiHandler(
         asOf: asOfParam ?? null,
         includeDraft,
         omitted,
+        // Present only when the walk went deeper than one hop — same shape core hands the MCP tool,
+        // so the preview can state what a depth-2 answer walked (`{ depth, nodes, truncated }`).
+        walk: walk ?? null,
         items: await (async () => {
           const es = items.map((it) => it.entity);
           await prefetch(es);

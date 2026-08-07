@@ -923,6 +923,34 @@ describe("scope-anchored injection over HTTP", () => {
       .at(-1);
     expect(entry?.detail).toContain(scopedFactId);
   });
+
+  // SPEC "Injection": the BRIEFING_LIMIT default applies to a briefing (anchor, no query) and NEVER
+  // to a query. Defaulting every call would show a page where the agent gets everything, which is the
+  // drift the byte-for-byte clause forbids. 51 records — one over the cap — is what makes it visible.
+  it("applies no default limit to a query — only to a briefing", async () => {
+    const ont = seedOntology();
+    const many = "manyrecordstoken";
+    const ids: string[] = [];
+    for (let i = 0; i < 51; i++) {
+      const { entity } = await commit(
+        store,
+        ont,
+        { type: "fact", attributes: { title: `${many} ${i}` } },
+        prov,
+        now,
+      );
+      ids.push(entity.id);
+    }
+    await verify(store, ids, "tester", now);
+    const out = await get(`/api/inject?q=${many}`);
+    expect(out.items.length).toBe(51);
+    expect(out.omitted).toBe(0);
+    // An explicit limit still wins, and the response says it dropped something. Not the exact count:
+    // `omitted` counts within core's over-fetched window (inject.ts documents this), not the corpus.
+    const paged = await get(`/api/inject?q=${many}&limit=10`);
+    expect(paged.items.length).toBe(10);
+    expect(paged.omitted).toBeGreaterThan(0);
+  });
 });
 
 // The audit viewer's whole job is legibility, so its two detail shapes must both resolve. A verify

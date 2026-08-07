@@ -100,6 +100,18 @@ describe("lifecycle", () => {
   it("throws on unknown id (no silent skip)", async () => {
     await expect(verify(port, ["nope"], "alice", now)).rejects.toThrow(/nope/);
   });
+
+  // SPEC "Batch point reads": verify/deprecate "refuse the whole batch". Validating inside the write
+  // loop promotes the ids ordered BEFORE the unknown one, then throws — this test is what catches it.
+  it("refuses the whole batch: an id before the unknown one is not written", async () => {
+    const id = await addFact("survives the refused batch");
+    await expect(verify(port, [id, "nope"], "alice", now)).rejects.toThrow(
+      /nope/,
+    );
+    const after = await port.getEntity(id);
+    expect(after?.status).toBe("draft");
+    expect(after?.version).toBe(1);
+  });
 });
 
 describe("versionAsOf", () => {

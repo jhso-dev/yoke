@@ -197,6 +197,23 @@ function label(
 const resolveShards = (v: Values, env: Env): string | undefined =>
   v.shards ?? env.YOKE_SHARDS;
 
+/** What the store a command just opened is, for messages and `--json`.
+ *
+ * `resolveDb` alone names the LOCAL sqlite whatever the store actually is, so `yoke init --shards
+ * cfg.json` reported `initialized: ./yoke.db` — a file it had not touched — and put that path in its
+ * JSON. Under a remote backend it is half true (the local db holds this client's audit + tokens), so
+ * this reports both halves rather than picking one. */
+function storeLabel(v: Values, env: Env): string {
+  const shards = resolveShards(v, env);
+  if (shards) return `shards ${shards}`;
+  const db = resolveDb(v, env);
+  if (env.YOKE_NEO4J_URL)
+    return `${env.YOKE_NEO4J_URL} (audit + tokens: ${db})`;
+  if (env.YOKE_OPENSEARCH_URL)
+    return `${env.YOKE_OPENSEARCH_URL} (audit + tokens: ${db})`;
+  return db;
+}
+
 /** Compact grouped usage — one source for --help, no-args, and unknown-command. */
 function usage(): string {
   return `yoke — knowledge your AI can trust
@@ -230,7 +247,7 @@ function requireOntology(
   const ontology = store.loadOntology(ns);
   if (ontology.length === 0) {
     console.error(
-      `not initialized: ${resolveDb(v, env)} — run 'yoke init' first`,
+      `not initialized: ${storeLabel(v, env)} — run 'yoke init' first`,
     );
     return null;
   }
@@ -302,6 +319,10 @@ async function suggestOllamaIfIdle(env: Env): Promise<void> {
 }
 
 async function cmdInit(v: Values, env: Env): Promise<number> {
+  // Two values on purpose: `store` is what a person needs to read (the shards config, or the remote
+  // URL and which local file holds the audit half), while `db` stays the LOCAL sqlite path — a script
+  // reading `.db` wants a path.
+  const store_ = storeLabel(v, env);
   const db = resolveDb(v, env);
   // Decorate only on an interactive stdout (never under --json), so non-TTY and
   // machine output stay byte-identical to the plain path.
@@ -313,7 +334,11 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
         const b = banner();
         if (b) console.log(`\n${b}\n`);
       }
-      emit(v, `already initialized: ${db}`, { db, seeded: false });
+      emit(v, `already initialized: ${store_}`, {
+        db,
+        store: store_,
+        seeded: false,
+      });
       return 0;
     }
     const ontology = seedOntology();
@@ -346,7 +371,7 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
       console.log(getStartedBlock());
       await suggestOllamaIfIdle(env);
     } else {
-      emit(v, `initialized: ${db}`, { db, seeded: true });
+      emit(v, `initialized: ${store_}`, { db, store: store_, seeded: true });
     }
     return 0;
   });
@@ -931,7 +956,18 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
     const top = v.limit === undefined ? undefined : Number(v.limit);
-    const o = await overview(store, ontology, now(), { ns, top });
+    const ts = now();
+    const o = await overview(store, ontology, ts, { ns, top });
+    // Same audit row the MCP tool writes: a hub line carries a record's own text, and SPEC's audit
+    // table says "the same actions are written wherever the act happens" — this adapter was the one
+    // place `overview` happened silently.
+    store.logAudit({
+      actor: resolveActor(v, env),
+      action: "overview",
+      detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
+      at: ts,
+      ns,
+    });
     // Types with nothing in them are noise on a screen whose job is showing what IS here.
     const typeRows = Object.entries(o.entities.byType)
       .sort((a, b) => a[0].localeCompare(b[0]))
