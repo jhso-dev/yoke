@@ -293,7 +293,8 @@ function EntityBody() {
                   <TableHead>{t.common.direction}</TableHead>
                   <TableHead>{t.common.type}</TableHead>
                   <TableHead>{t.common.otherEnd}</TableHead>
-                  <TableHead>status</TableHead>
+                  <TableHead>{t.common.status}</TableHead>
+                  <TableHead>{t.common.source}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -324,6 +325,9 @@ function EntityBody() {
                       {isMissing(e.other) ? null : (
                         <StatusBadge status={e.other.effectiveStatus} />
                       )}
+                    </TableCell>
+                    <TableCell>
+                      {isMissing(e.other) ? null : <Citation row={e.other} />}
                     </TableCell>
                   </TableRow>
                 ))}
