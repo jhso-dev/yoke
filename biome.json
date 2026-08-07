@@ -17,6 +17,32 @@
   "linter": {
     "enabled": true
   },
+  "overrides": [
+    {
+      "includes": ["src/core/**", "!src/core/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/adapters/**",
+                      "**/front/**",
+                      "**/connectors/**"
+                    ],
+                    "message": "Invariant 1: the core imports no adapter. Dependencies point adapter -> core, never back. If core needs something an adapter has, the answer is a port method or an injected function."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "assist": {
     "actions": {
       "source": {

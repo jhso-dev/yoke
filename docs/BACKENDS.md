@@ -78,11 +78,11 @@ design decision, not a limitation to route around:
 
 Two interface methods had to become async because they touch remote rows: `renameType` (rewrites
 entity rows) and `saveOntology` (writes remotely, and a synchronous fire-and-forget would lose the
-error). `listHistory` stays unimplemented on the composite (the `YokeStore` interface still
-declares it required, which is why the composite needs a cast; it is the CALLER that treats it as
-optional) — `core/lifecycle.ts`'s
-`listVersions` already feature-detects it and falls back to walking `getEntity(id, version)`, which
-is in the port and therefore async.
+error). `listHistory` is **optional on the interface** and absent on the composite: it is synchronous and it
+is about entity rows, which on a remote backend are across a network. Optional in the type, not only
+in the caller's habits — so the composite `implements YokeStore` outright and the gap is checked
+rather than cast away. `core/lifecycle.ts`'s `listVersions` feature-detects it and falls back to
+walking `getEntity(id, version)`, which is in the port and therefore async.
 
 ### Using it
 

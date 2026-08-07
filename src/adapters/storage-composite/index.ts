@@ -54,10 +54,10 @@ export interface RemoteStore extends StoragePort {
  * `null` is not a usable Map key alongside strings. */
 const nsKey = (ns?: string | null) => ns ?? "";
 
-// Not `implements YokeStore`: this class deliberately omits `listHistory` (see the note near the
-// bottom), so the gap is declared once at `makeCompositeStore` instead of being asserted here and
-// then contradicted. Everything else it does implement is checked by the port type below.
-class CompositeStorage implements StoragePort {
+// `implements YokeStore` and not merely `StoragePort`: every extension this class claims is then
+// checked against the interface, and the one it cannot provide (`listHistory` — synchronous, about
+// remote rows) is optional there, so omitting it is a fact the type carries rather than a cast.
+class CompositeStorage implements YokeStore {
   /** Present only when the remote backend has the capability, so `typeof store.similar === "function"`
    * still reflects reality — commit() and the conformance suite both branch on it. */
   similar?: (embedding: Float32Array, k: number) => Promise<Entity[]>;
@@ -220,12 +220,11 @@ class CompositeStorage implements StoragePort {
   }
 }
 
-/** `YokeStore` requires `listHistory`; this composite deliberately omits it (see above), so the cast
- * is where that gap is stated once rather than silenced at every call site. `listVersions` is the
- * reason it is safe: it probes for the method and falls back to port methods when it is absent. */
+/** `listHistory` is optional on `YokeStore` precisely so this composite can omit it, which is why
+ * there is no cast here: the gap is in the type, where a reader meets it. */
 export function makeCompositeStore(
   remote: RemoteStore,
   local: SqliteStorage,
 ): YokeStore {
-  return new CompositeStorage(remote, local) as unknown as YokeStore;
+  return new CompositeStorage(remote, local);
 }
