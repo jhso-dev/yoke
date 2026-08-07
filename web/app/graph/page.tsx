@@ -219,6 +219,7 @@ function GraphBody() {
                   <TableHead>{t.common.type}</TableHead>
                   <TableHead>{t.common.record}</TableHead>
                   <TableHead>{t.common.status}</TableHead>
+                  <TableHead>{t.common.source}</TableHead>
                   <TableHead>{t.common.relations}</TableHead>
                   <TableHead />
                 </TableRow>
@@ -234,6 +235,9 @@ function GraphBody() {
                     </TableCell>
                     <TableCell>
                       <StatusBadge status={n.status} />
+                    </TableCell>
+                    <TableCell>
+                      <Citation row={n} />
                     </TableCell>
                     <TableCell className="num">{n.degree}</TableCell>
                     <TableCell>

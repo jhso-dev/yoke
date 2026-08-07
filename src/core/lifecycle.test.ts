@@ -6,6 +6,7 @@ import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { commit } from "./commit.js";
 import {
   deprecate,
+  downstreamOf,
   effectiveStatus,
   isFresh,
   staleEntities,
@@ -98,6 +99,18 @@ describe("lifecycle", () => {
 
   it("throws on unknown id (no silent skip)", async () => {
     await expect(verify(port, ["nope"], "alice", now)).rejects.toThrow(/nope/);
+  });
+
+  // SPEC "Batch point reads": verify/deprecate "refuse the whole batch". Validating inside the write
+  // loop promotes the ids ordered BEFORE the unknown one, then throws — this test is what catches it.
+  it("refuses the whole batch: an id before the unknown one is not written", async () => {
+    const id = await addFact("survives the refused batch");
+    await expect(verify(port, [id, "nope"], "alice", now)).rejects.toThrow(
+      /nope/,
+    );
+    const after = await port.getEntity(id);
+    expect(after?.status).toBe("draft");
+    expect(after?.version).toBe(1);
   });
 });
 
@@ -226,5 +239,59 @@ describe("staleEntities", () => {
     const r = await staleEntities(port, ont, aged, { type: "fact" });
     expect(r.items.map((e) => e.id)).toEqual([f]);
     expect(r.scanned).toBe(1);
+  });
+});
+
+// downstreamOf (v5.8) — retiring a record is not a repair unless what rests on it can be found.
+// SPEC "Derivation". One incoming `derived_from` hop, namespace-filtered, entities not ids.
+describe("downstreamOf", () => {
+  /** from derives_from to, filed through the gate like any other relation. */
+  async function derive(from: string, to: string, ns?: string) {
+    await commit(
+      port,
+      ont,
+      { type: "derived_from", attributes: {}, from, to },
+      prov,
+      now,
+      { ns },
+    );
+  }
+
+  it("finds the records that declared they rest on a retired one, and not the reverse", async () => {
+    const basis = await addFact("postgres is the primary store");
+    const dependent = await addFact("the migration plan assumes postgres");
+    const unrelated = await addFact("the office wifi password rotates");
+    await derive(dependent, basis);
+
+    const down = await downstreamOf(port, [basis]);
+    expect(down.map((e) => e.id)).toEqual([dependent]);
+    // Direction matters: nothing rests on the dependent, and the edge must not be followed backwards.
+    expect(await downstreamOf(port, [dependent])).toEqual([]);
+    expect(await downstreamOf(port, [unrelated])).toEqual([]);
+  });
+
+  it("deduplicates across several retired ids and never reports a record as its own downstream", async () => {
+    const a = await addFact("fact a");
+    const b = await addFact("fact b");
+    const dependent = await addFact("rests on both");
+    await derive(dependent, a);
+    await derive(dependent, b);
+    // A hand-filed self-edge reaches storage like any other relation (the front tier refuses to make one).
+    await derive(a, a);
+
+    expect((await downstreamOf(port, [a, b])).map((e) => e.id)).toEqual([
+      dependent,
+    ]);
+  });
+
+  it("does not cross a namespace, since neighbors takes no ns", async () => {
+    const basis = await addFact("shared basis");
+    const dependent = await addFact("tenant dependent");
+    await derive(dependent, basis, "acme");
+
+    expect(await downstreamOf(port, [basis])).toEqual([]);
+    expect(
+      (await downstreamOf(port, [basis], "acme")).map((e) => e.id),
+    ).toEqual([dependent]);
   });
 });

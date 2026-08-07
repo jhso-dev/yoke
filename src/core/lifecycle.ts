@@ -4,6 +4,7 @@
 // Time is injected — never call new Date() in core (SPEC: inject the clock).
 
 import { readEntities, type StoragePort } from "../ports/storage.js";
+import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity, Status } from "./types.js";
 
@@ -14,11 +15,9 @@ const DAY_MS = 86_400_000;
  * (append-only). Provenance is refreshed to record the promote/retire action itself
  * (origin: 'lifecycle').
  *
- * The batch read replaced a `getEntity` per id (v5.5): a bulk verify of 54 rows from the review queue
- * was 54 round trips before the first write. It also moved the unknown-id refusal to BEFORE any write
- * — the loop used to throw partway through, leaving the ids it had already reached promoted, which is
- * a half-applied governance action nobody asked for. Writes stay one call each; the port has no batch
- * write, and append-only means each is a distinct new row.
+ * ONE batch read, not a `getEntity` per id: a bulk verify of 54 rows from the review queue would
+ * otherwise be 54 round trips before the first write. Writes stay one call each — the port has no
+ * batch write, and append-only means each is a distinct new row.
  */
 async function transition(
   port: StoragePort,
@@ -30,14 +29,19 @@ async function transition(
   const found = new Map(
     (await readEntities(port, ids)).map((e) => [e.id, e] as const),
   );
+  // Distinct: the read is a batch, so a repeated id would otherwise apply the same `prev` twice and
+  // write (id, version+1) twice — two governance rows for one action.
+  const distinct = [...new Set(ids)];
+  // Refuse the WHOLE batch before the first write — do not silently skip unknown ids either, since
+  // promote/retire are explicit actions. TWO loops, not one: validating inside the write loop makes
+  // `verify([known, "nope"])` throw with `known` already promoted, which is a half-applied governance
+  // action nobody asked for.
+  for (const id of distinct)
+    if (!found.has(id))
+      throw new Error(`cannot transition unknown entity: ${id}`);
   const out: Entity[] = [];
-  // Distinct: the read is now a batch, so a repeated id would apply the same `prev` twice and write
-  // (id, version+1) twice. The old loop re-read between writes and produced version+2 instead, which
-  // is two governance rows for one action — not a behaviour worth preserving.
-  for (const id of new Set(ids)) {
-    const prev = found.get(id);
-    // Do not silently skip unknown ids — promote/retire are explicit actions.
-    if (!prev) throw new Error(`cannot transition unknown entity: ${id}`);
+  for (const id of distinct) {
+    const prev = found.get(id) as Entity;
     const next: Entity = {
       ...prev,
       status,
@@ -72,6 +76,38 @@ export function deprecate(
 }
 
 /**
+ * Records that declare they rest on any of `ids` — one incoming `derived_from` hop (SPEC "Derivation").
+ *
+ * Retiring a record is not a repair unless what rests on it can be found. This is the stale queue's rule
+ * one surface over: flagging decay does not fix it, handing it to the thing that has to change does.
+ *
+ * Entities rather than ids, because every caller renders this for a person to act on and a bare ULID is
+ * not something anyone can act on.
+ *
+ * Namespace-filtered on the relation, for the reason `identitySet` is: `neighbors` takes no `ns`, so
+ * without it an edge filed by one tenant reports a dependent in another.
+ *
+ * ponytail: one hop, not the transitive closure. A dependent's own dependents surface when THAT record is
+ * retired in turn, so the walk is iterative by construction; add a closure if a real corpus turns up
+ * chains deep enough that one hop misleads.
+ */
+export async function downstreamOf(
+  port: StoragePort,
+  ids: string[],
+  ns?: string | null,
+): Promise<Entity[]> {
+  const wantNs = normalizeNs(ns);
+  const dependents = new Set<string>();
+  for (const id of new Set(ids))
+    for (const r of await port.neighbors(id, "derived_from", "in"))
+      if (normalizeNs(r.ns) === wantNs) dependents.add(r.from);
+  // A record is never its own downstream. The front tier refuses to file a self-edge, but a hand-filed
+  // `yoke link X derived_from X` reaches storage like any other relation.
+  for (const id of ids) dependents.delete(id);
+  return readEntities(port, [...dependents].sort());
+}
+
+/**
  * Freshness check. Always fresh if the type has no ttl_days.
  * Otherwise fresh while last_confirmed + ttl_days >= now (millisecond arithmetic, no deps).
  */
@@ -97,11 +133,10 @@ export function effectiveStatus(
 /**
  * Every stored version of `id`, **ascending by version**.
  *
- * The order is part of this function's contract now, and that is a fix rather than a tightening: it
- * used to say "any order", sqlite's `listHistory` returned `ORDER BY version ASC`, and the fallback
- * below counted DOWN from the latest. Two implementations obeying "any order" differently is a display
- * bug waiting for whichever backend the reader happens to be on — `yoke history` and the entity screen
- * both print this list as a timeline.
+ * The order is part of the contract rather than "any order": `yoke history` and the entity screen
+ * both print this list as a timeline, and two implementations obeying "any order" differently is a
+ * display bug waiting for whichever backend the reader happens to be on. The extension path returns
+ * ascending and the fallback below counts DOWN from the latest, so both are sorted here.
  *
  * `listHistory` is a YokeStore extension rather than a port method, so it is feature-detected — and it
  * is genuinely absent on a remote backend, because it is synchronous and the rows are across a network

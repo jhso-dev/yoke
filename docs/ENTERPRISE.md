@@ -70,12 +70,18 @@ directional decisions.
   namespaces route to shards, entirely behind the storage port with no core
   change.
 
-Sharding shipped in v3.6 (`--shards config.json`): each shard is its own backend
-(sqlite, kuzu, or qdrant — heterogeneous mixes allowed), namespaces route to the
-shard that claims them, and unclaimed namespaces land on the single default
-shard. Point reads fan out (ids are globally unique ULIDs), scoped searches hit
+Sharding shipped in v3.6 (`--shards config.json`): each shard is its own backend,
+namespaces route to the shard that claims them, and unclaimed namespaces land on
+the single default shard. The kind is `sqlite` — a one-value union. Heterogeneous
+mixes remain a shape the router supports, with nothing to mix until a second
+shardable backend exists. Point reads fan out (ids are globally unique ULIDs), scoped searches hit
 only the owner shard, and duplicate/contradiction bookkeeping stays with the
-entity's shard. Known ceilings are documented in `storage-sharded/index.ts`:
+entity's shard. The ontology is the one read that spans two shards: shared
+(null-ns) types live on the default shard, tenant types on the owner shard, and a
+namespaced read overlays them — the same rule §10.1 states for one database. It has
+to: `yoke init` seeds the shared base onto the default shard and a tenant shard is
+never given a copy, so reading the owner shard alone would make a namespace owned by
+one refuse every command ("not initialized"). Known ceilings are documented in `storage-sharded/index.ts`:
 cross-shard `similar` fan-out can surface duplicate warnings across tenants
 (isolation-sensitive deployments should run one serve process per tenant), and
 `backup`/`export` are per-shard operations. Read replicas

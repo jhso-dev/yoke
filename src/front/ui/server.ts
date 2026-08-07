@@ -17,6 +17,7 @@ import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
 import {
   deprecate,
+  downstreamOf,
   effectiveStatus,
   listVersions,
   staleEntities,
@@ -119,14 +120,12 @@ function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
   };
   const nameOf = async (actorId: string): Promise<string | undefined> => {
     if (!seen.has(actorId)) {
-      // Every actor is looked up. This used to skip any id containing a colon, on the theory that a
-      // colon means a machine actor ('yoke:system', 'connector:github-pr') and a ULID never has one —
-      // but a person's id is whatever created it, and `scripts/seed-dummy-it-company.mjs`, this
-      // repo's OWN corpus generator, mints `person:platform-manager`. So the shortcut turned every
-      // seeded author into a slug on the exact surface that exists to not show ids to people. The
-      // guard is the type check below, which was always the real one; the colon was a guess about
-      // ids that only the caller knows. Cost of dropping it: one memoized point read per distinct
-      // machine actor per request.
+      // EVERY actor is looked up, including ids containing a colon. A colon looks like a machine
+      // actor ('yoke:system', 'connector:github-pr'), but a person's id is whatever created it and
+      // `scripts/seed-dummy-it-company.mjs` — this repo's own corpus generator — mints
+      // `person:platform-manager`, so skipping those would render every seeded author as a slug on
+      // the exact surface that exists to keep ids away from readers. The real guard is the type check
+      // in `remember`. Cost: one memoized point read per distinct machine actor per request.
       const e = await store.getEntity(actorId);
       if (e) remember(e);
       else seen.set(actorId, undefined);
@@ -357,11 +356,9 @@ export function createUiHandler(
   /**
    * Authorize, and on refusal answer 403 naming the scope that would have granted it.
    *
-   * The body used to be `{"error":"forbidden"}` and nothing else. Found by running the check the
-   * roadmap had been carrying as a human-verification item: a read-only token is refused `verify`
-   * correctly, and the person holding it is told only that something was forbidden — not which
-   * permission to ask for, and not whether the refusal was about this record's type or the namespace.
-   * "Errors explain what went wrong and how to fix it."
+   * A bare `{"error":"forbidden"}` refuses correctly and tells the holder nothing they can act on —
+   * not which permission to ask for, and not whether the refusal was about this record's type or the
+   * namespace. "Errors explain what went wrong and how to fix it."
    *
    * Only the REQUIRED scope is named, never the token's own. What the caller holds does not change
    * what they have to go and ask for, and the handler would have to be threaded the principal to say
@@ -513,8 +510,8 @@ export function createUiHandler(
       // Every draft in the namespace. It carries no peer approval state — not because it is
       // filtered out, but because none exists: verify is immediate and per-actor, so there is no
       // pending approval to leak. The Delphi independence constraint (docs/RESEARCH.md §2–3) binds
-      // whoever adds multi-reviewer aggregation; this route is not currently enforcing it, and the
-      // comment that used to say "only this reviewer's list" described a filter that is not here.
+      // whoever adds multi-reviewer aggregation. This route enforces nothing of the sort today, and
+      // saying it returned "only this reviewer's list" would describe a filter that is not here.
       const drafts = await store.listEntities({ status: "draft", ns });
       sendJson(res, 200, await rowsOf(newestFirst(drafts.items)));
       return;
@@ -679,18 +676,31 @@ export function createUiHandler(
         sendJson(res, 400, { error: "asOf must be an ISO instant" });
         return;
       }
-      const { items, omitted } = await inject(
+      // Same default rule as the MCP tool and the CLI, verbatim: an anchored briefing is capped at
+      // BRIEFING_LIMIT, a query is not (SPEC "the three front adapters apply the default to a
+      // briefing … and never to a query"). Defaulting every call would show 50 where the agent gets
+      // everything — the drift the byte-for-byte claim below forbids, on the one screen whose job is
+      // to rule it out.
+      const explicitLimit = url.searchParams.has("limit")
+        ? intParam(url, "limit", BRIEFING_LIMIT, 500)
+        : undefined;
+      const briefing = scope !== undefined && !query;
+      const { items, omitted, walk } = await inject(
         store,
         store.loadOntology(ns),
         query,
         ts,
         {
           includeDraft,
-          // This route already defaulted to 50; what it lacked was saying so. A preview that quietly
-          // shows 50 of 312 misrepresents what an agent would receive.
-          limit: intParam(url, "limit", BRIEFING_LIMIT, 500),
+          limit: explicitLimit ?? (briefing ? BRIEFING_LIMIT : undefined),
           ns,
           scope,
+          // Relation hops the anchor walk takes (SPEC "Multi-hop", default 1) — the MCP tool takes
+          // this, so a preview without it could not reproduce a depth-2 agent call. Bounded like the
+          // graph route's; core's WALK_BUDGET caps the blast radius regardless.
+          depth: url.searchParams.has("depth")
+            ? intParam(url, "depth", 1, 3)
+            : undefined,
           asOf: asOfParam,
           // Hybrid retrieval (SPEC "Hybrid retrieval"). The preview's whole claim is that it shows
           // byte-for-byte what an agent receives, so retrieving by a different half would break it.
@@ -714,6 +724,9 @@ export function createUiHandler(
         asOf: asOfParam ?? null,
         includeDraft,
         omitted,
+        // Present only when the walk went deeper than one hop — same shape core hands the MCP tool,
+        // so the preview can state what a depth-2 answer walked (`{ depth, nodes, truncated }`).
+        walk: walk ?? null,
         items: await (async () => {
           const es = items.map((it) => it.entity);
           await prefetch(es);
@@ -993,11 +1006,27 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      sendJson(res, 200, await rowsOf(done));
+      if (action === "verify") {
+        sendJson(res, 200, await rowsOf(done));
+        return;
+      }
+      // Deprecating names what rests on it (v5.8) — the same answer `yoke deprecate` prints, because
+      // this screen is the governance workbench and cannot be the weaker surface for its own job.
+      // Rows, not ids: the notice is meant to be clicked through.
+      sendJson(res, 200, {
+        deprecated: await rowsOf(done),
+        downstream: await rowsOf(
+          await downstreamOf(
+            store,
+            done.map((e) => e.id),
+            ns,
+          ),
+        ),
+      });
       return;
     }
 
-    // Creating a record, and linking two of them. Allowed since the 2026-07-31 WEB-UI amendment:
+    // Creating a record, and linking two of them. WEB-UI.md test 3 permits it:
     // the gate, not the adapter, is what enforces entry, so a record typed at a screen faces the
     // same ontology validation and the same draft-then-verify path as one an agent commits. What
     // makes that honest is `origin: "web"` below — hand-typed knowledge is permitted and labelled,

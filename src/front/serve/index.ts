@@ -86,10 +86,25 @@ function bearer(req: IncomingMessage): string | null {
   return m ? m[1].trim() : null;
 }
 
-/** Read and JSON-parse the request body (undefined when empty) — MCP handleRequest wants it pre-parsed. */
+/** Same cap as the UI handler's `readBody` (SPEC "Bounded input" — a rule for EVERY route on this
+ * server, and `/mcp` never reaches the UI handler, so without its own cap this was the one unbounded
+ * stream on an auth-fronted, possibly non-loopback surface). Kept as a second const rather than an
+ * export from ui/server.ts because serve must not depend on the UI tier for a number. */
+const MAX_MCP_BODY = 256 * 1024;
+
+/** Read and JSON-parse the request body (undefined when empty) — MCP handleRequest wants it pre-parsed.
+ * Bounded and content-type-checked like every other route (SPEC "Bounded input"). */
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const ct = req.headers["content-type"] ?? "";
+  if (!ct.includes("application/json"))
+    throw new Error("content-type must be application/json");
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
+  let size = 0;
+  for await (const c of req) {
+    size += (c as Buffer).length;
+    if (size > MAX_MCP_BODY) throw new Error("request body too large");
+    chunks.push(c as Buffer);
+  }
   const raw = Buffer.concat(chunks).toString("utf8");
   return raw ? JSON.parse(raw) : undefined;
 }

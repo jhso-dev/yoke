@@ -325,7 +325,5 @@ hooks: `ENTERPRISE.md` (the verify permission model) and `WEB-UI.md` (the review
 independence constraint). When a claim here is checked against its primary source, replace the
 "unverified" marker with the page reference — the marker is a debt, not a disclaimer.
 
-Amended 2026-08-03: §5 is the first section here that is **partly implemented**, which changes what
-this file is for. The header still says "nothing here is implemented" about §1–4, and that stays
-true. Where a section drives code, say which code — §5 names the two SPEC clauses it produced, so the
-next reader can tell the argument from the artifact.
+§1–4 are unimplemented; §5 is **partly implemented** and names the two SPEC clauses it produced. Where
+a section drives code, it says which code — so the next reader can tell the argument from the artifact.

@@ -14,8 +14,8 @@ import { useT } from "../lib/i18n";
  *
  * Kept as a wrapper rather than letting every screen assemble Dialog + Content + Header itself: the
  * title is not optional here — a dialog with no accessible name is the defect this indirection makes
- * unrepresentable — and `description` stays available for the sentence that used to sit above each
- * form. Screens pass `open`/`onClose` and their fields; nothing else.
+ * unrepresentable — and `description` carries the explanatory sentence a form needs above its
+ * fields. Screens pass `open`/`onClose` and their fields; nothing else.
  */
 export function Modal({
   open,

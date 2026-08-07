@@ -8,12 +8,19 @@ One-line summary: **lenient on write, strict on injection.**
 
 1. **Ontology validation**: an entity/relation type not in the schema is rejected. The ontology changes only through an explicit migration.
 2. **Provenance required**: who/what (person, agent, or document) and when — reject if missing. Knowledge without provenance isn't knowledge, it's rumor.
-3. **Immutable history**: no overwrites, no physical deletes. An edit is a new version; a delete is a tombstone. You must always be able to reconstruct the state of knowledge at any point in time.
+3. **Immutable history**: no overwrites, no physical deletes — the storage port exposes no delete
+   API at all (a conformance case bans the method names). An edit is a new version; retirement is
+   `deprecated`, a status, so nothing resembling deletion exists to tombstone. You must always be
+   able to reconstruct the state of knowledge at any point in time.
 
 ## Soft rules — let it through, but quarantine by grade
 
 4. **Status lifecycle**: every piece of knowledge is `draft → verified → stale | deprecated`. New entries default to `draft`.
-5. **Injection filter**: context injection injects only `verified` by default. `draft`/`stale` only on explicit request, and with a status label attached. This — not the write path — is where strictness is actually enforced.
+5. **Injection filter**: context injection injects only `verified` by default. `draft` only on
+   explicit request (`includeDraft`), and with a status label attached. `stale` and `deprecated`
+   are **never** injected — there is deliberately no include-stale option anywhere (a record past
+   its TTL is exactly the one an agent must not repeat); the stale queue exists so a person
+   re-confirms it instead. This — not the write path — is where strictness is actually enforced.
 6. **Duplicates and contradictions are recorded, not deleted**:
    - On commit, look up similar entities → if it's a duplicate, propose a merge (no automatic merging).
    - If it contradicts existing knowledge, keep both and link them with a `conflicts_with` relation.

@@ -19,11 +19,13 @@ import { Citation } from "./Citation";
 import { Pagination, usePage } from "./Pagination";
 import { StatusBadge } from "./StatusBadge";
 
-/** The one component that renders knowledge rows.
+/** The standard rendering of knowledge rows — type, summary, status, actor, source.
  *
- * Every screen goes through it, which is how "knowledge is always shown with its source and
- * version" (WEB-UI.md) stays true without anyone remembering to do it: the Knowledge type makes
- * citation non-optional, so a row without one does not compile. */
+ * Not the only one: screens with their own row shape (graph nodes, an entity's relations) render
+ * their own tables. What holds "knowledge is always shown with its source and version" (WEB-UI.md)
+ * across all of them is `citation-render.test.ts`, which fails any screen that shows a record
+ * without a `<Citation>` — the non-optional `citation` field guarantees the DATA carries a source
+ * and cannot make a screen render one. */
 export function KnowledgeTable({
   rows,
   empty = "nothing here",

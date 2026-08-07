@@ -18,7 +18,7 @@ import { commit } from "../../core/commit.js";
 import { deprecate, verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
-import { runCli } from "./index.js";
+import { loadDotEnv, runCli } from "./index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-cli-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -79,6 +79,32 @@ describe("runCli", () => {
     expect(await runCli(["search", "hello", "--db", db, "--json"])).toBe(0);
     const found = JSON.parse(logs.at(-1) as string);
     expect(found.some((e: { id: string }) => e.id === added.id)).toBe(true);
+  });
+
+  // SPEC "A command reports the store it actually opened": the human line names the resolved store,
+  // while `--json`'s `db` stays the LOCAL sqlite path a script was already reading.
+  it("init names the store it opened, and --json keeps db a path", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db, "--json"])).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toMatchObject({
+      db,
+      store: db,
+      seeded: true,
+    });
+    // The plain-sqlite label IS the db path — the two only diverge under --shards or a remote
+    // backend, which storage-sharded's CLI test covers for the case that was actually wrong.
+  });
+
+  it("overview writes the audit row the MCP tool writes — no silent adapter", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await runCli(["overview", "--db", db])).toBe(0);
+    const store = new SqliteStorage(db);
+    await store.init();
+    const rows = store.listAudit().filter((a) => a.action === "overview");
+    store.close();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].detail).toContain("overview ->");
   });
 
   it("rejects invalid add with exit 1", async () => {
@@ -195,7 +221,11 @@ describe("runCli", () => {
 
     // deprecate → disappears from inject
     expect(await runCli(["deprecate", id, "--db", db, "--json"])).toBe(0);
-    expect(JSON.parse(logs.at(-1) as string)[0].status).toBe("deprecated");
+    // `--json` is { deprecated, downstream } rather than a bare array as of v5.8: the command now
+    // answers two questions, and what rests on a retired record is the half a script needs to route.
+    expect(JSON.parse(logs.at(-1) as string).deprecated[0].status).toBe(
+      "deprecated",
+    );
     expect(
       await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
     ).toBe(0);
@@ -333,6 +363,111 @@ describe("runCli", () => {
     expect(await runCli(["persona", "nobody", "--db", db])).toBe(1);
   });
 
+  // persona --check (v5.8): SPEC has said since v1 that the recorded source versions exist "so a stale
+  // snapshot can be identified", and nothing read them back. Exit code is the contract — this is meant
+  // to be usable as a CI gate, so a green file must be 0 and a moved source must be 1.
+  it("persona --check passes a fresh export and fails once a source is retired", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--actor",
+        "yoke:system",
+        "--attr",
+        "note=deploys are on fridays",
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+    expect(
+      await runCli(["verify", id, "--db", db, "--actor", "yoke:system"]),
+    ).toBe(0);
+    const out = join(dir, `check-${Math.random().toString(36).slice(2)}`);
+    expect(
+      await runCli(["persona", "yoke:system", "--db", db, "--out", out]),
+    ).toBe(0);
+    const file = join(out, "persona-yoke-system", "SKILL.md");
+
+    // Nothing has moved yet.
+    expect(await runCli(["persona", "--check", file, "--db", db])).toBe(0);
+    expect(logs.at(-1)).toContain("all current");
+
+    // Retire the one source → non-zero, and the report names the record rather than only its id.
+    expect(
+      await runCli(["deprecate", id, "--db", db, "--actor", "yoke:system"]),
+    ).toBe(0);
+    expect(
+      await runCli(["persona", "--check", file, "--db", db, "--json"]),
+    ).toBe(1);
+    const report = JSON.parse(logs.at(-1) as string);
+    expect(report.moved).toBe(1);
+    expect(report.sources[0].verdict).toBe("deprecated");
+    expect(report.sources[0].attributes.note).toBe("deploys are on fridays");
+    // ...and the human report reads as words plus the id, not as a JSON dump: one governed decision's
+    // rationale is a page of prose, so a routing list built from `formatEntity` scrolls off the screen.
+    expect(await runCli(["persona", "--check", file, "--db", db])).toBe(1);
+    expect(logs.join("\n")).toContain(
+      "deprecated deploys are on fridays  [fact ",
+    );
+  });
+
+  it("persona --check refuses a file that is not an export, and one that does not exist", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const notAnExport = join(dir, "readme.md");
+    writeFileSync(notAnExport, "# just a readme\n");
+    expect(await runCli(["persona", "--check", notAnExport, "--db", db])).toBe(
+      1,
+    );
+    expect(errs.at(-1)).toContain("not an exported persona");
+    expect(
+      await runCli(["persona", "--check", join(dir, "nope.md"), "--db", db]),
+    ).toBe(1);
+    expect(errs.at(-1)).toContain("cannot read");
+  });
+
+  // deprecate names what rests on the retired record (v5.8) — "3 records" routes nobody.
+  it("deprecate reports the records that declared they derive from it", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const addFact = async (note: string) => {
+      expect(
+        await runCli([
+          "add",
+          "fact",
+          "--db",
+          db,
+          "--attr",
+          `note=${note}`,
+          "--json",
+        ]),
+      ).toBe(0);
+      return JSON.parse(logs.at(-1) as string).id as string;
+    };
+    const basis = await addFact("the queue is at-least-once");
+    const dependent = await addFact("consumers must be idempotent");
+    expect(
+      await runCli(["link", dependent, "derived_from", basis, "--db", db]),
+    ).toBe(0);
+
+    expect(await runCli(["deprecate", basis, "--db", db, "--json"])).toBe(0);
+    const res = JSON.parse(logs.at(-1) as string);
+    expect(res.deprecated[0].status).toBe("deprecated");
+    expect(res.downstream.map((e: { id: string }) => e.id)).toEqual([
+      dependent,
+    ]);
+
+    // Retiring something nothing rests on reports an empty list, not a missing key.
+    expect(await runCli(["deprecate", dependent, "--db", db, "--json"])).toBe(
+      0,
+    );
+    expect(JSON.parse(logs.at(-1) as string).downstream).toEqual([]);
+  });
+
   it("backfill derives authorship edges for pre-upgrade knowledge, idempotently", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
@@ -352,7 +487,7 @@ describe("runCli", () => {
       legacy,
       {
         type: "decision",
-        attributes: { conclusion: "use kuzu", rationale: "graph" },
+        attributes: { conclusion: "use neo4j", rationale: "graph" },
       },
       prov,
       "2026-07-01T00:00:00Z",
@@ -382,7 +517,7 @@ describe("runCli", () => {
     ).toBe(0);
     expect(
       readFileSync(join(dir, "persona-alex", "SKILL.md"), "utf8"),
-    ).toContain("use kuzu");
+    ).toContain("use neo4j");
 
     // Idempotent: nothing left to derive.
     expect(await runCli(["backfill", "--db", db, "--json"])).toBe(0);
@@ -1283,5 +1418,56 @@ describe("backfill --embeddings", () => {
     } finally {
       server.close();
     }
+  });
+});
+
+// `.env` loading. Every clause here is one the docs promise, and one of them is Node's
+// behaviour rather than ours: pinning it is the point, because swapping in a hand-rolled parser would
+// break the promise silently. `loadDotEnv` mutates the real process.env, so each case cleans up its own
+// keys — and the keys are unique per case so a leak cannot make a sibling pass.
+describe("loadDotEnv", () => {
+  const dir = mkdtempSync(join(tmpdir(), "yoke-dotenv-"));
+  const write = (name: string, body: string): string => {
+    const p = join(dir, name);
+    writeFileSync(p, body);
+    return p;
+  };
+
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("reads a file that is there", () => {
+    const f = write("plain", "DOTENV_PROBE_A=from-file\n");
+    try {
+      expect(loadDotEnv(f)).toBe(true);
+      expect(process.env.DOTENV_PROBE_A).toBe("from-file");
+    } finally {
+      delete process.env.DOTENV_PROBE_A;
+    }
+  });
+
+  // The precedence clause: a shell export or a CI secret has to beat the file, or a `.env` someone
+  // left in a directory could quietly reconfigure a deployment. Nothing in our code enforces it.
+  it("does not overwrite a variable that is already set", () => {
+    process.env.DOTENV_PROBE_B = "from-shell";
+    const f = write(
+      "override",
+      "DOTENV_PROBE_B=from-file\nDOTENV_PROBE_C=new\n",
+    );
+    try {
+      expect(loadDotEnv(f)).toBe(true);
+      expect(process.env.DOTENV_PROBE_B).toBe("from-shell");
+      // ...while a variable the environment does NOT have still arrives, so the file is a default
+      // rather than being ignored wholesale.
+      expect(process.env.DOTENV_PROBE_C).toBe("new");
+    } finally {
+      delete process.env.DOTENV_PROBE_B;
+      delete process.env.DOTENV_PROBE_C;
+    }
+  });
+
+  // No .env is the normal case: `yoke` on the local path takes no configuration at all.
+  it("is silent when there is no file, and when the path is a directory", () => {
+    expect(loadDotEnv(join(dir, "does-not-exist"))).toBe(false);
+    expect(loadDotEnv(dir)).toBe(false);
   });
 });

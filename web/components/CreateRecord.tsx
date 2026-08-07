@@ -21,13 +21,13 @@ import { ErrorBanner } from "./ErrorBanner";
 /**
  * Create a record, from the ontology rather than from hand-written fields per type.
  *
- * Allowed since the 2026-07-31 WEB-UI amendment. The form asserts nothing the gate does not: it
+ * Allowed by WEB-UI.md test 3. The form asserts nothing the gate does not: it
  * passes the ontology's own `required` flag to the field and stops there. Duplicating validation in
  * the client is how a client and a server come to disagree about what is valid, so a rejection comes
  * back as the gate's own words and is shown as such.
  *
  * The record enters as a draft with `origin: "web"`, so a reviewer can tell what was typed at a
- * screen from what an agent or a connector captured — the labelling the amendment traded the old
+ * screen from what an agent or a connector captured — the labelling that replaced the old
  * outright ban for.
  */
 export function CreateRecord({

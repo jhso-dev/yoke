@@ -1,12 +1,12 @@
 // storage-neo4j tests — against a REAL Neo4j, skipped when none is reachable.
 //
-// No fake. The qdrant adapter's in-memory REST fake is defensible because Qdrant's filter surface is a
-// handful of JSON shapes; Cypher is a query language, so a fake would encode the same assumptions as
+// No fake. A fake REST surface is defensible when the surface is a handful of JSON shapes, which is
+// why one exists for OpenSearch; Cypher is a query language, so a fake would encode the same assumptions as
 // the adapter and conformance against it would prove nothing. The cost of that honesty is that this
 // suite is conditional locally — CI runs it as a service container so it is never only skipped.
 //
 //   docker run -d --rm --name yoke-neo4j -p 7687:7687 -e NEO4J_AUTH=neo4j/testtest neo4j:5
-//   YOKE_TEST_NEO4J_URL=bolt://localhost:7687 npm run test:main
+//   YOKE_TEST_NEO4J_URL=bolt://localhost:7687 npm test
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -62,8 +62,8 @@ suite("StoragePort conformance: neo4j (live)", () => {
   });
 
   // Per-case isolation like the shared vitest wrapper gives every other adapter. The cases are written
-  // to be self-scoping (case-unique types and tokens) because the kuzu runner shares one database, so
-  // a shared graph here is safe too — but a fresh connection per case keeps the vector-index state
+  // to be self-scoping (case-unique types and tokens), so a shared graph here would be safe —
+  // but a fresh connection per case keeps the vector-index state
   // from one case out of the next.
   for (const c of conformanceCases) {
     it(c.name, async () => {

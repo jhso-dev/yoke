@@ -16,65 +16,54 @@ traditional-DB compatibility. Detailed when work starts (v2.0).
 | Adapter | When | Why chosen |
 |---|---|---|
 | storage-sqlite | v0.1 | embedded; FTS5 + sqlite-vec cover all of v1 |
-| storage-kuzu | v2.0 | embedded graph DB — stronger graph queries with no infrastructure. A proven path Cognee also adopted. **Ships separately since v5.6**: `npm install kuzu`, see below |
-| storage-qdrant | v2.0 | a similar-capability-only implementation. Large-scale embeddings |
-| storage-neo4j | **v5.2 (built)** | an enterprise already runs one, and it is the only backend with native FTS, vectors and graph in one engine |
+| storage-neo4j | **v5.2 (built)** | an enterprise already runs one; native FTS + native vectors in one engine (the engine also has native traversal, which the adapter does not yet use — see the matrix note) |
 | storage-opensearch | **v5.4 (built)** | an enterprise already runs one for logs and search, and it is the cheapest adapter to own: a REST API, so `fetchImpl` injection makes it fakeable and it adds **no dependency** — where neo4j needed a 3.8 MB Bolt driver |
 | storage-postgres | v2.x | the leading default-backend candidate for server mode (v3) (pgvector doubles as similar) |
 
-## kuzu is not installed by default (v5.6)
-
-Measured on a fresh clone: `npm ci --omit=dev` — what `npx yoke` costs a user — was **581 MB, of which
-kuzu's native binding was 531 MB**. 91% of an end user's download, for a backend they can only reach by
-naming `kind: "kuzu"` in a `--shards` config. It is a devDependency now, so a consumer install is
-**44 MB** and this repo's own conformance suite still runs the full 24 cases against it.
-
-A shard config naming a kuzu shard therefore fails with the one command that fixes it —
-`npm install kuzu` — rather than a `MODULE_NOT_FOUND` naming a file the caller never imported. The
-caller wrote a config, not an import; the error should be about the config.
-
-Considered and not done: an optional `peerDependency`. It leaves the package uninstalled for consumers
-exactly as this does, so it would be a second declaration of the same fact, and the devDependency is
-the one the test suite actually needs.
+A backend earns a place here by being **selectable** (`openStore` resolves it) and passing the shared
+conformance suite against a real server. An adapter that only a `--shards` member entry could reach is
+not a supported backend — that is a federation detail, not a way to run yoke.
 
 ## Capability matrix
-
-Corrected 2026-08-03: the kuzu row said `similar ✓` and kuzu has never implemented it —
-`storage-kuzu/index.ts:5` cites *this table* as its justification for omitting the capability, so
-the code pointed at a table that said the opposite. Its FTS row was also wrong in the other
-direction: kuzu answers `search` app-level (materialize every row, tokenize, rank with
-`core/rank.ts`), which is a real implementation with a real ceiling, not an absence.
 
 | | FTS | similar | graph traversal | batch read | embedded |
 |---|---|---|---|---|---|
 | sqlite | ✓ (FTS5 bm25) | ✓ (sqlite-vec) | app-level | ✓ (`IN`) | ✓ |
-| kuzu | app-level | **—** | ✓ (native) | — (nothing to gain) | ✓ |
-| qdrant | app-level | ✓ | — | ✓ (`match: any`) | — |
-| **neo4j** | **✓ (native full-text index, scored)** | **✓ (native vector index)** | **✓ (native)** | ✓ (`IN $ids`) | — |
+| **neo4j** | **✓ (native full-text index, scored)** | **✓ (native vector index)** | app-level* | ✓ (`IN $ids`) | — |
 | **opensearch** | **✓ (native BM25, scored)** | **✓ (native k-NN, HNSW)** | app-level (term query) | ✓ (`terms` + `latest`) | — |
 | postgres | ✓ | ✓ (pgvector) | app-level | ✓ (`IN`) | — |
 
+*Neo4j's engine has native traversal; this adapter does not use it. Relations are stored as **nodes**
+(`:Relation {from_id, to_id}` — no Cypher relationship anywhere in the file), so `neighbors` is an
+indexed OR-predicate lookup, structurally the same query sqlite runs. Using real Cypher relationships
+would be a storage-format migration, to do when a multi-hop workload demands it.
+
 **Batch read** is `getEntities` (v5.5, SPEC "Batch point reads"), and it is the one column where an
-*embedded* backend is right to have a dash: a point read there is a prepared statement, so kuzu's
-absence costs it nothing and core's `getEntity` fallback covers it. On a remote backend the same loop
-was one network round trip per id — a briefing of one collaboration cost 56 of them and now costs 2.
-sqlite implements it anyway, because otherwise the conformance case would only ever run against a
-live server and `npm test` would never execute the contract.
+*embedded* backend is right to have a dash: a point read there is a prepared statement, so omitting it
+costs nothing and core's `getEntity` fallback covers it. On a remote backend the same loop was one
+network round trip per id — a briefing of one collaboration cost 56 of them and now costs 2. sqlite
+implements it anyway, because otherwise the conformance case would only ever run against a live server
+and `npm test` would never execute the contract.
 
-"app-level" is not a synonym for "absent": those adapters materialize candidates and rank them with
-`core/rank.ts`'s BM25, which is why every backend can satisfy the same "best match first" conformance
-case. It is a ceiling, and `docs/SCALE.md` is where the size of it is recorded.
+"app-level" is not a synonym for "absent": those adapters answer the same question out of ordinary
+queries instead of a purpose-built index, which is why every backend satisfies the same conformance
+cases. It is a ceiling, and `docs/SCALE.md` is where the size of it is recorded.
 
-The point at which `neighbors()`'s multi-hop traversal becomes a bottleneck is the
-point at which we promote a graph capability into the port — not before.
+Every backend in the table ranks `search` with a native index, so `core/rank.ts`'s
+`rankByRelevance`/`matchesTokens` — the BM25 an adapter without one needs — is called only by the
+conformance suite's in-memory fake. It stays because the port declares "best match first" and postgres
+is not the last backend; the fake is where that clause is checked with no engine's opinion in it.
+
+Multi-hop is core's breadth-first loop over single-hop `neighbors()` on EVERY backend — the point
+at which that becomes a bottleneck is the point at which we promote a graph capability into the
+port (and teach the neo4j adapter real relationships) — not before.
 
 ## What a remote backend can and cannot implement (v5.2)
 
-Discovered while building storage-neo4j, and it is the reason kuzu and qdrant were never reachable
-from the CLI: `openStore` returns a **`YokeStore`**, and 10 of that interface's 12 extension methods
-are **synchronous** — they were shaped by `better-sqlite3`, which is synchronous. A network-backed
-store cannot implement a synchronous method. kuzu's own `saveOntology`/`loadOntology` are `async`,
-which is exactly why kuzu does not satisfy `YokeStore`.
+Discovered while building storage-neo4j: `openStore` returns a **`YokeStore`**, and 8 of that
+interface's 12 extension methods are **synchronous** — they were shaped by `better-sqlite3`, which is
+synchronous. A network-backed store cannot implement a synchronous method, so an adapter whose
+`loadOntology` has to be `async` does not satisfy `YokeStore` at all.
 
 So a remote backend is composed rather than substituted (`storage-composite`), and the split is a
 design decision, not a limitation to route around:
@@ -89,7 +78,9 @@ design decision, not a limitation to route around:
 
 Two interface methods had to become async because they touch remote rows: `renameType` (rewrites
 entity rows) and `saveOntology` (writes remotely, and a synchronous fire-and-forget would lose the
-error). `listHistory` stays optional and unimplemented on the composite — `core/lifecycle.ts`'s
+error). `listHistory` stays unimplemented on the composite (the `YokeStore` interface still
+declares it required, which is why the composite needs a cast; it is the CALLER that treats it as
+optional) — `core/lifecycle.ts`'s
 `listVersions` already feature-detects it and falls back to walking `getEntity(id, version)`, which
 is in the port and therefore async.
 
@@ -102,6 +93,10 @@ export YOKE_NEO4J_PASSWORD=…
 export YOKE_NEO4J_DATABASE=neo4j                 # optional
 yoke init                                        # creates constraints + indexes, seeds the ontology
 ```
+
+The same four lines work in a `.env` in the working directory (`cp .env.example .env`; SPEC
+"Configuration precedence"). An actual environment variable overrides the file, so the export form
+above still wins wherever both exist.
 
 `--db` still names the **local** sqlite that holds this client's audit trail and tokens; the knowledge
 goes to Neo4j. Everything else is unchanged: `yoke add`, `review`, `verify`, `inject`, `yoke ui`, MCP.
@@ -132,7 +127,8 @@ they are two different knowledge stores.
 
 **The test suite here is scoped by index prefix, which is what Neo4j could not do.** It creates and
 deletes `yoketest_*` indices only, so it can run against the same cluster a demo is using — verified by
-running all 30 cases while a 1,007-document corpus sat in `yoke_*` and counting it unchanged afterwards.
+running its whole suite — the 23 shared conformance cases plus its own OpenSearch-specific ones —
+while a 1,007-document corpus sat in `yoke_*`, and counting it unchanged afterwards.
 Neo4j Community has one database per server, so its suite has to erase everything; here the isolation
 is a name.
 
@@ -149,8 +145,9 @@ is a name.
 The conformance suite runs against a real Neo4j when one is reachable and **skips when it is not**, so
 `npm test` stays green without docker. CI runs it as a service container, so it is never only skipped.
 A hand-written fake was rejected: faking Cypher means the fake encodes the same assumptions as the
-adapter, and conformance against it would prove nothing — the qdrant adapter's REST fake is only
-defensible because Qdrant's filter surface is a handful of JSON shapes, not a query language.
+adapter, and conformance against it would prove nothing. OpenSearch differs only in that a fake
+WOULD be defensible there (its query surface is a handful of JSON shapes and its adapter takes a
+`fetchImpl` for exactly that) — its live suite still deliberately runs against a real cluster.
 
 ## Traditional-DB read-mapping (v2.0 — the enterprise wedge)
 

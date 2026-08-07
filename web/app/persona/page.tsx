@@ -24,9 +24,9 @@ import { useAsync } from "../../lib/useAsync";
  * synthesizes prose in their voice — the AI does that over MCP, from these same records.
  *
  * Two views on one route, because a ULID cannot be a static path (`generateStaticParams` has nothing
- * to enumerate): `/persona/` is the roster, `/persona/?id=…` is one person. The roster used to be a
- * <select>, which hid every person behind a click and told you nothing about them until you picked
- * one.
+ * to enumerate): `/persona/` is the roster, `/persona/?id=…` is one person. The roster is a card
+ * grid rather than a <select>, which would hide every person behind a click and say nothing about
+ * them until you picked one.
  */
 
 /** A page of the roster. Sized so a card grid fills a screen without a second request. */

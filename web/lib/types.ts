@@ -1,8 +1,9 @@
 // The client's view of the JSON API. Mirrors row() in src/front/ui/server.ts.
 //
-// `citation` and `effectiveStatus` are REQUIRED, not optional, and that is load-bearing: WEB-UI.md
-// says every screen shows a record's source and version, and making the field non-optional turns
-// that rule into a compile error instead of a review comment.
+// `citation` and `effectiveStatus` are REQUIRED, not optional: every payload carries a record's
+// source, so no screen can be missing the data. That is half of WEB-UI.md's "every screen shows a
+// record's source and version"; the rendering half is not expressible in the type system and is
+// enforced by `citation-render.test.ts`.
 
 export type Status = "draft" | "verified" | "stale" | "deprecated";
 
@@ -123,6 +124,8 @@ export interface InjectPreview {
   includeDraft: boolean;
   /** How many records the limit dropped. >0 means this is a page, not the whole context. */
   omitted: number;
+  /** What a multi-hop walk did — non-null only when depth > 1 was requested and walked. */
+  walk: { depth: number; nodes: number; truncated: boolean } | null;
   items: Knowledge[];
 }
 

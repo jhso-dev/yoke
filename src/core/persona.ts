@@ -10,9 +10,11 @@
 // knowledge a person did not author as their judgment would be impersonation.
 // Time is injected (never call new Date() in core).
 
-import type { StoragePort } from "../ports/storage.js";
+import { readEntities, type StoragePort } from "../ports/storage.js";
 import { identitySet } from "./identity.js";
 import { citation, inject } from "./inject.js";
+import { effectiveStatus } from "./lifecycle.js";
+import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity } from "./types.js";
 
@@ -165,4 +167,144 @@ export function renderPersonaSkill(
   out.push("");
 
   return out.join("\n");
+}
+
+// ── Auditing an exported snapshot (v5.8) ───────────────────────────────────────────────────────────
+//
+// The export above has recorded its source versions since v1, and SPEC said that was "so a stale
+// snapshot can be identified" — while nothing could read them back, so identifying one meant a person
+// diffing two files by eye. A file that names its sources is only worth the bytes if something other
+// than a person can check them.
+
+/** One `id@vN` entry from an exported SKILL.md header. */
+export interface PersonaSource {
+  id: string;
+  version: number;
+}
+
+export interface PersonaHeader {
+  sources: PersonaSource[];
+  /** Header tokens that were not `id@vN` — a hand-edited file, reported rather than dropped. */
+  unparsed: string[];
+  /** False when there is no `Source knowledge` line at all: not an exported persona. */
+  recognized: boolean;
+}
+
+const SOURCE_LINE = "Source knowledge (";
+
+/**
+ * The inverse of `renderPersonaSkill`'s header, and it lives beside it on purpose — a format the writer
+ * and the reader disagree about is the failure mode of every snapshot, so a render → parse round trip
+ * asserts them together.
+ *
+ * `lastIndexOf("@v")` rather than a split, because an id may carry a namespace prefix.
+ */
+export function parsePersonaSources(md: string): PersonaHeader {
+  const line = md.split("\n").find((l) => l.startsWith(SOURCE_LINE));
+  if (line === undefined)
+    return { sources: [], unparsed: [], recognized: false };
+  const list = line.slice(line.indexOf("): ") + 3).trim();
+  const header: PersonaHeader = {
+    sources: [],
+    unparsed: [],
+    recognized: true,
+  };
+  if (list === "(none)" || list === "") return header;
+  for (const token of list.split(",").map((t) => t.trim())) {
+    const at = token.lastIndexOf("@v");
+    const version = Number(token.slice(at + 2));
+    if (at > 0 && Number.isInteger(version) && version > 0)
+      header.sources.push({ id: token.slice(0, at), version });
+    else header.unparsed.push(token);
+  }
+  return header;
+}
+
+/**
+ * Why a snapshot's source is no longer what it was. One verdict per source, most actionable first —
+ * `deprecated` > `superseded` > `stale`/`draft` > `outdated` > `ok` — because the remedy for every
+ * non-`ok` verdict is the same (re-export), so a second reason changes nothing a reader would do.
+ *
+ * `draft` is unreachable from an export today (`inject` returns only verified records), and is here
+ * because reporting the status found beats mapping an unexpected one onto a neighbouring label.
+ */
+export type SourceVerdict =
+  | "ok"
+  | "outdated"
+  | "stale"
+  | "draft"
+  | "deprecated"
+  | "superseded"
+  | "missing";
+
+export interface SourceCheck extends PersonaSource {
+  verdict: SourceVerdict;
+  /** The version in the store now. Absent when `missing`. */
+  current?: number;
+  /** Enough of the record to label it — no caller should have to show a person only an id. Carried
+   * rather than rendered here: `summarize` reads the ontology to pick the attribute that means
+   * something (a decision's `conclusion` over whatever happened to be written first) and lives in the
+   * front tier, which core does not import. Absent when `missing`. */
+  type?: string;
+  attributes?: Record<string, unknown>;
+}
+
+/**
+ * Each recorded source against the store as it is now.
+ *
+ * One batch read for every source (v5.5), then one `neighbors` call per surviving source for the
+ * supersession check. Namespace-filtered on both, for `identitySet`'s reason: `neighbors` takes no `ns`,
+ * and a source that exists only in another tenant is `missing` here, which is the true answer.
+ */
+export async function checkPersonaSources(
+  port: StoragePort,
+  ontology: TypeDef[],
+  sources: PersonaSource[],
+  now: string,
+  opts?: { ns?: string | null },
+): Promise<SourceCheck[]> {
+  const wantNs = normalizeNs(opts?.ns);
+  const found = new Map(
+    (
+      await readEntities(
+        port,
+        sources.map((s) => s.id),
+      )
+    )
+      .filter((e) => normalizeNs(e.ns) === wantNs)
+      .map((e) => [e.id, e] as const),
+  );
+  const out: SourceCheck[] = [];
+  for (const s of sources) {
+    const e = found.get(s.id);
+    if (e === undefined) {
+      out.push({ ...s, verdict: "missing" });
+      continue;
+    }
+    const base = {
+      ...s,
+      current: e.version,
+      type: e.type,
+      attributes: e.attributes,
+    };
+    const status = effectiveStatus(e, ontology, now);
+    if (status === "deprecated") {
+      out.push({ ...base, verdict: "deprecated" });
+      continue;
+    }
+    const superseded = (await port.neighbors(s.id, "supersedes", "in")).some(
+      (r) => normalizeNs(r.ns) === wantNs && r.from !== s.id,
+    );
+    out.push({
+      ...base,
+      verdict: superseded
+        ? "superseded"
+        : status !== "verified"
+          ? status
+          : e.version !== s.version
+            ? "outdated"
+            : "ok",
+    });
+  }
+  return out;
 }

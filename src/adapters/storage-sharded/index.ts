@@ -19,9 +19,11 @@
 // The remaining extension surface (listHistory/ontology/audit/tokens) is the sqlite-shaped surface
 // used by CLI/UI/serve. Audit + tokens live on the default shard (a single audit/token stream).
 // ponytail: that surface assumes the default shard (and any ns owner it targets) is a sqlite
-// backend. A kuzu/qdrant member participates in the core port — which since v5.0 includes
-// enumeration, so the review queue and conflicts view work there too — but not in the sqlite-only
-// extensions (no tokens, and its ontology methods are async). Give a tenant on a non-sqlite backend
+// backend. `ShardKind` is `"sqlite"` only, so the assumption cannot currently be violated — the note
+// stays because it is the constraint a second shard kind would have to meet: a
+// non-sqlite member participates in the core port, which since v5.0 includes enumeration, so the
+// review queue and conflicts view work there too — but not in the sqlite-only extensions (no
+// tokens, and its ontology methods are async). Give a tenant on a non-sqlite backend
 // its own serve process if it needs audit/token features.
 //
 // Duplicate/contradiction detection stays intra-shard automatically: commit() calls this.similar,
@@ -31,8 +33,8 @@
 // still resolves the foreign id. ns-isolation-sensitive deployments (where even seeing a peer
 // tenant's near-duplicate is a leak) should give each tenant its own serve process.
 // ponytail: cross-shard similar fan-out is the known ceiling. Upgrade path is an ns-aware
-// `similar(embedding, k, ns?)` on the port — a supervisor-approved StoragePort contract change we do
-// NOT make here (ports/storage.ts is off-limits for this task).
+// `similar(embedding, k, ns?)` on the port — a StoragePort contract change, so it waits for a real
+// deployment to need it rather than being made from here.
 
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
@@ -254,10 +256,30 @@ export class ShardedStorage implements YokeStore {
     await (this.ownerOf(ns).store as ExtStore).saveOntology?.(defs, ns);
   }
 
+  /**
+   * The effective ontology for a namespace: the DEFAULT shard's shared (null-ns) base, overlaid with
+   * the owner shard's defs — the same rule sqlite applies inside one database (PLAN-V2 10.1, "tenant
+   * defs overlay shared (null-ns) defs").
+   *
+   * Reading the owner shard alone would make every namespace owned by a non-default shard
+   * **unusable**: `yoke init` writes the seed with no ns, so it lands on the default shard, and a
+   * namespaced command would load an EMPTY ontology from its own shard and refuse to run. A tenant
+   * shard holding no copy of the shared types is the POINT of the split — it is never meant to need
+   * one. And the overlay belongs HERE rather than in `yoke init`, because a backend answering
+   * `loadOntology(ns)` differently from sqlite is backend behaviour leaking through the store surface
+   * (invariant 2).
+   */
   loadOntology(ns?: string | null): TypeDef[] {
-    const target =
-      normalizeNs(ns) !== null ? this.ownerOf(ns) : this.defaultShard;
-    return (target.store as ExtStore).loadOntology?.(ns) ?? [];
+    const load = (m: ShardMember, n: string | null | undefined): TypeDef[] =>
+      (m.store as ExtStore).loadOntology?.(n) ?? [];
+    const shared = load(this.defaultShard, null);
+    if (normalizeNs(ns) === null) return shared;
+    // Shared order preserved, tenant defs replace same-name entries in place, tenant-only types
+    // appended — Map.set on an existing key keeps its original slot. When the owner IS the default
+    // shard, its own overlay already returned both halves and re-setting them changes nothing.
+    const byName = new Map(shared.map((d) => [d.name, d] as const));
+    for (const d of load(this.ownerOf(ns), ns)) byName.set(d.name, d);
+    return [...byName.values()];
   }
 
   listHistory(id: string): Entity[] {

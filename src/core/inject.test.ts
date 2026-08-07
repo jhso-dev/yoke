@@ -258,6 +258,56 @@ describe("inject scoped: multi-hop", () => {
     expect(res.walk).toEqual({ depth: 3, nodes: 3, truncated: false });
   });
 
+  // derived_from (v5.8) is deliberately NOT membership: the evidence under a decision is knowledge, so
+  // the walk should reach it. This pins both halves of that decision — depth 1 unchanged (a derivation
+  // edge joins two records and touches no anchor, so it cannot be followed on the first hop), and the
+  // basis arriving at depth 2. If the type were ever marked `membership`, the second case fails.
+  it("follows derived_from to a decision's basis, and not before depth 2", async () => {
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "queue migration" } },
+      prov,
+      now,
+    );
+    // Minted before the decision, so the basis's id SORTS FIRST — the depth-1 assertion below would
+    // pass on an id tiebreak if the walk wrongly returned both, so mint order has to fight the claim.
+    const basis = await addFact("the queue is at-least-once");
+    const { entity: decision } = await commit(
+      port,
+      ont,
+      {
+        type: "decision",
+        attributes: {
+          conclusion: "consumers must be idempotent",
+          rationale: "redelivery is expected, not exceptional",
+        },
+      },
+      prov,
+      now,
+    );
+    await link(decision.id, ws.id);
+    await commit(
+      port,
+      ont,
+      {
+        type: "derived_from",
+        attributes: {},
+        from: decision.id,
+        to: basis,
+      },
+      prov,
+      now,
+    );
+    await verify(port, [ws.id, basis, decision.id], "alice", now);
+
+    const one = await inject(port, ont, "", now, { scope: ws.id });
+    expect(one.items.map((i) => i.entity.id)).toEqual([decision.id]);
+
+    const two = await inject(port, ont, "", now, { scope: ws.id, depth: 2 });
+    expect(two.items.map((i) => i.entity.id)).toEqual([decision.id, basis]);
+  });
+
   it("holds a record at its SHORTEST distance, and terminates on a cycle", async () => {
     const s = await chain();
     await link(s.c, s.ws); // c is now 1 hop as well as 3, and the chain is a cycle

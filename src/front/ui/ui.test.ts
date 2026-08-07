@@ -234,6 +234,80 @@ describe("ui API", () => {
     expect(after.some((d: { id: string }) => d.id === factId)).toBe(false);
   });
 
+  // /api/deprecate had no test at all, which is how the shape change below could have shipped unnoticed:
+  // the route now answers TWO questions (v5.8), because the workbench is where governance happens and
+  // `yoke deprecate` names what rests on a retired record, and WEB-UI.md's parity floor binds the
+  // answer on every surface, so this route owes the same second half.
+  it("deprecate names the records that rest on what it retired", async () => {
+    const ont = store.loadOntology(null);
+    const basis = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { title: "the queue is at-least-once" } },
+      prov,
+      now,
+    );
+    const dependent = await commit(
+      store,
+      ont,
+      {
+        type: "decision",
+        attributes: {
+          conclusion: "consumers must be idempotent",
+          rationale: "redelivery is expected",
+        },
+      },
+      prov,
+      now,
+    );
+    await commit(
+      store,
+      ont,
+      {
+        type: "derived_from",
+        attributes: {},
+        from: dependent.entity.id,
+        to: basis.entity.id,
+      },
+      prov,
+      now,
+    );
+    await verify(store, [basis.entity.id, dependent.entity.id], "tester", now);
+
+    const res = await post("/api/deprecate", { ids: [basis.entity.id] });
+    expect(res.deprecated[0].id).toBe(basis.entity.id);
+    expect(res.deprecated[0].status).toBe("deprecated");
+    // Rows, not ids — the notice is meant to be clicked through, and a citation is what makes a row
+    // renderable at all (KnowledgeTable's rule).
+    expect(res.downstream.map((r: { id: string }) => r.id)).toEqual([
+      dependent.entity.id,
+    ]);
+    expect(res.downstream[0].summary).toBe("consumers must be idempotent");
+    expect(res.downstream[0].citation).toContain(dependent.entity.id);
+
+    // Nothing rests on the dependent, and the key is present-and-empty rather than absent: a client
+    // that has to distinguish "no dependents" from "this build does not report them" has been given
+    // two meanings for one missing field.
+    const none = await post("/api/deprecate", { ids: [dependent.entity.id] });
+    expect(none.downstream).toEqual([]);
+  });
+
+  // verify keeps the bare-array shape it has always had: only deprecate gained a second question, and
+  // changing both would break every verify caller for nothing.
+  it("verify still answers with a bare array", async () => {
+    const ont = store.loadOntology(null);
+    const d = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { title: "shape guard" } },
+      prov,
+      now,
+    );
+    const res = await post("/api/verify", { ids: [d.entity.id] });
+    expect(Array.isArray(res)).toBe(true);
+    expect(res[0].status).toBe("verified");
+  });
+
   it("review lists newest drafts first", async () => {
     const ont = store.loadOntology(null);
     const older = await commit(
@@ -389,7 +463,7 @@ describe("ui API", () => {
 
   it("search returns matching records, bounded, and says when the cap bit", async () => {
     // The port's own FTS, exposed as-is: same row shape as the listing, so a draft hit reads as a
-    // draft rather than as an answer (WEB-UI second 2026-07-31 amendment).
+    // draft rather than as an answer (WEB-UI.md, the query-box guarantees).
     const hits = await get("/api/search?q=mysql");
     expect(hits.items.length).toBeGreaterThan(0);
     expect(hits.items.some((r: { id: string }) => r.id === decisionBId)).toBe(
@@ -656,10 +730,10 @@ describe("ui API", () => {
     ).toBe("Bora");
   });
 
-  // A person id is whatever created it. Resolution used to skip any actor containing a colon, reading
-  // it as a machine identifier — and `scripts/seed-dummy-it-company.mjs`, this repo's own corpus
-  // generator, mints exactly `person:platform-manager`. Every author in every seeded database rendered
-  // as a slug on the screens that exist to keep ids away from readers.
+  // A person id is whatever created it, so a colon does not mean "machine actor":
+  // `scripts/seed-dummy-it-company.mjs`, this repo's own corpus generator, mints exactly
+  // `person:platform-manager`. Skipping those ids renders every author in every seeded database as a
+  // slug, on the screens that exist to keep ids away from readers.
   it("resolves a person whose id is namespaced, not just a bare ULID", async () => {
     const ont = store.loadOntology(null);
     const at = "2026-07-15T00:00:00Z";
@@ -850,6 +924,34 @@ describe("scope-anchored injection over HTTP", () => {
       .at(-1);
     expect(entry?.detail).toContain(scopedFactId);
   });
+
+  // SPEC "Injection": the BRIEFING_LIMIT default applies to a briefing (anchor, no query) and NEVER
+  // to a query. Defaulting every call would show a page where the agent gets everything, which is the
+  // drift the byte-for-byte clause forbids. 51 records — one over the cap — is what makes it visible.
+  it("applies no default limit to a query — only to a briefing", async () => {
+    const ont = seedOntology();
+    const many = "manyrecordstoken";
+    const ids: string[] = [];
+    for (let i = 0; i < 51; i++) {
+      const { entity } = await commit(
+        store,
+        ont,
+        { type: "fact", attributes: { title: `${many} ${i}` } },
+        prov,
+        now,
+      );
+      ids.push(entity.id);
+    }
+    await verify(store, ids, "tester", now);
+    const out = await get(`/api/inject?q=${many}`);
+    expect(out.items.length).toBe(51);
+    expect(out.omitted).toBe(0);
+    // An explicit limit still wins, and the response says it dropped something. Not the exact count:
+    // `omitted` counts within core's over-fetched window (inject.ts documents this), not the corpus.
+    const paged = await get(`/api/inject?q=${many}&limit=10`);
+    expect(paged.items.length).toBe(10);
+    expect(paged.omitted).toBeGreaterThan(0);
+  });
 });
 
 // The audit viewer's whole job is legibility, so its two detail shapes must both resolve. A verify
@@ -884,7 +986,7 @@ describe("audit detail resolves both of its shapes", () => {
   });
 });
 
-describe("creating from the browser (WEB-UI amendment 2026-07-31)", () => {
+describe("creating from the browser", () => {
   const postRaw = (p: string, body: unknown) =>
     fetch(base + p, {
       method: "POST",
@@ -899,7 +1001,7 @@ describe("creating from the browser (WEB-UI amendment 2026-07-31)", () => {
     });
     expect(res.status).toBe(201);
     const created = await res.json();
-    // Draft, never verified: the amendment permits creating, not promoting. A screen that could
+    // Draft, never verified: a screen may create, never promote. A screen that could
     // write a verified record would route around the one human gate this product is built on.
     expect(created.status).toBe("draft");
 

@@ -208,8 +208,9 @@ export interface StoragePort {
    * created with the first vector's width and every later vector must match it. Callers pass it on
    * the FIRST row of a backfill and never after, or each row would wipe the previous one.
    *
-   * Absent on backends with no vector support (kuzu), so callers feature-detect — the same shape as
-   * `similar` and the `listHistory` extension.
+   * Optional, so a backend with no vector support is still conformant and callers feature-detect —
+   * the same shape as `similar` and the `listHistory` extension. Every backend shipping today
+   * implements it; the optionality is the extension point, not a description of the current set.
    */
   putEmbedding?(e: Entity, opts?: { rebuild?: boolean }): Promise<void>;
 }

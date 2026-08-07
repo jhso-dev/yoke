@@ -165,8 +165,8 @@ function fuse(lists: Array<{ rows: Entity[]; weight: number }>): Entity[] {
 /**
  * The vector half. Empty array whenever it cannot contribute — no embedder, no `similar` on this
  * backend, or the embedder returned null (unconfigured or unreachable). An empty list means the
- * caller returns the FTS list untouched, so an unconfigured provider retrieves exactly what it did
- * before this existed.
+ * caller returns the FTS list untouched, so an unconfigured provider gets keyword retrieval and
+ * nothing degrades.
  *
  * A dimension mismatch is deliberately NOT caught: `similar` throws with the repair command in the
  * message, and swallowing it here would leave the vector half silently dead after a model change —
@@ -376,8 +376,8 @@ export async function inject(
     items.push({ entity, effectiveStatus: status, citation: citation(entity) });
   }
   // A briefing (anchor, no query) had NO defined order: candidates came out in whatever order the
-  // backend returned relations in, which is creation order on sqlite and something else on kuzu and
-  // qdrant. That made `limit` a "first recorded N" cut rather than a relevance one, and made the same
+  // backend returned relations in, which is creation order on sqlite and whatever the query planner
+  // chose elsewhere. That made `limit` a "first recorded N" cut rather than a relevance one, and made the same
   // question answer differently per backend — backend behaviour leaking into core (invariant 2).
   //
   // The query paths are deliberately left alone: their order is search relevance, which is the

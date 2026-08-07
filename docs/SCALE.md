@@ -7,9 +7,8 @@ Measured 2026-08-02 on one machine (darwin, node 22, better-sqlite3, WAL). Synth
 runs. Every measurement drove the **shipped** `SqliteStorage` and the **shipped** `inject()` —
 nothing was reimplemented for the benchmark, so a bad number here was a bad number in production.
 
-**Reproducing this** (corrected 2026-08-05): the fixtures are not checked in — a 4 GB database is not
-something to commit — but the seeder now is, because "the numbers and the queries are quoted below" was
-not the same as being able to re-run them:
+**Reproducing this**: the fixtures are not checked in — a 4 GB database is not something to commit —
+but the seeder is, because quoting numbers and queries is not the same as being able to re-run them:
 
 ```
 npm run build
@@ -146,8 +145,9 @@ Surveyed 2026-08-02, and the finding was the opposite of the intuition that scal
   [ACORN](https://dl.acm.org/doi/10.1145/3654923), whose approach is to ignore predicates at build
   time and traverse the induced subgraph at query time.
 - **`sqlite-vec` is brute force**, which caps it in the low millions
-  ([release notes](https://alexgarcia.xyz/blog/2024/sqlite-vec-stable-release/index.html)). The
-  port's optional `similar?()` is therefore not a scale answer as it stands.
+  ([release notes](https://alexgarcia.xyz/blog/2024/sqlite-vec-stable-release/index.html)). That cap
+  is sqlite's, not the port's: OpenSearch answers `similar` with Lucene HNSW and Neo4j with its
+  native vector index, so ANN behind `similar?()` is a matter of which backend you point at.
 
 So the FTS-first design is the right one on current evidence. What was wrong was how it was being
 called, not what it was calling.
@@ -228,9 +228,9 @@ one, where the expensive case is a term in literally every document.
 
 Ranking a query whose terms match a large fraction of the corpus costs O(matches): ~3.2 s at 10M
 for a term in every document. There is no fix inside FTS5, because top-k early termination is an
-index feature it does not have. The upgrade path, if a corpus ever needs it, is an engine with
-block-max WAND (Tantivy, Lucene) behind the same port — which is exactly the shape the port exists
-to allow, and a decision to take on evidence rather than in advance.
+index feature it does not have. The upgrade path is an engine with block-max WAND behind the same
+port, and it ships: `storage-opensearch` is Lucene BM25, selected with one env var. Which is the
+shape the port exists to allow — a corpus that outgrows FTS5 changes a variable, not the core.
 
 Not measured, and worth measuring before anyone relies on it: whether the *injectable* subset
 (verified, fresh, in-namespace) is small enough in a real governed corpus to be worth indexing

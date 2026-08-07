@@ -33,6 +33,7 @@ import { makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, inject, WALK_BUDGET } from "../../core/inject.js";
 import {
   deprecate,
+  downstreamOf,
   listVersions,
   staleEntities,
   verify,
@@ -40,6 +41,8 @@ import {
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import { seedOntology, type TypeDef } from "../../core/ontology.js";
 import {
+  checkPersonaSources,
+  parsePersonaSources,
   personaQuery,
   renderPersonaSkill,
   safeName,
@@ -91,6 +94,7 @@ type Values = {
   rebuild?: boolean;
   shape?: boolean;
   depth?: string;
+  check?: string;
 };
 
 const OPTIONS = {
@@ -132,6 +136,7 @@ const OPTIONS = {
   rebuild: { type: "boolean" },
   shape: { type: "boolean" },
   depth: { type: "string" },
+  check: { type: "string" },
 } as const;
 
 type Env = Record<string, string | undefined>;
@@ -172,9 +177,42 @@ function formatEntity(e: Entity | Relation): string {
   return `${e.id}  ${e.type}  ${e.status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
 }
 
+/**
+ * A record in one line for a report someone has to ACT on: `summarize` for the words, the id kept
+ * because acting means running another command against it.
+ *
+ * Not `formatEntity`, which dumps `attributes` whole — one governed decision's rationale is a page of
+ * prose, so a routing list built from it scrolls the answer off the screen. Measured on the demo
+ * corpus: two dependents filled the terminal.
+ */
+function label(
+  e: { id: string; type?: string; attributes?: Record<string, unknown> },
+  ontology: TypeDef[],
+): string {
+  if (e.type === undefined || e.attributes === undefined) return e.id;
+  return `${summarize({ type: e.type, attributes: e.attributes }, ontology)}  [${e.type} ${e.id}]`;
+}
+
 /** --shards <file> (or YOKE_SHARDS) if set, else undefined — the single-sqlite fast path. */
 const resolveShards = (v: Values, env: Env): string | undefined =>
   v.shards ?? env.YOKE_SHARDS;
+
+/** What the store a command just opened is, for messages and `--json`.
+ *
+ * `resolveDb` alone names the LOCAL sqlite whatever the store actually is, so `yoke init --shards
+ * cfg.json` reported `initialized: ./yoke.db` — a file it had not touched — and put that path in its
+ * JSON. Under a remote backend it is half true (the local db holds this client's audit + tokens), so
+ * this reports both halves rather than picking one. */
+function storeLabel(v: Values, env: Env): string {
+  const shards = resolveShards(v, env);
+  if (shards) return `shards ${shards}`;
+  const db = resolveDb(v, env);
+  if (env.YOKE_NEO4J_URL)
+    return `${env.YOKE_NEO4J_URL} (audit + tokens: ${db})`;
+  if (env.YOKE_OPENSEARCH_URL)
+    return `${env.YOKE_OPENSEARCH_URL} (audit + tokens: ${db})`;
+  return db;
+}
 
 /** Compact grouped usage — one source for --help, no-args, and unknown-command. */
 function usage(): string {
@@ -209,7 +247,7 @@ function requireOntology(
   const ontology = store.loadOntology(ns);
   if (ontology.length === 0) {
     console.error(
-      `not initialized: ${resolveDb(v, env)} — run 'yoke init' first`,
+      `not initialized: ${storeLabel(v, env)} — run 'yoke init' first`,
     );
     return null;
   }
@@ -281,6 +319,10 @@ async function suggestOllamaIfIdle(env: Env): Promise<void> {
 }
 
 async function cmdInit(v: Values, env: Env): Promise<number> {
+  // Two values on purpose: `store` is what a person needs to read (the shards config, or the remote
+  // URL and which local file holds the audit half), while `db` stays the LOCAL sqlite path — a script
+  // reading `.db` wants a path.
+  const store_ = storeLabel(v, env);
   const db = resolveDb(v, env);
   // Decorate only on an interactive stdout (never under --json), so non-TTY and
   // machine output stay byte-identical to the plain path.
@@ -292,7 +334,11 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
         const b = banner();
         if (b) console.log(`\n${b}\n`);
       }
-      emit(v, `already initialized: ${db}`, { db, seeded: false });
+      emit(v, `already initialized: ${store_}`, {
+        db,
+        store: store_,
+        seeded: false,
+      });
       return 0;
     }
     const ontology = seedOntology();
@@ -325,7 +371,7 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
       console.log(getStartedBlock());
       await suggestOllamaIfIdle(env);
     } else {
-      emit(v, `initialized: ${db}`, { db, seeded: true });
+      emit(v, `initialized: ${store_}`, { db, store: store_, seeded: true });
     }
     return 0;
   });
@@ -697,6 +743,8 @@ async function cmdDeprecate(
   const actor = resolveActor(v, env);
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
     const ts = now();
     const done = await deprecate(store, positionals, actor, ts);
     // Retiring knowledge changes what every future injection returns, so it belongs in the trail
@@ -708,11 +756,24 @@ async function cmdDeprecate(
       at: ts,
       ns,
     });
-    emit(
-      v,
-      `deprecated ${done.length}: ${done.map((e) => e.id).join(" ")}`,
-      done,
+    // What rests on it (v5.8). Retiring a record is not a repair unless the records built on it can be
+    // found, and the moment of retiring is the one moment someone is looking. Read AFTER the transition
+    // so a failed deprecate reports nothing, and named rather than counted — "3 records" routes nobody.
+    const downstream = await downstreamOf(
+      store,
+      done.map((e) => e.id),
+      ns,
     );
+    const human = [
+      `deprecated ${done.length}: ${done.map((e) => e.id).join(" ")}`,
+    ];
+    if (downstream.length > 0) {
+      human.push(
+        `${downstream.length} record(s) declared they rest on this — re-examine:`,
+      );
+      for (const d of downstream) human.push(`  ${label(d, ontology)}`);
+    }
+    emit(v, human.join("\n"), { deprecated: done, downstream });
     return 0;
   });
 }
@@ -895,7 +956,18 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
     const top = v.limit === undefined ? undefined : Number(v.limit);
-    const o = await overview(store, ontology, now(), { ns, top });
+    const ts = now();
+    const o = await overview(store, ontology, ts, { ns, top });
+    // Same audit row the MCP tool writes: a hub line carries a record's own text, and SPEC's audit
+    // table says "the same actions are written wherever the act happens" — this adapter was the one
+    // place `overview` happened silently.
+    store.logAudit({
+      actor: resolveActor(v, env),
+      action: "overview",
+      detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
+      at: ts,
+      ns,
+    });
     // Types with nothing in them are noise on a screen whose job is showing what IS here.
     const typeRows = Object.entries(o.entities.byType)
       .sort((a, b) => a[0].localeCompare(b[0]))
@@ -1246,9 +1318,12 @@ async function cmdPersona(
   v: Values,
   env: Env,
 ): Promise<number> {
+  if (v.check !== undefined) return await cmdPersonaCheck(v, env);
   const id = positionals[0];
   if (!id) {
-    console.error("usage: yoke persona <person-id> [--out dir]");
+    console.error(
+      "usage: yoke persona <person-id> [--out dir]\n       yoke persona --check <SKILL.md>",
+    );
     return 1;
   }
   const ns = resolveNs(v.ns, env);
@@ -1285,6 +1360,70 @@ async function cmdPersona(
       sources,
     });
     return 0;
+  });
+}
+
+/**
+ * `yoke persona --check <SKILL.md>` — audit an exported snapshot against the store now (SPEC persona
+ * "Identifying one"). The export has recorded its source versions since v1 and nothing read them back.
+ *
+ * Exit 1 when any source moved, so this works as a CI or pre-commit gate: the point of a snapshot that
+ * names its sources is that something other than a person can read them. fs stays in this tier — core
+ * takes the parsed header, never a path.
+ */
+async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
+  const file = v.check as string;
+  let md: string;
+  try {
+    md = readFileSync(file, "utf8");
+  } catch {
+    console.error(`cannot read: ${file}`);
+    return 1;
+  }
+  const header = parsePersonaSources(md);
+  if (!header.recognized) {
+    console.error(
+      `not an exported persona (no "Source knowledge" line): ${file}`,
+    );
+    return 1;
+  }
+  const ns = resolveNs(v.ns, env);
+  return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
+    const checks = await checkPersonaSources(
+      store,
+      ontology,
+      header.sources,
+      now(),
+      { ns },
+    );
+    const moved = checks.filter((c) => c.verdict !== "ok");
+    const lines = checks.map(
+      (c) =>
+        // Verdict first, because a reader scans this column and stops at the first thing that is not ok.
+        // Then the record in words: a report a person is meant to act on cannot be a list of ULIDs.
+        `${c.verdict.padEnd(11)}${label(c, ontology)}${
+          c.verdict === "outdated" ? `  (v${c.version} → v${c.current})` : ""
+        }`,
+    );
+    if (header.unparsed.length > 0)
+      lines.push(
+        `unreadable  ${header.unparsed.join(", ")} — hand-edited header?`,
+      );
+    lines.push(
+      moved.length === 0
+        ? `${checks.length} sources, all current`
+        : `${moved.length} of ${checks.length} sources moved — re-export with: yoke persona <person> --out <dir>`,
+    );
+    emit(v, lines.join("\n"), {
+      file,
+      sources: checks,
+      unparsed: header.unparsed,
+      moved: moved.length,
+    });
+    // Unparsed tokens are a failure too: a source that cannot be read is not a source that is fine.
+    return moved.length > 0 || header.unparsed.length > 0 ? 1 : 0;
   });
 }
 
@@ -1575,6 +1714,37 @@ export async function runCli(
   }
 }
 
+/**
+ * Load `.env` from the working directory, if there is one. Node's own parser, no dependency.
+ *
+ * Returns whether a file was read, which is for the test — nothing in the product branches on it. A
+ * missing `.env` is the normal case, not a warning: the local path has to work with no configuration
+ * at all (invariant 4). Unreadable and "is a directory" are the same answer for the same reason.
+ *
+ * **Real environment variables win.** `process.loadEnvFile` does not overwrite a variable that is
+ * already set (measured, not assumed — see the test), so a shell export or a CI secret always beats
+ * the file and no deployment can be quietly reconfigured by a `.env` left in a directory. That is why
+ * this needs no precedence code of its own.
+ *
+ * Called from `isMain()` below and NOWHERE else, on two counts:
+ *   - `runCli(argv, env)` takes its environment as a parameter, so a test passes a fake and loading
+ *     inside it would mutate the real process to no effect.
+ *   - the vitest suite must never pick a `.env` up. `YOKE_TEST_NEO4J_URL` names a database the neo4j
+ *     suite ERASES, and it has erased a real corpus once (docs/BACKENDS.md). One line written and
+ *     forgotten should not be able to wipe a database on `npm test`.
+ *
+ * ponytail: the working directory's `.env`, and that is all. `node --env-file=<path>` already covers
+ * pointing somewhere else, so a flag of ours would be a second way to say the same thing.
+ */
+export function loadDotEnv(file = ".env"): boolean {
+  try {
+    process.loadEnvFile(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Run only when executed directly (not when imported by a test).
 // realpathSync: via the npm bin symlink (node_modules/.bin/yoke), argv[1] is the symlink while
 // import.meta.url is the real path — a mismatch would make the CLI a silent no-op. This avoids that deployment trap.
@@ -1588,5 +1758,7 @@ function isMain(): boolean {
   }
 }
 if (isMain()) {
+  // Before runCli, so `env = process.env` already carries the file's values.
+  loadDotEnv();
   runCli(process.argv.slice(2)).then((code) => process.exit(code));
 }

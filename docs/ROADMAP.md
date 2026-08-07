@@ -55,22 +55,18 @@ port capabilities, etc. See SPEC).
 
 ## v2.0 — backend expansion + traditional-DB compatibility
 
-- [x] Graph DB adapter (KuzuDB embedded) — passes conformance
-- [x] **Neo4j adapter (v5.2)** — the "Neo4j next" half of the line above, and the first backend a
-      company can point at its own server. Native full-text index, native vector index and native
-      traversal in one engine. It also uncovered why kuzu and qdrant were never reachable from the
-      CLI: `YokeStore`'s extension surface is synchronous, so a remote backend has to be composed
+- [x] **Neo4j adapter (v5.2)** — the first backend a company can point at its own server. Native
+      full-text index and native vector index; NOT native traversal, since the adapter stores relations
+      as nodes (BACKENDS.md capability matrix). It is what surfaced the constraint on remote backends:
+      `YokeStore`'s extension surface is synchronous, so a remote backend has to be composed
       (`storage-composite`) rather than substituted — see docs/BACKENDS.md
 - [x] **OpenSearch adapter (v5.4)** — the second remote backend, and the one that shows the
       composite's `RemoteStore` shape was really structural: it needed no change to the port, the
       composite, or `openStore`'s structure. Native BM25 and native k-NN (the plugin ships in every
       distribution), `neighbors` app-level like sqlite. **No dependency** — OpenSearch is REST, so it
-      takes a `fetchImpl` the way qdrant does, where neo4j needed 3.8 MB of Bolt driver. Its test suite
+      takes a `fetchImpl`, where neo4j needed 3.8 MB of Bolt driver. Its test suite
       is scoped by index prefix, so unlike the neo4j suite it can run against a cluster that is holding
       a demo
-- [x] Vector DB adapter (Qdrant) — a similar-capability implementation, **verified against a real
-      server for the first time in v5.4** (21/21). It had only ever passed against its in-memory REST
-      fake, which is defensible for a JSON filter surface and is still not the same claim
 - [x] **RDB read-mapping**: Postgres/MySQL tables → read-only entity mapping
       (a table-to-ontology mapping declaration file; the enterprise wedge — MARKET strategy 3)
 - [x] Audit log (a query API over the immutable record of gate/promotion/injection)
@@ -147,8 +143,8 @@ port capabilities, etc. See SPEC).
 ## v5.0 — knowledge viewing (the web tier)
 
 - [x] StoragePort enumeration: bounded, namespace-scoped entity + relation listing
-      added to the port, with conformance cases. sqlite, kuzu, qdrant and sharded all
-      pass — the suite is the contract, not any one engine's features (invariant 2)
+      added to the port, with conformance cases. sqlite, sharded, neo4j and opensearch all pass —
+      the suite is the contract, not any one engine's features (invariant 2)
 - [x] Entity detail screen — one record: attributes, every version, its relations,
       its authorship edge, computed freshness, citation
 - [x] Injection preview screen — exactly what `inject()` would return for a query
@@ -174,12 +170,11 @@ port capabilities, etc. See SPEC).
       | `npm run build:web` | 10 s | +408 MB `web/node_modules` |
       | **`npm ci --omit=dev`** — what `npx yoke` costs a user | 4 s | **581 MB** |
 
-      **531 MB of that 581 MB was kuzu** — 91% of an end user's download, for a backend reachable only
-      by naming `kind: "kuzu"` in a `--shards` config. It is now a devDependency, so this repo's
-      conformance suite still runs against it (24/24) and a consumer install is **581 MB → 44 MB**. A
-      config that names a kuzu shard fails with `npm install kuzu` rather than MODULE_NOT_FOUND,
-      verified in a tree that genuinely lacks it. The web toolchain, the thing this box was written to
-      watch, turned out to be the smaller half and only lands on a source install
+      **531 MB of that 581 MB was one embedded-graph adapter's native binding** — 91% of an end
+      user's download, for a backend reachable only through a `--shards` config. Dropping it took a
+      consumer install to **44 MB**, and it is the finding that matters more than the number: the web
+      toolchain, the thing this box was written to watch, turned out to be the smaller half and only
+      lands on a source install
 - [x] Graceful degradation verified in the same run: with `build:web` forced to fail, `--help`, `init`
       and `GET /api/review` all work, and with no bundle anywhere `GET /` answers **503** naming
       `npm run build:web`. One nuance worth knowing — a *previously* built `web/out` is still served,
@@ -275,7 +270,7 @@ boxes above are checked for what automation proves, not for this:
       the one that works at scale, and it is now the cheap one
 - [x] `bash scripts/install.sh` on a clean machine: `npm ci` size and wall time before and
       after, and a forced web-build failure still leaving a working CLI — **done 2026-08-05**, the
-      numbers and the kuzu finding are in the v2.5 "Install UX holds" box above. It was the same
+      numbers and the install-size finding are in the v2.5 "Install UX holds" box above. It was the same
       measurement written down twice, and it did not need a different machine, only a directory
       without this repo's `node_modules`: a fresh clone with its own cold npm cache is that. What
       "clean machine" was protecting against was a warm cache flattering the wall time, which the
@@ -348,7 +343,7 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
       against the live OpenSearch demo with one script on both sides of the change, identical results
       throughout: a briefing **56 → 2** round trips, query injection **63 → 4**, `similar(k=60)`
       **61 → 2**, bulk `verify` of 54 ids **217 → 164** (its read half 54 → 1; the rest are the
-      append-only writes). Optional capability with a core-side fallback, so kuzu correctly declines
+      append-only writes). Optional capability with a core-side fallback, so a backend correctly declines
       it. `similar` was the largest of these and the newest: v5.3 put it on every query injection with
       `k = limit × 3`, and each hit was a point read. Neo4j was already batched there — one backend
       had solved it and the contract had not noticed
@@ -414,10 +409,10 @@ temporal, global aggregation. Temporal shipped in v5.2 as as-of injection. These
       cannot disagree. And degree counting `authored_by` puts **people** at the top of a list meant to
       say what knowledge clusters, since every record has exactly one author edge — excluded from
       degree, still in the census
-- [x] **Aggregation memory was O(corpus) and is now O(ids)** — the first draft held every entity so the
-      hub list could carry full records: **511 MB of RSS** at 1M entities / 3M relations, a read whose
-      memory is the size of the corpus, which is the class docs/SCALE.md holds five of. Only `top` are
-      ever returned, so they are re-read by id in one batch call (v5.5). **420 MB**, and 29 ms / 5 pages
+- [x] **Aggregation memory is O(ids), not O(corpus)** — holding every entity so the hub list could
+      carry full records costs **511 MB of RSS** at 1M entities / 3M relations, a read whose memory is
+      the size of the corpus, which is the class docs/SCALE.md holds five of. Only `top` are
+      ever returned, so they are re-read by id in one batch call. **420 MB**, and 29 ms / 5 pages
       on the demo corpus against 12.2 s / 8,010 pages at 1M. Stated ceiling: the id sets are still
       O(entities), so 10M needs counting in the backend rather than in core
 - [x] **The demo corpus was unusable over MCP** — `scripts/load-demo-corpus.mjs` never seeded the
@@ -471,6 +466,140 @@ second retired the first's reason for existing.
 Left standing deliberately: **there is no batch form of `getEntity(id, version)`**, so `listVersions`'s
 fallback — and as-of injection through it — is still a loop. Versions are a dense 1..n and a governed
 record has two or three, whereas the loops closed above scale with the corpus. Nothing has measured it.
+
+## v5.8 — a record's basis, and reading a snapshot back
+
+Read across from Cloudflare OS (2026-08), whose one transferable idea is not its permission model but
+**observation propagation**: track what an agent read, carry it with the output, re-verify it when the
+output is opened. We already had the first half twice over — `inject` and `persona` both log the ids
+they returned — and neither half was ever read back. Both items below close the loop from a different
+end, and neither needed a storage-port change.
+
+- [x] **`derived_from`, a seed relation type** — the audit trail records the read and the write as two
+      events with no join key, in per-client local sqlite that `neighbors` cannot traverse and that does
+      not move with the record between backends. An edge does. Filed at the **front tier** as an
+      ordinary gate-passing commit, which is where this repo already put the `scope` link and wrote down
+      why: `conflicts_with` is inside the gate because it derives from the content, a derivation is
+      caller-declared. **core/commit.ts is unchanged.** Caller-asserted like `provenance.actor` —
+      lenient on write — and never inferred from the trail, because an agent that injected 50 records
+      and wrote one decision did not derive it from 50
+- [x] **Deprecating names what rests on it** — the stale queue's lesson one surface over: flagging decay
+      does not repair it, handing it to the thing that has to change does. `downstreamOf` (one incoming
+      hop, ns-filtered) and `yoke deprecate` prints the records, not a count, because "3 records" routes
+      nobody. Breaking: `deprecate --json` is `{ deprecated, downstream }`
+- [x] **Not `membership`, and measured rather than assumed** — the evidence under a decision *is*
+      knowledge, so the anchored walk should reach it. Depth 1 is byte-identical: a derivation edge joins
+      two records and touches no anchor, so it is first followed at depth 2. persona cannot reach one at
+      all, and the operative reason is the graph's shape rather than a flag someone has to remember —
+      a one-hop walk from a *person* meets no record → record edge
+- [x] **`yoke persona --check <SKILL.md>`** — SPEC said from v1 that the export records source versions
+      "so a stale snapshot can be identified", and nothing could read them, so identifying one meant a
+      person diffing two files by eye. Another clause written and never built — the stale queue (v5.2)
+      was the same find, and SPEC labels it that way in its own heading. Six verdicts ranked
+      most-actionable first, one per source since the remedy for every non-`ok` is the same re-export.
+      **Exit 1 when any
+      source moved**, which is the whole point: a snapshot that names its sources is only worth the bytes
+      if something other than a person can read them
+- [x] **The parser lives beside the writer, asserted by a round trip** — a format the two halves
+      disagree about is the failure mode of every snapshot. An unreadable token is reported, not dropped:
+      a source that cannot be read is not a source that is fine
+
+The `superseded` verdict outranks `outdated`, and the test proves the ranking rather than the branch —
+the fixture's version is *also* moved, so killing the supersession lookup produces exactly `outdated`.
+Checked by killing it: that is the failure message.
+
+- [x] **Every retire path reports it, web included** — parity is a floor on BOTH surfaces, not just a
+      ban on a screen doing what the CLI cannot: this is the *governance workbench*, and hosting the act
+      while dropping the answer that makes it a repair is the same defect facing the other way.
+      `POST /api/deprecate` → `{ deprecated, downstream }`, rendered by **one** component across the
+      entity, review and conflicts screens, so a fourth deprecate button cannot be added without it.
+      WEB-UI.md states the floor. `/api/verify` keeps its array
+- [x] **`/api/deprecate` had no test at all** — none, in `ui.test.ts` or `serve.test.ts`, while
+      `/api/verify` had five. Which is how a response-shape change could have shipped unnoticed, and is
+      its own finding: the untested route was the one performing the destructive half of the lifecycle
+
+Left standing deliberately: **one hop, not the transitive closure** — a
+dependent's own dependents surface when it is retired in turn, so the walk is iterative by construction.
+And nothing yet **prompts** an agent to cite a basis beyond the tool description; whether agents
+actually populate `derived_from` is the measurement that decides if any of this earns its keep.
+
+## v5.9 — the supported set, and configuration
+
+- [x] **Four selectable backends, and nothing else carried.** A backend is supported when `openStore`
+      resolves it and it passes the shared conformance suite against a real server: sqlite, sharded,
+      neo4j, opensearch. Two adapters reachable only as a `--shards` member entry were dropped — that
+      is a federation detail, not a way to run yoke — which also took a 531 MB native binding, a second
+      `npm test` stage and a CI job with them. `conformance-cases.ts` stays split from `conformance.ts`
+      because neo4j and opensearch import the cases directly to gate on a reachable server
+- [x] **`ShardKind` is one value.** `"sqlite"`, with the dynamic imports and kind-specific fields the
+      union carried gone. The field stays because the router supports heterogeneous mixes; there is
+      nothing to mix until a second shardable backend exists
+- [x] **`.env` in the working directory**, via `node:process.loadEnvFile` — no dependency, no parser of
+      ours. `--env-file` was rejected because Node 20 hard-errors on a missing file while
+      `--env-file-if-exists` needs 22.9; `engines` moves to `>=20.12`, which is what the API costs.
+      Loaded at the **`isMain()` entry only**: `runCli(argv, env)` takes its environment as a parameter,
+      so loading inside it would mutate the real process for a test that passes a fake — and the suite
+      must never pick a `.env` up, because `YOKE_TEST_NEO4J_URL` names a database it ERASES and one
+      forgotten line should not be able to do that on `npm test`. `.env.example` is committed and lists
+      the 20 product variables; the 6 test variables are excluded, with that reason written where
+      someone would otherwise add them. Measured: an existing environment variable is NOT overwritten,
+      so a shell export or a CI secret always wins — pinned by a test, since a hand-rolled parser
+      would break the promise silently
+- [x] **A command reports the store it actually opened.** `--db` names the local sqlite whatever the
+      backend is, so the human line names the resolved store (`shards cfg.json`, or the remote URL with
+      the local file holding the audit half) while `--json` keeps `db` a path and adds `store`
+
+`core/rank.ts`'s `rankByRelevance`/`matchesTokens` have no production caller: every supported backend
+ranks `search` with a native index, so the BM25 is exercised only by the conformance suite's in-memory
+fake. Kept — the port declares "best match first", the fake is where that is checked with no engine
+involved, and postgres will need it.
+
+`getEntities` and `similar` stay optional on the port, and `core/backfill.ts`'s no-vector branch stays
+with them. Not hypothetically: sharded has **no `getEntities`** and exposes `similar` only when a member
+does, so core's `getEntity`-loop fallback is live code on one of the four selectable stores.
+
+## Doc/code consistency audit
+
+Six parallel reviewers swept every document against the code, both directions. Most findings were the
+documents' and were fixed in place. These were the code:
+
+- [x] **`verify`/`deprecate` partially applied a refused batch** — the unknown-id check sat inside
+      the write loop, so ids ordered before the bad one were already promoted when it threw, while
+      both SPEC and the function's own header claimed refuse-before-write. Two-phase now; the new
+      test is mutation-checked: reverting the fix fails exactly it
+- [x] **`GET /api/inject` defaulted EVERY call to 50** where SPEC says the briefing alone is capped
+      and the preview is byte-for-byte what an agent receives. It now applies the same
+      `limit ?? (briefing ? BRIEFING_LIMIT : undefined)` as MCP and the CLI, takes `depth`, and
+      returns `walk` — proven with 51 matching records
+- [x] **serve's `/mcp` read its body unbounded** with no content-type check, on the one surface that
+      can face a non-loopback interface, while SPEC's "bounded input" claims every route. Same
+      256 KiB cap and check as the UI handler
+- [x] **CLI `overview` wrote no audit row** while the MCP tool did — the exact per-adapter drift the
+      audit-action table exists to prevent. It writes the same row now
+- [x] **Four tables rendered knowledge without its citation** (graph nodes, collaboration
+      list/members/attached, entity relations) while WEB-UI.md claimed the type system made that
+      impossible. Citation columns added, the false mechanism rewritten, and a source guard
+      (`citation-render.test.ts`) now fails any screen that shows a record without a source — with a
+      named exemption list and a dead-exemption check
+
+Two more, found by following the audit's own leads rather than reported by it:
+
+- [x] **A namespace owned by a non-default shard was unusable** — `yoke init` seeds the shared
+      (null-ns) ontology onto the default shard, and `ShardedStorage.loadOntology(ns)` read the OWNER
+      shard alone, so every namespaced command died with "not initialized: … — run 'yoke init' first"
+      while the identical commands worked on plain sqlite. That divergence is the tell: sqlite has
+      always overlaid tenant defs on the shared base (PLAN-V2 10.1), so one backend answering
+      `loadOntology(ns)` differently was backend behaviour leaking through the store surface. The
+      router overlays. Worth noting how it survived: a test asserted the owner shard alone, and the
+      CLI test hand-seeded a tenant ontology instead of running `init` — so the flow every real user
+      takes was the one flow nothing exercised. Mutation-checked against three new tests
+- [x] **`yoke init --shards cfg.json` reported `initialized: ./yoke.db`** — a file it had not touched,
+      in the human line and in `--json`. One `storeLabel()` now names what was actually opened,
+      including the remote backends' two halves (`bolt://… (audit + tokens: ./yoke.db)`)
+
+Recurring shape worth remembering: **counts in prose rot fastest** ("10 of 12", "three tools",
+"eight screens", "all five backends" — every one was wrong), and a claim is only as durable as the
+test that pins it.
 
 ## Version-promotion rule
 

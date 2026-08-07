@@ -96,8 +96,10 @@ export async function backfillEmbeddings(
   skipped: number;
   next: string | null;
 }> {
-  // No vector support on this backend (kuzu). Say so by doing nothing rather than by throwing: a
-  // repair that cannot apply is not an error, and the caller reports the zero.
+  // No vector support on this backend. Say so by doing nothing rather than by throwing: a repair that
+  // cannot apply is not an error, and the caller reports the zero. Every backend shipping today
+  // implements `putEmbedding`, so nothing exercises this — kept because `putEmbedding` is optional in
+  // the port on purpose, and the next backend should be able to omit it without editing core.
   if (!port.putEmbedding)
     return { scanned: 0, embedded: 0, skipped: 0, next: null };
 

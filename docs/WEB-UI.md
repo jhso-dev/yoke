@@ -1,4 +1,4 @@
-# yoke — Web UI (v2.5 design, extended v5.0)
+# yoke — Web UI
 
 The web UI is a **governance workbench**: the human surface for deciding what yoke is
 allowed to tell an AI, and for auditing what it told. It is not a place to read
@@ -16,22 +16,27 @@ Three tests a screen must pass, argued in this document before the code exists:
    trust, audit — or makes one auditable. Not "look something up".
 2. **No synthesis.** No model call, no relevance ranking outside the injection ranker,
    no generated text. A screen that needs a model to produce its output belongs in MCP.
-3. **No editing, and no bypass.** Writes go through `commit()` or a lifecycle transition,
-   never straight to the store. Created records enter as `draft` like any other, carry
-   `origin: "web"`, and are subject to the same gate. Editing an existing record's
-   attributes from a screen stays forbidden. (Amended 2026-07-31 — the reasoning is at the
-   end of this document; before that, creation was banned outright.)
+3. **No editing, and no bypass.** A screen may create records and relations through
+   `commit()`, which means: enters as `draft`, validated against the ontology, provenance
+   stamped with the real actor and `origin: "web"`, audit row written. A screen may NOT
+   modify an existing record's attributes, may not write a record in any state but
+   `draft`, and may not reach the store except through a core function. Attribute
+   correction is a new version through the gate, from the adapter that owns the source.
 
-**Why the injection preview is not the search UI we still refuse to build.** It renders
-the *injection decision*, not a result set: the same filter, the same ranking, the same
-citations, and the same audit row as a real `yoke_inject` call — and no answer text. A
-search UI would exist to satisfy the human's question; the injection preview exists to
-let a human check what the machine is about to be told, and to leave a record that they
-looked. If a query box ever presents its results as an answer, ranks them with anything
-but the port's own retrieval, or returns full attributes without an audit row, it has
-become the search UI and must be removed. (Reworded 2026-07-31 — the sentence used to say
-"returns knowledge `yoke_inject` would have withheld", which condemned `browse`. See the
-second amendment.)
+**Hand-typed knowledge is allowed, and is labelled as such.** The gate — not the adapter
+— is what enforces entry: `commit()` validates and stamps provenance whichever front tier
+calls it, and every record enters as `draft` needing a human `verify`. So a form is not a
+hole; what a form would otherwise cost is traceability, and `provenance.origin = "web"`
+(distinct from `cli`, `mcp` and every connector name) pays it. A reviewer can see which
+drafts a person typed at a screen, and `yoke list` / the review queue can filter on it.
+The claim is "you can always tell", not "this cannot happen" — the same claim the audit
+trail makes about everything else.
+
+**Why the injection preview is not a search UI.** It renders the *injection decision*,
+not a result set: the same filter, the same ranking, the same citations, and the same
+audit row as a real `yoke_inject` call — and no answer text. A search UI would exist to
+satisfy the human's question; the injection preview exists to let a human check what the
+machine is about to be told, and to leave a record that they looked.
 
 **Why browsing is not searching.** Navigation — entity → its relations → a neighbour, a
 graph node → its detail — reaches a record we already decided to store. It makes the
@@ -39,26 +44,54 @@ graph node → its detail — reaches a record we already decided to store. It m
 would pull in. Retrieval-for-reading is what we refuse; reachability-for-governing is
 the product.
 
+**A query box over stored records is allowed on `browse`**, under three guarantees, each
+checkable rather than aspirational:
+
+1. **Records, not answers.** It returns the row shape `browse` already returns — type,
+   summary, effective status, actor, citation — through the same `KnowledgeTable`. A draft
+   hit reads as a draft. No prose, no "best match" framing, no result the reader cannot
+   trace to a stored row.
+2. **The port's retrieval, not ours.** It calls the `search(TextQuery)` the storage port
+   has had since v1 and that `inject` itself falls back to. No re-ranking in the web tier
+   and no scoring invented for the screen — test 2 survives because there is no second
+   ranker.
+3. **Bounded, and it says so.** `search` takes a `limit` and has no cursor: a top-N, never
+   a walk of the corpus. Over the cap the screen says how many it left off, the way the
+   graph and briefing screens do. The way to get everything is `inject`, or the CLI.
+
+The box writes a `search` audit row — its own action rather than folded into `read`,
+because a query records what someone was looking for and an enumeration does not.
+Distinguishing "who listed the namespace" from "who asked for X" from "what an agent was
+told" is the whole point of having action names. The cost, stated: the trail grows when
+people read, not only when they govern. If that noise ever swamps the governance rows, the
+fix is the filter the audit screen already has, not a quieter rule.
+
 ## Screens
 
-The governance set (v2.5):
+The governance set:
 
-1. **Review queue** — the draft list, with source and duplicate candidates shown, and
-   bulk verify/reject. Reason for being: drive promotion friction close to zero
-   (addressing MARKET risk 1). The core screen.
+1. **Review queue** — the draft list and the stale queue beside it, each row with its
+   source, and bulk verify/deprecate. Reason for being: drive promotion friction close to
+   zero (addressing MARKET risk 1). The core screen. Duplicate candidates surface on
+   **create** (the gate returns them to the form), not here — the review payload does not
+   carry them. There is no `reject`: the lifecycle has no such transition, and the negative
+   action is `deprecate`.
 
-   **Constraint, for whenever this screen serves more than one reviewer: it must not show a peer's
-   pending approval.** Seeing early approvals makes later reviewers converge on them without the
-   group getting more accurate (`docs/RESEARCH.md` §2), and the anonymity that prevents it is the
-   whole mechanism of a Delphi (§3). No such state exists yet — verify is immediate and per-actor —
-   so this constrains a future design rather than describing a present protection.
+   **Constraint, for whenever this screen serves more than one reviewer: it must not show a
+   peer's pending approval.** Seeing early approvals makes later reviewers converge on them
+   without the group getting more accurate (`docs/RESEARCH.md` §2), and the anonymity that
+   prevents it is the whole mechanism of a Delphi (§3). No such state exists yet — verify is
+   immediate and per-actor — so this constrains a future design rather than describing a
+   present protection.
 2. **Conflicts view** — conflicts_with pairs compared side by side; deprecate one side
    or keep them coexisting.
-3. **Ontology browser** — types and relations, with migration history.
+3. **Ontology browser** — types and relations, with the add-type / rename-type / backfill
+   controls. No migration-history view: a migration's trace is the `rename_type` audit row
+   and the ontology table's version column, both reachable, neither rendered as a timeline.
 4. **Persona preview** — pick a person → review the knowledge that would be injected →
    export the skill.
 
-The viewing set (v5.0) — reading what is already stored, never adding to it:
+The viewing set — reading what is already stored, never adding to it:
 
 5. **Entity detail** — one entity: attributes, every version, its relations, its
    authorship edge, computed freshness. The record as stored, nothing inferred.
@@ -68,164 +101,104 @@ The viewing set (v5.0) — reading what is already stored, never adding to it:
    node, bounded by the port's enumeration page limit and explicit about truncation.
 8. **Audit log viewer** — the append-only audit trail, filterable by actor, action and
    time. The screen that makes "who was told what, when" answerable without shell access.
+9. **Collaboration** — pick a unit of work → see who is on it, what is attached to it, and
+   the briefing an agent receives when it anchors there.
 
-Added after the browser pass (2026-07-30):
+   Passing the three tests:
 
-9. **Collaboration** — pick a unit of work → see who is on it, what is attached to it, and the
-   briefing an agent receives when it anchors there.
-
-   Passing the three tests, as this document requires before the code exists:
-
-   1. **Governance purpose.** It makes an injection auditable *before* it happens. v4.0 made a
-      collaboration anchor first-class in core, MCP and the CLI, and there was no way to see what
-      anchoring on one would hand an agent — the id was something you had to already know. The
-      act it supports is "decide whether this working context is fit to brief an agent from",
-      which is the same act the injection preview supports for a query.
+   1. **Governance purpose.** It makes an injection auditable *before* it happens. A
+      collaboration anchor is first-class in core, MCP and the CLI, and without this screen
+      there is no way to see what anchoring on one would hand an agent — the id is
+      something you would have to already know. The act it supports is "decide whether this
+      working context is fit to brief an agent from", the same act the injection preview
+      supports for a query.
    2. **No synthesis.** It composes three existing routes (`/api/entities?type=collaboration`,
       `/api/entity/:id`, `/api/inject?scope=`) and adds no endpoint. The briefing panel is the
-      real `inject()`, so its ranking is the injection ranker and nothing else. No model call,
-      no generated text.
-   3. **No new knowledge.** Read-only. It creates nothing and edits nothing; the only mutations
-      reachable from it are the lifecycle transitions its rows already offer via the shared table.
+      real `inject()`, so its ranking is the injection ranker and nothing else.
+   3. **No new knowledge.** Read-only. The only mutations reachable from it are the lifecycle
+      transitions its rows already offer via the shared table.
 
    **Why this is not a search UI.** You do not arrive by querying: you pick from the list of
-   collaborations that exist, then read what is attached. That is the browsing argument above —
-   reachability-for-governing — and the briefing panel is the injection-preview argument, applied
-   to a scope instead of a query. It carries the same audit row (`inject_preview`) for the same
-   reason.
+   collaborations that exist, then read what is attached — reachability-for-governing. The
+   briefing panel is the injection-preview argument applied to a scope, and carries the same
+   `inject_preview` audit row.
+10. **Browse** — the whole namespace as rows, with type/status filters, keyset paging, and
+    the query box argued above. A `search` audit row per query.
+11. **Tokens** — mint/list/revoke API tokens for `serve`. It governs ACCESS to knowledge
+    (who can read, who can verify), which is a governance act even though no knowledge
+    renders; it composes the three token routes and synthesises nothing; it creates no
+    knowledge. Gated on `verify` under `--auth`; under plain `yoke ui` it is as open as the
+    terminal running it (invariant 4, same trust boundary).
+12. **Login** — not a screen about knowledge: the credential prompt `serve --auth` needs so
+    a browser can present a token or OIDC identity. Exists because 401 has to land
+    somewhere ungated.
 
-A tenth screen requires the three tests to be argued here first.
+A further screen requires the three tests to be argued here first.
 
 ## Design decisions
 
 - Server: embedded in the CLI (`yoke ui` → a local HTTP server). In server mode the same
   UI is served remotely — not a separate artifact.
-- Stack (v5.0): Next.js with `output: 'export'`, React, and `d3-force`. A build step is
-  now allowed; a *server* framework is not, and `output: 'export'` is what keeps that
-  honest — the build emits static files, the existing `node:http` server serves them, and
-  there is no second process, port, or deployable. The two original conditions still
-  bind: **one static bundle** (embedded distribution), and an API that is **only the HTTP
-  exposure of core functions** — no UI-only business logic, so every action stays possible
-  from the CLI too.
-- Audit surfacing: across every screen, knowledge is always shown with its source and
-  version. Enforced by the type system rather than by review — the shared row type makes
-  the citation non-optional, so a screen that omits it does not compile.
+- Stack: Next.js with `output: 'export'`, React, `d3-force`, and the shadcn-style primitive
+  layer in `web/components/ui/` with its prerequisites (`radix-ui`, Tailwind v4 + PostCSS,
+  `lucide-react`, `class-variance-authority`, `tailwind-merge`, `tw-animate-css`) — the
+  dependency budget is in PLAN-V2's non-goals. A build step is allowed; a *server* framework
+  is not, and `output: 'export'` is what keeps that honest — the build emits static files,
+  the existing `node:http` server serves them, and there is no second process, port, or
+  deployable. Two conditions bind: **one static bundle** (embedded distribution), and an API
+  that is **only the HTTP exposure of core functions** — no UI-only business logic, so every
+  action stays possible from the CLI too.
+- Locale: two catalogs, `web/lib/i18n/en.ts` and `ko.ts`, English as the source of truth and
+  every other locale typed as `typeof en`, so a missing key is a compile error. The rule that
+  decides what is translated: **a stored value is never translated; anything said to a person
+  is** — type names and ids render verbatim, labels/ledes/empty-states/notices come from the
+  catalog. Four guard tests hold it (`untranslated`, `dead-keys`, `button-case`, `default`).
+- Audit surfacing: across every screen, knowledge is shown with its source and version. Two
+  source guards hold it, because the type system cannot: a required `citation` field
+  guarantees every payload CARRIES a source, and nothing about that makes a screen RENDER
+  one. `no-raw-ids.test.ts` requires a citation to be rendered readably rather than as a raw
+  ULID; `citation-render.test.ts` requires any file that renders a record label or status
+  badge to render `<Citation>` or the shared `KnowledgeTable`, or to carry a named exemption
+  with its reason.
 - Bind address: loopback by default. `yoke ui` cannot authenticate, so widening it is an
   explicit `--host` and says so loudly; `yoke serve` refuses a non-loopback bind without
   `--auth`.
 
-## What we don't do (still forbidden after v5.0)
+## Parity is a floor on BOTH surfaces
+
+No screen may do what the CLI cannot — and the reverse also binds: **a governance action
+must answer the same questions wherever it is invoked.**
+
+This is the governance workbench. Retiring knowledge is not an incidental thing it can do;
+it is the act the screen exists to host. A surface that hosts the act while dropping the
+answer that makes the act a repair — what now has to change — is the same defect as UI-only
+logic arriving from the other side: one surface knows something the other does not, and
+which one you used decides what you learn.
+
+It binds the *answer* to a governance write, not the ergonomics of asking. Not every CLI
+flag needs a control; `--json`, `--after`, `--shards` are plumbing.
+
+Concretely: `POST /api/deprecate` returns `{ deprecated, downstream }`, and the entity,
+review and conflicts screens render it through **one** component (`Downstream`). One
+component rather than three copies is what keeps a fourth deprecate button from being added
+without it. A banner, not a toast: the point is to open the records. `/api/verify` keeps its
+bare-array shape — only retiring gained a second question.
+
+Every button maps to a command that already exists — `yoke add`, `yoke link`, `yoke verify`,
+`yoke deprecate`, `yoke backfill`, `yoke rename-type`, `yoke search`. A button with no
+command is a bug.
+
+## What we don't do
 
 - **A chat interface.** No conversational surface, no model call from the web tier, ever.
   Asking questions *of* the knowledge is the AI's job, over MCP.
-- ~~**A search UI for human reading.**~~ **Narrowed 2026-07-31 — see the second amendment
-  below.** A query box over stored records is allowed on `browse`, returning the same
-  status-labelled rows the list already returns. What stays out is the part that was always
-  the risk: results presented as an answer, ranking outside the port's own retrieval, and
-  any model call.
-- ~~**A knowledge-authoring editor.**~~ **Reversed 2026-07-31 — see the amendment below.**
-  Creating records and relations is now allowed; *editing an existing record's attributes*
-  and bulk import are still not.
+- **Results presented as an answer.** A query box is allowed (see the three guarantees
+  above); synthesized prose, a second ranker, and search over anything but stored records
+  are not.
+- **Editing an existing record's attributes from a screen**, and **bulk import**. Creating
+  records and relations is allowed; correcting one is a new version through the gate.
 - **Dashboard-style statistics.** Counts and charts nobody acts on. The eval report and
   CLI output cover measurement.
 - **Server-side rendering, an API framework, or a second deployable.**
-- **UI-only business logic.** Unchanged since v2.5: if a screen wants something the CLI
-  cannot do, the answer is a core function and a CLI command, not a route.
-
-## Amendment (2026-07-31): the web tier may create, and test 3 gets a definition
-
-Test 3 read "**No new knowledge.** The only writes are lifecycle transitions on records that
-already exist." That ban is lifted for creation. The reasoning, and the new line:
-
-**What the ban was actually protecting.** MARKET's claim is sourced-only entry: knowledge
-arrives from the work — an agent capturing a decision as it is made, a connector reading a PR
-— rather than being typed into a box by someone looking at a dashboard. A form invites the
-second, and its provenance would be "somebody typed this", which is the weakest kind there is.
-
-**Why that does not require forbidding the form.** The gate, not the adapter, is what enforces
-entry: `commit()` validates against the ontology and stamps provenance no matter which front
-tier calls it, and *every* record enters as `draft` and needs a human `verify`. A record created
-in the browser is subject to exactly the checks one created by an agent is. What the ban bought
-on top of that was a guarantee that hand-typed knowledge could not exist at all — and that
-guarantee cost the product something real: a `collaboration` whose roster could not be recorded
-from the surface built to show it.
-
-So the guarantee is replaced by a weaker but honest one: **hand-typed knowledge is allowed and is
-labelled as such.** Web writes stamp `provenance.origin = "web"`, distinct from `cli`, `mcp` and
-every connector name. A reviewer can see which drafts were typed by a person at a screen, and
-`yoke list`/the review queue can be filtered on it. The claim moves from "this cannot happen" to
-"you can always tell", which is the claim the audit trail already makes about everything else.
-
-**The new test 3.** *No editing, and no bypass.* A screen may create records and relations
-through `commit()`, which means: enters as `draft`, validated against the ontology, provenance
-stamped with the real actor and `origin: "web"`, audit row written. A screen may NOT modify an
-existing record's attributes, may not write a record in any state but `draft`, and may not reach
-the store except through a core function. Attribute correction stays what it always was — a new
-version through the gate, from the adapter that owns the source.
-
-**Still forbidden**, and these are the ones that keep this from becoming an editor: editing an
-existing record's attributes from a screen; bulk import; any write that skips `commit()`; any
-write that lands as anything but `draft`.
-
-**CLI parity is unchanged and is the binding constraint.** Every button added under this
-amendment maps to a command that already exists — `yoke add`, `yoke link`, `yoke verify`,
-`yoke deprecate`, `yoke backfill`, `yoke rename-type`. A button with no command is still a bug,
-and `yoke link` was written first for exactly that reason.
-
-## Amendment (2026-07-31, second): browse may have a query box
-
-`browse` gains a text query. The reasoning, and what replaces the ban:
-
-**What the ban was actually protecting.** yoke's value is *injection* — an agent is handed the
-relevant subset without anyone looking anything up. A good human search box competes with that:
-people search instead of capturing, the review queue stops being the way knowledge becomes
-trusted, and the store decays into a wiki that happens to have types. That risk is real and the
-ban was a reasonable way to hold it off while the injection path was being built.
-
-**Why it does not require forbidding the box.** Two things, and the second is the decisive one.
-
-First, `browse` already lists every record in the namespace — draft, stale and deprecated
-included, each with its status rendered — with type and status filters and keyset paging. A person
-can already read unverified knowledge from a screen. A query box changes how long that takes, not
-whether it is permitted.
-
-Second, **the tripwire as written was already tripped by screens this document blesses.** It said
-a query box that "returns knowledge `yoke_inject` would have withheld" has become the search UI
-and must be removed. `browse` returns exactly that, and `GET /api/entities` writes no audit row.
-Read literally, the rule condemned `browse`, not a search box. A rule the shipped code violates
-is not protecting anything — it is just unenforced, and unenforced rules are how a codebase learns
-that its documents can be ignored.
-
-**What replaces it.** Three guarantees, each of which is checkable rather than aspirational:
-
-1. **Records, not answers.** Search returns the same row shape `browse` returns — type, summary,
-   effective status, actor, citation — through the same `KnowledgeTable`. A draft hit reads as a
-   draft. No prose, no "best match" framing, no result the reader cannot trace to a stored row.
-2. **The port's retrieval, not ours.** The box calls the `search(TextQuery)` the storage port has
-   had since v1 and that `inject` itself falls back to. No re-ranking in the web tier and no
-   scoring invented for the screen — test 2 ("no relevance ranking outside the injection ranker")
-   survives intact, because there is no second ranker.
-3. **Bounded, and it says so.** `search` takes a `limit` and has no cursor: it returns a top-N,
-   never a walk of the corpus. Over the cap the screen says how many it left off, the way the
-   graph and briefing screens already do. The way to get everything is still `inject`, or the CLI.
-
-**And the audit claim gets made true.** SPEC's rule — "any route that returns knowledge attributes
-writes an audit row" — was already false in one place: `GET /api/entity/:id` returns full
-attributes and wrote nothing, and so does `yoke get`. Both are fixed in the same change as this
-amendment, under a new `read` action, and the query box writes a `search` row. `search` is its own
-action rather than folded into `read` because a query records something an enumeration does not:
-what someone was looking for. Distinguishing "who listed the namespace" from "who asked for X"
-from "what an agent was told" is the whole point of having action names.
-
-**The cost, stated.** The trail now grows when people read, not only when they govern. On a local
-single-user database that is a row per record opened, which is the intended trade: `yoke audit`
-answers "what did I look at" as well as "what did I promote". If that noise ever swamps the
-governance rows, the fix is a filter on the audit screen — which already exists — not a quieter
-rule.
-
-**Still forbidden.** A conversational surface; any model call from the web tier; synthesized prose;
-a second ranker; presenting results as an answer; and search over anything but stored records.
-
-**CLI parity is unchanged and binding.** `yoke search` already exists and predates this box; it
-gains `--status` so the two surfaces can express the same query, and the `search` audit row so the
-trail does not depend on which interface was used.
+- **UI-only business logic.** If a screen wants something the CLI cannot do, the answer is
+  a core function and a CLI command, not a route.

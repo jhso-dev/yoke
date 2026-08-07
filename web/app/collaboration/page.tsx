@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Citation } from "../../components/Citation";
 import { CopyCode } from "../../components/CopyCode";
 import { CreateButton } from "../../components/CreateButton";
 import { DirectionIcon } from "../../components/DirectionIcon";
@@ -177,6 +178,7 @@ function CollaborationBody() {
                         record when you open it. */}
                     <TableHead>{t.common.title}</TableHead>
                     <TableHead>{t.common.status}</TableHead>
+                    <TableHead>{t.common.source}</TableHead>
                     <TableHead />
                   </TableRow>
                 </TableHeader>
@@ -192,6 +194,9 @@ function CollaborationBody() {
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={w.effectiveStatus} />
+                      </TableCell>
+                      <TableCell>
+                        <Citation row={w} />
                       </TableCell>
                       <TableCell>
                         <Link
@@ -331,6 +336,9 @@ function CollaborationBody() {
                         </Link>
                       )}
                     </TableCell>
+                    <TableCell>
+                      {isMissing(m) ? null : <Citation row={m} />}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -392,6 +400,7 @@ function CollaborationBody() {
                   <TableHead>{t.common.direction}</TableHead>
                   <TableHead>{t.common.relation}</TableHead>
                   <TableHead>{t.common.record}</TableHead>
+                  <TableHead>{t.common.source}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -414,6 +423,9 @@ function CollaborationBody() {
                           {recordLabel(e.other)}
                         </Link>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      {isMissing(e.other) ? null : <Citation row={e.other} />}
                     </TableCell>
                   </TableRow>
                 ))}

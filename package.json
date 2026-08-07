@@ -1,11 +1,11 @@
 {
   "name": "yoke",
   "version": "0.1.0",
-  "description": "Knowledge your AI can trust \u2014 ontology-based knowledge DB with governed context injection for AI agents",
+  "description": "Knowledge your AI can trust — ontology-based knowledge DB with governed context injection for AI agents",
   "type": "module",
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12"
   },
   "repository": {
     "type": "git",
@@ -27,9 +27,7 @@
   ],
   "scripts": {
     "build": "npm run build:cli && npm run build:web",
-    "test": "npm run test:main && npm run test:kuzu",
-    "test:main": "vitest run",
-    "test:kuzu": "npm run build:cli && node scripts/test-kuzu.mjs",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit && npm run typecheck:web",
     "lint": "biome check .",
     "eval": "tsx eval/inject-quality.ts",
@@ -56,7 +54,6 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.10",
     "@types/pg": "^8.11.0",
-    "kuzu": "^0.11.3",
     "tsx": "^4.23.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

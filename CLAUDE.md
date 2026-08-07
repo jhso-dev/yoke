@@ -27,7 +27,7 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 - `docs/ARCHITECTURE.md` — the port/adapter boundary definitions
 - `docs/KNOWLEDGE-POLICY.md` — the knowledge entry gate, lifecycle, and injection filter rules
 - `docs/SPEC.md` — the v1 implementation contract (schema, port, gate, MCP tools, CLI)
-- `docs/ROADMAP.md` — per-version tasks from v0.1 → v3.5. Build in this order
+- `docs/ROADMAP.md` — per-version tasks, in the order they were built
 - `docs/PLAN.md` — the detailed v1 implementation plan (task = one commit, with files, signatures, tests, and DoD)
 - `docs/PLAN-V2.md` — the v2.0 → v3.6 plan, plus the dated record of which non-goals were later reversed and why
 - `docs/MARKET.md` — the competitive landscape and strategy (surveyed 2026-07)
@@ -39,9 +39,9 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 
 ## Commands
 
-- `npm run build` — tsc → `dist/`
-- `npm test` — `test:main` (vitest), then `test:kuzu` (a standalone runner; kuzu's native binding crashes in a vitest pool)
+- `npm run build` — `build:cli` (tsc → `dist/`) + `build:web` (Next static export → `dist/front/ui/app`)
+- `npm test` — vitest, one stage
 - `npm run typecheck` · `npm run lint` (biome) · `npm run eval` (injection-quality report)
 - `npm run eval:retrieval -- <db>` — recall@k/nDCG over `eval/gold-set.json`. Needs a loaded corpus
   (`node scripts/load-demo-corpus.mjs <db>`) and an embedder for the hybrid column
-- All four must be green in every commit.
+- `typecheck` · `lint` · `test` · `build` must be green in every commit.

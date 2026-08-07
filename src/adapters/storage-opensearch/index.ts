@@ -1,7 +1,7 @@
 // storage-opensearch — the OpenSearch implementation of StoragePort (v5.4).
 //
 // The second remote backend, and the cheapest one to own: OpenSearch speaks REST, so this takes a
-// `fetchImpl` the way the qdrant adapter does and adds **no dependency at all** — where neo4j needed
+// `fetchImpl` and adds **no dependency at all** — where neo4j needed
 // `neo4j-driver-lite` (3.8 MB) because Bolt is a binary protocol. Injectable fetch is also what makes
 // it fakeable, so a company without a spare cluster is not locked out of the tests.
 //
@@ -37,8 +37,8 @@
 //     (SPEC "The vector index"), which is the same reason sqlite has `entity_vec` and neo4j has
 //     `(:EntityVec)`.
 //
-// ns is stored as "" for the default shared namespace, matching neo4j and kuzu. A missing field and a
-// sentinel are different queries in OpenSearch too, and one sentinel across three adapters is one rule
+// ns is stored as "" for the default shared namespace, matching neo4j. A missing field and a
+// sentinel are different queries in OpenSearch too, and one sentinel across the adapters is one rule
 // to remember.
 
 import { dimensionMismatch, serializeText } from "../../core/embedding.js";
@@ -138,8 +138,8 @@ export interface OpenSearchOptions {
   /** Basic-auth credentials. A security-enabled cluster wants them; a demo container does not. */
   username?: string;
   password?: string;
-  /** Injected for tests — the same seam the qdrant adapter uses, and the reason no dependency is
-   * needed to make this fakeable. */
+  /** Injected for tests — the same seam `web/lib/api.ts` and the slack connector use, and the reason
+   * no dependency is needed to make this fakeable. */
   fetchImpl?: typeof fetch;
   /** Index name prefix, so two yoke databases can share one cluster. */
   prefix?: string;

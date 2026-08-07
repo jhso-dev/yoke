@@ -155,7 +155,11 @@ describe("sharded routing (2 sqlite members)", () => {
     expect(scoped.items.map((e) => e.id)).toEqual(["n1"]);
   });
 
-  it("keeps ontology per shard (owner overlay), default separate", async () => {
+  // Writes split by ns (shared → default shard, tenant → owner shard) but a READ overlays them, the
+  // way sqlite does inside one database. Asserting the owner shard alone here would pin a defect: a
+  // tenant shard never holds the shared types, so a namespace owned by one would load an empty
+  // ontology and every command under it would refuse to run.
+  it("overlays the default shard's shared ontology under the owner shard's", async () => {
     await store.saveOntology([{ name: "note", kind: "entity", attrs: {} }]); // → default
     await store.saveOntology(
       [{ name: "secret", kind: "entity", attrs: {} }],
@@ -163,11 +167,39 @@ describe("sharded routing (2 sqlite members)", () => {
     ); // → a
     expect(store.loadOntology().map((t) => t.name)).toEqual(["note"]);
     expect(store.loadOntology("tenant-a").map((t) => t.name)).toEqual([
+      "note",
       "secret",
     ]);
-    // Verify each landed in its own member.
+    // A namespace with no shard of its own still sees the shared base.
+    expect(store.loadOntology("unclaimed").map((t) => t.name)).toEqual([
+      "note",
+    ]);
+    // Each def still landed in its own member — the split is the storage layout, not the read. The
+    // "a" member holds ONLY the tenant def (its own shared base is empty), which is exactly why the
+    // overlay has to happen at this level and cannot be left to the member.
     expect(d.loadOntology().map((t) => t.name)).toEqual(["note"]);
     expect(a.loadOntology("tenant-a").map((t) => t.name)).toEqual(["secret"]);
+    expect(a.loadOntology().map((t) => t.name)).toEqual([]);
+  });
+
+  // A tenant def SHADOWS a shared one of the same name, in the shared slot (sqlite's rule, so the
+  // two backends cannot disagree about which definition is in force).
+  it("lets a tenant def override a shared one of the same name", async () => {
+    await store.saveOntology([
+      { name: "note", kind: "entity", attrs: {} },
+      { name: "fact", kind: "entity", attrs: {}, ttl_days: 180 },
+    ]);
+    await store.saveOntology(
+      [{ name: "fact", kind: "entity", attrs: {}, ttl_days: 7 }],
+      "tenant-a",
+    );
+    const eff = store.loadOntology("tenant-a");
+    expect(eff.map((t) => t.name)).toEqual(["note", "fact"]);
+    expect(eff.find((t) => t.name === "fact")?.ttl_days).toBe(7);
+    // The shared namespace is untouched by the tenant's override.
+    expect(store.loadOntology().find((t) => t.name === "fact")?.ttl_days).toBe(
+      180,
+    );
   });
 
   it("writes audit to the default shard only", () => {
@@ -233,12 +265,12 @@ describe("shard config validation", () => {
     ).toThrow(/kind must be/);
   });
 
-  it("rejects a missing kind-specific field (qdrant without url)", () => {
+  it("rejects a sqlite shard with no path", () => {
     expect(() =>
       parseShardConfig({
-        shards: [{ name: "a", kind: "qdrant", default: true }],
+        shards: [{ name: "a", kind: "sqlite", default: true }],
       }),
-    ).toThrow(/qdrant needs a `url`/);
+    ).toThrow(/sqlite needs a `path`/);
   });
 });
 
@@ -285,7 +317,10 @@ describe("CLI --shards smoke", () => {
       JSON.stringify({ name: "fact", kind: "entity", attrs: {} }),
     );
 
-    // Seed the "a" shard's tenant ontology, then add under ns a.
+    // `yoke init` writes the seed with NO ns, so it lands on the default shard — and that is all a
+    // tenant shard ever gets. Run init here rather than hand-seeding the "a" shard: the flow a real
+    // user takes is init, then work in a namespace, and that is the flow worth exercising.
+    expect(await runCli(["init", "--shards", cfg])).toBe(0);
     expect(
       await runCli([
         "ontology",
@@ -326,5 +361,78 @@ describe("CLI --shards smoke", () => {
       1,
     );
     expect(errs.at(-1)).toMatch(/per-shard/);
+  });
+
+  // The flow that was broken, with nothing hand-seeded: `yoke init`, then work in a namespace owned
+  // by a NON-default shard, using only the seed ontology. Every command below failed with
+  // "not initialized: … — run 'yoke init' first" while the identical commands worked on plain sqlite.
+  it("a namespace on a non-default shard works off the seed ontology alone", async () => {
+    const tag = Math.random().toString(36).slice(2);
+    const cfg = join(dir, `seedflow-${tag}.json`);
+    writeFileSync(
+      cfg,
+      JSON.stringify({
+        shards: [
+          {
+            name: "teamb",
+            kind: "sqlite",
+            path: join(dir, `teamb-${tag}.db`),
+            namespaces: ["teamb"],
+          },
+          {
+            name: "main",
+            kind: "sqlite",
+            path: join(dir, `main-${tag}.db`),
+            default: true,
+          },
+        ],
+      }),
+    );
+
+    expect(await runCli(["init", "--shards", cfg, "--json"])).toBe(0);
+    // It reports the store it opened, not `--db` — naming the local sqlite here would name a file it
+    // never touched (SPEC "A command reports the store it actually opened").
+    const out = JSON.parse(logs.at(-1) as string);
+    expect(out.store).toBe(`shards ${cfg}`);
+    expect(out.db).toBe("./yoke.db"); // the local half stays a path for scripts
+    // No `ontology add-type`: `fact` comes from the seed, which lives on the default shard.
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--ns",
+        "teamb",
+        "--attr",
+        "title=tenant knowledge",
+        "--shards",
+        cfg,
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+
+    // Readable in its namespace, and the whole lifecycle works there.
+    expect(
+      await runCli(["verify", id, "--ns", "teamb", "--shards", cfg, "--json"]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)[0].status).toBe("verified");
+    expect(
+      await runCli([
+        "inject",
+        "tenant",
+        "--ns",
+        "teamb",
+        "--shards",
+        cfg,
+        "--json",
+      ]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toHaveLength(1);
+
+    // Still isolated: the shared namespace cannot see it.
+    expect(await runCli(["search", "tenant", "--shards", cfg, "--json"])).toBe(
+      0,
+    );
+    expect(JSON.parse(logs.at(-1) as string)).toHaveLength(0);
   });
 });

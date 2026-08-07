@@ -1,6 +1,6 @@
 "use client";
 
-// One loading hook for eight screens. Without it every page repeats the same useEffect with the
+// One loading hook for every screen. Without it every page repeats the same useEffect with the
 // same three states and the same stale-response guard — and one of them eventually forgets the guard.
 
 import { useCallback, useEffect, useState } from "react";
