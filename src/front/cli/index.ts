@@ -1678,6 +1678,37 @@ export async function runCli(
   }
 }
 
+/**
+ * Load `.env` from the working directory, if there is one. Node's own parser, no dependency.
+ *
+ * Returns whether a file was read, which is for the test — nothing in the product branches on it. A
+ * missing `.env` is the normal case, not a warning: the local path has to work with no configuration
+ * at all (invariant 4). Unreadable and "is a directory" are the same answer for the same reason.
+ *
+ * **Real environment variables win.** `process.loadEnvFile` does not overwrite a variable that is
+ * already set (measured, not assumed — see the test), so a shell export or a CI secret always beats
+ * the file and no deployment can be quietly reconfigured by a `.env` left in a directory. That is why
+ * this needs no precedence code of its own.
+ *
+ * Called from `isMain()` below and NOWHERE else, on two counts:
+ *   - `runCli(argv, env)` takes its environment as a parameter, so a test passes a fake and loading
+ *     inside it would mutate the real process to no effect.
+ *   - the vitest suite must never pick a `.env` up. `YOKE_TEST_NEO4J_URL` names a database the neo4j
+ *     suite ERASES, and it has erased a real corpus once (docs/BACKENDS.md). One line written and
+ *     forgotten should not be able to wipe a database on `npm test`.
+ *
+ * ponytail: the working directory's `.env`, and that is all. `node --env-file=<path>` already covers
+ * pointing somewhere else, so a flag of ours would be a second way to say the same thing.
+ */
+export function loadDotEnv(file = ".env"): boolean {
+  try {
+    process.loadEnvFile(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Run only when executed directly (not when imported by a test).
 // realpathSync: via the npm bin symlink (node_modules/.bin/yoke), argv[1] is the symlink while
 // import.meta.url is the real path — a mismatch would make the CLI a silent no-op. This avoids that deployment trap.
@@ -1691,5 +1722,7 @@ function isMain(): boolean {
   }
 }
 if (isMain()) {
+  // Before runCli, so `env = process.env` already carries the file's values.
+  loadDotEnv();
   runCli(process.argv.slice(2)).then((code) => process.exit(code));
 }

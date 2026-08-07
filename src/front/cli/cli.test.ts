@@ -18,7 +18,7 @@ import { commit } from "../../core/commit.js";
 import { deprecate, verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
-import { runCli } from "./index.js";
+import { loadDotEnv, runCli } from "./index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-cli-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -1392,5 +1392,56 @@ describe("backfill --embeddings", () => {
     } finally {
       server.close();
     }
+  });
+});
+
+// `.env` loading. Every clause here is one the docs promise, and one of them is Node's
+// behaviour rather than ours: pinning it is the point, because swapping in a hand-rolled parser would
+// break the promise silently. `loadDotEnv` mutates the real process.env, so each case cleans up its own
+// keys — and the keys are unique per case so a leak cannot make a sibling pass.
+describe("loadDotEnv", () => {
+  const dir = mkdtempSync(join(tmpdir(), "yoke-dotenv-"));
+  const write = (name: string, body: string): string => {
+    const p = join(dir, name);
+    writeFileSync(p, body);
+    return p;
+  };
+
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("reads a file that is there", () => {
+    const f = write("plain", "DOTENV_PROBE_A=from-file\n");
+    try {
+      expect(loadDotEnv(f)).toBe(true);
+      expect(process.env.DOTENV_PROBE_A).toBe("from-file");
+    } finally {
+      delete process.env.DOTENV_PROBE_A;
+    }
+  });
+
+  // The precedence clause: a shell export or a CI secret has to beat the file, or a `.env` someone
+  // left in a directory could quietly reconfigure a deployment. Nothing in our code enforces it.
+  it("does not overwrite a variable that is already set", () => {
+    process.env.DOTENV_PROBE_B = "from-shell";
+    const f = write(
+      "override",
+      "DOTENV_PROBE_B=from-file\nDOTENV_PROBE_C=new\n",
+    );
+    try {
+      expect(loadDotEnv(f)).toBe(true);
+      expect(process.env.DOTENV_PROBE_B).toBe("from-shell");
+      // ...while a variable the environment does NOT have still arrives, so the file is a default
+      // rather than being ignored wholesale.
+      expect(process.env.DOTENV_PROBE_C).toBe("new");
+    } finally {
+      delete process.env.DOTENV_PROBE_B;
+      delete process.env.DOTENV_PROBE_C;
+    }
+  });
+
+  // No .env is the normal case: `yoke` on the local path takes no configuration at all.
+  it("is silent when there is no file, and when the path is a directory", () => {
+    expect(loadDotEnv(join(dir, "does-not-exist"))).toBe(false);
+    expect(loadDotEnv(dir)).toBe(false);
   });
 });

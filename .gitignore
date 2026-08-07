@@ -1,5 +1,11 @@
 node_modules/
 dist/
+
+# Local configuration. `.env.example` IS committed and lists every variable yoke reads;
+# a real .env holds backend passwords and the embedder key.
+.env
+.env.local
+
 *.db
 *.db-wal
 *.db-shm
