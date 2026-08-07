@@ -536,6 +536,62 @@ describe("yoke_commit / yoke_record_decision derived_from", () => {
     expect(await downstream(basis)).toEqual([]);
   });
 
+  // Measured, not imagined: three agents were handed these tools and a realistic task, all three
+  // cited a basis unprompted, and two of the three passed the CITATION rather than the id — because
+  // `[fact:01K…@v2]` is the only form any surface ever shows them. Each string below is one of the
+  // three shapes that came back.
+  it.each([
+    ["bare id (as documented)", (id: string) => id],
+    ["type-prefixed", (id: string) => `fact:${id}`],
+    ["type-prefixed with version", (id: string) => `fact:${id}@v1`],
+    [
+      "the whole citation",
+      (id: string) => `[fact:${id}@v1] yoke:system, 2026-08-07T00:00:00Z`,
+    ],
+  ])("resolves a basis given as %s", async (_name, shape) => {
+    const s = await openSession();
+    const basis = await commitFact(s.client, `citation shape ${_name}`);
+    const rec = await s.client.callTool({
+      name: "yoke_record_decision",
+      arguments: {
+        conclusion: `on ${_name}`,
+        rationale: "r",
+        derived_from: [shape(basis)],
+      },
+    });
+    const out = JSON.parse(text(rec));
+    await s.close();
+
+    expect(out.derived_from).toBe(1);
+    expect(out.derived_from_ignored).toBeUndefined();
+    // The edge has to be findable from the basis — a filed-but-unresolvable edge is the exact
+    // silent failure this normalization exists to prevent.
+    expect(await downstream(basis)).toEqual([out.id]);
+  });
+
+  it("names an id it could not resolve instead of filing an edge to nothing", async () => {
+    const s = await openSession();
+    const basis = await commitFact(s.client, "a real basis");
+    const rec = await s.client.callTool({
+      name: "yoke_record_decision",
+      arguments: {
+        conclusion: "half-cited",
+        rationale: "r",
+        derived_from: [basis, "01NOTAREALIDATALL", "fact:also-not-real@v3"],
+      },
+    });
+    const out = JSON.parse(text(rec));
+    await s.close();
+
+    expect(out.derived_from).toBe(1);
+    // Verbatim, so the caller can see that what it sent was not an id.
+    expect(out.derived_from_ignored).toEqual([
+      "01NOTAREALIDATALL",
+      "fact:also-not-real@v3",
+    ]);
+    expect(await downstream(basis)).toEqual([out.id]);
+  });
+
   it("omitting it files nothing and does not mention it", async () => {
     const s = await openSession();
     const r = await s.client.callTool({

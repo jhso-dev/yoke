@@ -168,11 +168,14 @@ Nothing in `src/` gets a build step beyond `tsc`.
   create modal was a native `<dialog>` (focus trapping, Esc, inert background,
   `::backdrop`, all free) and Radix reimplements those in JS. That cost is paid
   for the components whose accessibility is genuinely hard to hand-roll.
-- **Hand-written web source under `web/`, excluding tests and the copied
-  `web/components/ui/`.** No number: the two figures this document has carried
-  were both invented and both blown (currently 6,771 lines), and nothing counts
-  them. Either it gets a guard test like the bundle budget has, or it is not a
-  budget — an open item, not a limit.
+- **No line-count budget.** There was one, twice; both numbers were invented
+  rather than measured, both were blown, and nothing ever counted them — the
+  ceiling only ever moved to wherever the code already was, which is a record of
+  growth wearing a budget's clothes. What it was reaching for is covered better
+  by two things that bite: the **bundle budget above**, asserted by a test, which
+  measures what a user actually downloads; and WEB-UI.md's **three tests**, which
+  is what stops screens multiplying — the real driver of size. A line count would
+  not have refused a single screen either of those admits.
 - **Zero new runtime deps in `src/front/ui/` and `src/front/serve/`**
   (`node:http` only), and **zero new listening ports**.
 - **Zero web toolchain in the CLI install path** — a failed web build must

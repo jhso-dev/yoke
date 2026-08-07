@@ -57,8 +57,11 @@ web/             # v5.0: Next.js `output: 'export'` source → one static bundle
 `web/` sits outside `src/` because `next build` rewrites whichever `tsconfig.json` it
 finds; at the repo root it would corrupt the CLI's.
 
-The boundary (core must not import from adapters/front) is **convention-enforced today** —
-`biome.json` has no import restriction, so the lint rule this document once promised does
-not exist. Adding a `noRestrictedImports` rule on `core/**` is the open item; until then
-the invariant is maintained by review, and this paragraph says so rather than claiming an
-enforcement that isn't there.
+The boundary (core must not import from adapters, front or connectors) is **lint-enforced**:
+a `noRestrictedImports` override on `src/core/**` in `biome.json`, so a violation fails
+`npm run lint` rather than waiting for a reviewer to notice.
+
+`src/core/**/*.test.ts` is exempt, and deliberately: core's tests drive a real
+`SqliteStorage(":memory:")` rather than a hand-written fake, because a fake that satisfies
+the port is a second implementation of it and the thing being tested is behaviour against a
+real one. The invariant is about what ships, not about what proves it.

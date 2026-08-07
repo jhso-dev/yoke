@@ -62,7 +62,10 @@ export interface YokeStore extends StoragePort {
    * fire-and-forget would discard the error (SPEC "Remote backends"). */
   saveOntology(defs: TypeDef[], ns?: string | null): Promise<void>;
   loadOntology(ns?: string | null): TypeDef[];
-  listHistory(id: string): Entity[];
+  /** OPTIONAL: synchronous, and it is about entity rows — which on a remote backend are across a
+   * network, so `storage-composite` genuinely cannot provide it. Callers feature-detect through
+   * core's `listVersions`, which falls back to walking `getEntity(id, version)`. */
+  listHistory?(id: string): Entity[];
   /** async since v5.2: it rewrites entity rows, and on a remote backend those are across a network. */
   renameType(from: string, to: string, ns?: string | null): Promise<number>;
   logAudit(event: AuditEvent): void;

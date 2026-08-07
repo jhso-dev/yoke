@@ -198,6 +198,36 @@ export function citation(e: Entity): string {
 }
 
 /**
+ * The entity ids that whatever a caller pasted back might mean, best guess first — `01K…`,
+ * `fact:01K…`, `fact:01K…@v2`, or the whole `[fact:01K…@v2] actor, when`.
+ *
+ * CANDIDATES rather than one answer, because `type:id` and a readable id are the same shape: this
+ * repo's own corpus generator mints `person:platform-manager`, so stripping before the colon is
+ * sometimes right and sometimes destroys the id. Guessing is avoidable — the caller can simply try
+ * each against the store and keep the one that resolves, which is a fact rather than a heuristic.
+ *
+ * It lives beside `citation` because it is that function's inverse and the two must not drift.
+ *
+ * Why it is needed at all: every surface shows a record as its CITATION and never as a bare id, so an
+ * agent told to cite "ids that inject returned to you" cites the thing it was shown. Measured on three
+ * agents handed the tool and a realistic task — all three cited their basis unprompted, two of the
+ * three in a form that resolves to nothing.
+ */
+export function entityIdCandidates(raw: string): string[] {
+  let s = raw.trim();
+  if (s.startsWith("[")) {
+    const close = s.indexOf("]");
+    s = close === -1 ? s.slice(1) : s.slice(1, close);
+  }
+  // A pasted citation carries the actor and timestamp after the bracket; take the first token.
+  s = (s.split(/[\s,]/)[0] ?? "").replace(/@v\d+$/, "");
+  if (!s) return [];
+  const colon = s.indexOf(":");
+  // Ordered: the string as given first, since an id that already resolves needs no surgery.
+  return colon > 0 && colon < s.length - 1 ? [s, s.slice(colon + 1)] : [s];
+}
+
+/**
  * Returns the verified knowledge matching a query, each with its citation.
  * @param includeDraft also include drafts (the label is carried by effectiveStatus). stale/deprecated are always excluded.
  * @param scope an entity id to anchor the injection on — one mechanism with two named entry points:
