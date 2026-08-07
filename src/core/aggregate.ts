@@ -80,10 +80,10 @@ export async function overview(
   /** Ids whose knowledge is injectable today. Authorship is credited off this set, not off every row.
    *
    * Both of these are id SETS rather than the records themselves, which is the whole memory budget of
-   * this function. The first draft kept an `entities` map so the hub list could carry full records, and
-   * at 1M entities / 3M relations that cost **511 MB of RSS** — a read whose memory is the size of the
-   * corpus, which is the class of defect docs/SCALE.md holds five of. The hubs are re-read by id at the
-   * end instead, in one batch call (v5.5), because only `top` of them are ever returned. */
+   * this function. Keeping an `entities` map so the hub list could carry full records costs **511 MB of
+   * RSS** at 1M entities / 3M relations — a read whose memory is the size of the corpus, the class of
+   * defect docs/SCALE.md holds five of. The hubs are re-read by id at the end instead, in one batch
+   * call, because only `top` of them are ever returned. */
   const injectable = new Set<string>();
   /** Relation types that are structurally metadata rather than connection between knowledge:
    * `authored_by` (every record has exactly one, so it adds a constant) and anything the ontology

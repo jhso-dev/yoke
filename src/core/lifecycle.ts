@@ -15,11 +15,9 @@ const DAY_MS = 86_400_000;
  * (append-only). Provenance is refreshed to record the promote/retire action itself
  * (origin: 'lifecycle').
  *
- * The batch read replaced a `getEntity` per id (v5.5): a bulk verify of 54 rows from the review queue
- * was 54 round trips before the first write. It also moved the unknown-id refusal to BEFORE any write
- * — the loop used to throw partway through, leaving the ids it had already reached promoted, which is
- * a half-applied governance action nobody asked for. Writes stay one call each; the port has no batch
- * write, and append-only means each is a distinct new row.
+ * ONE batch read, not a `getEntity` per id: a bulk verify of 54 rows from the review queue would
+ * otherwise be 54 round trips before the first write. Writes stay one call each — the port has no
+ * batch write, and append-only means each is a distinct new row.
  */
 async function transition(
   port: StoragePort,
@@ -135,11 +133,10 @@ export function effectiveStatus(
 /**
  * Every stored version of `id`, **ascending by version**.
  *
- * The order is part of this function's contract now, and that is a fix rather than a tightening: it
- * used to say "any order", sqlite's `listHistory` returned `ORDER BY version ASC`, and the fallback
- * below counted DOWN from the latest. Two implementations obeying "any order" differently is a display
- * bug waiting for whichever backend the reader happens to be on — `yoke history` and the entity screen
- * both print this list as a timeline.
+ * The order is part of the contract rather than "any order": `yoke history` and the entity screen
+ * both print this list as a timeline, and two implementations obeying "any order" differently is a
+ * display bug waiting for whichever backend the reader happens to be on. The extension path returns
+ * ascending and the fallback below counts DOWN from the latest, so both are sorted here.
  *
  * `listHistory` is a YokeStore extension rather than a port method, so it is feature-detected — and it
  * is genuinely absent on a remote backend, because it is synchronous and the rows are across a network

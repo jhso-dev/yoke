@@ -12,7 +12,7 @@
 
 온톨로지 기반 지식 데이터베이스 · AI 에이전트를 위한 거버넌스 컨텍스트 주입 · MCP 네이티브
 
-MIT · v5.0까지 기능 완성 · [비주얼 소개](https://claude.ai/code/artifact/09d92d76-5eee-453d-ae79-ec40616f6396)
+MIT · v5.9까지 기능 완성 · [비주얼 소개](https://claude.ai/code/artifact/09d92d76-5eee-453d-ae79-ec40616f6396)
 
 [English](README.md) | **한국어**
 
@@ -36,8 +36,8 @@ MIT · v5.0까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
    격리됩니다. AI 에이전트는 MCP로 *기록*만 할 수 있고 승격은 못 합니다 —
    검증은 의도적으로 사람의 행위입니다(`yoke verify`). `verified`만 AI의
    컨텍스트에 닿습니다.
-3. **아무것도 조용히 덮이지 않는다.** 저장은 append-only입니다 — 수정은 새 버전,
-   삭제는 tombstone. 임의 시점의 믿음을 언제든 재구성할 수 있고, 주입되는 모든
+3. **아무것도 조용히 덮이지 않는다.** 저장은 append-only입니다 — 수정은 새 버전이고,
+   삭제는 아예 없습니다(폐기는 `deprecated` 상태). 임의 시점의 믿음을 언제든 재구성할 수 있고, 주입되는 모든
    항목에 인용이 붙습니다 — `[type:id@vN] actor, occurred_at` — 그래서 모든
    주장이 감사 가능합니다.
 4. **모순은 드러내되 자동 해소하지 않는다.** 새 지식이 검증된 기록과 충돌하면
@@ -58,8 +58,8 @@ MIT · v5.0까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 | | |
 |---|---|
 | **한 줄 요약** | 지식에 최적화된 데이터베이스: 온톨로지로 구조화한 뒤, 지금 맥락에 맞는 검증된 부분집합만 인용과 함께 AI에 주입합니다. |
-| **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
-| **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `kuzu`(임베디드 그래프) · `qdrant`(벡터 검색) · `sharded`(테넌트별 멀티 백엔드 연합). 모두 하나의 conformance 스위트를 통과. |
+| **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
+| **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `neo4j`(네이티브 전문검색 + 벡터 인덱스) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 넷 모두 하나의 conformance 스위트를 통과. |
 | **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `rdb`(Postgres/MySQL read-mapping) — 외부 소스 → draft 지식. |
 | **앵커 기반 주입** | 하나의 메커니즘, 두 개의 진입점: `collaboration`에 앵커하면 팀의 공유 작업 컨텍스트, `person`에 앵커하면 persona. |
 | **persona** | "이 동료라면 어떻게 판단할까?" → 그 사람의 기록된 검증 판단을 인용과 함께, 실시간 생성으로. 흉내가 아니라 인용. |
@@ -98,8 +98,12 @@ npm install && npm run build && npm link   # 전역 `yoke` 명령 제공
 yoke add decision \
   --attr conclusion="Redis로 캐싱" \
   --attr rationale="P99 지연이 목표치를 초과" \
-  --attr rejected_alternatives="인프로세스 캐시"
+  --attr rejected_alternatives="인프로세스 캐시" \
+  --attr rejected_alternatives="memcached"
 ```
+
+`rejected_alternatives`는 목록 타입이라 `--attr`를 반복해서 목록을 만듭니다 — 한 번만 쓰면
+문자열이 되어 게이트가 거부합니다.
 
 ## MCP 설정
 
@@ -123,25 +127,64 @@ yoke를 에이전트(Claude Code 등)에 stdio MCP 서버로 붙입니다. 프�
 - `yoke_commit` — 지식 적재 (`draft`로 진입)
 - `yoke_record_decision` — 결정 숏컷 (결론 + 근거 + 기각한 대안)
 - `yoke_persona` — 사람 스코프 주입 ("이 동료라면 어떻게 판단할까?")
+- `yoke_overview` — 코퍼스 한눈에 보기: 타입별 수, 최다 연결 레코드, 저자별 검증 지식
 - `yoke_use_scope` — 현재 collaboration을 고정해 세션 전체가 하나의 작업 컨텍스트를 공유
 
-임베딩 provider(중복·모순 탐지를 활성화)는 환경 변수로 설정합니다. 미설정 시
-FTS로 폴백합니다:
+임베딩 provider(중복·모순 탐지와 하이브리드 검색을 활성화)는 환경 변수로 설정합니다.
+**미설정 시 중복·모순 탐지는 실행되지 않고 "skipped"로 보고됩니다** — FTS로 대신하지
+않습니다(비슷한 문장은 키워드가 다르기 마련이라, 흉내내면 "검사했는데 없더라"라는
+거짓 답이 됩니다). 검색만 키워드로 동작합니다:
 
 ```bash
-export YOKE_EMBED_URL=https://api.example.com/v1   # OpenAI 호환 /embeddings
+export YOKE_EMBED_URL=https://api.example.com/v1   # OpenAI 호환 API 루트 (뒤에 /embeddings 붙이지 않음)
 export YOKE_EMBED_MODEL=text-embedding-3-small
 export YOKE_EMBED_KEY=sk-...
 ```
 
-무료·로컬·키 불필요로는 [Ollama](https://ollama.com)를 쓸 수 있습니다(실사용 검증
-완료 — 중복 경고와 `conflicts_with` 탐지 모두 동작):
+무료·로컬·키 불필요로는 [Ollama](https://ollama.com)를 쓸 수 있습니다:
 
 ```bash
-ollama pull nomic-embed-text
+ollama pull bge-m3
 export YOKE_EMBED_URL=http://localhost:11434/v1
-export YOKE_EMBED_MODEL=nomic-embed-text            # 키 불필요
+export YOKE_EMBED_MODEL=bge-m3                      # 키 불필요
 ```
+
+**한국어 코퍼스에는 `nomic-embed-text`를 쓰지 마세요.** 영어 중심 모델이라 비영어
+지식에서는 벡터 검색 절반이 조용히 무용지물이 됩니다 — 이 문서의 이전 판이 권했던
+모델이고, 그래서 이 경고가 여기 있습니다. 권장은 `bge-m3` (다국어).
+
+세 가지 더 (자세한 내용은 영어 README의 Embeddings 절):
+
+- 한 데이터베이스의 벡터 공간은 하나입니다. **모델을 바꾸면**
+  `yoke backfill --embeddings --rebuild`로 전체 재임베딩 — 차원이 다른 쓰기는
+  복구 명령과 함께 거부됩니다.
+- CLI·웹으로 만든 레코드에 벡터를 채우려면 `yoke backfill --embeddings`.
+- `.mcp.json`의 `env`는 MCP 서버 프로세스에만 적용됩니다. **셸에도 export**
+  해야 CLI 쓰기가 임베딩됩니다.
+
+## 회사 Neo4j / OpenSearch에 연결
+
+회사가 이미 운영하는 서버를 그대로 가리킵니다. 지식은 그쪽에 저장되고, **이
+클라이언트의 감사 추적과 API 토큰은 로컬 sqlite에 남습니다**(`--db`가 계속 그 로컬
+절반을 가리킵니다 — 남의 데이터베이스에 yoke의 장부를 넣어달라고 하면 거절당할
+테니까요). 나머지는 전부 동일하게 동작합니다: `add`, `review`, `verify`, `inject`,
+`yoke ui`, MCP.
+
+```bash
+export YOKE_NEO4J_URL=bolt://localhost:7687        # 또는 Aura는 neo4j+s://…
+export YOKE_NEO4J_USER=neo4j
+export YOKE_NEO4J_PASSWORD=…
+export YOKE_NEO4J_DATABASE=neo4j                   # 선택
+
+# 또는 OpenSearch — 둘 다 지정하면 에러입니다 (서로 다른 지식 저장소)
+export YOKE_OPENSEARCH_URL=http://localhost:9200
+export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # 보안 클러스터만
+export YOKE_OPENSEARCH_PREFIX=team_a_              # 선택: 한 클러스터에 yoke DB 두 개
+
+yoke init                                          # 제약·인덱스 생성, 온톨로지 시드
+```
+
+같은 줄들을 작업 디렉터리의 `.env`에 둬도 됩니다 (`cp .env.example .env`).
 
 ## 웹 UI
 
@@ -165,18 +208,25 @@ yoke serve --auth --host 0.0.0.0   # 팀 공유. `yoke token create` 로 만든 
 ## CLI
 
 ```
-yoke init | add | get | search | review | verify | deprecate
-yoke inject <query> [--include-draft] [--scope <id>]
-yoke conflicts | ontology <list|add-type> | persona <person-id>
-yoke history <id> | audit [--since ts] [--limit n]
+yoke init | add | get | search | list | link | review | verify | deprecate
+yoke inject <query> [--include-draft] [--scope <id>] [--depth n] [--as-of ts]
+yoke overview | graph [--scope <id>]          # 코퍼스 한눈에 보기 / 엣지로 보기
+yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
+yoke history <id> | audit [--since ts] [--limit n] [--shape]
 yoke connect github-pr|slack|notes|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
-yoke backup | restore | export [--until ts]   # --shards <file> 로 백엔드 연합
-yoke backfill                                 # 누락된 저작 엣지 생성 (업그레이드 경로)
+yoke backup | restore | export --until <ts> --out <new.db>   # --shards <file> 로 백엔드 연합
+yoke backfill [--embeddings [--rebuild]]      # 저작 엣지 / 벡터 인덱스 복구
 ```
 
 공통 옵션: `--db`(> `YOKE_DB` env > `./yoke.db`), `--actor`(> `YOKE_ACTOR` env
 > `yoke:system`), `--json`(기계용 출력).
+
+환경변수는 작업 디렉터리의 **`.env`**에 둘 수 있습니다 — `cp .env.example .env` 후
+필요한 줄의 주석을 해제하면 됩니다. Node 내장 파서가 읽으므로 의존성도, 우리만의
+형식도 없습니다. 우선순위는 **CLI 플래그 > 실제 환경변수 > `.env` > 기본값** —
+셸 export나 CI 시크릿이 항상 파일을 이깁니다. `.env`는 gitignore되고, 커밋되는
+`.env.example`이 `YOKE_*` 변수의 유일한 전체 목록입니다.
 
 ## 공유 작업 컨텍스트
 
@@ -213,8 +263,8 @@ recall 벤치마크 대신, yoke는 **주입 품질**을 측정합니다(`npm ru
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | 포트/어댑터 경계 |
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | 게이트, 라이프사이클, 주입 필터 규칙 |
 | [SPEC](docs/SPEC.md) | 구현 계약 — 스키마, port, 게이트, MCP 도구, CLI |
-| [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 10개 화면과 넘지 않는 선 |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.0 구현 완료; 브라우저 실사용 검증 완료·기록됨 (결함 6건 발견) |
+| [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 12개 화면과 넘지 않는 선 |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.9 구현 완료 — 버전 순서대로, 각 절이 기록 |
 | [BACKENDS](docs/BACKENDS.md) | 어댑터 확장 + RDB read-mapping (실사용 검증 노트 포함) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 복제, 샤딩 |
 | [MARKET](docs/MARKET.md) | 경쟁 지형과 포지셔닝 |

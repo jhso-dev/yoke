@@ -12,7 +12,7 @@
 
 ontology-based knowledge database · governed context injection for AI agents · MCP-native
 
-MIT · feature-complete through v5.0 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
+MIT · feature-complete through v5.9 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
 
 **English** | [한국어](README.ko.md)
 
@@ -37,7 +37,7 @@ Trust isn't a promise here — it's five mechanisms, each enforced in code:
    MCP, but they cannot promote it — verification is deliberately a human act
    (`yoke verify`). Only `verified` knowledge ever reaches your AI's context.
 3. **Nothing is silently overwritten.** Storage is append-only: an edit is a new
-   version, a deletion is a tombstone. You can always reconstruct what the
+   version, and there is no delete at all — retirement is a status (`deprecated`). You can always reconstruct what the
    system believed at any point in time, and every injected item carries a
    citation — `[type:id@vN] actor, occurred_at` — so every claim is auditable.
 4. **Contradictions are surfaced, never auto-resolved.** When new knowledge
@@ -59,8 +59,8 @@ Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server requir
 | | |
 |---|---|
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
-| **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
-| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `neo4j` (native full-text + vectors + traversal; point it at the server your company already runs) · `kuzu` (embedded graph; ships separately — `npm install kuzu`) · `qdrant` (vector search) · `sharded` (multi-backend federation by tenant). All pass one conformance suite. |
+| **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
+| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `neo4j` (native full-text + vector indexes) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
 | **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
@@ -99,8 +99,12 @@ Recording a decision:
 yoke add decision \
   --attr conclusion="Cache with Redis" \
   --attr rationale="P99 latency exceeded our target" \
-  --attr rejected_alternatives="in-process cache"
+  --attr rejected_alternatives="in-process cache" \
+  --attr rejected_alternatives="memcached"
 ```
+
+`rejected_alternatives` is a list, and a repeated `--attr` is how the CLI builds one — a single
+occurrence is a string, which the gate rejects for a list-typed attribute.
 
 ## MCP setup
 
@@ -124,6 +128,7 @@ Tools exposed:
 - `yoke_commit` — stage knowledge (enters as `draft`)
 - `yoke_record_decision` — decision shortcut (conclusion + rationale + rejected alternatives)
 - `yoke_persona` — person-scoped injection ("how would a teammate decide?")
+- `yoke_overview` — the corpus at a glance: counts by type, the most-connected records, who authored what
 - `yoke_use_scope` — pin the current collaboration so the whole session shares one working context
 
 ## Embeddings
@@ -195,15 +200,20 @@ export YOKE_NEO4J_DATABASE=neo4j                 # optional
 yoke init                                        # creates constraints + indexes, seeds the ontology
 ```
 
+Or put the same lines in a **`.env`** in the working directory — `cp .env.example .env` and uncomment.
+Node's own parser reads it, so there is no dependency and no format of ours, and an actual environment
+variable still wins over the file, which keeps a CI secret ahead of anything left on disk. `.env` is
+gitignored; `.env.example` is committed and lists every `YOKE_*` variable yoke itself reads.
+
 `--db` still names the local sqlite. Everything else is unchanged — `add`, `review`, `verify`,
-`inject`, `yoke ui`, MCP. Neo4j is the only backend with **native full-text search, native vectors and
-native traversal in one engine**, so search is ranked by the index itself rather than app-level, and
+`inject`, `yoke ui`, MCP. Neo4j pairs a **native full-text index with a native vector index in one
+engine**, so search is ranked by the index itself rather than app-level, and
 `similar` needs no second service.
 
 What lives where, and why: `docs/BACKENDS.md`. The short version is that `YokeStore`'s extension
 surface is synchronous (better-sqlite3 shaped it), so a networked backend is *composed* with a local
-sqlite rather than swapped in — which is also why `kuzu` and `qdrant` were never selectable from the
-CLI despite passing conformance.
+sqlite rather than swapped in — and an adapter that cannot satisfy those synchronous signatures is not
+selectable at all.
 
 ```bash
 docker run -d --rm --name yoke-neo4j -p 7687:7687 -e NEO4J_AUTH=neo4j/testtest neo4j:5
@@ -231,14 +241,15 @@ explicit `--host` and says so; `yoke serve` refuses a non-loopback bind without 
 ## CLI
 
 ```
-yoke init | add | get | search | review | verify | deprecate
-yoke inject <query> [--include-draft] [--scope <id>]
-yoke conflicts | ontology <list|add-type> | persona <person-id>
-yoke history <id> | audit [--since ts] [--limit n]
+yoke init | add | get | search | list | link | review | verify | deprecate
+yoke inject <query> [--include-draft] [--scope <id>] [--depth n] [--as-of ts]
+yoke overview | graph [--scope <id>]          # the corpus at a glance / as edges
+yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
+yoke history <id> | audit [--since ts] [--limit n] [--shape]
 yoke connect github-pr|slack|notes|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
-yoke backup | restore | export [--until ts]   # --shards <file> federates backends
-yoke backfill                                 # derive missing authorship edges (upgrade path)
+yoke backup | restore | export --until <ts> --out <new.db>   # --shards <file> federates backends
+yoke backfill [--embeddings [--rebuild]]      # repair authorship edges / the vector index
 ```
 
 Common options: `--db` (> `YOKE_DB` env > `./yoke.db`), `--actor`
@@ -280,8 +291,8 @@ Instead of a recall benchmark, yoke measures **injection quality** (`npm run eva
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | The ports-and-adapters boundary |
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
-| [WEB-UI](docs/WEB-UI.md) | The governance workbench — the ten screens and the line we don't cross |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.0 built; the browser pass is done and recorded (it found six defects) |
+| [WEB-UI](docs/WEB-UI.md) | The governance workbench — the twelve screens and the line we don't cross |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.9 built, in order, each section a record |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
 | [MARKET](docs/MARKET.md) | Competitive landscape and positioning |

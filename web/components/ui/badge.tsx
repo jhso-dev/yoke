@@ -5,9 +5,8 @@ import type * as React from "react";
 import { cn } from "@/lib/utils";
 
 // The box is the workbench's status pill, not shadcn's default badge — `1px 7px`, 11px, 600 weight,
-// 4px gap. It used to be `.pill` in globals.css, with the tone colours hung off a `data-tone`
-// attribute; this is the same CSS, one layer down, so a status renders identically and there is one
-// definition of what a badge looks like here.
+// 4px gap. The design lives in the component rather than in a `.pill` element rule in globals.css, so
+// there is one definition of what a badge looks like here and a call site can override it.
 //
 // The `tone` variants are the product's own: a lifecycle status is never colour alone (StatusBadge
 // pairs each with a label and a glyph — an accessibility basic, not a simplification), and each tone

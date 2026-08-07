@@ -33,10 +33,10 @@ import { useAsync } from "../../lib/useAsync";
  * One stored attribute value, read the way it was written.
  *
  * Three shapes, because the ontology declares three (`string`, `string[]`, and the numbers/booleans
- * that fall through). Every one of them used to be `typeof v === "string" ? v : JSON.stringify(v)`,
- * which turned a decision's rejected alternatives — arguably the most-read field in the model, since
- * it is what a decision record exists to preserve — into `["안 1","안 2"]`, and a multi-section
- * postmortem into one collapsed paragraph.
+ * that fall through). Each is rendered as what it is: a blanket `JSON.stringify` turns a decision's
+ * rejected alternatives — arguably the most-read field in the model, since it is what a decision
+ * record exists to preserve — into `["안 1","안 2"]`, and a multi-section postmortem into one
+ * collapsed paragraph.
  */
 function attributeValue(v: unknown) {
   if (typeof v === "string") return isDocument(v) ? <Markdown text={v} /> : v;

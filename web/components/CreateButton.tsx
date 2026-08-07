@@ -10,9 +10,8 @@ import { Modal } from "./Modal";
 /**
  * The page-level create action: a button on the title row, a modal holding the form.
  *
- * The form used to sit open above every list, which meant the thing you came to read started one
- * panel further down on every visit, for an action most visits do not take. A button costs one click
- * and gives the list the top of the page back.
+ * A button rather than a form sitting open above the list: an always-open form pushes the thing you
+ * came to read one panel down on every visit, for an action most visits do not take.
  *
  * It stays open after a successful create. Creating one record is rarely creating exactly one, and
  * the duplicate warning the gate returns is shown inside the form — closing on success would throw
@@ -34,9 +33,9 @@ export function CreateButton({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  // The fallback used to be a template literal in English, so `new record` and `new collaboration`
-  // stayed English in every locale — the dictionary had both strings and nothing read them. A
-  // caller with a type of its own passes `label`; the generic case is the record wording.
+  // From the dictionary, never a template literal: an interpolated English fallback stays English in
+  // every locale. A caller with a type of its own passes `label`; the generic case is the record
+  // wording.
   const text = label ?? t.create.newRecord;
   return (
     <>

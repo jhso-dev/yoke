@@ -31,7 +31,7 @@ const ANY = "__any";
  *
  * Enumeration shows the shape of the corpus — what types exist, what is still draft, what has gone
  * stale — so a human can govern it. The text box narrows that to matching records, and stays on the
- * governing side of WEB-UI.md's line by construction (second 2026-07-31 amendment):
+ * governing side of WEB-UI.md's line by construction:
  *
  * - it calls the storage port's own `search()`, the one `inject` falls back to, so there is no
  *   second ranker in the product;

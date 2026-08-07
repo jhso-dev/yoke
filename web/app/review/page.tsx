@@ -119,8 +119,8 @@ function ReviewBody() {
       <div className="controls">
         {/* Radios, not buttons: this is one choice between two states, and a radio group is what a
             screen reader announces as such without any aria bookkeeping. Radix supplies the roles and
-            the arrow-key handling, so the native inputs that used to be hidden off-screen behind
-            styled labels are gone — the segments ARE the options now. */}
+            the arrow-key handling, so the segments ARE the options — no native inputs hidden
+            off-screen behind styled labels. */}
         <RadioGroup
           value={tab}
           onValueChange={(v) => switchTo(v as "drafts" | "stale")}

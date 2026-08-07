@@ -19,9 +19,11 @@
 // The remaining extension surface (listHistory/ontology/audit/tokens) is the sqlite-shaped surface
 // used by CLI/UI/serve. Audit + tokens live on the default shard (a single audit/token stream).
 // ponytail: that surface assumes the default shard (and any ns owner it targets) is a sqlite
-// backend. A kuzu/qdrant member participates in the core port — which since v5.0 includes
-// enumeration, so the review queue and conflicts view work there too — but not in the sqlite-only
-// extensions (no tokens, and its ontology methods are async). Give a tenant on a non-sqlite backend
+// backend. `ShardKind` is `"sqlite"` only, so the assumption cannot currently be violated — the note
+// stays because it is the constraint a second shard kind would have to meet: a
+// non-sqlite member participates in the core port, which since v5.0 includes enumeration, so the
+// review queue and conflicts view work there too — but not in the sqlite-only extensions (no
+// tokens, and its ontology methods are async). Give a tenant on a non-sqlite backend
 // its own serve process if it needs audit/token features.
 //
 // Duplicate/contradiction detection stays intra-shard automatically: commit() calls this.similar,
@@ -31,8 +33,8 @@
 // still resolves the foreign id. ns-isolation-sensitive deployments (where even seeing a peer
 // tenant's near-duplicate is a leak) should give each tenant its own serve process.
 // ponytail: cross-shard similar fan-out is the known ceiling. Upgrade path is an ns-aware
-// `similar(embedding, k, ns?)` on the port — a supervisor-approved StoragePort contract change we do
-// NOT make here (ports/storage.ts is off-limits for this task).
+// `similar(embedding, k, ns?)` on the port — a StoragePort contract change, so it waits for a real
+// deployment to need it rather than being made from here.
 
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";

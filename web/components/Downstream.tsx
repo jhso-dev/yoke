@@ -13,10 +13,9 @@ import { KnowledgeTable } from "./KnowledgeTable";
  * looking, and it names each record instead of counting them: "3 records" routes nobody.
  *
  * The heading is an Alert and the records go through `KnowledgeTable`, which is not a layout preference:
- * the first draft joined the labels inline with commas and two governed decisions — whose summaries run
- * to 60 characters each — rendered as one unreadable paragraph. It also showed knowledge without its
- * citation, which `KnowledgeTable` exists to make impossible ("knowledge is always shown with its source
- * and version", WEB-UI.md). One component, both problems.
+ * a governed decision's summary runs to 60 characters, so labels joined inline render as one unreadable
+ * paragraph — and a hand-rolled list is a list without citations, which WEB-UI.md forbids ("knowledge is
+ * always shown with its source and version"). One component, both problems.
  *
  * Every deprecate button in the app renders this, so no screen can be the surface that quietly drops
  * the answer.

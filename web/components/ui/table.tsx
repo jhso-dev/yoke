@@ -6,14 +6,12 @@ import { cn } from "@/lib/utils";
 
 // The workbench's table, not shadcn's defaults. shadcn ships `text-sm` cells with `h-10 px-2` heads
 // and middle alignment; this screen's tables are 13px with 11px uppercase heads, `8px 12px` padding
-// and top alignment, which is what every screenshot of this product shows. Those values used to live
-// in globals.css as bare `table`/`th`/`td` element rules — and an UNLAYERED element rule beats a
-// Tailwind utility regardless of specificity, so the shadcn Table sitting in this directory was
-// unusable: importing it changed nothing, because the element rules overrode every class it set.
-// It was imported by zero files.
+// and top alignment, which is what every screenshot of this product shows. The values live HERE and
+// not in globals.css as bare `table`/`th`/`td` element rules, because an UNLAYERED element rule beats
+// a Tailwind utility regardless of specificity — element rules would make this component unusable,
+// overriding every class it sets, and importing it would change nothing.
 //
-// So the design moved INTO the component rather than the component being adopted and the design
-// redrawn. Same pixels, one definition, and a call site can now override a cell with a className the
+// Same pixels, one definition, and a call site can override a cell with a className the
 // way it can everywhere else.
 //
 // Two rules deliberately stay in globals.css, because both are call-site concerns rather than

@@ -1,7 +1,7 @@
 // commit gate — the only write path into storage (KNOWLEDGE-POLICY hard rules 1–3).
 // The pipeline order is fixed. Time is injected — never call new Date() in core (SPEC: inject the clock).
 // Stages 3 & 4 (duplicate/conflict, v0.4) run only when an embedder is injected and embedding
-// succeeds. An embedding failure never blocks a commit (on FTS fallback, duplicate detection is
+// succeeds. An embedding failure never blocks a commit (without a vector, duplicate detection is
 // skipped to avoid false positives). No auto-merge, no auto-reject.
 // Every entity commit also records its authorship as an authored_by edge (stage 4b) so that
 // provenance is reachable by graph traversal — see the comment at that stage.
@@ -41,7 +41,7 @@ export interface CommitResult {
   /** Auto-created conflicts_with relations (on decision conflict). Both sides preserved, no auto-resolution. */
   conflicts?: Relation[];
   /** Why duplicates is empty: an embedding comparison ran vs. detection was skipped entirely.
-   * On FTS fallback (no embedder, embedding failed, or similar unsupported), treating every
+   * Without a vector (no embedder, embedding failed, or similar unsupported), treating every
    * candidate as a duplicate yields too many false positives, so detection is skipped. */
   duplicateDetection: "embedding" | "skipped";
 }
@@ -49,7 +49,8 @@ export interface CommitResult {
 interface CommitOpts {
   /** When set, a re-commit = current latest version + 1 (append-only, history preserved). */
   existingId?: string;
-  /** Injected embedder. Without it, duplicate/conflict detection is skipped (FTS fallback). */
+  /** Injected embedder. Without it, duplicate/conflict detection is SKIPPED — deliberately not an
+   * FTS approximation (SPEC "Stage 3 has no FTS fallback"); only retrieval falls back to keywords. */
   embedder?: Embedder;
   /** Tenant namespace (PLAN-V2 10.1). The gate assigns it to the stored row; default = shared ns. */
   ns?: string | null;

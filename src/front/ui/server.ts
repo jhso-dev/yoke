@@ -120,14 +120,12 @@ function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
   };
   const nameOf = async (actorId: string): Promise<string | undefined> => {
     if (!seen.has(actorId)) {
-      // Every actor is looked up. This used to skip any id containing a colon, on the theory that a
-      // colon means a machine actor ('yoke:system', 'connector:github-pr') and a ULID never has one —
-      // but a person's id is whatever created it, and `scripts/seed-dummy-it-company.mjs`, this
-      // repo's OWN corpus generator, mints `person:platform-manager`. So the shortcut turned every
-      // seeded author into a slug on the exact surface that exists to not show ids to people. The
-      // guard is the type check below, which was always the real one; the colon was a guess about
-      // ids that only the caller knows. Cost of dropping it: one memoized point read per distinct
-      // machine actor per request.
+      // EVERY actor is looked up, including ids containing a colon. A colon looks like a machine
+      // actor ('yoke:system', 'connector:github-pr'), but a person's id is whatever created it and
+      // `scripts/seed-dummy-it-company.mjs` — this repo's own corpus generator — mints
+      // `person:platform-manager`, so skipping those would render every seeded author as a slug on
+      // the exact surface that exists to keep ids away from readers. The real guard is the type check
+      // in `remember`. Cost: one memoized point read per distinct machine actor per request.
       const e = await store.getEntity(actorId);
       if (e) remember(e);
       else seen.set(actorId, undefined);
@@ -358,11 +356,9 @@ export function createUiHandler(
   /**
    * Authorize, and on refusal answer 403 naming the scope that would have granted it.
    *
-   * The body used to be `{"error":"forbidden"}` and nothing else. Found by running the check the
-   * roadmap had been carrying as a human-verification item: a read-only token is refused `verify`
-   * correctly, and the person holding it is told only that something was forbidden — not which
-   * permission to ask for, and not whether the refusal was about this record's type or the namespace.
-   * "Errors explain what went wrong and how to fix it."
+   * A bare `{"error":"forbidden"}` refuses correctly and tells the holder nothing they can act on —
+   * not which permission to ask for, and not whether the refusal was about this record's type or the
+   * namespace. "Errors explain what went wrong and how to fix it."
    *
    * Only the REQUIRED scope is named, never the token's own. What the caller holds does not change
    * what they have to go and ask for, and the handler would have to be threaded the principal to say
@@ -514,8 +510,8 @@ export function createUiHandler(
       // Every draft in the namespace. It carries no peer approval state — not because it is
       // filtered out, but because none exists: verify is immediate and per-actor, so there is no
       // pending approval to leak. The Delphi independence constraint (docs/RESEARCH.md §2–3) binds
-      // whoever adds multi-reviewer aggregation; this route is not currently enforcing it, and the
-      // comment that used to say "only this reviewer's list" described a filter that is not here.
+      // whoever adds multi-reviewer aggregation. This route enforces nothing of the sort today, and
+      // saying it returned "only this reviewer's list" would describe a filter that is not here.
       const drafts = await store.listEntities({ status: "draft", ns });
       sendJson(res, 200, await rowsOf(newestFirst(drafts.items)));
       return;
@@ -1030,7 +1026,7 @@ export function createUiHandler(
       return;
     }
 
-    // Creating a record, and linking two of them. Allowed since the 2026-07-31 WEB-UI amendment:
+    // Creating a record, and linking two of them. WEB-UI.md test 3 permits it:
     // the gate, not the adapter, is what enforces entry, so a record typed at a screen faces the
     // same ontology validation and the same draft-then-verify path as one an agent commits. What
     // makes that honest is `origin: "web"` below — hand-typed knowledge is permitted and labelled,

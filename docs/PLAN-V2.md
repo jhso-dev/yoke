@@ -8,30 +8,16 @@ WEB-UI.md — on conflict, those win.
 
 ## v2.0 — backend expansion + RDB compatibility + audit
 
-### 8.1 storage-kuzu adapter
+### 8.1 remote backend adapters
 
-- deps allowed: `kuzu` (embedded graph DB, no server).
-- `src/adapters/storage-kuzu/` implementing the full StoragePort via Cypher.
-  Append-only versioned nodes/edges mirror the sqlite semantics. `search` is
-  required by the port: implement app-level (CONTAINS-style scan over the
-  serialized text with prefix tolerance) — Kuzu has no FTS5; the conformance
-  suite is the contract, not the engine feature.
-- `similar` omitted (capability absent). Ontology save/load mirrors sqlite
-  extension methods.
-- DoD: full conformance suite green against kuzu (both in-memory and on-disk
-  if supported), plus existing suites untouched.
-
-### 8.2 storage-qdrant adapter
-
-- No new heavy SDK — REST via fetch. dep allowed: none.
-- `src/adapters/storage-qdrant/` implementing StoragePort against Qdrant's
-  REST API: points upsert (payload = entity JSON, vector = embedding),
-  `similar` via vector search, `search` via payload full-text match filter.
-- Constructor takes `{ url, apiKey?, fetchImpl? }` — tests use a determinstic
-  in-memory fake of the REST surface via fetchImpl (fixture-level), NOT a live
-  server. Conformance runs against the fake-backed adapter.
-- Human-verification list: run conformance against a real Qdrant once
-  (`QDRANT_URL=... npm test` gate or a script).
+- `src/adapters/storage-neo4j/` (Bolt, dep `neo4j-driver-lite`) and
+  `src/adapters/storage-opensearch/` (REST, no dep). Both implement the full
+  StoragePort; both are composed with a local sqlite for the synchronous
+  extension surface — see BACKENDS.md "What a remote backend can and cannot
+  implement" and `storage-composite`.
+- DoD: the shared conformance suite green against a real server for each, run in
+  CI as a service container. No fake replaces the live run: the behaviour under
+  test is the engine's.
 
 ### 8.3 RDB read-mapping connector (the enterprise wedge)
 
@@ -79,21 +65,18 @@ WEB-UI.md — on conflict, those win.
   /api/ontology, /api/persona/:id, POST /api/verify, /api/deprecate.
   Every action must remain CLI-achievable (WEB-UI.md rule).
 
-### 9.2 four screens, single static bundle
+### 9.2 screens, single static bundle
 
-- One `index.html` (vanilla JS + fetch, no framework, no build step) served
-  from `src/front/ui/static/` — *superseded for v5.0 by the static export in
-  `web/`; see the amendment at the end of this document. Kept as the record of
-  what 9.2 actually built*: Review queue (bulk verify/reject),
-  Conflicts view (side-by-side, deprecate one side), Ontology browser
-  (types + TTLs), Persona preview (person → would-be injection list + export).
-- Every knowledge row shows source/version (citation) — audit-visible rule.
+- `web/`: Next.js with `output: 'export'` → one static bundle served by the
+  existing `node:http` server. Screen list and the three tests a new screen must
+  pass: WEB-UI.md.
+- Every knowledge row shows source/version (citation) — the audit-visible rule,
+  enforced by `web/lib/citation-render.test.ts`.
 - Delphi-style independence guard: the review queue does NOT show other
   reviewers' pending approvals (design hook for v3 multi-reviewer; note in code).
-- DoD: vitest for API handlers (in-process), manual screenshot via `yoke ui`
-  optional. Keep total UI code small (<600 lines target).
-  *(v5.0 replaces the line-count target — a bundler makes line counts
-  meaningless. The budgets that replace it are in the amendment below.)*
+- DoD: vitest for API handlers (in-process) **plus a check that executes the
+  shipped client bundle** — a substring assertion over HTML is not evidence that
+  a UI works. Budgets replacing a line-count target: see the non-goals below.
 
 ## v3.0 — enterprise (multi-tenancy, auth, RBAC)
 
@@ -147,95 +130,55 @@ WEB-UI.md — on conflict, those win.
   pointing at the primary. Injection is read-dominant, so this covers the real
   load pattern. ponytail: interval-pull snapshot replica; move to WAL shipping
   if staleness SLO ever demands it.
-- Sharding: NOT implemented (by design — ROADMAP defers until measured need).
-  Add a one-paragraph note in ENTERPRISE.md marking tenant-boundary sharding
-  as the natural cut when it comes.
+- Sharding: `--shards <config.json>` (v3.6), at the tenant boundary and
+  entirely behind the storage port — see 12.1 below and ENTERPRISE.md.
 
-## Non-goals for this whole run (reject even if tempting)
+## Non-goals (reject even if tempting)
 
-Express/Fastify, React/Vue/build pipelines, ORMs, yaml parsers, docker-compose
-test harnesses, WebSockets, GraphQL, password auth, per-field encryption.
+**Express/Fastify** — the HTTP server is `node:http`. Next is a build tool here,
+never a server, and `output: 'export'` is the mechanism that keeps that true.
+**ORMs. yaml parsers. docker-compose test harnesses. WebSockets** — the graph
+loads over `fetch`; there is no live push. **GraphQL** — the JSON API stays
+route-per-question. **password auth** — browser login reuses a credential yoke
+already mints (`yoke token create`) or an OIDC id_token; yoke never stores a
+password. **per-field encryption.**
 
-> **Amended 2026-07-29 (v5.0).** Two items of the list above were reversed by the
-> v5.0 web tier, deliberately and after the fact. They are recorded here rather
-> than edited out: the list is the record of what v2.x decided, and the reversal
-> is the news.
->
-> - **React and a build pipeline are now allowed — for the web tier only.** The
->   v2.5 bet was that four screens fit in one hand-written file (9.2). Eight
->   screens including a force-directed graph do not, and the file we shipped is
->   the evidence: an unterminated string literal in
->   `src/front/ui/static/index.html.ts` turned the entire client `<script>` into
->   a SyntaxError and nothing caught it, because a TS template string is never
->   parsed as JS and the tests asserted HTML substrings. A build step buys the
->   compiler that would have caught it, and JSX escaping removes the
->   attribute-injection class of bug that the hand-rolled `esc()` still has (it
->   escapes `&<>` but not quotes, while interpolating into `data-id="…"`).
->   Scope of the reversal: Next.js with `output: 'export'`, React, `d3-force`,
->   producing one static bundle served by the existing `node:http` server.
-> - **`d3-force` is a new runtime dependency**, and the only thing we take from
->   d3. A force simulation is not a few lines.
->
-> Still non-goals, unchanged and enforced: **Express/Fastify** — the HTTP server
-> stays `node:http`; Next is a build tool here, never a server, and
-> `output: 'export'` is the mechanism that keeps that true. **ORMs. yaml
-> parsers. docker-compose test harnesses. WebSockets** — the graph loads over
-> `fetch`; there is no live push. **GraphQL** — the JSON API stays
-> route-per-question. **password auth** — browser login reuses credentials we
-> already mint (`yoke token create`) or an OIDC id_token; yoke still never
-> stores a password. **per-field encryption.**
->
-> Budgets replacing the 9.2 "<600 lines" target, because what matters is what
-> the user downloads and what we maintain:
->
-> - **Shipped bundle ≤ 380 KB gzipped** (JS + CSS, whole static export), asserted by
->   `src/front/ui/bundle.size.test.ts`, which stats the build output and skips when there is none.
->   Raised from 250 on 2026-07-31 by the shadcn adoption below, and the cost was measured rather
->   than estimated — the previous commit built in a worktree and both measured the same way:
->
->   | | gzipped JS + CSS |
->   |---|---|
->   | before, hand-written CSS | 225 KB |
->   | after, shadcn + Tailwind + Radix | 342 KB |
->
->   +117 KB, +52%. The old budget held at 225 and would have failed at 342 — except that the test
->   it named had never been written, so nothing would have said so. It exists now. Raised to the
->   measured truth plus headroom, on the same principle the line-count budget above was corrected
->   with: a budget you have blown is data about the estimate, not licence to stop counting.
-> - **Hand-written web source ≤ 3,600 lines** under `web/`, excluding tests (ten screens, was
->   four in one file). Corrected 2026-07-30: the original figure here was 1,500 and the code
->   was already at 2,893 when it was written — measured at 3,386 after the collaboration screen.
->   The number was invented rather than measured, and nothing checked it, so it sat in this
->   document being wrong. It is raised to the truth plus headroom rather than quietly deleted:
->   a budget you have already blown is data about the estimate, not licence to stop counting.
->   The two budgets above it, which a build step actually measures (bundle size, dependency
->   count), have held — which is the difference.
-> - **Dependency budget: exactly `next`, `react`, `react-dom`, `d3-force`.** A
->   fifth requires a note here first.
->
->   Amended 2026-07-31, and this is that note. The web tier adopts **shadcn/ui**, which is not
->   itself a dependency — it copies component source into `web/components/ui/` — but its
->   prerequisites are: `tailwindcss` + `@tailwindcss/postcss`, `radix-ui`, `class-variance-authority`,
->   `clsx`, `tailwind-merge`, `lucide-react`, `tw-animate-css`. Seven, all but `radix-ui` and
->   `lucide-react` being build-time only.
->
->   The trade, stated plainly because the budget existed to make it visible: the hand-written CSS
->   layer shrinks and the accessibility work in dialogs, selects and focus management stops being
->   ours to get right, at the cost of the bundle. The palette is unchanged — `theme.css` maps this
->   product's own tokens onto shadcn's names rather than taking the generated defaults, because the
->   terminal-adjacent look is a decision this workbench made on purpose and not a placeholder.
->
->   One thing genuinely lost: the create modal was the native `<dialog>`, which supplies focus
->   trapping, Esc, an inert background and a `::backdrop` for free. shadcn's Dialog is Radix, which
->   reimplements those in JS. That is a straight cost here and would not be worth paying alone — it
->   is paid for the components not yet needed (combobox, date picker, toast) whose accessibility is
->   genuinely hard to hand-roll.
-> - **Zero new runtime deps in `src/front/ui/` and `src/front/serve/`**
->   (`node:http` only), and **zero new listening ports**.
-> - **Zero web toolchain in the CLI install path** — a failed web build must
->   still leave a working CLI.
-> - **A check that executes the shipped client bundle**, not one that greps the
->   HTML for markers.
+A build pipeline and React are allowed **for the web tier only**: Next.js with
+`output: 'export'`, React, `d3-force`, and the shadcn/ui prerequisites below.
+Nothing in `src/` gets a build step beyond `tsc`.
+
+### Budgets
+
+- **Shipped bundle ≤ 380 KB gzipped** (JS + CSS, whole static export), asserted by
+  `src/front/ui/bundle.size.test.ts`, which stats the build output and skips when
+  there is none. shadcn + Tailwind + Radix cost +117 KB (+52%) over the
+  hand-written CSS it replaced, measured both ways before the number moved.
+- **Dependency budget: `next`, `react`, `react-dom`, `d3-force`, plus the
+  shadcn/ui prerequisites** — `tailwindcss`, `@tailwindcss/postcss`, `postcss`,
+  `radix-ui`, `class-variance-authority`, `clsx`, `tailwind-merge`,
+  `lucide-react`, `tw-animate-css`, and the type-only `typescript` / `@types/*`.
+  Everything but `radix-ui` and `lucide-react` is build-time. **Anything further
+  requires a note here first, naming what it buys.**
+
+  What shadcn bought and cost: the hand-written CSS layer shrinks and the
+  accessibility work in dialogs, selects and focus management stops being ours to
+  get right; the bundle pays for it. `theme.css` maps this product's own tokens
+  onto shadcn's names rather than taking the generated defaults — the
+  terminal-adjacent look is deliberate, not a placeholder. One real loss: the
+  create modal was a native `<dialog>` (focus trapping, Esc, inert background,
+  `::backdrop`, all free) and Radix reimplements those in JS. That cost is paid
+  for the components whose accessibility is genuinely hard to hand-roll.
+- **Hand-written web source under `web/`, excluding tests and the copied
+  `web/components/ui/`.** No number: the two figures this document has carried
+  were both invented and both blown (currently 6,771 lines), and nothing counts
+  them. Either it gets a guard test like the bundle budget has, or it is not a
+  budget — an open item, not a limit.
+- **Zero new runtime deps in `src/front/ui/` and `src/front/serve/`**
+  (`node:http` only), and **zero new listening ports**.
+- **Zero web toolchain in the CLI install path** — a failed web build must
+  still leave a working CLI.
+- **A check that executes the shipped client bundle**, not one that greps the
+  HTML for markers.
 >
 > The v5.0 task list lives in the plan file for that run; this document remains
 > the v2.0→v3.6 record and is not retrofitted.
@@ -255,7 +198,7 @@ so 8.2/8.3/8.5 may run in parallel; 9.x needs 8.4's audit extensions;
   composing member StoragePorts. Core untouched — sharding lives entirely
   behind the port (the ARCHITECTURE bet paying off).
 - Shard config (JSON): `{ shards: [{ name, kind: sqlite|kuzu|qdrant,
-  path?|url?, namespaces: [..], default?: true }] }`. A namespace routes to
+  path, namespaces: [..], default?: true }] }` — `kind` is `sqlite` only. A namespace routes to
   the shard listing it; unlisted/null ns routes to the default shard.
 - Routing: writes (putEntity/putRelation) route by the row's ns. Point reads
   (getEntity, neighbors) fan out to all shards (ids are globally unique
@@ -264,7 +207,10 @@ so 8.2/8.3/8.5 may run in parallel; 9.x needs 8.4's audit extensions;
   capable shards, re-rank merged hits by cosine to the query vector, slice k.
 - Extension methods (listByStatus/listByActor/listHistory/logAudit/ontology):
   delegate to members that implement them; ns-scoped calls go to the owner
-  shard. Ontology lives per shard (owner shard's overlay). Audit is written
+  shard. Ontology: shared (null-ns) defs live on the DEFAULT shard, tenant defs on the
+  owner shard, and a namespaced read overlays the two — reading the owner shard alone
+  would make every namespace owned by a non-default shard unusable, since `yoke init`
+  seeds the shared base and a tenant shard never holds a copy. Audit is written
   to the shard that served the write. Ceilings documented.
 - Duplicate/contradiction detection stays intra-shard (a tenant's knowledge
   dedups against itself — cross-tenant dedup would be a data leak, so this
