@@ -87,9 +87,12 @@ export function deprecate(
  * Namespace-filtered on the relation, for the reason `identitySet` is: `neighbors` takes no `ns`, so
  * without it an edge filed by one tenant reports a dependent in another.
  *
- * ponytail: one hop, not the transitive closure. A dependent's own dependents surface when THAT record is
- * retired in turn, so the walk is iterative by construction; add a closure if a real corpus turns up
- * chains deep enough that one hop misleads.
+ * ponytail: one hop, not the transitive closure — and that ceiling is measured, not provisional
+ * (eval/derivation-closure): across three simulated team corpora with chains to depth 4, not one
+ * truly-invalidated record sat at graph distance >= 2, so the closure's entire target population was
+ * empty while it added the only noise in the experiment. What limits this report is citation
+ * coverage (over half the genuinely-affected records had no edge at all), which no walk depth fixes.
+ * A dependent's own dependents still surface when THAT record is retired in turn.
  */
 export async function downstreamOf(
   port: StoragePort,
