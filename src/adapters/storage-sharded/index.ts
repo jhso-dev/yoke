@@ -18,7 +18,7 @@
 //
 // The remaining extension surface (listHistory/ontology/audit/tokens) is the sqlite-shaped surface
 // used by CLI/UI/serve. Audit + tokens live on the default shard (a single audit/token stream).
-// ponytail: that surface assumes the default shard (and any ns owner it targets) is a sqlite
+// ceiling: that surface assumes the default shard (and any ns owner it targets) is a sqlite
 // backend. `ShardKind` is `"sqlite"` only, so the assumption cannot currently be violated — the note
 // stays because it is the constraint a second shard kind would have to meet: a
 // non-sqlite member participates in the core port, which since v5.0 includes enumeration, so the
@@ -32,7 +32,7 @@
 // create carries the new entity's ns, so it lands in that entity's shard and neighbors() fan-out
 // still resolves the foreign id. ns-isolation-sensitive deployments (where even seeing a peer
 // tenant's near-duplicate is a leak) should give each tenant its own serve process.
-// ponytail: cross-shard similar fan-out is the known ceiling. Upgrade path is an ns-aware
+// ceiling: cross-shard similar fan-out is the known ceiling. Upgrade path is an ns-aware
 // `similar(embedding, k, ns?)` on the port — a StoragePort contract change, so it waits for a real
 // deployment to need it rather than being made from here.
 
@@ -188,7 +188,7 @@ export class ShardedStorage implements YokeStore {
     // namespace and never appear. Interleaving takes shard 0's best, then shard 1's best, and so on,
     // so every shard's head is represented in the merged head.
     //
-    // ponytail: this is not a globally ranked merge, because `search` returns entities and not
+    // ceiling: this is not a globally ranked merge, because `search` returns entities and not
     // scores — there is nothing to merge ON. Round-robin is the best available approximation, and it
     // is exact for one shard, which is every deployment until someone shards. Upgrade path: a scored
     // search on the port, a contract change worth making when a sharded corpus needs it.
@@ -212,7 +212,7 @@ export class ShardedStorage implements YokeStore {
    * No per-shard cursor map is needed, and that is not an accident: `id > after` is a GLOBAL
    * predicate over globally unique ULIDs, so each member returns its own smallest matching rows and
    * the global smallest `limit` are necessarily inside the union. Merge, sort, slice.
-   * ponytail: over-fetch is (members − 1) × limit rows per page — bounded, and the price of not
+   * ceiling: over-fetch is (members − 1) × limit rows per page — bounded, and the price of not
    * tracking a cursor per shard. Revisit only if a deployment has enough shards for that to matter.
    */
   private async listMerged<T extends { id: string }>(

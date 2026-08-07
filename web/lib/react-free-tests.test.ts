@@ -15,7 +15,7 @@
 // This is a static import check, not a resolution check: it reads the import specifiers rather than
 // following them. A `.ts` module that itself imports React would slip past — but that has never
 // happened here, and the runtime failure it would cause is the same one this file's message names.
-// ponytail: specifier-level scan; walk the import graph if a `.ts` shim ever hides a React import.
+// ceiling: specifier-level scan; walk the import graph if a `.ts` shim ever hides a React import.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";

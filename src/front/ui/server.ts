@@ -260,7 +260,7 @@ async function mapLimit<T, R>(
  * return when `limit` is reached, still walks ids in the order the caller gave them. Awaiting inside
  * the loop instead made a 334-node view 334 sequential round trips (v5.5).
  *
- * ponytail: still one call per node — `neighbors` takes a single id, and a batch form is a port method
+ * ceiling: still one call per node — `neighbors` takes a single id, and a batch form is a port method
  * with four implementations and a conformance case behind it. Concurrency was the free half; add the
  * port method when a measurement says the remaining round trips cost more than the wall clock does.
  */
@@ -295,13 +295,13 @@ function sendJson(res: ServerResponse, code: number, data: unknown): void {
 }
 
 /** 256 KiB — a bulk verify of thousands of ULIDs still fits, and an unbounded stream cannot pin
- * memory. ponytail: one cap for the one POST shape we accept; make it per-route if that changes. */
+ * memory. ceiling: one cap for the one POST shape we accept; make it per-route if that changes. */
 const MAX_BODY = 256 * 1024;
 
 /** How many of an audit event's referenced records get resolved to a readable summary. A bulk verify
  * can name thousands of ids; resolving all of them would turn one audit page into thousands of point
  * reads. The untouched `detail` string still holds every id, so nothing is hidden — only unexpanded.
- * ponytail: a flat per-event cap. Make it a budget across the page if audit pages ever feel slow. */
+ * ceiling: a flat per-event cap. Make it a budget across the page if audit pages ever feel slow. */
 const AUDIT_REFS = 20;
 
 async function readBody(

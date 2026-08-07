@@ -118,7 +118,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
   const now = deps.now ?? (() => new Date().toISOString());
   const oidcVerify = deps.oidc ? makeOidcVerifier(deps.oidc) : null;
 
-  // ponytail: interval-pull snapshot replica — refresh = close store, re-copy primary via .backup(),
+  // ceiling: interval-pull snapshot replica — refresh = close store, re-copy primary via .backup(),
   // reopen. A tiny swap window; move to WAL shipping if a staleness SLO ever demands it. better-sqlite3
   // has no "backup into an open connection", so close/reopen is the lazy WAL-safe path with no new dep.
   async function refreshNow(): Promise<void> {

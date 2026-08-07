@@ -28,7 +28,7 @@ import { defineConfig } from "vitest/config";
 // Cost: a genuinely hung test blocks 30s instead of 5s. Cheap against a suite that passes in 2s, and
 // far cheaper than a red main nobody can reproduce.
 //
-// ponytail: one number for the whole suite. A single test gets its own argument only when its slowness
+// ceiling: one number for the whole suite. A single test gets its own argument only when its slowness
 // has a cause of its own — never to buy headroom that belongs here.
 export default defineConfig({
   test: {

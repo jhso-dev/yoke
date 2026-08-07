@@ -31,7 +31,7 @@ import {
  * it — undirected lines drew a hub, and a hub reads as a box. Nothing on this screen said which way
  * an edge went; the entity screen's relations table already did (`→`/`←`).
  *
- * ponytail: constant screen size (every length over k), tip placed just outside the target node. At a
+ * ceiling: constant screen size (every length over k), tip placed just outside the target node. At a
  * few hundred nodes heads crowd where edges converge; if that becomes noise the upgrade is drawing
  * them only for the selected node's edges, not shrinking them into invisibility.
  */

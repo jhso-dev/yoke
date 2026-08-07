@@ -39,7 +39,7 @@ One-line summary: **lenient on write, strict on injection.**
 | 7 stale demotion | **decided at read time**, not by a batch job — computed at query time from `last_confirmed` + a per-ontology TTL. No daemon or cron needed |
 | promotion workflow | CLI: `yoke review` (list drafts) / `yoke verify <id>` (promote, batch supported). The same command refreshes `last_confirmed` |
 
-<!-- ponytail: stale is computed at read time. If tens of thousands of entries plus query latency become a problem, switch to batch demotion -->
+<!-- ceiling: stale is computed at read time. If tens of thousands of entries plus query latency become a problem, switch to batch demotion -->
 
 ## Cold-start trade-off
 

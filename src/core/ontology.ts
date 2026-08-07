@@ -1,6 +1,6 @@
 // yoke ontology — type definitions, input validation, and the seed set.
 // The validator is a hand-rolled implementation covering only 4 AttrSpec kinds. No schema library.
-// ponytail: 4 attribute kinds, validated by hand. Reach for zod if nested object schemas become necessary.
+// ceiling: 4 attribute kinds, validated by hand. Reach for zod if nested object schemas become necessary.
 
 import type { EntityInput, RelationInput } from "./types.js";
 

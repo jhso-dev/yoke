@@ -200,10 +200,10 @@ console.log(
         withBasis,
         edges,
         maxDepth,
-        depthHistogram: [...depth.values()].reduce(
-          (h, d) => ((h[d] = (h[d] ?? 0) + 1), h),
-          {},
-        ),
+        depthHistogram: [...depth.values()].reduce((h, d) => {
+          h[d] = (h[d] ?? 0) + 1;
+          return h;
+        }, {}),
       },
       results,
     },

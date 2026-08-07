@@ -101,7 +101,7 @@ seedOntology(): TypeDef[]   // person, fact, decision, term, resource
   `rejected_alternatives` (string[])
 - Implement the validator by hand (~40 lines). Do not pull in a schema library like
   ajv or zod — four AttrSpec kinds are enough.
-  <!-- ponytail: manual validation of 4 types. Move to zod if a nested-object schema is ever needed -->
+  <!-- ceiling: manual validation of 4 types. Move to zod if a nested-object schema is ever needed -->
 - The ontology lives in its own `ontology_types` table (see SPEC — **it bypasses
   the gate**, to avoid a cycle). v0.1 implements only seed store/load; the migration
   command comes in 4.4.
@@ -294,7 +294,7 @@ inject(port, ontology, query: string, opts?: { includeDraft?: boolean, limit?: n
   cosine-similarity/heuristic threshold as `duplicates`. **No auto-merge, no
   auto-reject** — the caller decides (the CLI warns "similar knowledge exists"; the
   MCP tool includes it in the result).
-  <!-- ponytail: start with a single threshold constant (0.85). Move to per-type thresholds if precision proves to be a problem -->
+  <!-- ceiling: start with a single threshold constant (0.85). Move to per-type thresholds if precision proves to be a problem -->
 - Stage 4: a **decision-type-only heuristic** — when similarity to an existing
   decision is ≥ threshold but the `conclusion` text differs, create a conflicts_with
   edge. The only inputs to the judgment are these two values (there is no "subject"
