@@ -55,18 +55,14 @@ port capabilities, etc. See SPEC).
 
 ## v2.0 — backend expansion + traditional-DB compatibility
 
-- [x] **Neo4j adapter (v5.2)** — the first backend a company can point at its own server. Native
-      full-text index and native vector index; NOT native traversal, since the adapter stores relations
-      as nodes (BACKENDS.md capability matrix). It is what surfaced the constraint on remote backends:
-      `YokeStore`'s extension surface is synchronous, so a remote backend has to be composed
-      (`storage-composite`) rather than substituted — see docs/BACKENDS.md
-- [x] **OpenSearch adapter (v5.4)** — the second remote backend, and the one that shows the
-      composite's `RemoteStore` shape was really structural: it needed no change to the port, the
-      composite, or `openStore`'s structure. Native BM25 and native k-NN (the plugin ships in every
-      distribution), `neighbors` app-level like sqlite. **No dependency** — OpenSearch is REST, so it
-      takes a `fetchImpl`, where neo4j needed 3.8 MB of Bolt driver. Its test suite
-      is scoped by index prefix, so unlike the neo4j suite it can run against a cluster that is holding
-      a demo
+- [x] **OpenSearch adapter (v5.4)** — a backend a company can point at a server it already runs.
+      Native BM25 and native k-NN (the plugin ships in every distribution), `neighbors` app-level like
+      sqlite. **No dependency** — OpenSearch is REST, so the adapter takes a `fetchImpl`, and the
+      `RemoteStore` shape it satisfies is structural: no change to the port, the composite, or
+      `openStore`'s structure. A remote backend is composed rather than substituted, because
+      `YokeStore`'s extension surface is synchronous — the knowledge goes remote, this client's audit
+      trail and tokens stay in a local sqlite (`storage-composite`, docs/BACKENDS.md). Its test suite is
+      scoped by index prefix, so it can run against a cluster that is holding a demo
 - [x] **RDB read-mapping**: Postgres/MySQL tables → read-only entity mapping
       (a table-to-ontology mapping declaration file; the enterprise wedge — MARKET strategy 3)
 - [x] Audit log (a query API over the immutable record of gate/promotion/injection)
@@ -143,7 +139,7 @@ port capabilities, etc. See SPEC).
 ## v5.0 — knowledge viewing (the web tier)
 
 - [x] StoragePort enumeration: bounded, namespace-scoped entity + relation listing
-      added to the port, with conformance cases. sqlite, sharded, neo4j and opensearch all pass —
+      added to the port, with conformance cases. sqlite, sharded and opensearch all pass —
       the suite is the contract, not any one engine's features (invariant 2)
 - [x] Entity detail screen — one record: attributes, every version, its relations,
       its authorship edge, computed freshness, citation
@@ -345,8 +341,8 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
       **61 → 2**, bulk `verify` of 54 ids **217 → 164** (its read half 54 → 1; the rest are the
       append-only writes). Optional capability with a core-side fallback, so a backend correctly declines
       it. `similar` was the largest of these and the newest: v5.3 put it on every query injection with
-      `k = limit × 3`, and each hit was a point read. Neo4j was already batched there — one backend
-      had solved it and the contract had not noticed
+      `k = limit × 3`, and each hit was a point read: `similar` had been batched on one backend all
+      along, and the contract had not noticed
 - [x] **`verify`/`deprecate` refuse before they write** — the read loop threw on the first unknown id,
       after promoting every id ahead of it. A half-applied governance action, found by moving the read
       out of the loop rather than by a report
@@ -361,7 +357,8 @@ Open, and in this order — the first is the gate on the third by docs/RESEARCH.
       sentence is an unsatisfiable conjunction (docs/RESEARCH.md). Same numbers on sqlite and
       OpenSearch, which is the first measurement that could have exposed a backend leaking into core
 - [x] **The demo corpus lives in the repo** (`scripts/demo-corpus/`, one backend-agnostic loader).
-      It had survived being erased from a live Neo4j only because the scratch files were still there
+      It had survived being erased from a live remote backend only because the scratch files were
+      still there
 
 - [x] **The graph routes stopped paying per author** — an anchored open at depth 3 made 1,715 port
       calls, of which **1,595 were actor-name resolution**: one point read per distinct author, twice
@@ -529,12 +526,12 @@ against a real corpus once one has history worth labeling.
 
 ## v5.9 — the supported set, and configuration
 
-- [x] **Four selectable backends, and nothing else carried.** A backend is supported when `openStore`
-      resolves it and it passes the shared conformance suite against a real server: sqlite, sharded,
-      neo4j, opensearch. Two adapters reachable only as a `--shards` member entry were dropped — that
-      is a federation detail, not a way to run yoke — which also took a 531 MB native binding, a second
-      `npm test` stage and a CI job with them. `conformance-cases.ts` stays split from `conformance.ts`
-      because neo4j and opensearch import the cases directly to gate on a reachable server
+- [x] **Only selectable backends are carried.** A backend is supported when `openStore` resolves it
+      and it passes the shared conformance suite against a real server.
+      Two adapters reachable only as a `--shards` member entry were dropped — that is a federation
+      detail, not a way to run yoke — which also took a 531 MB native binding, a second `npm test`
+      stage and a CI job with them. `conformance-cases.ts` stays split from `conformance.ts` because
+      the opensearch suite imports the cases directly to gate on a reachable server
 - [x] **`ShardKind` is one value.** `"sqlite"`, with the dynamic imports and kind-specific fields the
       union carried gone. The field stays because the router supports heterogeneous mixes; there is
       nothing to mix until a second shardable backend exists
@@ -543,9 +540,9 @@ against a real corpus once one has history worth labeling.
       `--env-file-if-exists` needs 22.9; `engines` moves to `>=20.12`, which is what the API costs.
       Loaded at the **`isMain()` entry only**: `runCli(argv, env)` takes its environment as a parameter,
       so loading inside it would mutate the real process for a test that passes a fake — and the suite
-      must never pick a `.env` up, because `YOKE_TEST_NEO4J_URL` names a database it ERASES and one
-      forgotten line should not be able to do that on `npm test`. `.env.example` is committed and lists
-      the 20 product variables; the 6 test variables are excluded, with that reason written where
+      must never pick a `.env` up, because `YOKE_TEST_OPENSEARCH_URL` names a cluster whose indices it
+      DELETES and one forgotten line should not be able to do that on `npm test`. `.env.example` is
+      committed and lists the product variables; the test variables are excluded, with that reason written where
       someone would otherwise add them. Measured: an existing environment variable is NOT overwritten,
       so a shell export or a CI secret always wins — pinned by a test, since a hand-rolled parser
       would break the promise silently
@@ -554,9 +551,10 @@ against a real corpus once one has history worth labeling.
       the local file holding the audit half) while `--json` keeps `db` a path and adds `store`
 
 `core/rank.ts`'s `rankByRelevance`/`matchesTokens` have no production caller: every supported backend
-ranks `search` with a native index, so the BM25 is exercised only by the conformance suite's in-memory
-fake. Kept — the port declares "best match first", the fake is where that is checked with no engine
-involved, and postgres will need it.
+ranks `search` with a native index — postgres included, whose adapter builds a native `tsquery` from
+core's own tokenizer. The BM25 is exercised only by the conformance suite's in-memory fake. Kept: the
+port declares "best match first", the fake is where that is checked with no engine involved, and the
+next adapter without an index of its own will need it.
 
 `getEntities` and `similar` stay optional on the port, and `core/backfill.ts`'s no-vector branch stays
 with them. Not hypothetically: sharded has **no `getEntities`** and exposes `similar` only when a member
@@ -599,11 +597,40 @@ Two more, found by following the audit's own leads rather than reported by it:
       takes was the one flow nothing exercised. Mutation-checked against three new tests
 - [x] **`yoke init --shards cfg.json` reported `initialized: ./yoke.db`** — a file it had not touched,
       in the human line and in `--json`. One `storeLabel()` now names what was actually opened,
-      including the remote backends' two halves (`bolt://… (audit + tokens: ./yoke.db)`)
+      including a remote backend's two halves (`http://…:9200 (audit + tokens: ./yoke.db)`)
 
 Recurring shape worth remembering: **counts in prose rot fastest** ("10 of 12", "three tools",
 "eight screens", "all five backends" — every one was wrong), and a claim is only as durable as the
 test that pins it.
+
+## v6.0 — postgres replaces neo4j
+
+- [x] **storage-neo4j removed.** Its differentiator did not survive the consistency audit: the pitch
+      was native FTS + vectors + graph in one engine, and the adapter never traversed natively — it
+      stored relations as nodes, so the graph half was an indexed lookup structurally identical to
+      sqlite's. What remained (native scored FTS + native vectors) OpenSearch already provides with no
+      dependency, where neo4j cost a 3.8 MB Bolt driver. A graph-DB adapter that is not graph-native is
+      a promise the codebase cannot keep; keeping it honest would have meant a storage-format migration
+      (real Cypher relationships + a `walk` port capability) with zero deployments asking for it
+- [x] **storage-postgres built**, against the database most orgs already run. **No new dependency** —
+      `pg` has been in the tree since the RDB read-mapping connector. Native scored FTS: core's own
+      `tokenize`/`requireEveryTerm` build a prefix `tsquery` (`simple` regconfig, so the Korean-suffix
+      conformance case holds natively), ranked by `ts_rank`, with the searchable `tsvector` carried
+      only by each record's latest version. `similar` is pgvector, and on a server without the
+      extension the capability is genuinely absent (type-only `declare` fields, so `"similar" in
+      store` answers honestly) rather than present-and-broken
+- [x] **Same composite split, one new branch.** `YOKE_POSTGRES_URL` (+ optional `YOKE_POSTGRES_SCHEMA`)
+      selects it; audit + tokens stay in the local sqlite; naming two remotes is an error. The adapter
+      satisfies the structural `RemoteStore` shape with no change to the composite, the port, or
+      `openStore`'s structure — the second time that claim has been tested, which is what "structural"
+      is supposed to mean
+- [x] **Isolation is a schema name.** All tables live in one caller-named schema (default `yoke`);
+      the test suite creates and drops `yoketest_*` schemas only, so it can run against a shared
+      database. CI drives the full suite against two real servers — pgvector for everything, plain
+      postgres so the no-extension path is never only skipped
+- [x] **Nested agent worktrees are excluded from the outer test run** (`.claude/**` in
+      `vitest.config.ts`) — measured: without it, `npm test` picked up an in-progress worktree's copy
+      of the suite (1,156 tests instead of 542) with cross-fork mock leaks as bonus failures
 
 ## Version-promotion rule
 

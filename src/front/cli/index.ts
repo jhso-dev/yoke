@@ -207,10 +207,8 @@ function storeLabel(v: Values, env: Env): string {
   const shards = resolveShards(v, env);
   if (shards) return `shards ${shards}`;
   const db = resolveDb(v, env);
-  if (env.YOKE_NEO4J_URL)
-    return `${env.YOKE_NEO4J_URL} (audit + tokens: ${db})`;
-  if (env.YOKE_OPENSEARCH_URL)
-    return `${env.YOKE_OPENSEARCH_URL} (audit + tokens: ${db})`;
+  const remote = env.YOKE_OPENSEARCH_URL ?? env.YOKE_POSTGRES_URL;
+  if (remote) return `${remote} (audit + tokens: ${db})`;
   return db;
 }
 
@@ -1729,9 +1727,9 @@ export async function runCli(
  * Called from `isMain()` below and NOWHERE else, on two counts:
  *   - `runCli(argv, env)` takes its environment as a parameter, so a test passes a fake and loading
  *     inside it would mutate the real process to no effect.
- *   - the vitest suite must never pick a `.env` up. `YOKE_TEST_NEO4J_URL` names a database the neo4j
- *     suite ERASES, and it has erased a real corpus once (docs/BACKENDS.md). One line written and
- *     forgotten should not be able to wipe a database on `npm test`.
+ *   - the vitest suite must never pick a `.env` up. `YOKE_TEST_OPENSEARCH_URL` names a cluster whose
+ *     indices the suite DELETES in `beforeAll` (docs/BACKENDS.md). One line written and forgotten
+ *     should not be able to wipe a database on `npm test`.
  *
  * ceiling: the working directory's `.env`, and that is all. `node --env-file=<path>` already covers
  * pointing somewhere else, so a flag of ours would be a second way to say the same thing.

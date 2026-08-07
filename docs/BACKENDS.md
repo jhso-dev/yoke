@@ -16,9 +16,8 @@ traditional-DB compatibility. Detailed when work starts (v2.0).
 | Adapter | When | Why chosen |
 |---|---|---|
 | storage-sqlite | v0.1 | embedded; FTS5 + sqlite-vec cover all of v1 |
-| storage-neo4j | **v5.2 (built)** | an enterprise already runs one; native FTS + native vectors in one engine (the engine also has native traversal, which the adapter does not yet use — see the matrix note) |
-| storage-opensearch | **v5.4 (built)** | an enterprise already runs one for logs and search, and it is the cheapest adapter to own: a REST API, so `fetchImpl` injection makes it fakeable and it adds **no dependency** — where neo4j needed a 3.8 MB Bolt driver |
-| storage-postgres | v2.x | the leading default-backend candidate for server mode (v3) (pgvector doubles as similar) |
+| storage-opensearch | **v5.4 (built)** | an enterprise already runs one for logs and search, and it is a cheap adapter to own: a REST API, so `fetchImpl` injection makes it fakeable and it adds **no dependency** at all |
+| storage-postgres | **v6.0 (built)** | the database most orgs already run; **no new dependency** (`pg` was already here for the RDB connector), native scored FTS, pgvector as `similar` when the extension is present |
 
 A backend earns a place here by being **selectable** (`openStore` resolves it) and passing the shared
 conformance suite against a real server. An adapter that only a `--shards` member entry could reach is
@@ -29,14 +28,8 @@ not a supported backend — that is a federation detail, not a way to run yoke.
 | | FTS | similar | graph traversal | batch read | embedded |
 |---|---|---|---|---|---|
 | sqlite | ✓ (FTS5 bm25) | ✓ (sqlite-vec) | app-level | ✓ (`IN`) | ✓ |
-| **neo4j** | **✓ (native full-text index, scored)** | **✓ (native vector index)** | app-level* | ✓ (`IN $ids`) | — |
 | **opensearch** | **✓ (native BM25, scored)** | **✓ (native k-NN, HNSW)** | app-level (term query) | ✓ (`terms` + `latest`) | — |
-| postgres | ✓ | ✓ (pgvector) | app-level | ✓ (`IN`) | — |
-
-*Neo4j's engine has native traversal; this adapter does not use it. Relations are stored as **nodes**
-(`:Relation {from_id, to_id}` — no Cypher relationship anywhere in the file), so `neighbors` is an
-indexed OR-predicate lookup, structurally the same query sqlite runs. Using real Cypher relationships
-would be a storage-format migration, to do when a multi-hop workload demands it.
+| **postgres** | **✓ (native tsquery, `ts_rank`-scored)** | **✓ (pgvector, exact scan; absent without the extension)** | app-level | ✓ (`= ANY`) | — |
 
 **Batch read** is `getEntities` (v5.5, SPEC "Batch point reads"), and it is the one column where an
 *embedded* backend is right to have a dash: a point read there is a prepared statement, so omitting it
@@ -56,11 +49,11 @@ is not the last backend; the fake is where that clause is checked with no engine
 
 Multi-hop is core's breadth-first loop over single-hop `neighbors()` on EVERY backend — the point
 at which that becomes a bottleneck is the point at which we promote a graph capability into the
-port (and teach the neo4j adapter real relationships) — not before.
+port — not before.
 
 ## What a remote backend can and cannot implement (v5.2)
 
-Discovered while building storage-neo4j: `openStore` returns a **`YokeStore`**, and 8 of that
+`openStore` returns a **`YokeStore`**, and 8 of that
 interface's 12 extension methods are **synchronous** — they were shaped by `better-sqlite3`, which is
 synchronous. A network-backed store cannot implement a synchronous method, so an adapter whose
 `loadOntology` has to be `async` does not satisfy `YokeStore` at all.
@@ -87,29 +80,6 @@ walking `getEntity(id, version)`, which is in the port and therefore async.
 ### Using it
 
 ```bash
-export YOKE_NEO4J_URL=bolt://localhost:7687      # or neo4j+s://… for Aura
-export YOKE_NEO4J_USER=neo4j
-export YOKE_NEO4J_PASSWORD=…
-export YOKE_NEO4J_DATABASE=neo4j                 # optional
-yoke init                                        # creates constraints + indexes, seeds the ontology
-```
-
-The same four lines work in a `.env` in the working directory (`cp .env.example .env`; SPEC
-"Configuration precedence"). An actual environment variable overrides the file, so the export form
-above still wins wherever both exist.
-
-`--db` still names the **local** sqlite that holds this client's audit trail and tokens; the knowledge
-goes to Neo4j. Everything else is unchanged: `yoke add`, `review`, `verify`, `inject`, `yoke ui`, MCP.
-
-For tests and for trying it:
-
-```bash
-docker run -d --rm --name yoke-neo4j -p 7687:7687 -e NEO4J_AUTH=neo4j/testtest neo4j:5
-```
-
-### OpenSearch (v5.4)
-
-```bash
 docker run -d --name yoke-opensearch -p 9200:9200 \
   -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
   -e DISABLE_INSTALL_DEMO_CONFIG=true -e "OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m" \
@@ -118,36 +88,62 @@ docker run -d --name yoke-opensearch -p 9200:9200 \
 export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=...   # a secured cluster only
 export YOKE_OPENSEARCH_PREFIX=team_a_                            # optional: two yoke DBs, one cluster
-yoke init
+yoke init                                                        # creates the indices, seeds the ontology
 ```
 
-Same split as Neo4j — `--db` still names the local sqlite holding this client's audit trail and tokens.
-Setting `YOKE_NEO4J_URL` and `YOKE_OPENSEARCH_URL` together is an **error**, not a precedence order:
-they are two different knowledge stores.
+The same exports work in a `.env` in the working directory (`cp .env.example .env`; SPEC
+"Configuration precedence"). An actual environment variable overrides the file, so the export form
+above still wins wherever both exist.
 
-**The test suite here is scoped by index prefix, which is what Neo4j could not do.** It creates and
-deletes `yoketest_*` indices only, so it can run against the same cluster a demo is using — verified by
-running its whole suite — the 23 shared conformance cases plus its own OpenSearch-specific ones —
-while a 1,007-document corpus sat in `yoke_*`, and counting it unchanged afterwards.
-Neo4j Community has one database per server, so its suite has to erase everything; here the isolation
-is a name.
+`--db` still names the **local** sqlite that holds this client's audit trail and tokens; the knowledge
+goes to OpenSearch. Everything else is unchanged: `yoke add`, `review`, `verify`, `inject`, `yoke ui`,
+MCP.
 
-> **`YOKE_TEST_NEO4J_URL` names a database the suite will ERASE.** Its `wipe()` runs
-> `MATCH (x) DETACH DELETE x` plus a drop of every `yoke_` index, in `beforeAll` — that is correct for
-> a test database and destroys any other. Two consequences worth stating rather than learning:
-> `--rm` on the command above means stopping the container also discards whatever is in it, and
-> pointing the variable at the instance you are *demoing* from deletes that corpus. It happened
-> (2026-08-04: a 301-entity seeded corpus, erased by running the suite to verify an unrelated merge).
-> So keep the demo instance on a different port and never export the test variable in a shell you also
-> run `yoke` from. Reloading is only cheap if the seed script is in the repo, which is the argument for
-> keeping one there.
+**The test suite is scoped by index prefix.** It creates and deletes `yoketest_*` indices only, so it
+can run against the same cluster a demo is using — verified by running its whole suite — the 23 shared
+conformance cases plus its own OpenSearch-specific ones — while a 1,007-document corpus sat in `yoke_*`,
+and counting it unchanged afterwards. The isolation is a name, which is why the name is not negotiable.
 
-The conformance suite runs against a real Neo4j when one is reachable and **skips when it is not**, so
-`npm test` stays green without docker. CI runs it as a service container, so it is never only skipped.
-A hand-written fake was rejected: faking Cypher means the fake encodes the same assumptions as the
-adapter, and conformance against it would prove nothing. OpenSearch differs only in that a fake
-WOULD be defensible there (its query surface is a handful of JSON shapes and its adapter takes a
-`fetchImpl` for exactly that) — its live suite still deliberately runs against a real cluster.
+> **`YOKE_TEST_OPENSEARCH_URL` names a cluster whose `yoketest_*` indices the suite DELETES**, in
+> `beforeAll` — correct for a test index, destructive for anything else that answers to the prefix. So
+> never widen the prefix, and never export the test variable in a shell you also run `yoke` from: a
+> variable set once and forgotten is exactly the thing that must not be able to wipe a database on
+> `npm test`, which is why the suite does not read `.env` either.
+
+The conformance suite runs against a real OpenSearch when one is reachable and **skips when it is not**,
+so `npm test` stays green without docker. CI runs it as a service container, so it is never only
+skipped. A hand-written fake WOULD be defensible here — the query surface is a handful of JSON shapes
+and the adapter takes a `fetchImpl` for exactly that — and the live suite still runs against a real
+cluster on purpose: what it checks is the ENGINE's BM25 ranking, its analyzer's output, k-NN order and
+near-real-time visibility, and a fake would encode the adapter's own beliefs about all four.
+
+### Postgres
+
+```bash
+docker run -d --name yoke-pg -e POSTGRES_PASSWORD=... -p 5432:5432 pgvector/pgvector:pg17
+
+export YOKE_POSTGRES_URL=postgres://postgres:...@localhost:5432/postgres
+export YOKE_POSTGRES_SCHEMA=team_a               # optional: two yoke DBs in one database
+yoke init                                        # creates the schema + tables, seeds the ontology
+```
+
+Same split: `--db` still names the local sqlite holding this client's audit trail and tokens; the
+knowledge goes to Postgres. **No new dependency** — `pg` was already in the tree for the RDB
+read-mapping connector.
+
+Search is native and scored: core's own `tokenize`/`requireEveryTerm` build a prefix `tsquery`
+(`simple` regconfig, so Hangul suffix tolerance holds — `parseArgs` reaches `parseArgs로`), ranked
+with `ts_rank`, and the searchable `tsvector` lives only on each record's latest version. `similar`
+is pgvector: when `CREATE EXTENSION vector` is unavailable the capability is genuinely **absent** —
+`similar`/`putEmbedding` are not defined on the instance — so core's feature-detects behave exactly
+as on any vectorless backend, and everything else still works.
+
+**The test suite is scoped by schema.** It creates and drops `yoketest_*` schemas only, so it can run
+against a database that is holding other things — the same isolation-by-name rule as the OpenSearch
+suite, with the same warning: never point `YOKE_TEST_POSTGRES_URL` at a database whose `yoketest_*`
+schemas you care about, and the suite does not read `.env` for exactly this reason. It skips without
+a reachable server; CI runs it against two containers (pgvector and plain postgres, so the
+no-extension path is never only skipped).
 
 ## Traditional-DB read-mapping (v2.0 — the enterprise wedge)
 

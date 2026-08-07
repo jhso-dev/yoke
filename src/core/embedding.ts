@@ -71,8 +71,8 @@ export function makeFetchEmbedder(env: Env): Embedder {
  * The dimension-mismatch refusal, for every backend with a vector index.
  *
  * SPEC "The vector index" requires this failure to name both widths and the command that fixes it, on
- * reads and writes alike. Today its three vector-capable adapters (sqlite, neo4j, opensearch) call
- * this in six places — two each, a read and a write. It was written because those clauses were
+ * reads and writes alike. Today its two vector-capable adapters (sqlite, opensearch) call this in four
+ * places — two each, a read and a write. It was written because those clauses were
  * inlined per adapter and the wordings had already drifted: the write paths said "with the new
  * model", the read paths said "with the current model" and dropped the sentence explaining why a
  * database has one vector space. A message is not

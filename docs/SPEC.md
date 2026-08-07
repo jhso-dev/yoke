@@ -92,7 +92,7 @@ command that fixes it. This is the one deliberate exception to "an embedding fai
 commit": a provider being down costs you one vector, whereas a mixed vector space returns confidently
 wrong neighbours forever, and a silent wrong answer is worse than a stopped write.
 
-### Remote backends (v5.2, second one v5.4)
+### Remote backends
 
 `StoragePort` is fully async and always was, so a network-backed backend implements it with no
 interface change. The obstacle is one layer up: the CLI, web and serve tiers hold a **`YokeStore`** —
@@ -119,22 +119,20 @@ synchronous, served from a cache the async `init()` fills.
 > invocation is fresh, but a long-running `yoke ui`/`serve` will not see an ontology another client
 > changed. Add invalidation when that actually bites, not before.
 
-**`RemoteStore` is structural, and v5.4 is the proof.** The composite's remote half is "a `StoragePort`
-plus async `saveOntology`/`loadOntology`/`renameType`" — declared as a shape, not a base class, so a
-second remote adapter satisfies it without importing the composite. `storage-opensearch` was written
-against that shape and needed **no change to the composite, the port, or `openStore`'s structure**; the
-only new code outside the adapter directory is one branch selecting it.
-
-Naming both `YOKE_NEO4J_URL` and `YOKE_OPENSEARCH_URL` is an **error**, not a precedence order. They
-are two different databases holding two different corpora, and picking one silently would mean
-`yoke inject` answering out of a store the caller did not think they were using.
+**`RemoteStore` is structural.** The composite's remote half is "a `StoragePort` plus async
+`saveOntology`/`loadOntology`/`renameType`" — declared as a shape, not a base class, so an adapter
+satisfies it without importing the composite. Both remote adapters (`storage-opensearch`,
+`storage-postgres`) are written against that shape and need **no change to the composite, the port,
+or `openStore`'s structure**: the only code each adds outside its own directory is one branch
+selecting it. Naming more than one remote is an error, not a precedence order — they are different
+knowledge stores.
 
 Per-backend rules that are contract rather than implementation are documented in each adapter's header.
 For OpenSearch the two worth knowing at this level: reads refresh before they read (it is a
 near-real-time engine and the port contract is read-your-writes), and a search's prefix terms are
 *required* while its exact terms are what *score* — a Lucene `prefix` query is constant-score, so a
-query built only from prefixes satisfies "matches" and silently fails "best match first". The same trap
-the Neo4j adapter hit with wildcards.
+query built only from prefixes satisfies "matches" and silently fails "best match first", which is the
+same defect a wildcard-only query has.
 
 `listHistory` stays optional and is **absent** on the composite: it is synchronous and it is about
 entities, which are remote. Callers use `listVersions(port, id)` (`core/lifecycle.ts`), which
@@ -298,7 +296,7 @@ Every implementation must pass the shared conformance suite (`src/ports/conforma
 runner-neutral data; `src/ports/conformance.ts` is the vitest wrapper).
 v1 implementation: `storage-sqlite` (better-sqlite3 + FTS5 + sqlite-vec).
 
-**The supported set is `sqlite`, `sharded`, `neo4j` and `opensearch`, and all four must pass.** A
+**The supported set is `sqlite`, `sharded`, `opensearch` and `postgres`, and all four must pass.** A
 backend is supported when `openStore` resolves it and it passes this suite against a real server; an
 adapter reachable only as a `--shards` member is a federation detail, not a supported backend.
 
@@ -899,7 +897,7 @@ Common options: `--db <path>` (> `YOKE_DB` > `./yoke.db`), `--ns`, `--actor`, `-
 
 **A command reports the store it actually opened, not `--db`.** `--db` names the local sqlite
 whatever the backend is, so the human line names the resolved store instead: `shards cfg.json`, or
-`bolt://… (audit + tokens: ./yoke.db)` on a remote backend, where both halves are true. `--json` keeps
+`http://…:9200 (audit + tokens: ./yoke.db)` on a remote backend, where both halves are true. `--json` keeps
 `db` as the local path — a script reading it wants a path — and adds `store` with the label. Same rule
 for the "not initialized" refusal.
 
@@ -918,9 +916,9 @@ ours. Three clauses:
 2. **Absent, unreadable, or a directory are all "no `.env`", silently.** The local path must work with
    no configuration at all (invariant 4), so a missing file is the normal case and not a warning.
    Malformed lines are skipped by Node's parser rather than reported — the cost of not owning one.
-3. **It is loaded at the CLI entry point only, never by the test suite.** `YOKE_TEST_NEO4J_URL` names a
-   database the neo4j suite **erases**; a `.env` that `npm test` honoured would let one forgotten line
-   wipe a database. Test variables are passed per-run, and `.env.example` says so.
+3. **It is loaded at the CLI entry point only, never by the test suite.** `YOKE_TEST_OPENSEARCH_URL`
+   names a cluster whose indices the suite **deletes**; a `.env` that `npm test` honoured would let one
+   forgotten line wipe a database. Test variables are passed per-run, and `.env.example` says so.
 
 `.env.example` is committed and lists every `YOKE_*` variable **yoke itself reads** (the installer's
 `YOKE_INSTALL_DIR` belongs to `scripts/install.sh`, not to the product). `.env` is gitignored,
@@ -943,7 +941,7 @@ A persona is the person-anchored reading of an anchored injection — not a seco
   happened in `inject`.
 
 Because authorship is a graph edge rather than a provenance lookup outside the storage contract,
-persona works on every conformant backend (sqlite, sharded, neo4j, opensearch).
+persona works on every conformant backend (sqlite, sharded, opensearch, postgres).
 
 **Upgrade path**: databases written before stage 4b have no authorship edges. `yoke backfill`
 re-derives them through the gate from each version's recorded provenance, skipping `origin:
