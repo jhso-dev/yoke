@@ -27,9 +27,7 @@
   ],
   "scripts": {
     "build": "npm run build:cli && npm run build:web",
-    "test": "npm run test:main && npm run test:kuzu",
-    "test:main": "vitest run",
-    "test:kuzu": "npm run build:cli && node scripts/test-kuzu.mjs",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit && npm run typecheck:web",
     "lint": "biome check .",
     "eval": "tsx eval/inject-quality.ts",
@@ -56,7 +54,6 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.10",
     "@types/pg": "^8.11.0",
-    "kuzu": "^0.11.3",
     "tsx": "^4.23.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

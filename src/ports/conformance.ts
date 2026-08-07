@@ -1,6 +1,7 @@
 // StoragePort conformance suite — the vitest wrapper adapter tests invoke.
-// The cases themselves are runner-neutral data in conformance-cases.ts (shared
-// with the standalone kuzu runner, which cannot run inside a vitest fork).
+// The cases themselves are runner-neutral data in conformance-cases.ts, kept
+// separate because the neo4j and opensearch suites import them directly to gate
+// themselves on a reachable server.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 import { conformanceCases } from "./conformance-cases.js";

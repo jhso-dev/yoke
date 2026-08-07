@@ -1,20 +1,21 @@
 // storage-sharded config (PLAN-V2 12.1/12.2) — parse + validate a shard map and instantiate members.
-// JSON shape: { shards: [{ name, kind: "sqlite"|"kuzu"|"qdrant", path?, url?, apiKey?, namespaces?, default? }] }.
+// JSON shape: { shards: [{ name, kind: "sqlite", path, namespaces?, default? }] }.
+//
+// `kind` is a one-value union. The field stays because the router supports heterogeneous mixes and
+// there is simply nothing to mix until a second shardable backend exists — see the ceiling note in
+// index.ts for what a non-sqlite member would have to satisfy.
 
 import { readFileSync } from "node:fs";
 import type { StoragePort } from "../../ports/storage.js";
+import { SqliteStorage } from "../storage-sqlite/index.js";
 
-export type ShardKind = "sqlite" | "kuzu" | "qdrant";
+export type ShardKind = "sqlite";
 
 export interface ShardSpec {
   name: string;
   kind: ShardKind;
-  /** sqlite/kuzu on-disk path (or ":memory:" for sqlite). */
+  /** On-disk path, or ":memory:". */
   path?: string;
-  /** qdrant base url. */
-  url?: string;
-  /** qdrant api key (optional). */
-  apiKey?: string;
   /** Namespaces this shard owns. A namespace routes to the shard listing it. */
   namespaces?: string[];
   /** Exactly one shard must be the default (holds unlisted/null-ns rows). */
@@ -52,18 +53,12 @@ export function parseShardConfig(raw: unknown): ShardConfig {
     if (names.has(spec.name))
       throw new Error(`duplicate shard name: ${spec.name}`);
     names.add(spec.name);
-    if (
-      spec.kind !== "sqlite" &&
-      spec.kind !== "kuzu" &&
-      spec.kind !== "qdrant"
-    )
+    if (spec.kind !== "sqlite")
       throw new Error(
-        `shard ${spec.name}: kind must be sqlite|kuzu|qdrant (got ${String(spec.kind)})`,
+        `shard ${spec.name}: kind must be sqlite (got ${String(spec.kind)})`,
       );
-    if ((spec.kind === "sqlite" || spec.kind === "kuzu") && !spec.path)
-      throw new Error(`shard ${spec.name}: ${spec.kind} needs a \`path\``);
-    if (spec.kind === "qdrant" && !spec.url)
-      throw new Error(`shard ${spec.name}: qdrant needs a \`url\``);
+    if (!spec.path)
+      throw new Error(`shard ${spec.name}: sqlite needs a \`path\``);
     if (spec.namespaces !== undefined) {
       if (
         !Array.isArray(spec.namespaces) ||
@@ -98,40 +93,8 @@ export function loadShardConfig(path: string): ShardConfig {
   return parseShardConfig(raw);
 }
 
-/** Instantiate the adapter for one shard. Dynamic import so a sqlite-only config never loads the
- *  kuzu native binding or the qdrant module (keeps `--db` and sqlite-only sharding cheap to start). */
+/** Instantiate the adapter for one shard. `path` is guaranteed by parseShardConfig.
+ *  Stays `async` because it is one member of a `Promise.all` over the whole map. */
 export async function makeShard(spec: ShardSpec): Promise<StoragePort> {
-  switch (spec.kind) {
-    case "sqlite": {
-      const { SqliteStorage } = await import("../storage-sqlite/index.js");
-      return new SqliteStorage(spec.path as string);
-    }
-    case "kuzu": {
-      // kuzu is not a runtime dependency: its native binding is 531 MB, which was **91% of what
-      // `npx yoke` downloaded** (measured 2026-08-05, docs/ROADMAP.md v2.5) for a backend reachable
-      // only by naming `kind: "kuzu"` in a shard config. It is a devDependency, so this repo's own
-      // tests and CI still run the full conformance suite against it.
-      //
-      // The failure is caught here rather than left as MODULE_NOT_FOUND because the caller wrote a
-      // config file, not an import, and the stack trace of a dynamic import names neither.
-      let mod: typeof import("../storage-kuzu/index.js");
-      try {
-        mod = await import("../storage-kuzu/index.js");
-      } catch (e) {
-        throw new Error(
-          `this shard config names a kuzu shard, and the kuzu package is not installed. ` +
-            `It ships separately because its native binding is ~530 MB: npm install kuzu\n` +
-            `  (original error: ${(e as Error).message})`,
-        );
-      }
-      return new mod.KuzuStorage(spec.path as string);
-    }
-    case "qdrant": {
-      const { QdrantStorage } = await import("../storage-qdrant/index.js");
-      return new QdrantStorage({
-        url: spec.url as string,
-        apiKey: spec.apiKey,
-      });
-    }
-  }
+  return new SqliteStorage(spec.path as string);
 }

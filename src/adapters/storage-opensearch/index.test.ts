@@ -1,6 +1,6 @@
 // storage-opensearch tests — against a REAL OpenSearch, skipped when none is reachable.
 //
-// Unlike qdrant there is no fake here, for the same reason neo4j has none: the behaviour under test is
+// No fake carries this suite, for the same reason neo4j has none at all: the behaviour under test is
 // the ENGINE's — BM25 ranking, prefix-term matching against an analyzer's output, k-NN ordering, and
 // near-real-time visibility. A fake would encode this adapter's own beliefs about all four and prove
 // none of them. The `fetchImpl` seam stays available for anyone who wants one; the suite deliberately
@@ -10,7 +10,7 @@
 //     -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
 //     -e DISABLE_INSTALL_DEMO_CONFIG=true -e "OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m" \
 //     opensearchproject/opensearch:2
-//   YOKE_TEST_OPENSEARCH_URL=http://localhost:9200 npm run test:main
+//   YOKE_TEST_OPENSEARCH_URL=http://localhost:9200 npm test
 //
 // Like the neo4j suite, this ERASES the indices it points at (see the wipe below). Never point it at a
 // cluster holding anything you want — docs/BACKENDS.md says why that warning exists.
@@ -51,8 +51,7 @@ suite("StoragePort conformance: opensearch (live)", () => {
   });
 
   // A fresh index set per case. The cases are written to be self-scoping (case-unique types and
-  // tokens) because the kuzu runner shares one database, but an index per case also keeps one case's
-  // vector dimension out of the next one's mapping.
+  // tokens), but an index per case also keeps one case's vector dimension out of the next one's mapping.
   for (const c of conformanceCases) {
     it(c.name, async () => {
       const prefix = `yoketest_${c.name
@@ -171,7 +170,7 @@ suite("opensearch policies that are contract, not implementation", () => {
   });
 
   it("finds a Korean stem inside a word that carries a particle", async () => {
-    // Measured against a real server before this adapter existed: `match: "재시도"` returns 0 hits on
+    // Measured against a real server: `match: "재시도"` returns 0 hits on
     // text containing `재시도는`, because the standard analyzer keeps the particle attached and
     // OpenSearch ships no Korean morphological analyzer by default (nori is a separate plugin). The
     // required-prefix clause is what makes this work, and this is the case that proves it.

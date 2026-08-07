@@ -233,12 +233,12 @@ describe("shard config validation", () => {
     ).toThrow(/kind must be/);
   });
 
-  it("rejects a missing kind-specific field (qdrant without url)", () => {
+  it("rejects a sqlite shard with no path", () => {
     expect(() =>
       parseShardConfig({
-        shards: [{ name: "a", kind: "qdrant", default: true }],
+        shards: [{ name: "a", kind: "sqlite", default: true }],
       }),
-    ).toThrow(/qdrant needs a `url`/);
+    ).toThrow(/sqlite needs a `path`/);
   });
 });
 

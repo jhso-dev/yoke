@@ -1,8 +1,10 @@
 // Embedding provider client (SPEC Embedder contract, PLAN 4.1).
 // core receives an Embedder function by injection — the fetch implementation lives here, while tests use a deterministic stub.
-// An embedding failure never blocks a commit (returns null → FTS fallback, warning only).
+// An embedding failure never blocks a commit (returns null → warning only; RETRIEVAL falls back to
+// FTS, duplicate detection is skipped — SPEC "Stage 3 has no FTS fallback").
 
-/** text → embedding vector. null = unavailable (unconfigured or failed) → caller falls back to FTS. */
+/** text → embedding vector. null = unavailable (unconfigured or failed): retrieval falls back to
+ * FTS; the commit gate skips duplicate detection rather than approximating it. */
 export type Embedder = (text: string) => Promise<Float32Array | null>;
 
 // Serializes the text that FTS and embeddings index. The adapter (FTS) and core (commit) must
@@ -41,7 +43,7 @@ export function makeFetchEmbedder(env: Env): Embedder {
       });
       if (!res.ok) {
         console.error(
-          `yoke: embedding request failed (${res.status}) — falling back to FTS`,
+          `yoke: embedding request failed (${res.status}) — keyword retrieval only; duplicate detection skipped`,
         );
         return null;
       }
@@ -51,14 +53,14 @@ export function makeFetchEmbedder(env: Env): Embedder {
       const vec = json.data?.[0]?.embedding;
       if (!Array.isArray(vec)) {
         console.error(
-          "yoke: embedding response malformed — falling back to FTS",
+          "yoke: embedding response malformed — keyword retrieval only; duplicate detection skipped",
         );
         return null;
       }
       return Float32Array.from(vec);
     } catch (e) {
       console.error(
-        `yoke: embedding error (${(e as Error).message}) — falling back to FTS`,
+        `yoke: embedding error (${(e as Error).message}) — keyword retrieval only; duplicate detection skipped`,
       );
       return null;
     }
@@ -69,11 +71,13 @@ export function makeFetchEmbedder(env: Env): Embedder {
  * The dimension-mismatch refusal, for every backend with a vector index.
  *
  * SPEC "The vector index" requires this failure to name both widths and the command that fixes it, on
- * reads and writes alike. Four adapters implemented that clause in SEVEN places, and the wordings had
- * already drifted: the write paths said "with the new model", the read paths said "with the current
- * model" and dropped the sentence explaining why a database has one vector space. A message is not
+ * reads and writes alike. Today its three vector-capable adapters (sqlite, neo4j, opensearch) call
+ * this in six places — two each, a read and a write. It was written because those clauses were
+ * inlined per adapter and the wordings had already drifted: the write paths said "with the new
+ * model", the read paths said "with the current model" and dropped the sentence explaining why a
+ * database has one vector space. A message is not
  * backend behaviour, so one copy costs no coupling (invariant 2 is about behaviour) — and a person
- * hitting this on qdrant and on sqlite should not have to work out whether they are the same problem.
+ * hitting this on two different backends should not have to work out whether it is the same problem.
  *
  * `reading` picks the noun, which is the only thing that legitimately differs: a query has the wrong
  * width, or a vector being written does.

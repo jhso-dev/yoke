@@ -1,8 +1,12 @@
 // StoragePort conformance cases — runner-neutral (plain node:assert, no vitest).
-// Two consumers: the vitest wrapper in conformance.ts (all adapters' test files)
-// and scripts/test-kuzu.mjs, which runs the kuzu adapter in the MAIN process —
-// kuzu's native binding crashes vitest's fork IPC, so it cannot run in a pool.
-// Keeping the cases here as data means both runners share one contract source.
+// Consumers: the vitest wrapper in conformance.ts (sqlite and sharded), plus the
+// neo4j and opensearch suites, which import the cases directly so they can skip
+// themselves when no server is reachable.
+//
+// The cases are SELF-SCOPING — case-unique types, ns values and search tokens —
+// because a runner may share one database across all of them. Nothing does today,
+// but a live-server suite that skipped the per-case teardown would, and a case
+// asserting on an unfiltered listing would pass under vitest and fail there.
 
 import assert from "node:assert/strict";
 import type { Entity, Relation } from "../core/types.js";
@@ -236,7 +240,7 @@ export const conformanceCases: ConformanceCase[] = [
   },
   {
     // (6d) search returns the BEST match first, not the first-stored match. Before this, sqlite
-    // returned FTS5's rowid order and kuzu/qdrant sliced whatever order their scan produced, so
+    // returned FTS5's rowid order and an app-level adapter sliced whatever order its scan produced, so
     // `limit` silently meant "an arbitrary N" — measured at 1M rows, the top 50 by insertion order
     // and the top 50 by relevance shared ONE record (docs/SCALE.md).
     //
@@ -247,10 +251,9 @@ export const conformanceCases: ConformanceCase[] = [
     // so the case cannot pass by accident of insertion sequence.
     name: "search returns the best match first, not the first stored",
     async run(port) {
-      // Nonsense filler on purpose. The first draft used "alpha beta gamma …", and "beta" is what
-      // case 7c searches for — so this case silently broke that one, but only under the kuzu runner,
-      // which shares ONE database across cases (see the header). Every token a case introduces has
-      // to be unique to it.
+      // Nonsense filler on purpose: real words collide with other cases' search tokens, and under a
+      // runner sharing ONE database (see the header) that breaks them silently. Every token a case
+      // introduces has to be unique to it.
       const filler = "zqfill1 zqfill2 zqfill3 zqfill4 zqfill5 zqfill6 zqfill7";
       // Stored FIRST and deliberately the worse match: one mention, buried in filler.
       const mentions = makeEntity({
@@ -278,7 +281,7 @@ export const conformanceCases: ConformanceCase[] = [
     },
   },
   {
-    // (6e) search is bounded even when the caller names no limit. A resource bound, not a policy
+    // (6f) search is bounded even when the caller names no limit. A resource bound, not a policy
     // cap: at 10M entities the unbounded call materialized ten million row objects and the process
     // died of heap exhaustion (docs/SCALE.md). Asserted by count rather than by timing, so it holds
     // on every backend and in CI.
@@ -427,8 +430,8 @@ export const conformanceCases: ConformanceCase[] = [
   },
   // (9) Enumeration (v5.0). Enumeration is the one method that can return the whole database, so
   // every clause of its contract is pinned here. Note each case scopes its assertions to a
-  // case-unique type and/or ns: the kuzu runner shares ONE database across all cases, so a case
-  // that asserted on an unfiltered listing would pass under vitest and fail there.
+  // case-unique type and/or ns, for the reason in the header: a case that asserted on an unfiltered
+  // listing would pass under vitest and fail on any runner sharing one database.
   {
     // (9a) latest version only, and the type/status filters compose.
     name: "listEntities returns latest versions only, filtered by type and status",

@@ -1,12 +1,9 @@
 import { defineConfig } from "vitest/config";
 
-// The kuzu adapter is NOT tested under vitest: its native binding kills the
-// fork's IPC channel (and segfaults the threads pool), which aborts whatever
-// runs after it. Its conformance run lives in scripts/test-kuzu.mjs (main
-// process, no pool) sharing the same cases via src/ports/conformance-cases.ts.
-// The exclude below keeps any future kuzu *.test.ts from sneaking back into
-// the pool; single fork + ignored teardown errors guard the rest of the suite
-// against similar native-module races (better-sqlite3 has been well-behaved).
+// Single fork + ignored teardown errors, because a native binding that dies badly takes the pool's
+// IPC channel with it and aborts whatever ran after it — measured, on an adapter whose binding could
+// not run under vitest at all. better-sqlite3 and sqlite-vec are native too and have only been
+// well-behaved so far, which is not the same as safe.
 // Timeouts, because the defaults (5s per test, 10s per hook) are sized for tests that touch nothing
 // and most of this suite does real I/O: better-sqlite3 against a temp file, a Neo4j over Bolt, an MCP
 // server and client on a linked pair — all of it serialized through the single fork above, which is
@@ -43,7 +40,6 @@ export default defineConfig({
     exclude: [
       "**/node_modules/**",
       "**/dist/**",
-      "src/adapters/storage-kuzu/**",
       // Next's build output would otherwise match the default test glob.
       "web/.next/**",
       "web/out/**",

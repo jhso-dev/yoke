@@ -113,7 +113,7 @@ describe("backfillEmbeddings", () => {
   });
 
   it("reports zeros on a backend with no vector support", async () => {
-    await addFact("kuzu-shaped");
+    await addFact("vectorless-backend");
     // A Proxy, not a spread: spreading loses the prototype methods, and `putEmbedding` has to be
     // genuinely ABSENT for this to exercise the feature-detect.
     const bare = new Proxy(port, {

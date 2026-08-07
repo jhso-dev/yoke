@@ -1,9 +1,12 @@
-// Shared store resolution (PLAN-V2 12.2). Three shapes, in precedence order:
+// Shared store resolution (PLAN-V2 12.2). Four shapes, in precedence order:
 //
 //   --shards <config.json> / YOKE_SHARDS   ShardedStorage over member sqlite backends
-//   YOKE_NEO4J_URL                         knowledge in Neo4j, this client's audit + tokens local
-//   YOKE_OPENSEARCH_URL                    the same split, with OpenSearch holding the knowledge
+//   YOKE_OPENSEARCH_URL                    knowledge in OpenSearch, this client's audit + tokens local
+//   YOKE_NEO4J_URL                         the same split, with Neo4j holding the knowledge
 //   --db / YOKE_DB (default)               one SqliteStorage — the fast path
+//
+// (The order between the two remote checks is unobservable — naming both is an error, below — but
+// the comment lists them in the order the code checks, so the two cannot read as disagreeing.)
 //
 // Everything but the fast path is imported DYNAMICALLY, so a plain `yoke add` never loads the sharded
 // module, the neo4j driver, or anything they pull in. That was already the rule for sharding and it

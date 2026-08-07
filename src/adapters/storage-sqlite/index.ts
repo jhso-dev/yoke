@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS tokens (
   created_at TEXT NOT NULL           -- ISO 8601
 );
 
--- Indexes. There were none until 2026-08-02, and the primary key alone is only enough while the
+-- Indexes. The primary key alone is only enough while the
 -- corpus is small: every filtered read degraded into a scan of it. Measured at 10M entities /
 -- 3M relations (docs/SCALE.md), with the query each one exists for:
 --
@@ -383,7 +383,7 @@ export class SqliteStorage implements StoragePort {
     // (special chars are safe) and starred.
     //
     // Up to AND_TERM_LIMIT tokens the terms are joined by implicit AND, which is FTS5's default and
-    // was the only rule until v5.6; beyond it they are joined by OR and clause 6's `ORDER BY rank`
+    // is the rule up to AND_TERM_LIMIT; beyond it they are joined by OR and clause 6's `ORDER BY rank`
     // decides what the caller sees. See SPEC search clause 8 for what the AND was costing — a
     // question-shaped query is a conjunction no record satisfies.
     const tokens = tokenize(q.text);
@@ -757,7 +757,7 @@ export class SqliteStorage implements StoragePort {
    * Columns are listed explicitly so a pre-10.1 source (ns appended last by migration) copies cleanly
    * into a fresh dest (ns mid-row). */
   async exportUntil(ts: string, destPath: string): Promise<void> {
-    // Fresh dest with the full schema, then attach and row-copy with SQL (simplest — SPEC 11.1).
+    // Fresh dest with the full schema, then attach and row-copy with SQL (simplest — PLAN-V2 11.1).
     const dst = new SqliteStorage(destPath);
     await dst.init();
     dst.close();

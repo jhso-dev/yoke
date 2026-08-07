@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // yoke MCP server (PLAN 3.1–3.3) — stdio transport. Started with `yoke mcp [--db path]`.
-// Three tools: yoke_inject / yoke_commit / yoke_record_decision.
+// Six tools: yoke_inject / yoke_commit / yoke_record_decision / yoke_overview / yoke_persona / yoke_use_scope.
 // Governance: agents may only ingest drafts (no verify/deprecate tools — promotion is the CLI's job).
 // Time is obtained only in this front tier (core receives `now` by injection).
 
@@ -40,7 +40,7 @@ export interface YokeMcpDeps {
   ns?: string | null;
   /** Current time as ISO 8601. Defaults to new Date().toISOString() — tests inject a fixed value. */
   now?: () => string;
-  /** Embedder for the duplicate/conflict gate. Tests inject a deterministic stub; unset = no-op (FTS fallback). */
+  /** Embedder for the duplicate/conflict gate. Tests inject a deterministic stub; unset = detection skipped. */
   embedder?: Embedder;
   /** Per-request RBAC hook (PLAN-V2 10.4). Default allow-all — stdio `yoke mcp` is single-user
    * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */

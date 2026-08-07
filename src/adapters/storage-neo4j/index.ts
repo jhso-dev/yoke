@@ -1,8 +1,11 @@
 // storage-neo4j — the Neo4j implementation of StoragePort (v5.2).
 //
-// The first backend with native full-text search, native vectors AND native graph traversal in one
-// engine (docs/BACKENDS.md capability matrix). sqlite ranks with FTS5 but walks the graph app-level;
-// kuzu walks natively but ranks app-level and has no vectors; this does all three in Cypher.
+// The first backend with a native full-text index AND a native vector index in one engine
+// (docs/BACKENDS.md capability matrix). NOT native traversal, despite the engine having it: relations
+// are stored as NODES (`:Relation {from_id, to_id}` — see putRelation), so `neighbors` is an indexed
+// OR-predicate lookup, structurally the same query sqlite runs. Real Cypher relationships would be a
+// storage-format migration, to take when a multi-hop workload demands it — the matrix note records
+// that this header claimed all three natively for a while, which was false.
 //
 // Two policies are copied from sqlite deliberately, because they are contract, not implementation:
 //
@@ -16,8 +19,8 @@
 //      version and invalidates no citation (SPEC "The vector index").
 //
 // ns is stored as "" for the default shared namespace rather than null: Neo4j drops null properties,
-// and an index lookup on a missing property is not the same query as one on a sentinel. Same choice
-// kuzu made, for the same reason.
+// and an index lookup on a missing property is not the same query as one on a sentinel. OpenSearch
+// makes the same choice, for the same reason.
 
 import neo4j, { type Driver, type Session } from "neo4j-driver-lite";
 import { dimensionMismatch, serializeText } from "../../core/embedding.js";
@@ -278,7 +281,7 @@ export class Neo4jStorage implements StoragePort {
    * A later vector of a different width is a changed embedding model, and it is refused here with both
    * widths and the command that fixes it — the one place the product deliberately stops a write over an
    * embedding problem, because a mixed vector space returns confidently wrong neighbours forever
-   * (SPEC "The vector index"). Same rule and same message as sqlite and qdrant.
+   * (SPEC "The vector index"). Same rule and same message as every other backend, from core.
    */
   private async ensureVectorIndex(dim: number, rebuild = false): Promise<void> {
     if (rebuild && this.vectorDim !== null) {
@@ -347,8 +350,8 @@ export class Neo4jStorage implements StoragePort {
   /**
    * Relations touching `id`, latest version each.
    *
-   * Real Cypher with both single-column indexes, not a scan: kuzu materializes EVERY relation and
-   * filters in JS (`storage-kuzu/index.ts:194`), which is the ceiling its own comment names. The
+   * Real Cypher with both single-column indexes, not a scan — where sqlite and OpenSearch answer this
+   * with an ordinary indexed lookup per direction, which is their documented ceiling. The
    * latest-version collapse happens BEFORE the type/direction filter, because an older version of a
    * relation could match a filter its current version does not.
    */
@@ -377,7 +380,7 @@ export class Neo4jStorage implements StoragePort {
    * Native full-text search, ordered by the index's own score.
    *
    * This is the one place Neo4j is structurally better than every other backend: sqlite has FTS5's
-   * bm25 but no graph, kuzu has the graph but ranks app-level over a full scan. Here the ranking is
+   * bm25 but no graph, OpenSearch has BM25 but walks with a term query. Here the ranking is
    * the index's, so SPEC's "best match first" clause is satisfied natively and `core/rank.ts` is not
    * needed.
    *

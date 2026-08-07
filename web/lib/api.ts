@@ -1,8 +1,8 @@
 // The only place web/ calls fetch.
 //
 // One call site means credential attachment and 401 handling cannot be forgotten by a screen, and
-// `fetchImpl` is injectable so both are unit-testable without a browser — the convention the qdrant
-// adapter and the slack connector already use in this repo.
+// `fetchImpl` is injectable so both are unit-testable without a browser — the convention the
+// opensearch adapter and the slack connector already use in this repo.
 
 import { clearCredential, getCredential } from "./credential";
 import type {

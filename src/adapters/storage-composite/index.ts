@@ -1,10 +1,12 @@
 // storage-composite (v5.2) — knowledge in a remote backend, yoke's own bookkeeping in a local sqlite.
 //
 // This exists because of one fact about the interface above the port: `openStore` returns a
-// `YokeStore`, and **10 of that interface's 12 extension methods are synchronous** — they were shaped
+// `YokeStore`, and **8 of that interface's 12 extension methods are synchronous** (`backupTo`/`exportUntil`
+// always returned promises; `saveOntology`/`renameType` went async in v5.2) — they were shaped
 // by better-sqlite3, which is. A network-backed store cannot implement a synchronous signature. That,
-// not a missing adapter, is why kuzu and qdrant were never reachable from the CLI: kuzu's own
-// `saveOntology`/`loadOntology` are async, so kuzu does not satisfy `YokeStore`.
+// not a missing adapter, is the bar an adapter clears to be reachable from the CLI at all: a backend
+// whose `loadOntology` has to be async does not satisfy `YokeStore` (`saveOntology` already went
+// async in v5.2 — the synchronous read surface is what remains load-bearing).
 //
 // So a remote backend is COMPOSED rather than substituted, and the split is a decision rather than a
 // workaround (SPEC "Remote backends"):

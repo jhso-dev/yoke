@@ -461,7 +461,7 @@ describe("runCli", () => {
       legacy,
       {
         type: "decision",
-        attributes: { conclusion: "use kuzu", rationale: "graph" },
+        attributes: { conclusion: "use neo4j", rationale: "graph" },
       },
       prov,
       "2026-07-01T00:00:00Z",
@@ -491,7 +491,7 @@ describe("runCli", () => {
     ).toBe(0);
     expect(
       readFileSync(join(dir, "persona-alex", "SKILL.md"), "utf8"),
-    ).toContain("use kuzu");
+    ).toContain("use neo4j");
 
     // Idempotent: nothing left to derive.
     expect(await runCli(["backfill", "--db", db, "--json"])).toBe(0);
