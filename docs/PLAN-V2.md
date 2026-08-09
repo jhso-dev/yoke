@@ -10,11 +10,11 @@ WEB-UI.md — on conflict, those win.
 
 ### 8.1 remote backend adapters
 
-- `src/adapters/storage-neo4j/` (Bolt, dep `neo4j-driver-lite`) and
-  `src/adapters/storage-opensearch/` (REST, no dep). Both implement the full
-  StoragePort; both are composed with a local sqlite for the synchronous
-  extension surface — see BACKENDS.md "What a remote backend can and cannot
-  implement" and `storage-composite`.
+- `src/adapters/storage-opensearch/` (REST, no dep) implements the full
+  StoragePort, composed with a local sqlite for the synchronous extension
+  surface — see BACKENDS.md "What a remote backend can and cannot implement" and
+  `storage-composite`. A Postgres adapter is the planned second, against the same
+  shape.
 - DoD: the shared conformance suite green against a real server for each, run in
   CI as a service container. No fake replaces the live run: the behaviour under
   test is the engine's.

@@ -59,7 +59,7 @@ MIT · v5.9까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 |---|---|
 | **한 줄 요약** | 지식에 최적화된 데이터베이스: 온톨로지로 구조화한 뒤, 지금 맥락에 맞는 검증된 부분집합만 인용과 함께 AI에 주입합니다. |
 | **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
-| **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `neo4j`(네이티브 전문검색 + 벡터 인덱스) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 넷 모두 하나의 conformance 스위트를 통과. |
+| **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `postgres`(네이티브 스코어드 FTS + pgvector, 의존성 추가 없음) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 넷 모두 하나의 conformance 스위트를 통과. |
 | **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `rdb`(Postgres/MySQL read-mapping) — 외부 소스 → draft 지식. |
 | **앵커 기반 주입** | 하나의 메커니즘, 두 개의 진입점: `collaboration`에 앵커하면 팀의 공유 작업 컨텍스트, `person`에 앵커하면 persona. |
 | **persona** | "이 동료라면 어떻게 판단할까?" → 그 사람의 기록된 검증 판단을 인용과 함께, 실시간 생성으로. 흉내가 아니라 인용. |
@@ -78,7 +78,7 @@ yoke init                                    # ./yoke.db 생성 + 온톨로지 �
 yoke add fact --attr statement="배포는 화요일 오전에만 한다"
 yoke review                                  # draft 큐 확인
 yoke verify <id>                             # 승격 (또는: yoke verify --all-drafts)
-yoke inject "배포 언제"                       # 검증된 지식만, 인용과 함께 주입
+yoke inject "배포 언제 하는 거지"              # 검증된 지식만, 인용과 함께 주입
 ```
 
 `add`로 넣은 것은 전부 `draft`로 시작합니다. `verify`로 승격하기 전까지는
@@ -162,27 +162,30 @@ export YOKE_EMBED_MODEL=bge-m3                      # 키 불필요
 - `.mcp.json`의 `env`는 MCP 서버 프로세스에만 적용됩니다. **셸에도 export**
   해야 CLI 쓰기가 임베딩됩니다.
 
-## 회사 Neo4j / OpenSearch에 연결
+## 회사가 이미 운영하는 서버에 연결
 
-회사가 이미 운영하는 서버를 그대로 가리킵니다. 지식은 그쪽에 저장되고, **이
-클라이언트의 감사 추적과 API 토큰은 로컬 sqlite에 남습니다**(`--db`가 계속 그 로컬
-절반을 가리킵니다 — 남의 데이터베이스에 yoke의 장부를 넣어달라고 하면 거절당할
-테니까요). 나머지는 전부 동일하게 동작합니다: `add`, `review`, `verify`, `inject`,
-`yoke ui`, MCP.
+Postgres든 OpenSearch든, 이미 운영 중인 서버를 그대로 가리킵니다. 지식은 그쪽에
+저장되고, **이 클라이언트의 감사 추적과 API 토큰은 로컬 sqlite에 남습니다**(`--db`가
+계속 그 로컬 절반을 가리킵니다 — 남의 데이터베이스에 yoke의 장부를 넣어달라고 하면
+거절당할 테니까요). 나머지는 전부 동일하게 동작합니다: `add`, `review`, `verify`,
+`inject`, `yoke ui`, MCP.
 
 ```bash
-export YOKE_NEO4J_URL=bolt://localhost:7687        # 또는 Aura는 neo4j+s://…
-export YOKE_NEO4J_USER=neo4j
-export YOKE_NEO4J_PASSWORD=…
-export YOKE_NEO4J_DATABASE=neo4j                   # 선택
+# Postgres — 대부분의 조직이 이미 갖고 있는 그 DB. pgvector가 있으면 `similar`까지.
+export YOKE_POSTGRES_URL=postgres://user:pass@localhost:5432/db
+export YOKE_POSTGRES_SCHEMA=team_a                 # 선택: 한 데이터베이스에 yoke DB 두 개
 
-# 또는 OpenSearch — 둘 다 지정하면 에러입니다 (서로 다른 지식 저장소)
+# — 또는 OpenSearch (둘 다 지정하면 에러입니다: 서로 다른 지식 저장소)
 export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # 보안 클러스터만
 export YOKE_OPENSEARCH_PREFIX=team_a_              # 선택: 한 클러스터에 yoke DB 두 개
 
-yoke init                                          # 제약·인덱스 생성, 온톨로지 시드
+yoke init                                          # 스키마/인덱스 생성, 온톨로지 시드
 ```
+
+검색은 둘 다 네이티브 스코어드(Postgres `ts_rank` / OpenSearch BM25)이고 `similar`도
+엔진이 답합니다(pgvector / k-NN). 의존성 추가는 없습니다 — `pg`는 RDB 커넥터용으로
+이미 트리에 있었고, OpenSearch 어댑터는 순수 REST입니다.
 
 같은 줄들을 작업 디렉터리의 `.env`에 둬도 됩니다 (`cp .env.example .env`).
 

@@ -200,13 +200,13 @@ class CompositeStorage implements YokeStore {
    */
   // listHistory: intentionally not declared.
 
-  /** A file copy of a database this process does not own. The remote backend's own tooling does this
-   * (`neo4j-admin dump`), and pretending otherwise would produce a backup missing the knowledge. */
+  /** A file copy of a database this process does not own. The remote backend's own snapshot tooling
+   * does this, and pretending otherwise would produce a backup missing the knowledge. */
   async backupTo(_dest: string): Promise<void> {
     throw new Error(
       "backup is not available on a remote backend: the knowledge lives in the remote database, " +
-        "so use its own tooling (for Neo4j: neo4j-admin database dump). The local sqlite holds only " +
-        "this client's audit trail and tokens.",
+        "so use that database's own snapshot tooling. The local sqlite holds only this client's " +
+        "audit trail and tokens.",
     );
   }
 

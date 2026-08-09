@@ -43,7 +43,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.2.0",
     "jose": "^6.2.3",
-    "neo4j-driver-lite": "^6.2.0",
     "pg": "^8.16.0",
     "sqlite-vec": "^0.1.9",
     "ulid": "^3.0.1",

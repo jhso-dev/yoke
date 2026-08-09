@@ -60,7 +60,7 @@ Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server requir
 |---|---|
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
-| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `neo4j` (native full-text + vector indexes) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
+| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
 | **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
@@ -185,19 +185,23 @@ A database holds one vector space. Switching models without `--rebuild` fails lo
 dimension it found and the command above — a mixed space would return confidently wrong neighbours
 instead.
 
-## Using your company's Neo4j
+## Using a server your company already runs
 
-Point yoke at a Neo4j you already run. The knowledge goes there; **this client's audit trail and API
-tokens stay in a local sqlite** — yoke's own bookkeeping does not belong in someone else's database,
-and asking for a place to put it would get a no.
+Point yoke at a Postgres or an OpenSearch you already operate. The knowledge goes there; **this client's audit
+trail and API tokens stay in a local sqlite** — yoke's own bookkeeping does not belong in someone else's
+database, and asking for a place to put it would get a no.
 
 ```bash
-export YOKE_NEO4J_URL=bolt://localhost:7687      # or neo4j+s://… for Aura
-export YOKE_NEO4J_USER=neo4j
-export YOKE_NEO4J_PASSWORD=…
-export YOKE_NEO4J_DATABASE=neo4j                 # optional
+# Postgres — the database most orgs already have. pgvector gives `similar` when present.
+export YOKE_POSTGRES_URL=postgres://user:pass@localhost:5432/db
+export YOKE_POSTGRES_SCHEMA=team_a               # optional: two yoke DBs in one database
 
-yoke init                                        # creates constraints + indexes, seeds the ontology
+# — or OpenSearch (setting both is an error, not a precedence order)
+export YOKE_OPENSEARCH_URL=http://localhost:9200
+export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # a secured cluster only
+export YOKE_OPENSEARCH_PREFIX=team_a_            # optional: two yoke DBs in one cluster
+
+yoke init                                        # creates the schema/indices, seeds the ontology
 ```
 
 Or put the same lines in a **`.env`** in the working directory — `cp .env.example .env` and uncomment.
@@ -206,9 +210,10 @@ variable still wins over the file, which keeps a CI secret ahead of anything lef
 gitignored; `.env.example` is committed and lists every `YOKE_*` variable yoke itself reads.
 
 `--db` still names the local sqlite. Everything else is unchanged — `add`, `review`, `verify`,
-`inject`, `yoke ui`, MCP. Neo4j pairs a **native full-text index with a native vector index in one
-engine**, so search is ranked by the index itself rather than app-level, and
-`similar` needs no second service.
+`inject`, `yoke ui`, MCP. Both backends rank search **natively and scored** (Postgres `ts_rank`,
+OpenSearch BM25) and both serve `similar` from the engine (pgvector / k-NN), so retrieval needs no
+second service. Neither adds a dependency: `pg` was already in the tree for the RDB connector, and
+the OpenSearch adapter is plain REST.
 
 What lives where, and why: `docs/BACKENDS.md`. The short version is that `YokeStore`'s extension
 surface is synchronous (better-sqlite3 shaped it), so a networked backend is *composed* with a local
@@ -216,7 +221,10 @@ sqlite rather than swapped in — and an adapter that cannot satisfy those synch
 selectable at all.
 
 ```bash
-docker run -d --rm --name yoke-neo4j -p 7687:7687 -e NEO4J_AUTH=neo4j/testtest neo4j:5
+docker run -d --name yoke-opensearch -p 9200:9200 \
+  -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
+  -e DISABLE_INSTALL_DEMO_CONFIG=true -e "OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m" \
+  opensearchproject/opensearch:2
 ```
 
 ## Web UI

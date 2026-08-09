@@ -41,7 +41,7 @@ src/
   core/          # knowledge model, ontology, query, context injection. imports: none (pure)
   ports/         # storage port interface + shared conformance cases
   adapters/
-    storage-sqlite/  storage-neo4j/  storage-opensearch/
+    storage-sqlite/  storage-opensearch/
     storage-sharded/    # composes member ports behind one port
     storage-composite/  # a remote port + a local sqlite for the synchronous extensions
   connectors/    # external source → draft knowledge (github-pr, slack, notes, rdb)

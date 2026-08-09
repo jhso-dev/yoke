@@ -1,7 +1,7 @@
 // Relevance ordering for adapters with no ranker of their own.
 //
 // SPEC's search clause 6 says results come back best-match first. Every backend shipping today ranks
-// with a native index — FTS5's bm25, Neo4j's full-text score, OpenSearch's BM25 — so `tokenize` and
+// with a native index — FTS5's bm25, OpenSearch's BM25 — so `tokenize` and
 // `requireEveryTerm` below have adapter callers and the two ranking functions have exactly one: the
 // conformance suite's in-memory fake. That is deliberate rather than leftover. The clause is in the
 // port, so an adapter without an index has to satisfy it somehow, and the fake is where "best match
