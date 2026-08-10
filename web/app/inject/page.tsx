@@ -106,24 +106,32 @@ function InjectBody() {
         <Button type="submit">{t.inject.run}</Button>
       </form>
       {/* The QUERY row above, the LENS row here: what to ask, then under which reading — drafts in
-          or out, and as of when. Filters act immediately, so they need no seat next to the submit. */}
+          or out, and as of when. Filters act immediately, so they need no seat next to the submit.
+          Labels sit BESIDE their control, never around it: a label that wraps the control it also
+          points at (htmlFor) makes some engines activate it twice per click — the two toggles cancel
+          and the checkbox reads as dead. */}
       <div className="controls">
-        <Label
-          htmlFor="inject-include-draft"
-          className="gap-1.5 text-[inherit] font-[inherit]"
-        >
+        <span className="flex items-center gap-1.5">
           <Checkbox
             id="inject-include-draft"
             checked={includeDraft}
             onCheckedChange={(v) => run({ draft: v === true })}
           />
-          {t.inject.includeDraft}
-        </Label>
-        <Label
-          htmlFor="inject-as-of"
-          className="gap-1.5 text-[inherit] font-[inherit]"
-        >
-          {t.inject.asOf}
+          <Label
+            htmlFor="inject-include-draft"
+            className="text-[inherit] font-[inherit]"
+          >
+            {t.inject.includeDraft}
+          </Label>
+        </span>
+        <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
+        <span className="flex items-center gap-1.5">
+          <Label
+            htmlFor="inject-as-of"
+            className="text-[inherit] font-[inherit]"
+          >
+            {t.inject.asOf}
+          </Label>
           <DateTimePicker
             id="inject-as-of"
             value={asOfLocal}
@@ -134,7 +142,7 @@ function InjectBody() {
             unsetLabel={t.inject.asOfClear}
             resetLabel={t.inject.asOfClear}
           />
-        </Label>
+        </span>
       </div>
 
       {!q && !scope ? (

@@ -166,11 +166,15 @@ export default function Audit() {
       </p>
       <ErrorBanner error={trail.error} />
       <div className="controls">
-        <Label
-          htmlFor="audit-since"
-          className="gap-1.5 text-[inherit] font-[inherit]"
-        >
-          {t.audit.since}
+        {/* Label BESIDE the control, not around it — wrapped-plus-htmlFor double-activates in some
+            engines (see the inject screen's filter row). */}
+        <span className="flex items-center gap-1.5">
+          <Label
+            htmlFor="audit-since"
+            className="text-[inherit] font-[inherit]"
+          >
+            {t.audit.since}
+          </Label>
           {/* Every timestamp on this screen reads in the viewer's zone, so the filter takes one
               too. A RANGE, because "what happened that week" is the question an auditor actually
               asks; from-only stays possible (open-ended since). */}
@@ -182,7 +186,7 @@ export default function Audit() {
             unsetLabel={t.common.anyTime}
             resetLabel={t.common.clear}
           />
-        </Label>
+        </span>
         <Select
           value={action || ANY}
           onValueChange={(v) => setAction(v === ANY ? "" : v)}
