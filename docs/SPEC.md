@@ -951,6 +951,13 @@ A persona is the person-anchored reading of an anchored injection — not a seco
 Because authorship is a graph edge rather than a provenance lookup outside the storage contract,
 persona works on every conformant backend (sqlite, sharded, opensearch, postgres).
 
+**Measured, not asserted** (`npm run eval:persona`): against a corpus of five planted failure modes —
+another author's records on the same topics, records tied to the person by `relates_to`, the
+`derived_from` sources under their decisions, their own drafts, their own aged records — the eval
+reports impersonation, draft-leak and stale-leak rates (target 0%) and whole/query recall (target
+100%), and exits non-zero on any miss. Both regressions it exists to catch were planted once to prove
+it bites: including drafts reads as a 100% draft leak, dropping `scopeRel` as 50% impersonation.
+
 **Upgrade path**: databases written before stage 4b have no authorship edges. `yoke backfill`
 re-derives them through the gate from each version's recorded provenance, skipping `origin:
 'lifecycle'` rows so the author is credited rather than the promoter. Idempotent.

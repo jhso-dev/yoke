@@ -41,7 +41,7 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 
 - `npm run build` — `build:cli` (tsc → `dist/`) + `build:web` (Next static export → `dist/front/ui/app`)
 - `npm test` — vitest, one stage
-- `npm run typecheck` · `npm run lint` (biome) · `npm run eval` (injection-quality report)
+- `npm run typecheck` · `npm run lint` (biome) · `npm run eval` (injection-quality report) · `npm run eval:persona` (persona-quality report)
 - `npm run eval:retrieval -- <db>` — recall@k/nDCG over `eval/gold-set.json`. Needs a loaded corpus
   (`node scripts/load-demo-corpus.mjs <db>`) and an embedder for the hybrid column
 - `typecheck` · `lint` · `test` · `build` must be green in every commit.
