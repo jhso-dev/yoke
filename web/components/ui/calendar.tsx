@@ -41,11 +41,29 @@ function Calendar({
         day: cn(d.day, "p-0 text-center"),
         day_button: cn(
           "size-7 rounded-[var(--radius)] tabular-nums hover:bg-accent hover:text-accent-foreground",
-          "aria-selected:bg-primary aria-selected:text-primary-foreground",
+          // The pointer is still ON the day the moment it is clicked, so an unconditional hover fill
+          // sits over the selection fill and the click appears to do nothing. Inside a selected cell
+          // the button yields to the cell's paint.
+          "[td[data-selected=true]_&]:hover:bg-transparent! [td[data-selected=true]_&]:hover:text-inherit!",
         ),
-        today: cn(d.today, "font-bold text-primary"),
+        // Selection paints the CELL: react-day-picker puts `data-selected` (and the range_* classes)
+        // on the td, not the button — a button-level aria-selected style here matches nothing and the
+        // picked day gives no visual answer at all.
+        today: cn(
+          d.today,
+          "font-bold text-primary data-[selected=true]:text-primary-foreground",
+        ),
         outside: cn(d.outside, "text-muted-foreground opacity-50"),
-        selected: cn(d.selected, "rounded-[var(--radius)]"),
+        selected: cn(
+          d.selected,
+          "rounded-[var(--radius)] bg-primary text-primary-foreground",
+        ),
+        // Middle days also carry `selected`; the two background utilities tie on specificity, so the
+        // band's quieter fill has to be important to hold against the endpoint fill.
+        range_middle: cn(
+          d.range_middle,
+          "rounded-none! bg-accent! text-accent-foreground!",
+        ),
         disabled: cn(d.disabled, "opacity-40"),
       }}
       components={{

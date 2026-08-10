@@ -104,6 +104,10 @@ function InjectBody() {
           className="mono w-auto min-w-55"
         />
         <Button type="submit">{t.inject.run}</Button>
+      </form>
+      {/* The QUERY row above, the LENS row here: what to ask, then under which reading — drafts in
+          or out, and as of when. Filters act immediately, so they need no seat next to the submit. */}
+      <div className="controls">
         <Label
           htmlFor="inject-include-draft"
           className="gap-1.5 text-[inherit] font-[inherit]"
@@ -131,7 +135,7 @@ function InjectBody() {
             resetLabel={t.inject.asOfClear}
           />
         </Label>
-      </form>
+      </div>
 
       {!q && !scope ? (
         <div className="panel">
