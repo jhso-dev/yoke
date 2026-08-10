@@ -40,6 +40,11 @@ export const en = {
     copyFull: "click to copy",
     copy: "Copy",
     copied: "Copied",
+    // The date-time picker. "Any time" is the unset state of a FILTER — absence of a bound, not a
+    // missing value, so it must not read like an error or a placeholder to fill.
+    anyTime: "Any time",
+    timeOfDay: "time",
+    clear: "Clear",
     type: "type",
     status: "status",
     actor: "actor",

@@ -160,6 +160,13 @@ Nothing in `src/` gets a build step beyond `tsc`.
   Everything but `radix-ui` and `lucide-react` is build-time. **Anything further
   requires a note here first, naming what it buys.**
 
+  Amended again for the date-time picker: **`react-day-picker`** (which brings `date-fns`
+  transitively) replaces the two `<input type="datetime-local">` controls — the last OS-styled
+  element in the product, whose popup ignored the theme entirely. What it buys: the calendar renders
+  on this product's own tokens in both themes; the value contract (`web/lib/time.ts` local wall
+  time) is unchanged, so it is a rendering swap. Cost, measured: the shipped bundle moved to
+  **362 KB gzipped** against the 380 KB budget the size test enforces.
+
   What shadcn bought and cost: the hand-written CSS layer shrinks and the
   accessibility work in dialogs, selects and focus management stops being ours to
   get right; the bundle pays for it. `theme.css` maps this product's own tokens

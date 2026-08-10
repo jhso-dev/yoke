@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import { Actor } from "../../components/Actor";
 import { CopyCode } from "../../components/CopyCode";
+import { DateTimePicker } from "../../components/DateTimePicker";
 import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
@@ -165,14 +166,12 @@ export default function Audit() {
           className="gap-1.5 text-[inherit] font-[inherit]"
         >
           {t.audit.since}
-          <Input
+          {/* Every timestamp on this screen reads in the viewer's zone, so the filter takes one too. */}
+          <DateTimePicker
             id="audit-since"
-            type="datetime-local"
             value={since}
-            onChange={(e) => setSince(e.target.value)}
-            // Every timestamp on this screen reads in the viewer's zone, so the filter takes one too.
+            onChange={setSince}
             title={t.audit.sinceHint}
-            className="w-auto"
           />
         </Label>
         <Select

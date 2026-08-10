@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CopyCode } from "../../components/CopyCode";
+import { DateTimePicker } from "../../components/DateTimePicker";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { api } from "../../lib/api";
@@ -119,13 +120,11 @@ function InjectBody() {
           className="gap-1.5 text-[inherit] font-[inherit]"
         >
           {t.inject.asOf}
-          <Input
+          <DateTimePicker
             id="inject-as-of"
-            type="datetime-local"
             value={asOfLocal}
-            onChange={(e) => run({ asOf: e.target.value })}
+            onChange={(next) => run({ asOf: next })}
             title={t.inject.asOfHint}
-            className="w-auto"
           />
         </Label>
         {asOfLocal && (
