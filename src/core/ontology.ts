@@ -74,7 +74,15 @@ export function validateInput(
 
 export function seedOntology(): TypeDef[] {
   return [
-    { name: "person", kind: "entity", attrs: {} },
+    // `name` is declared because a person is referred to by it everywhere a person appears — record
+    // labels, personas, the stale-owner roster. Undeclared it still worked from the CLI (the gate is
+    // lenient about extra attributes), but the ontology-driven create form offers exactly the
+    // declared fields, so the one type whose records anchor personas had a form with no fields.
+    {
+      name: "person",
+      kind: "entity",
+      attrs: { name: { type: "string", required: true } },
+    },
     { name: "fact", kind: "entity", attrs: {}, ttl_days: 180 },
     {
       name: "decision",

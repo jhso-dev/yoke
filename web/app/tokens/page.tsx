@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,11 +16,28 @@ import {
 import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
+import { Modal } from "../../components/Modal";
 import { Pagination, usePage } from "../../components/Pagination";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
+import { announce } from "../../lib/toast";
 import type { CreatedToken, TokenInfo } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
+
+/** The three actions RBAC actually knows (src/front/serve/rbac.ts). The form offers exactly these —
+ * a free-text scope field made the caller memorise the grammar to grant "read". */
+const ACTIONS = ["read", "write", "verify"] as const;
+type Action = (typeof ACTIONS)[number];
+
+/** Compose scope strings in rbac.ts's own grammar. The form offers the action and an optional
+ * record-type narrowing; the grammar's namespace segment stays a wildcard — a namespace is a
+ * multi-tenant (`serve --auth`) concept, and asking the local single-user screen to name one was
+ * a question with no meaningful answer here. `yoke token create` still spells ns-scoped grants. */
+function composeScopes(actions: Set<Action>, type: string): string[] {
+  return ACTIONS.filter((a) => actions.has(a)).map((a) =>
+    type ? `*:${type}:${a}` : a,
+  );
+}
 
 export default function Tokens() {
   const t = useT();
@@ -31,17 +49,22 @@ export default function Tokens() {
 
   return (
     <>
-      <h1>{t.tokens.heading}</h1>
+      <div className="page-head">
+        <h1>{t.tokens.heading}</h1>
+        <CreateTokenButton
+          onCreated={(tok) => {
+            setCreated(tok);
+            tokens.reload();
+          }}
+        />
+      </div>
       <p className="lede">{t.tokens.lede}</p>
       <ErrorBanner error={tokens.error ?? error} />
-      <CreateToken
-        onCreated={(tok) => {
-          setCreated(tok);
-          tokens.reload();
-        }}
-        onError={setError}
-      />
-      {created && <CreatedTokenPanel token={created} />}
+      {/* The secret exists on screen exactly once, so it gets a dialog the reader must dismiss —
+          a panel below the fold is how a credential scrolls away unsaved. */}
+      {created && (
+        <SecretModal token={created} onClose={() => setCreated(null)} />
+      )}
       <div className="panel">
         {tokens.loading ? (
           <div className="empty">{t.common.loading}</div>
@@ -82,74 +105,145 @@ export default function Tokens() {
   );
 }
 
-function CreateToken({
+/**
+ * Grant by choosing, not by spelling: the actions are checkboxes with one line each on what they
+ * let a caller do, the optional namespace/type fields narrow every checked action, and the mono
+ * line at the bottom shows the exact scope strings the token will carry — the preview IS the
+ * grammar, so there is nothing to memorise and nothing to mistype.
+ */
+function CreateTokenButton({
   onCreated,
-  onError,
 }: {
   onCreated: (token: CreatedToken) => void;
-  onError: (error: unknown) => void;
 }) {
   const t = useT();
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [scopes, setScopes] = useState("read");
+  const [actions, setActions] = useState<Set<Action>>(new Set(["read"]));
+  const [type, setType] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const scopes = composeScopes(actions, type.trim());
+  const hints: Record<Action, string> = {
+    read: t.tokens.readHint,
+    write: t.tokens.writeHint,
+    verify: t.tokens.verifyHint,
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const tok = await api.createToken({ name: name.trim(), scopes });
+      setName("");
+      setActions(new Set(["read"]));
+      setType("");
+      setOpen(false);
+      onCreated(tok);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <form
-      className="panel controls token-form"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setBusy(true);
-        onError(null);
-        try {
-          const tok = await api.createToken({
-            name: name.trim(),
-            scopes: scopes
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean),
-          });
-          setName("");
-          onCreated(tok);
-        } catch (e) {
-          onError(e);
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <div className="field">
-        <Label htmlFor="token-name">{t.tokens.name}</Label>
-        <Input
-          id="token-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={t.tokens.namePlaceholder}
-          required
-        />
-      </div>
-      <div className="field">
-        <Label htmlFor="token-scopes">
-          {t.tokens.scopes}{" "}
-          <span className="text-muted-foreground font-normal">
-            {t.tokens.scopesHint}
-          </span>
-        </Label>
-        <Input
-          id="token-scopes"
-          value={scopes}
-          onChange={(e) => setScopes(e.target.value)}
-          required
-        />
-      </div>
-      <Button type="submit" disabled={busy}>
-        {busy ? t.common.creating : t.tokens.create}
+    <>
+      <Button type="button" onClick={() => setOpen(true)}>
+        {t.tokens.newToken}
       </Button>
-    </form>
+      <Modal
+        open={open}
+        title={t.tokens.newToken}
+        description={t.tokens.createdNote}
+        onClose={() => setOpen(false)}
+      >
+        {/* Wider gap than the record forms: this one is SECTIONS (name, permissions, narrowing,
+            the grant preview), and sections need more air between them than fields do. */}
+        <form onSubmit={submit} className="grid gap-6">
+          <div className="grid gap-2">
+            <Label htmlFor="token-name">{t.tokens.name}</Label>
+            <Input
+              id="token-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t.tokens.namePlaceholder}
+              required
+              autoFocus
+            />
+          </div>
+          <fieldset className="grid gap-2 border-0 p-0">
+            <legend className="mb-2 text-[13px] font-medium">
+              {t.tokens.permissions}
+            </legend>
+            {ACTIONS.map((a) => (
+              /* Label beside the control, never around it — see the inject screen's filter row. */
+              <span key={a} className="flex items-baseline gap-1.5">
+                <Checkbox
+                  id={`token-action-${a}`}
+                  className="self-center"
+                  checked={actions.has(a)}
+                  onCheckedChange={(v) =>
+                    setActions((prev) => {
+                      const next = new Set(prev);
+                      if (v === true) next.add(a);
+                      else next.delete(a);
+                      return next;
+                    })
+                  }
+                />
+                <Label
+                  htmlFor={`token-action-${a}`}
+                  className="text-[inherit] font-[inherit]"
+                >
+                  <span className="mono">{a}</span>
+                  <span className="text-muted-foreground">— {hints[a]}</span>
+                </Label>
+              </span>
+            ))}
+          </fieldset>
+          <div className="grid gap-2">
+            <Label htmlFor="token-type">
+              {t.tokens.recordType}{" "}
+              <span className="text-muted-foreground font-normal">
+                {t.tokens.restrictLegend}
+              </span>
+            </Label>
+            <Input
+              id="token-type"
+              className="mono"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              placeholder={t.tokens.anyPlaceholder}
+            />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            {t.tokens.grants}{" "}
+            <span className="mono text-foreground">
+              {scopes.length > 0 ? scopes.join(", ") : "—"}
+            </span>
+          </p>
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={busy || scopes.length === 0}>
+              {busy ? t.common.creating : t.tokens.create}
+            </Button>
+          </div>
+          <ErrorBanner error={error} />
+        </form>
+      </Modal>
+    </>
   );
 }
 
-function CreatedTokenPanel({ token }: { token: CreatedToken }) {
+function SecretModal({
+  token,
+  onClose,
+}: {
+  token: CreatedToken;
+  onClose: () => void;
+}) {
   const t = useT();
   const [origin, setOrigin] = useState("");
   useEffect(() => {
@@ -157,18 +251,19 @@ function CreatedTokenPanel({ token }: { token: CreatedToken }) {
   }, []);
   const share = `${origin}/#token=${encodeURIComponent(token.token)}`;
   return (
-    <div className="panel">
-      <div className="panel-head">
-        {t.tokens.created}
-        <span className="muted">{t.tokens.createdNote}</span>
-      </div>
+    <Modal
+      open
+      title={t.tokens.created}
+      description={t.tokens.createdNote}
+      onClose={onClose}
+    >
       <div className="token-secret">
         <span className="token-label">{t.tokens.secret}</span>
         <CopyCode value={token.token} />
         <span className="token-label">{t.tokens.shareUrl}</span>
         <CopyCode value={share} />
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -200,6 +295,7 @@ function TokenRow({
             onError(null);
             try {
               await api.revokeToken(token.name);
+              announce(t.tokens.revoked(token.name));
               onRevoked();
             } catch (e) {
               onError(e);

@@ -144,6 +144,8 @@ export const ko: typeof en = {
     // "중복이 없다"가 아니라 "비교를 안 했다" — 이 구분이 요점입니다.
     notChecked:
       "생성했습니다. 다만 무엇과도 비교하지 않았습니다: 이 작업 공간에 임베딩 제공자가 설정되지 않아 중복 탐지가 실행되지 않았습니다.",
+    createdToast: (label: string) =>
+      `"${label}" 초안으로 생성됨 — 리뷰에서 검증하세요.`,
   },
   review: {
     heading: "리뷰 대기열",
@@ -276,6 +278,9 @@ export const ko: typeof en = {
   },
   persona: {
     heading: "페르소나",
+    // 읽는 사람이 만들러 온 것의 이름. 버튼이 실제로 기록하는 것은 페르소나가 파생될 '사람'입니다 —
+    // 페르소나는 그 사람의 verified 레코드를 되읽는 것이니까요.
+    newPersona: "새 페르소나",
     lede: "한 사람이 남긴 verified 지식을 확인합니다. 에이전트가 그 사람의 판단을 물으면 해당 레코드와 출처를 전달합니다. 그 사람의 말투를 흉내 낸 글은 만들지 않습니다.",
     headingOne: "페르소나",
     all: "전체 페르소나",
@@ -364,10 +369,19 @@ export const ko: typeof en = {
     heading: "토큰",
     lede: "브라우저 공유와 원격 접근에 사용할 API 토큰을 관리합니다. secret은 토큰을 만들 때 한 번만 표시됩니다. 접근을 차단하려면 토큰 이름으로 폐기하세요.",
     create: "토큰 생성",
+    newToken: "새 토큰",
     name: "이름",
-    namePlaceholder: "친구-readonly",
+    namePlaceholder: "ci-agent",
     scopes: "스코프",
-    scopesHint: "쉼표로 구분",
+    permissions: "권한",
+    readHint: "지식 읽기 — 브리핑·주입·검색",
+    writeHint: "레코드 생성 — draft로 들어갑니다",
+    verifyHint: "거버넌스 — 검증·재확인·폐기",
+    restrictLegend: "(선택 — 비우면 모든 타입)",
+    recordType: "레코드 타입",
+    anyPlaceholder: "전체",
+    grants: "부여되는 권한",
+    revoked: (name: string) => `"${name}" 폐기됨.`,
     created: "토큰 생성됨",
     createdNote: "지금 저장하세요. yoke에는 해시만 저장됩니다.",
     secret: "비밀 토큰",

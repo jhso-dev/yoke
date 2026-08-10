@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { recordLabel } from "../lib/citation";
 import { useT } from "../lib/i18n";
+import { announce } from "../lib/toast";
 import type { Knowledge, TypeDef } from "../lib/types";
 import { CreateRecord } from "./CreateRecord";
 import { Modal } from "./Modal";
@@ -13,9 +15,12 @@ import { Modal } from "./Modal";
  * A button rather than a form sitting open above the list: an always-open form pushes the thing you
  * came to read one panel down on every visit, for an action most visits do not take.
  *
- * It stays open after a successful create. Creating one record is rarely creating exactly one, and
- * the duplicate warning the gate returns is shown inside the form — closing on success would throw
- * that away at the moment it matters. Closing is the reader's call: the button, Esc, or the backdrop.
+ * A successful create CLOSES the dialog — the form's job ends at the commit, and a dialog that
+ * lingers over the list reads as "not done yet". What the gate had to say about that commit (saved
+ * as a draft, similar records already exist, nothing was compared) follows the reader out as a
+ * toast, so closing does not swallow it. Errors are the opposite case: the dialog stays open with
+ * the gate's words next to the fields that caused them, because an error is not an outcome to walk
+ * away from.
  */
 export function CreateButton({
   ontology,
@@ -52,7 +57,23 @@ export function CreateButton({
           ontology={ontology}
           type={type}
           scope={scope}
-          onCreated={onCreated}
+          onCreated={(created) => {
+            // One sentence, the most important one: a duplicate warning outranks the plain
+            // "created" (it already says created), and "nothing was compared" outranks silence.
+            const dups = created.duplicates ?? [];
+            announce(
+              dups.length > 0
+                ? t.create.duplicates(
+                    dups.length,
+                    dups.map((d) => recordLabel(d)).join(" · "),
+                  )
+                : created.duplicateDetection === "skipped"
+                  ? t.create.notChecked
+                  : t.create.createdToast(recordLabel(created)),
+            );
+            setOpen(false);
+            onCreated(created);
+          }}
         />
       </Modal>
     </>

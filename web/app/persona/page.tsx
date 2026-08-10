@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Citation } from "../../components/Citation";
 import { CopyCode } from "../../components/CopyCode";
+import { CreateButton } from "../../components/CreateButton";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -42,11 +43,23 @@ function Roster() {
     () => api.entities({ type: "person", after, limit: PER_PAGE }),
     [after],
   );
+  // For the create form's fields — a tenant that added attributes to `person` gets them here too.
+  const ontology = useAsync(() => api.ontology(), []);
   const rows = page.data?.items ?? [];
 
   return (
     <>
-      <h1>{t.persona.heading}</h1>
+      <div className="page-head">
+        <h1>{t.persona.heading}</h1>
+        {/* A persona is a derivative, never a stored artifact (VISION): what this actually records
+            is the person the persona anchors to, so the form is the person type's. */}
+        <CreateButton
+          ontology={ontology.data ?? []}
+          type="person"
+          label={t.persona.newPersona}
+          onCreated={page.reload}
+        />
+      </div>
       <p className="lede">{t.persona.lede}</p>
       <ErrorBanner error={page.error} />
       {page.loading ? (

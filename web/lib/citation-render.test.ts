@@ -37,9 +37,9 @@ const EXEMPT: Record<string, string> = {
   "app/audit/page.tsx":
     "an audit row IS provenance (actor, action, instant); the labels it resolves are references, " +
     "and the full detail string with every id stays on the row",
-  "components/CreateRecord.tsx":
-    "duplicate candidates arrive as a plain-string toast from the gate response; each candidate is " +
-    "one click from its record page, where the citation is",
+  "components/CreateButton.tsx":
+    "names the created record and its duplicate candidates in a one-line toast — a toast cannot " +
+    "hold a citation link; each record is one click from its page, where the citation is",
   "components/LinkRecord.tsx":
     "a control caption naming the record being linked — the same screen (entity) renders that " +
     "record's citation in its own panel above the control",

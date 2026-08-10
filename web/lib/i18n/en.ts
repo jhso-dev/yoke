@@ -143,6 +143,8 @@ export const en = {
     // Not "no duplicates found" — nothing was compared. The distinction is the point.
     notChecked:
       "Created. Nothing was compared against it: this workspace has no embedding provider configured, so duplicate detection did not run.",
+    createdToast: (label: string) =>
+      `Created "${label}" as a draft — verify it in Review.`,
   },
   review: {
     heading: "Review queue",
@@ -280,6 +282,9 @@ export const en = {
   },
   persona: {
     heading: "Persona",
+    // Named for what the reader is here to make. What the button records is the person the
+    // persona derives from — a persona is that person's verified records, read back.
+    newPersona: "New persona",
     lede: "View the verified knowledge authored by one person. When an agent asks how that person would decide, it receives their records and sources. It does not generate text in their voice.",
     headingOne: "Persona",
     all: "All personas",
@@ -367,10 +372,19 @@ export const en = {
     heading: "Tokens",
     lede: "Manage API tokens for browser sharing and remote access. A secret is shown only when its token is created. Revoke the token by name to end access.",
     create: "Create token",
+    newToken: "New token",
     name: "name",
-    namePlaceholder: "friend-readonly",
+    namePlaceholder: "ci-agent",
     scopes: "scopes",
-    scopesHint: "comma separated",
+    permissions: "permissions",
+    readHint: "see knowledge — briefings, injections, search",
+    writeHint: "create records — they enter as drafts",
+    verifyHint: "governance — verify, re-confirm, deprecate",
+    restrictLegend: "(optional — leave empty for all types)",
+    recordType: "record type",
+    anyPlaceholder: "any",
+    grants: "this token grants",
+    revoked: (name: string) => `Revoked "${name}".`,
     created: "Token created",
     createdNote: "Save it now. yoke stores only the hash.",
     secret: "secret",

@@ -12,7 +12,13 @@ export function ToastHost() {
       if (!detail?.message) return;
       window.clearTimeout(timer);
       setMessage(detail.message);
-      timer = window.setTimeout(() => setMessage(""), 1600);
+      // Time to read scales with what there is to read: "copied" needs a blink, a duplicate
+      // warning naming three records needs a sentence's worth. Capped so a mistake in a message
+      // cannot park a toast on screen.
+      timer = window.setTimeout(
+        () => setMessage(""),
+        Math.min(7000, Math.max(1600, 600 + detail.message.length * 55)),
+      );
     };
     window.addEventListener("yoke:toast", onToast);
     return () => {

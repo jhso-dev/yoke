@@ -18,6 +18,9 @@ import { ko } from "./ko";
 const KEEPS_ENGLISH: Record<string, string> = {
   "common.version": "the column header for a version number, not a word",
   "ontology.attrsExample": "attribute names, typed into the form as-is",
+  "tokens.namePlaceholder":
+    "an example token name — the name IS the handle `yoke token revoke` takes, so a Korean " +
+    "example would suggest typing something the CLI then has to be given back verbatim",
   "login.addPrefix": "empty in ko — the sentence is ordered differently",
 };
 

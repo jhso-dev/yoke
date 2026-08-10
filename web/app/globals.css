@@ -688,34 +688,5 @@ dialog::backdrop {
   padding: 14px;
 }
 
-/* Labelled fields stacked one per row — a wrapping flex row put labels beside their inputs and, at
-   three or more fields, beside the wrong ones. */
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-}
-
-.field > span {
-  color: var(--muted-foreground);
-}
-
-.field input,
-.field select {
-  width: 100%;
-}
-
-.token-form {
-  align-items: end;
-  padding: 12px;
-}
-.token-form .field {
-  flex: 1 1 220px;
-}
+/* .stack / .field / .token-form are gone: the last form on them (tokens) moved to the shared modal
+   form shape — Tailwind grid gap with components/ui fields — like every other create form. */

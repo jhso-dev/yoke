@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,10 +12,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "../lib/api";
-import { recordLabel } from "../lib/citation";
 import { useT } from "../lib/i18n";
 import type { Knowledge, TypeDef } from "../lib/types";
 import { ErrorBanner } from "./ErrorBanner";
+
+/** What the gate said about the commit, alongside the record it made. The caller decides how to
+ * show it (CreateButton says it as a toast on the way out). */
+export type CreateOutcome = Knowledge & {
+  duplicates?: Knowledge[];
+  duplicateDetection?: "embedding" | "skipped";
+};
 
 /**
  * Create a record, from the ontology rather than from hand-written fields per type.
@@ -41,7 +46,7 @@ export function CreateRecord({
   type?: string;
   /** Attach the new record to this entity via relates_to — the same second commit `--scope` makes. */
   scope?: string;
-  onCreated: (created: Knowledge) => void;
+  onCreated: (created: CreateOutcome) => void;
 }) {
   const tr = useT();
   const entityTypes = ontology.filter((d) => d.kind === "entity");
@@ -51,10 +56,6 @@ export function CreateRecord({
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [duplicates, setDuplicates] = useState<Knowledge[]>([]);
-  // Whether anything was actually compared. An empty duplicate list has two very different causes and
-  // the form showed the same thing (nothing) for both.
-  const [unchecked, setUnchecked] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,9 +68,9 @@ export function CreateRecord({
         Object.entries(values).filter(([, v]) => v.trim() !== ""),
       );
       const created = await api.create({ type: active, attributes, scope });
-      setDuplicates(created.duplicates ?? []);
-      setUnchecked(created.duplicateDetection === "skipped");
       setValues({});
+      // The gate's report (duplicates found, or nothing compared) travels WITH the record: the
+      // dialog closes on success, so anything rendered here would never be seen.
       onCreated(created);
     } catch (e) {
       setError(e);
@@ -147,26 +148,6 @@ export function CreateRecord({
         </span>
       </div>
       <ErrorBanner error={error} />
-      {duplicates.length > 0 && (
-        // The gate found these; a form that discarded them would help someone create the very thing
-        // it warned about. Shown after the fact because the record is already staged as a draft —
-        // the reviewer decides, which is the whole shape of this product.
-        <Alert>
-          <AlertDescription>
-            {tr.create.duplicates(
-              duplicates.length,
-              duplicates.map((d) => recordLabel(d)).join(" · "),
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-      {unchecked && duplicates.length === 0 && (
-        // The record was saved; nothing was compared against it. Saying nothing here let someone read
-        // the absence of a warning as "checked, and it is fine" — which it is not.
-        <Alert>
-          <AlertDescription>{tr.create.notChecked}</AlertDescription>
-        </Alert>
-      )}
     </form>
   );
 }
