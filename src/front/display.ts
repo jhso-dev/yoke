@@ -106,3 +106,53 @@ export function injectShape(detail: string): {
     asOf,
   };
 }
+
+/**
+ * id → how many times an agent has received that record: the `inject` and `persona` audit rows,
+ * counted over whatever window of events the caller hands in.
+ *
+ * This is the governance signal the stale queue orders by. A record agents consumed 47 times last
+ * month and one nothing has touched since it was verified both age out the same day; the person
+ * re-confirming should meet the first one first. The audit trail already held the answer — every
+ * inject/persona row names the ids it returned — so this is an aggregation, not new bookkeeping.
+ *
+ * `inject_preview`, `read` and `search` are deliberately NOT counted: those record a human governing,
+ * and the question here is what AGENTS are being told.
+ *
+ * Structural event type rather than the adapter's AuditEvent, so this file keeps importing only core.
+ * The `detail` grammar is `subject -> id id …` (see `injectDetail`); the ids side is taken from the
+ * LAST arrow, since a query in the subject may contain anything.
+ */
+export function consumptionCounts(
+  events: Array<{ action: string; detail: string }>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const e of events) {
+    if (e.action !== "inject" && e.action !== "persona") continue;
+    const arrow = e.detail.lastIndexOf(" -> ");
+    if (arrow === -1) continue;
+    for (const id of e.detail.slice(arrow + 4).split(" ")) {
+      if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+/**
+ * Most-consumed first, ties in the caller's order (for the stale queue: scan order, so the result is
+ * deterministic). Sorting happens WITHIN the returned page — the scan cursor pages by position, not
+ * by rank, so `next` is unaffected.
+ *
+ * ceiling: within-page ordering only. A globally most-consumed-first queue needs the whole scan
+ * before the first row is shown; do that when a corpus is measured with more stale records than fit
+ * on one page AND the tail actually matters.
+ */
+export function rankByConsumption<T extends { id: string }>(
+  items: T[],
+  counts: Map<string, number>,
+): Array<T & { injections: number }> {
+  return items
+    .map((e, i) => ({ e, i, injections: counts.get(e.id) ?? 0 }))
+    .sort((a, b) => b.injections - a.injections || a.i - b.i)
+    .map(({ e, injections }) => ({ ...e, injections }));
+}

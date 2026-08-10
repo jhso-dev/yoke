@@ -48,7 +48,13 @@ import {
   safeName,
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
-import { injectDetail, injectShape, summarize } from "../display.js";
+import {
+  consumptionCounts,
+  injectDetail,
+  injectShape,
+  rankByConsumption,
+  summarize,
+} from "../display.js";
 import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
@@ -661,17 +667,24 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
         emit(v, `no stale records (scanned ${scanned} verified)`, []);
         return 0;
       }
-      const lines = items.map(
+      // Most-consumed first: re-confirmation effort goes to the knowledge agents are actually being
+      // fed. The count is this store's audit trail — under `serve` that is the team's central trail;
+      // pointed straight at a shared remote backend it is this client's own reads only.
+      const ranked = rankByConsumption(
+        items,
+        consumptionCounts(store.listAudit({ ns })),
+      );
+      const lines = ranked.map(
         (e) =>
-          `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${e.provenance.actor}  last confirmed ${e.last_confirmed}`,
+          `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${e.provenance.actor}  injected ${e.injections}x  last confirmed ${e.last_confirmed}`,
       );
       // The scan is bounded, so say what it covered — "3 stale" alone reads as "3 stale in the whole
       // corpus", which is a claim this walk did not make.
       lines.push(
-        `-- ${items.length} stale among ${scanned} verified records scanned` +
+        `-- ${ranked.length} stale among ${scanned} verified records scanned` +
           (next === null ? "" : `; more to scan: --after ${next}`),
       );
-      emit(v, lines.join("\n"), items);
+      emit(v, lines.join("\n"), ranked);
       return 0;
     }
     const drafts = (

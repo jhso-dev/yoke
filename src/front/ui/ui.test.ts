@@ -1384,6 +1384,56 @@ describe("the stale queue over HTTP (SPEC's unimplemented clause)", () => {
     }
   });
 
+  // The queue is a work list, so it orders by what matters: the records agents are actually being
+  // fed. The count comes from the audit trail's own inject/persona rows — no new bookkeeping.
+  it("orders the page most-consumed first and says the count", async () => {
+    const ont = store.loadOntology(null);
+    const at = "2026-07-13T00:00:00Z";
+    const mk = async (title: string) => {
+      const { entity } = await commit(
+        store,
+        ont,
+        { type: "fact", attributes: { title } },
+        prov,
+        at,
+      );
+      await verify(store, [entity.id], "reviewer", at);
+      return entity.id;
+    };
+    const cold = await mk("stale but nobody reads it");
+    const hot = await mk("stale and agents are fed it daily");
+    // Two agent reads for `hot`, none for `cold`; a preview names both and must not count.
+    store.logAudit({ actor: "a", action: "inject", detail: `q -> ${hot}`, at });
+    store.logAudit({
+      actor: "a",
+      action: "persona",
+      detail: `p -> ${hot}`,
+      at,
+    });
+    store.logAudit({
+      actor: "a",
+      action: "inject_preview",
+      detail: `q -> ${hot} ${cold}`,
+      at,
+    });
+
+    const late = await laterServer("2027-09-01T00:00:00Z");
+    try {
+      const aged = await late.get("/api/review?stale=1");
+      const rows = aged.items.filter((i: { id: string }) =>
+        [hot, cold].includes(i.id),
+      );
+      expect(rows.map((r: { id: string }) => r.id)).toEqual([hot, cold]);
+      expect(rows[0].injections).toBe(2);
+      expect(rows[1].injections).toBe(0);
+      // hot ranks above cold in the WHOLE page too, not just between themselves.
+      const ids = aged.items.map((i: { id: string }) => i.id);
+      expect(ids.indexOf(hot)).toBeLessThan(ids.indexOf(cold));
+    } finally {
+      late.close();
+    }
+  });
+
   it("the draft queue is unaffected by the parameter it does not get", async () => {
     const drafts = await get("/api/review");
     // Still an array, not the {items,next,scanned} envelope — the two shapes are different on

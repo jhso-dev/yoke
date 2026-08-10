@@ -153,6 +153,10 @@ export const ko: typeof en = {
     staleScanned: (n: number, scanned: number) =>
       `살펴본 verified 레코드 ${scanned}개 중 ${n}개가 기한을 넘겼습니다`,
     staleMore: "아직 살펴보지 않은 레코드가 남아 있습니다",
+    // 큐 정렬 기준인 소비 신호. "주입"은 감사 트레일의 동사 그대로 — 이 레코드를 반환한
+    // inject·persona 행의 수이지 화면 조회 수가 아닙니다.
+    injectedHead: "주입",
+    injectedTimes: (n: number) => `${n}회`,
     // Was singular and said "this record" while listing thirty people about a hundred records.
     staleOwners:
       "이 사람들에게 재확인을 요청하세요 — 숫자는 각자가 기록한 오래된 레코드 수입니다:",

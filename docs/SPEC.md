@@ -554,6 +554,14 @@ docs/RESEARCH.md's freshness findings converge on.
 - Exposed as `yoke review --stale` and `GET /api/review?stale=1` — the same command and route as the
   draft queue, because the contract clause names `review` and because both queues take the same two
   actions. `--type` narrows either queue.
+- **The page is ordered by consumption, and each row says its count.** The count is the number of
+  `inject` and `persona` audit rows naming the record — what AGENTS have been fed, not what humans
+  looked at (`inject_preview`/`read`/`search` do not count) — so re-confirmation effort meets the
+  records still reaching agents first. This is an aggregation over the audit trail the front tier
+  already writes, computed at the front tier (the trail is not a port concern), and it inherits the
+  trail's scope: under `serve` it is the team's central count; a client pointed straight at a shared
+  remote backend counts only its own reads. Ordering applies WITHIN the returned page — the cursor
+  resumes the scan by position, unaffected by rank.
 
 ### Anchored injection (v4.0 — shared working context, and persona)
 

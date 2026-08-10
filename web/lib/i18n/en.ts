@@ -154,6 +154,10 @@ export const en = {
     staleScanned: (n: number, scanned: number) =>
       `${n} aged out among the ${scanned} verified record(s) examined`,
     staleMore: "more records left to examine",
+    // The consumption signal the queue is ordered by. "injected" is the audit trail's own verb —
+    // inject and persona rows naming this record — not page views.
+    injectedHead: "injected",
+    injectedTimes: (n: number) => `${n}×`,
     // The point of the screen: a stale record's fix is a person, so name them.
     // The number needs a unit. It rendered as "노태경 7, 오태민 5, …" — a name and a naked integer,
     // which a reader has to guess at, and the heading is the one place to say it once instead of

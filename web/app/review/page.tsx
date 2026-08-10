@@ -203,6 +203,21 @@ function ReviewBody() {
             rows={rows}
             empty={tab === "drafts" ? t.review.empty : t.review.staleEmpty}
             paginate
+            // The stale queue arrives most-consumed first (inject + persona audit rows naming the
+            // record), so the trailing column says WHY this row is near the top: agents are still
+            // being fed it. Drafts have no such signal — nothing injects a draft by default.
+            trailing={
+              tab === "stale"
+                ? {
+                    head: t.review.injectedHead,
+                    cell: (r) =>
+                      t.review.injectedTimes(
+                        (r as Knowledge & { injections?: number }).injections ??
+                          0,
+                      ),
+                  }
+                : undefined
+            }
             select={{
               chosen,
               toggle,

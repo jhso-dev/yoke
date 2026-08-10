@@ -28,7 +28,13 @@ import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
-import { injectDetail, summarize, ULID } from "../display.js";
+import {
+  consumptionCounts,
+  injectDetail,
+  rankByConsumption,
+  summarize,
+  ULID,
+} from "../display.js";
 import { openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
 
@@ -498,10 +504,20 @@ export function createUiHandler(
             after: url.searchParams.get("after") ?? undefined,
           },
         );
+        // Most-consumed first (same rule as `yoke review --stale`): the count is inject+persona
+        // audit rows naming the record, so re-confirmation effort goes where agents are actually
+        // reading. Ranked before serialization; `injections` rides on each row.
+        const ranked = rankByConsumption(
+          items,
+          consumptionCounts(store.listAudit({ ns })),
+        );
         // `scanned` travels with the rows: the walk is bounded, so a screen that printed only the
         // count would be claiming a corpus-wide number this did not compute.
         sendJson(res, 200, {
-          items: await rowsOf(items),
+          items: (await rowsOf(ranked)).map((r, i) => ({
+            ...r,
+            injections: ranked[i].injections,
+          })),
           next,
           scanned,
         });

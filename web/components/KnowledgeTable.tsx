@@ -31,6 +31,7 @@ export function KnowledgeTable({
   empty = "nothing here",
   paginate = false,
   select,
+  trailing,
 }: {
   rows: Knowledge[];
   empty?: string;
@@ -41,6 +42,13 @@ export function KnowledgeTable({
     toggle: (id: string) => void;
     /** Select or clear every row currently in the table — the header checkbox. */
     setAll: (next: boolean) => void;
+  };
+  /** One optional extra column at the end, for a queue-specific signal (the stale queue's
+   * consumption count). A prop rather than a fork of this table, so the citation guard keeps
+   * covering every screen that renders knowledge rows. */
+  trailing?: {
+    head: string;
+    cell: (r: Knowledge) => React.ReactNode;
   };
 }) {
   const t = useT();
@@ -84,6 +92,7 @@ export function KnowledgeTable({
               <TableHead>{t.common.status}</TableHead>
               <TableHead>{t.common.actor}</TableHead>
               <TableHead>{t.common.source}</TableHead>
+              {trailing && <TableHead>{trailing.head}</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -113,6 +122,7 @@ export function KnowledgeTable({
                 <TableCell>
                   <Citation row={r} />
                 </TableCell>
+                {trailing && <TableCell>{trailing.cell(r)}</TableCell>}
               </TableRow>
             ))}
           </TableBody>
