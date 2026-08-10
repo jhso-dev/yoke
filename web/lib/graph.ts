@@ -48,8 +48,16 @@ export interface Graph {
   links: GraphLink[];
   /** More exists than is drawn — always surfaced, never swallowed. */
   truncated: boolean;
-  /** How many nodes the server offered before the client cap. */
-  offered: number;
+  /**
+   * Every DISTINCT record id the server has offered across the requests that built this graph.
+   *
+   * A set, not a running total, because expansions overlap almost entirely — a neighbour's
+   * neighbours are mostly already drawn — and adding each response's count made the notice inflate
+   * its own denominator: five expansions announced "showing 300 of 1500+" over a 400-record corpus,
+   * counting the same records five times over. A union counts each record once, however often it
+   * comes back.
+   */
+  offered: Set<string>;
 }
 
 /** Build a drawable graph from an API response, capping nodes and dropping now-dangling edges. */
@@ -70,7 +78,7 @@ export function toGraph(data: GraphData): Graph {
     nodes: capped.map((n) => nodeOf(n, degree.get(n.id) ?? 0)),
     links,
     truncated: data.truncated || data.nodes.length > capped.length,
-    offered: data.nodes.length,
+    offered: new Set(data.nodes.map((n) => n.id)),
   };
 }
 
@@ -111,7 +119,7 @@ export function mergeGraph(current: Graph, incoming: GraphData): Graph {
     nodes,
     links,
     truncated: current.truncated || added.truncated || byId.size > nodes.length,
-    offered: current.offered + added.offered,
+    offered: new Set([...current.offered, ...added.offered]),
   };
 }
 
@@ -194,8 +202,22 @@ export function nodeRadius(degree: number): number {
   return Math.min(12, 4 + Math.sqrt(degree) * 2.2);
 }
 
-/** The truncation sentence, or null when nothing was cut. Never a silent slice. */
-export function truncationNotice(g: Graph): string | null {
+/**
+ * The numbers a truncation notice needs, or null when nothing was cut. Never a silent slice.
+ *
+ * Numbers and not a sentence: the sentence used to be English prose living here, which meant the
+ * Korean UI rendered an English Alert, and it advised narrowing "by type or status" — controls the
+ * graph screen does not have (its type badges are a legend, not filters). The wording is
+ * `t.graph.truncated` now, and this module stays free of React and of the i18n catalogs.
+ *
+ * `offered` is what IS known — the distinct ids the server actually handed us — and is deliberately
+ * not padded to exceed `shown`. When the server stopped the walk rather than the client cap, how
+ * much lies past the stop cannot be known without a second request; `truncated` is that fact, and
+ * the old `nodes.length + 1` with a `+` glued on was a guess no reader could check.
+ */
+export function truncationCounts(
+  g: Graph,
+): { shown: number; offered: number } | null {
   if (!g.truncated) return null;
-  return `showing ${g.nodes.length} of ${Math.max(g.offered, g.nodes.length + 1)}+ nodes — narrow by type or status, or open a single record and expand from there`;
+  return { shown: g.nodes.length, offered: g.offered.size };
 }

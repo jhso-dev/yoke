@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -62,10 +63,41 @@ export function CreateRecord({
     setBusy(true);
     setError(null);
     try {
-      // Empty fields are omitted, not sent as "". An optional attribute left blank should be absent
-      // from the record, not present and empty — those read differently in a briefing.
+      // Typed by what the ONTOLOGY declares, not sent as a string whatever the field.
+      //
+      // Every attribute used to go out as a string, and the gate type-checks them — so
+      // `decision.rejected_alternatives`, declared `string[]` in the seed, was rejected the moment
+      // anyone typed in it. A decision is the record type this product exists for, and the one field
+      // the entity screen calls the most-read in the model could not be filled from the web at all;
+      // the only way through the form was to leave it blank.
+      //
+      // Empty fields are omitted rather than sent as "": an optional attribute left blank should be
+      // absent from the record, not present and empty — those read differently in a briefing. A
+      // `boolean` is the exception, because `false` is a value someone chose.
+      type Value = string | number | boolean | string[];
       const attributes = Object.fromEntries(
-        Object.entries(values).filter(([, v]) => v.trim() !== ""),
+        Object.entries(values).flatMap(([k, raw]): [string, Value][] => {
+          const kind = def?.attrs[k]?.type ?? "string";
+          if (kind === "boolean") return [[k, raw === "true"]];
+          if (raw.trim() === "") return [];
+          if (kind === "string[]")
+            return [
+              [
+                k,
+                raw
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              ],
+            ];
+          if (kind === "number") {
+            const n = Number(raw);
+            // Left to the gate rather than guessed at: sending NaN would arrive as `null` and be
+            // stored as one, which is how the ontology screen came to render "null days".
+            return Number.isFinite(n) ? [[k, n]] : [];
+          }
+          return [[k, raw]];
+        }),
       );
       const created = await api.create({ type: active, attributes, scope });
       setValues({});
@@ -122,21 +154,47 @@ export function CreateRecord({
                 *
               </span>
             )}
+            {/* The list hint is on the label, not a placeholder: a placeholder disappears the moment
+                someone starts typing, which is exactly when the separator matters. */}
+            {spec.type === "string[]" && (
+              <span className="text-muted-foreground font-normal">
+                {tr.create.listHint}
+              </span>
+            )}
           </Label>
-          <Input
-            id={`attr-${name}`}
-            value={values[name] ?? ""}
-            onChange={(e) =>
-              setValues((v) => ({ ...v, [name]: e.target.value }))
-            }
-            // The ontology's own flag handed to the browser. Not a second copy of the rule — the
-            // gate still decides — the same rule spending one less round trip to state it, at the
-            // field that is wrong rather than in a banner underneath.
-            required={spec.required}
-            // Focus the first field when the modal opens — <DialogContent> otherwise focuses its
-            // own close button, which is a step backwards for someone who came here to type.
-            autoFocus={i === 0}
-          />
+          {spec.type === "boolean" ? (
+            <span className="flex items-center gap-1.5">
+              <Checkbox
+                id={`attr-${name}`}
+                checked={values[name] === "true"}
+                onCheckedChange={(v) =>
+                  setValues((prev) => ({ ...prev, [name]: String(v === true) }))
+                }
+              />
+              <Label
+                htmlFor={`attr-${name}`}
+                className="text-[inherit] font-[inherit]"
+              >
+                {tr.create.yes}
+              </Label>
+            </span>
+          ) : (
+            <Input
+              id={`attr-${name}`}
+              type={spec.type === "number" ? "number" : "text"}
+              value={values[name] ?? ""}
+              onChange={(e) =>
+                setValues((v) => ({ ...v, [name]: e.target.value }))
+              }
+              // The ontology's own flag handed to the browser. Not a second copy of the rule — the
+              // gate still decides — the same rule spending one less round trip to state it, at the
+              // field that is wrong rather than in a banner underneath.
+              required={spec.required}
+              // Focus the first field when the modal opens — <DialogContent> otherwise focuses its
+              // own close button, which is a step backwards for someone who came here to type.
+              autoFocus={i === 0}
+            />
+          )}
         </div>
       ))}
       <div className="flex items-center gap-2">

@@ -9,6 +9,7 @@ import { Actor } from "../../components/Actor";
 import { Downstream } from "../../components/Downstream";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
+import { Panel } from "../../components/Panel";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import type { Knowledge } from "../../lib/types";
@@ -82,7 +83,12 @@ function ReviewBody() {
 
   const staleRows = stale.data?.items ?? [];
   const rows = tab === "drafts" ? (drafts.data ?? []) : staleRows;
-  const loading = tab === "drafts" ? drafts.loading : stale.loading;
+  // First load only: a re-fetch after verify/deprecate keeps the queue on screen rather than
+  // replacing it with the word "loading" at the moment the reader is checking what changed.
+  const loading =
+    tab === "drafts"
+      ? drafts.loading && !drafts.data
+      : stale.loading && !stale.data;
 
   // Who to ask, most-owed first. This is the whole point of the stale tab: the fix for an aged-out
   // record is a person re-confirming it, so the screen names them instead of only counting rows.
@@ -115,7 +121,19 @@ function ReviewBody() {
       <p className="lede">
         {tab === "drafts" ? t.review.lede : t.review.staleLede}
       </p>
-      <ErrorBanner error={drafts.error ?? stale.error ?? actionError} />
+      <ErrorBanner
+        error={drafts.error ?? stale.error ?? actionError}
+        // Only the LOAD is retryable from here. A failed verify/deprecate must not be re-fired by a
+        // button that looks like a page reload — the reader re-presses the action they chose.
+        onRetry={
+          drafts.error || stale.error
+            ? () => {
+                drafts.reload();
+                stale.reload();
+              }
+            : undefined
+        }
+      />
       <div className="controls">
         {/* Radios, not buttons: this is one choice between two states, and a radio group is what a
             screen reader announces as such without any aria bookkeeping. Radix supplies the roles and
@@ -149,7 +167,13 @@ function ReviewBody() {
           onClick={() => act("verify")}
           title={t.common.verifyHint}
         >
-          {tab === "stale" ? t.common.reconfirm : t.common.verify}{" "}
+          {/* A pending label, like every form in this app. A bulk deprecate of a hundred records
+              looked identical to a dead button while it ran. */}
+          {busy
+            ? t.common.verifying
+            : tab === "stale"
+              ? t.common.reconfirm
+              : t.common.verify}{" "}
           {chosen.size || ""}
         </Button>
         <Button
@@ -158,7 +182,7 @@ function ReviewBody() {
           disabled={busy || chosen.size === 0}
           onClick={() => act("deprecate")}
         >
-          {t.common.deprecate} {chosen.size || ""}
+          {busy ? t.common.deprecating : t.common.deprecate} {chosen.size || ""}
         </Button>
         <span className="muted">
           {tab === "drafts"
@@ -173,7 +197,7 @@ function ReviewBody() {
         <Alert variant="warn">{t.review.staleMore}</Alert>
       )}
       {tab === "stale" && owners.length > 0 && (
-        <div className="panel" style={{ padding: "10px 14px" }}>
+        <Panel className="px-3.5 py-2.5">
           <p className="muted mb-2">{t.review.staleOwners}</p>
           {/* A grid, not a comma-joined sentence. Thirty owners rendered inline read as one paragraph of
               prose that happened to contain names — the reader has to parse it to find their own, which
@@ -193,9 +217,9 @@ function ReviewBody() {
               </li>
             ))}
           </ul>
-        </div>
+        </Panel>
       )}
-      <div className="panel">
+      <Panel>
         {loading ? (
           <div className="empty">{t.common.loading}</div>
         ) : (
@@ -225,7 +249,7 @@ function ReviewBody() {
             }}
           />
         )}
-      </div>
+      </Panel>
     </>
   );
 }

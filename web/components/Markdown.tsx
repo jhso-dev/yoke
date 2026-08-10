@@ -64,10 +64,10 @@ function block(b: Block, i: number) {
       );
     }
     case "table":
-      // Wrapped in the same scroll-x the other tables use: a five-column results table must not make
-      // the page scroll sideways.
+      // Its own scroller, because this <Table> sits inside prose rather than in a panel: a
+      // five-column results table must not make the page scroll sideways.
       return (
-        <div className="scroll-x" key={key}>
+        <div className="overflow-x-auto" key={key}>
           <Table>
             <TableHeader>
               <TableRow>

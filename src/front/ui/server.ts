@@ -337,6 +337,15 @@ async function readIds(req: IncomingMessage): Promise<string[]> {
 
 /** Attribute values a form can send. Anything else (nested objects, numbers that should have been
  * strings) is refused here rather than reaching the gate as a shape the ontology cannot describe. */
+/**
+ * The four value shapes an attribute may take — the same four the ontology declares (`string`,
+ * `number`, `boolean`, `string[]`, see core/ontology.ts AttrSpec).
+ *
+ * It used to accept only strings and string arrays, which made the route narrower than the gate it
+ * fronts: a type declaring a `number` attribute could be committed from the CLI and not from HTTP,
+ * so the web form had no honest way to offer the field at all. Validation still belongs to the gate;
+ * this only refuses shapes no attribute can ever hold (objects, nested arrays, null).
+ */
 function readAttributes(v: unknown): Record<string, unknown> {
   if (v === undefined || v === null) return {};
   if (typeof v !== "object" || Array.isArray(v))
@@ -344,8 +353,13 @@ function readAttributes(v: unknown): Record<string, unknown> {
   for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
     const ok =
       typeof val === "string" ||
+      typeof val === "number" ||
+      typeof val === "boolean" ||
       (Array.isArray(val) && val.every((x) => typeof x === "string"));
-    if (!ok) throw new Error(`attribute "${k}" must be a string or string[]`);
+    if (!ok)
+      throw new Error(
+        `attribute "${k}" must be a string, number, boolean or string[]`,
+      );
   }
   return v as Record<string, unknown>;
 }

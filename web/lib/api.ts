@@ -157,7 +157,7 @@ export const api = {
    * called it — and comes back with whatever duplicates the gate found, so a form can show them. */
   create: (p: {
     type: string;
-    attributes: Record<string, string | string[]>;
+    attributes: Record<string, string | number | boolean | string[]>;
     scope?: string;
   }) =>
     request<

@@ -71,11 +71,13 @@ function Footer({
   const t = useT();
   return (
     <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
+      {/* Same box as Apply (default size), so the pair reads as two actions rather than a link
+          beside a button. `text-muted-foreground` rather than the hand-written `.muted` class: a
+          primitive should not reach into globals.css for its colour. */}
       <Button
         type="button"
         variant="ghost"
-        size="text"
-        className="muted"
+        className="text-muted-foreground"
         onClick={onReset}
       >
         {resetLabel}
@@ -108,6 +110,7 @@ export function DateTimePicker({
   title,
   unsetLabel,
   resetLabel,
+  disableFuture = false,
 }: {
   id?: string;
   /** `YYYY-MM-DDTHH:mm` local wall time, or "" for unset. */
@@ -118,6 +121,12 @@ export function DateTimePicker({
   unsetLabel: string;
   /** The in-popover action that returns to unset. */
   resetLabel: string;
+  /**
+   * Refuse days after today. For an as-of read that is not a nicety: nothing clamps a future
+   * instant, so the query ran against now while the screen announced "this is what would have been
+   * injected on <future date>" — a live answer labelled as a historical one.
+   */
+  disableFuture?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -149,7 +158,12 @@ export function DateTimePicker({
         label={value ? value.replace("T", " ") : unsetLabel}
       />
       <PopoverContent className="w-auto">
-        <Calendar mode="single" selected={day} onSelect={setDay} />
+        <Calendar
+          mode="single"
+          selected={day}
+          onSelect={setDay}
+          disabled={disableFuture ? { after: new Date() } : undefined}
+        />
         <div className="mt-2 flex items-center gap-2">
           <Input
             type="time"
@@ -183,6 +197,7 @@ export function DateRangePicker({
   title,
   unsetLabel,
   resetLabel,
+  disableFuture = false,
 }: {
   id?: string;
   /** Local wall time bounds; "" = unset. `to` may be "" while `from` is set (open-ended). */
@@ -191,6 +206,8 @@ export function DateRangePicker({
   title?: string;
   unsetLabel: string;
   resetLabel: string;
+  /** Refuse days after today — see the note on DateTimePicker. */
+  disableFuture?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -214,15 +231,25 @@ export function DateRangePicker({
     onChange(next);
     setOpen(false);
   };
+  // "onward" rather than a trailing tilde: clicking one day in a range calendar leaves `to` unset,
+  // which is a legitimate open-ended window — but rendered as `2026-08-01 00:00 ~ ` it read as a
+  // value someone had failed to finish.
   const label = value.from
-    ? `${value.from.replace("T", " ")} ~ ${value.to ? value.to.replace("T", " ") : ""}`
+    ? value.to
+      ? `${value.from.replace("T", " ")} ~ ${value.to.replace("T", " ")}`
+      : t.common.onward(value.from.replace("T", " "))
     : unsetLabel;
 
   return (
     <Popover open={open} onOpenChange={openWith}>
       <Trigger id={id} title={title} label={label} />
       <PopoverContent className="w-auto">
-        <Calendar mode="range" selected={range} onSelect={setRange} />
+        <Calendar
+          mode="range"
+          selected={range}
+          onSelect={setRange}
+          disabled={disableFuture ? { after: new Date() } : undefined}
+        />
         <div className="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1">
           <span className="muted text-[12px]">{t.common.startTime}</span>
           <Input

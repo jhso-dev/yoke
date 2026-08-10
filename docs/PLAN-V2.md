@@ -149,10 +149,18 @@ Nothing in `src/` gets a build step beyond `tsc`.
 
 ### Budgets
 
-- **Shipped bundle ≤ 380 KB gzipped** (JS + CSS, whole static export), asserted by
+- **Shipped bundle ≤ 400 KB gzipped** (JS + CSS, whole static export), asserted by
   `src/front/ui/bundle.size.test.ts`, which stats the build output and skips when
   there is none. shadcn + Tailwind + Radix cost +117 KB (+52%) over the
   hand-written CSS it replaced, measured both ways before the number moved.
+  Raised from 380 by the accessibility and consistency pass, which measured 379 —
+  one kilobyte of headroom is a tripwire, not a budget. What the rise bought is
+  named in the test: Radix Select on the token form, Dialog on two more screens,
+  Checkbox on the create form, Separator.
+- **Shipped images ≤ 120 KB gzipped**, asserted by the same test. It exists because
+  for a while nothing measured them: the two home-page heroes were 475 KB together —
+  more than the entire JS+CSS budget — both preloaded at high priority, and one of
+  the two always hidden by the active theme. They are 42 KB now.
 - **Dependency budget: `next`, `react`, `react-dom`, `d3-force`, plus the
   shadcn/ui prerequisites** — `tailwindcss`, `@tailwindcss/postcss`, `postcss`,
   `radix-ui`, `class-variance-authority`, `clsx`, `tailwind-merge`,

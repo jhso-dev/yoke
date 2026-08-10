@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -25,6 +26,7 @@ import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
 import { Pagination, usePage } from "../../components/Pagination";
+import { Panel } from "../../components/Panel";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
 import { useT } from "../../lib/i18n";
@@ -50,6 +52,15 @@ const ANY = "__any";
  * say how many were left off — the count is the honesty, the full list is in `yoke audit`. */
 const SHOW_REFS = 12;
 
+/** One page of the trail, newest first — enough that a local run's whole history usually fits, and
+ * one request rather than a cursor walk. Named because the request and the cap notice have to agree:
+ * a screen that asks for 500 and says "the most recent 200" is lying about what it left out, and
+ * `t.audit.shown` ("N of M loaded") reads as completeness on its own.
+ *
+ * ceiling: no paging past the newest 500. Lifting it needs the cursor the audit endpoint does not
+ * have yet; until then the honest move is to say the cap out loud and point at `yoke audit --json`. */
+const LOAD_LIMIT = 500;
+
 function Detail({ event }: { event: AuditEntry }) {
   const t = useT();
   // Two shapes: `<subject> -> <id> …` for a read, a bare id list for verify/deprecate. Returning the
@@ -59,7 +70,6 @@ function Detail({ event }: { event: AuditEntry }) {
   // it as a subject would put the ULIDs back beside their resolved form.
   const subject = right === undefined ? "" : head;
   const all = (right ?? head ?? "").split(" ").filter(Boolean);
-  if (all.length === 0) return <span className="muted">{t.audit.nothing}</span>;
   const ids = all.slice(0, SHOW_REFS);
   const more = all.length - ids.length;
   const byId = new Map((event.refs ?? []).map((r) => [r.id, r]));
@@ -97,18 +107,26 @@ function Detail({ event }: { event: AuditEntry }) {
           </span>
         </>
       )}
-      {ids.map((id, i) => {
-        const ref = byId.get(id);
-        return (
-          <span key={id}>
-            {i > 0 && <span className="muted">, </span>}
-            <Link href={`/entity/?id=${encodeURIComponent(id)}`}>
-              {ref ? recordLabel(ref) : shortId(id)}
-            </Link>
-            {ref && <span className="muted mono"> {ref.type}</span>}
-          </span>
-        );
-      })}
+      {/* "nothing" belongs to the RESULT half only. Returning it before the subject rendered threw
+          away the query text and the resolved anchor of every zero-result read — about half the rows
+          on a demo corpus — and this screen exists to answer "who asked for what", which is exactly
+          the half that survives when the answer was empty. */}
+      {all.length === 0 ? (
+        <span className="muted">{t.audit.nothing}</span>
+      ) : (
+        ids.map((id, i) => {
+          const ref = byId.get(id);
+          return (
+            <span key={id}>
+              {i > 0 && <span className="muted">, </span>}
+              <Link href={`/entity/?id=${encodeURIComponent(id)}`}>
+                {ref ? recordLabel(ref) : shortId(id)}
+              </Link>
+              {ref && <span className="muted mono"> {ref.type}</span>}
+            </span>
+          );
+        })
+      )}
       {/* Never a silent truncation: the row says how many it left off. */}
       {more > 0 && <span className="muted"> · {t.audit.more(more)}</span>}
     </>
@@ -134,7 +152,7 @@ export default function Audit() {
       api.audit({
         since: sinceIso || undefined,
         until: untilIso || undefined,
-        limit: 500,
+        limit: LOAD_LIMIT,
       }),
     [sinceIso, untilIso],
   );
@@ -150,9 +168,18 @@ export default function Audit() {
   const actions = [...new Set(loaded.map((e) => e.action))];
   const actors = [
     ...new Map(
-      loaded.map((e) => [e.actor, e.actorName ?? e.actor] as const),
+      // An unnamed actor is an id, and a stored id can be a 26-character ULID: the dropdown is read
+      // for meaning, so it gets the shortened form (the full id is what the filter matches on).
+      loaded.map((e) => [e.actor, e.actorName ?? shortId(e.actor)] as const),
     ).entries(),
   ].sort((a, b) => a[1].localeCompare(b[1]));
+  // A chosen filter outlives the rows that offered it: narrow the range until no `verify` event
+  // loads and `verify` is simply not among this window's actions. Radix renders nothing for a value
+  // with no matching item and will not fall back to the placeholder while the value is non-empty, so
+  // the trigger went BLANK — an empty table beside an empty filter box, with no way for the reader to
+  // see what was filtering, let alone clear it. The absent value stays on the list, labelled absent.
+  const missingAction = !!action && !actions.includes(action);
+  const missingActor = !!actor && !actors.some(([id]) => id === actor);
   const orderedRows = [...rows].reverse();
   const page = usePage(orderedRows);
 
@@ -173,7 +200,7 @@ export default function Audit() {
             htmlFor="audit-since"
             className="text-[inherit] font-[inherit]"
           >
-            {t.audit.since}
+            {t.audit.period}
           </Label>
           {/* Every timestamp on this screen reads in the viewer's zone, so the filter takes one
               too. A RANGE, because "what happened that week" is the question an auditor actually
@@ -196,6 +223,11 @@ export default function Audit() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ANY}>{t.audit.allActions}</SelectItem>
+            {missingAction && (
+              <SelectItem value={action}>
+                {t.audit.noneInWindow(action)}
+              </SelectItem>
+            )}
             {actions.map((a) => (
               <SelectItem key={a} value={a}>
                 {a}
@@ -212,6 +244,11 @@ export default function Audit() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ANY}>{t.audit.allActors}</SelectItem>
+            {missingActor && (
+              <SelectItem value={actor}>
+                {t.audit.noneInWindow(shortId(actor))}
+              </SelectItem>
+            )}
             {actors.map(([id, label]) => (
               <SelectItem key={id} value={id}>
                 {label}
@@ -223,13 +260,28 @@ export default function Audit() {
           {t.audit.shown(rows.length, loaded.length)}
         </span>
       </div>
-      <div className="panel">
+      {/* Never a silent cap. "N of M loaded" describes the request, not the trail, so a 5,000-event
+          corpus read as complete until this said otherwise. Every sibling screen states its cap. */}
+      {loaded.length >= LOAD_LIMIT && (
+        <Alert variant="warn">{t.audit.capped(LOAD_LIMIT)}</Alert>
+      )}
+      {/* Was `.panel`, which globals.css marks as migration debt. The overrides are what `.panel`
+          gave a full-bleed table for free: no card padding or row gap around the table itself (the
+          reader's padding comes from the cells), this product's 6px radius rather than shadcn's
+          larger one so the box matches the panels still on every other screen, and no shadow. No
+          `overflow-hidden` — nothing here paints to the edge (this screen has no panel head) and
+          clipping would cut the pager buttons' focus ring. */}
+      <Panel>
         {trail.loading ? (
           <div className="empty">{t.common.loading}</div>
         ) : rows.length === 0 ? (
-          <div className="empty">{t.audit.empty}</div>
+          // Two different emptinesses, and blaming the clock for a filter sent readers widening a
+          // window that was never the problem.
+          <div className="empty">
+            {loaded.length > 0 ? t.audit.noneMatch : t.audit.empty}
+          </div>
         ) : (
-          <div className="scroll-x">
+          <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -265,15 +317,20 @@ export default function Audit() {
                 ))}
               </TableBody>
             </Table>
+            {/* A sibling of <Table>, not a child of it: Table renders its OWN `overflow-x-auto`
+                container, and the pager used to sit inside that box — so on a narrow viewport the
+                Next button scrolled sideways out of view along with the widest column. `.panel`
+                inset a direct `.controls` child by 12px in CSS; here the top comes from the card's
+                gap, the sides from `.pager`, and the bottom from `.controls`' own margin. */}
             <Pagination
               page={page.page}
               pages={page.pages}
               setPage={page.setPage}
               total={rows.length}
             />
-          </div>
+          </>
         )}
-      </div>
+      </Panel>
     </>
   );
 }

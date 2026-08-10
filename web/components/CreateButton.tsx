@@ -52,6 +52,7 @@ export function CreateButton({
         title={text}
         description={t.create.draftNotice}
         onClose={() => setOpen(false)}
+        holdsForm
       >
         <CreateRecord
           ontology={ontology}

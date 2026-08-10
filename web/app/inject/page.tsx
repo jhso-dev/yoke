@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { CopyCode } from "../../components/CopyCode";
 import { DateTimePicker } from "../../components/DateTimePicker";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
+import { Panel, PanelHead } from "../../components/Panel";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import { isoFromLocalInput, localTime } from "../../lib/time";
@@ -81,7 +83,7 @@ function InjectBody() {
         <CopyCode value="yoke_inject" />
         {t.inject.ledeAfter}
       </p>
-      <ErrorBanner error={result.error} />
+      <ErrorBanner error={result.error} onRetry={result.reload} />
       <form
         className="controls"
         onSubmit={(e) => {
@@ -124,7 +126,7 @@ function InjectBody() {
             {t.inject.includeDraft}
           </Label>
         </span>
-        <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
+        <Separator orientation="vertical" />
         <span className="flex items-center gap-1.5">
           <Label
             htmlFor="inject-as-of"
@@ -141,18 +143,21 @@ function InjectBody() {
             // reset say so — one control, one place to operate it, no twin button beside it.
             unsetLabel={t.inject.asOfClear}
             resetLabel={t.inject.asOfClear}
+            // An as-of read looks BACK. Nothing clamps a future instant server-side, so without this
+            // the screen would announce a historical view over a query that ran against now.
+            disableFuture
           />
         </span>
       </div>
 
       {!q && !scope ? (
-        <div className="panel">
+        <Panel>
           <div className="empty">{t.inject.prompt}</div>
-        </div>
-      ) : result.loading ? (
-        <div className="panel">
+        </Panel>
+      ) : result.loading && !result.data ? (
+        <Panel>
           <div className="empty">{t.common.loading}</div>
-        </div>
+        </Panel>
       ) : (
         <>
           {includeDraft && (
@@ -168,8 +173,8 @@ function InjectBody() {
               <span className="muted">{t.inject.asOfCeiling}</span>
             </Alert>
           )}
-          <div className="panel">
-            <div className="panel-head">
+          <Panel>
+            <PanelHead>
               {t.inject.wouldBeInjected}
               <span className="muted">{items.length}</span>
               {result.data?.scope && (
@@ -177,7 +182,7 @@ function InjectBody() {
                   {t.inject.scopeNote(result.data.scope)}
                 </span>
               )}
-            </div>
+            </PanelHead>
             {/* A preview that silently showed 50 of 312 would misrepresent what an agent receives —
                 which is this screen's whole job. */}
             {(result.data?.omitted ?? 0) > 0 && (
@@ -189,7 +194,7 @@ function InjectBody() {
               </Alert>
             )}
             <KnowledgeTable rows={items} empty={t.inject.empty} paginate />
-          </div>
+          </Panel>
         </>
       )}
     </>

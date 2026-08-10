@@ -6,6 +6,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -18,11 +25,16 @@ import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
 import { Modal } from "../../components/Modal";
 import { Pagination, usePage } from "../../components/Pagination";
+import { Panel } from "../../components/Panel";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import { announce } from "../../lib/toast";
 import type { CreatedToken, TokenInfo } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
+
+/** Radix Select reserves the empty string for "no selection", so an "all types" option cannot BE the
+ * empty value it means — it carries this token and the handler maps it back. */
+const ANY = "__any";
 
 /** The three actions RBAC actually knows (src/front/serve/rbac.ts). The form offers exactly these —
  * a free-text scope field made the caller memorise the grammar to grant "read". */
@@ -65,13 +77,17 @@ export default function Tokens() {
       {created && (
         <SecretModal token={created} onClose={() => setCreated(null)} />
       )}
-      <div className="panel">
+      {/* No `.scroll-x` around the table: Table renders its own `overflow-x-auto` container, so the
+          wrapper was a second scroller around the first — and the pager it also held scrolled
+          sideways out of view on a narrow viewport, which is the one control a reader needs to reach
+          page 2. The pager now sits outside the table's container. */}
+      <Panel>
         {tokens.loading ? (
           <div className="empty">{t.common.loading}</div>
         ) : rows.length === 0 ? (
           <div className="empty">{t.tokens.empty}</div>
         ) : (
-          <div className="scroll-x">
+          <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -98,9 +114,9 @@ export default function Tokens() {
               setPage={page.setPage}
               total={rows.length}
             />
-          </div>
+          </>
         )}
-      </div>
+      </Panel>
     </>
   );
 }
@@ -123,6 +139,10 @@ function CreateTokenButton({
   const [type, setType] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // The narrowing is chosen from the ontology, like every other type picker in the app. It was free
+  // text, and a typo minted a REAL token whose scopes matched no type — the preview below printed
+  // `*:desicion:read` without complaint and nothing failed until a caller was refused at runtime.
+  const ontology = useAsync(() => api.ontology(), []);
 
   const scopes = composeScopes(actions, type.trim());
   const hints: Record<Action, string> = {
@@ -211,13 +231,26 @@ function CreateTokenButton({
                 {t.tokens.restrictLegend}
               </span>
             </Label>
-            <Input
-              id="token-type"
-              className="mono"
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              placeholder={t.tokens.anyPlaceholder}
-            />
+            <Select
+              value={type || ANY}
+              onValueChange={(v) => setType(v === ANY ? "" : v)}
+            >
+              {/* `.mono` because a type name is a stored value, the same as it was in the field this
+                  replaced. */}
+              <SelectTrigger id="token-type" className="mono">
+                <SelectValue placeholder={t.tokens.anyPlaceholder} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ANY}>{t.tokens.allTypes}</SelectItem>
+                {(ontology.data ?? [])
+                  .filter((d) => d.kind === "entity")
+                  .map((d) => (
+                    <SelectItem key={d.name} value={d.name}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           </div>
           <p className="text-muted-foreground text-xs">
             {t.tokens.grants}{" "}
@@ -230,7 +263,9 @@ function CreateTokenButton({
               {busy ? t.common.creating : t.tokens.create}
             </Button>
           </div>
-          <ErrorBanner error={error} />
+          {/* A failed ontology fetch belongs here too: it leaves the type picker with nothing but the
+              all-types option, which otherwise looks like a namespace that declares no types. */}
+          <ErrorBanner error={error ?? ontology.error} />
         </form>
       </Modal>
     </>
@@ -278,6 +313,23 @@ function TokenRow({
 }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const revoke = async () => {
+    setBusy(true);
+    onError(null);
+    try {
+      await api.revokeToken(token.name);
+      announce(t.tokens.revoked(token.name));
+      setConfirming(false);
+      onRevoked();
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <TableRow>
       <TableCell className="mono">{token.name}</TableCell>
@@ -286,26 +338,47 @@ function TokenRow({
         <Instant iso={token.created_at} />
       </TableCell>
       <TableCell>
+        {/* Destructive, and it now looks it: this was `variant="secondary"` — the same grey box as
+            "Previous" in the pager directly below it — one click away from ending a credential. */}
         <Button
           type="button"
-          variant="secondary"
+          variant="destructive"
           disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            onError(null);
-            try {
-              await api.revokeToken(token.name);
-              announce(t.tokens.revoked(token.name));
-              onRevoked();
-            } catch (e) {
-              onError(e);
-            } finally {
-              setBusy(false);
-            }
-          }}
+          onClick={() => setConfirming(true)}
         >
           {busy ? t.common.saving : t.tokens.revoke}
         </Button>
+        {/* The rule this project skips a confirmation under is reversibility — rename-type on the
+            ontology screen reports the row count afterwards instead of asking first, because you can
+            run it back the other way. Revoke is the opposite: yoke stores only the hash, so the secret
+            cannot be recovered and the only repair is minting a new token and redistributing it to
+            everything that was using this one. That earns a dialog, and the dialog names the token so
+            a misread row is caught before the click and not after. */}
+        <Modal
+          open={confirming}
+          title={t.tokens.revokeTitle}
+          description={t.tokens.revokeConfirm(token.name)}
+          onClose={() => setConfirming(false)}
+        >
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy}
+              onClick={revoke}
+            >
+              {busy ? t.common.saving : t.tokens.revoke}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy}
+              onClick={() => setConfirming(false)}
+            >
+              {t.common.close}
+            </Button>
+          </div>
+        </Modal>
       </TableCell>
     </TableRow>
   );

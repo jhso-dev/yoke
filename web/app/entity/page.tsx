@@ -13,48 +13,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Actor } from "../../components/Actor";
+import { AttributeValue } from "../../components/AttributeValue";
 import { Citation } from "../../components/Citation";
 import { DirectionIcon } from "../../components/DirectionIcon";
 import { Downstream } from "../../components/Downstream";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
 import { LinkRecord } from "../../components/LinkRecord";
-import { Markdown } from "../../components/Markdown";
+import { Pagination, usePage } from "../../components/Pagination";
+import { Panel, PanelHead } from "../../components/Panel";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
 import { copyText } from "../../lib/clipboard";
 import { useT } from "../../lib/i18n";
-import { isDocument } from "../../lib/markdown";
 import { isMissing, type Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
-
-/**
- * One stored attribute value, read the way it was written.
- *
- * Three shapes, because the ontology declares three (`string`, `string[]`, and the numbers/booleans
- * that fall through). Each is rendered as what it is: a blanket `JSON.stringify` turns a decision's
- * rejected alternatives — arguably the most-read field in the model, since it is what a decision
- * record exists to preserve — into `["안 1","안 2"]`, and a multi-section postmortem into one
- * collapsed paragraph.
- */
-function attributeValue(v: unknown) {
-  if (typeof v === "string") return isDocument(v) ? <Markdown text={v} /> : v;
-  if (Array.isArray(v) && v.every((x) => typeof x === "string"))
-    return (
-      <div className="md">
-        <ul>
-          {v.map((x: string, i) => {
-            // Position is the only identity these have, and two rejected alternatives can read the
-            // same; the stored order is the author's, so it never reorders.
-            const key = `${i}:${x}`;
-            return <li key={key}>{x}</li>;
-          })}
-        </ul>
-      </div>
-    );
-  return JSON.stringify(v);
-}
 
 /**
  * One record, as stored. Nothing inferred, nothing summarized away.
@@ -76,6 +50,16 @@ function EntityBody() {
   // with its own relation names gets its own list without a code change.
   const ontology = useAsync(() => api.ontology(), []);
   const t = useT();
+  // Both of this screen's tables paginate, like every other table in the app: a long-lived record's
+  // relations were an unbounded wall, and the one you had just added through the control above it
+  // landed somewhere in that wall with nothing pointing at it. Declared here, above the early
+  // returns, because hooks cannot be called conditionally.
+  const historyPage = usePage(detail.data?.history ?? []);
+  const edgePage = usePage(
+    detail.data
+      ? [...detail.data.relations.out, ...detail.data.relations.in]
+      : [],
+  );
 
   async function act(kind: "verify" | "deprecate") {
     setBusy(true);
@@ -95,18 +79,23 @@ function EntityBody() {
 
   if (!id)
     return (
-      <div className="panel">
+      <Panel>
         <div className="empty">
           {t.entity.noId} <Link href="/browse/">{t.common.browse}</Link>
         </div>
-      </div>
+      </Panel>
     );
-  if (detail.loading) return <p className="muted">{t.common.loading}</p>;
+  // Only the FIRST load may replace the screen. `useAsync` keeps the previous data while refetching,
+  // and this used to throw it away — so verifying a record swapped the heading, the badge, the
+  // attributes and the provenance for the word "loading", exactly when the reader was waiting to see
+  // that the status had changed.
+  if (detail.loading && !detail.data)
+    return <p className="muted">{t.common.loading}</p>;
   if (detail.error)
     return (
       <>
         <h1>{t.common.record}</h1>
-        <ErrorBanner error={detail.error} />
+        <ErrorBanner error={detail.error} onRetry={detail.reload} />
       </>
     );
   const d = detail.data;
@@ -156,11 +145,7 @@ function EntityBody() {
         >
           {t.common.deprecate}
         </Button>
-        <Button
-          asChild
-          variant="secondary"
-          className="border border-border hover:border-primary"
-        >
+        <Button asChild variant="outline">
           <Link href={`/graph/?scope=${encodeURIComponent(d.entity.id)}`}>
             {t.common.openInGraph}
           </Link>
@@ -170,112 +155,111 @@ function EntityBody() {
           it between the record heading and its own controls made the controls read as the table's. */}
       <Downstream rows={downstream} />
 
-      <div className="panel">
-        <div className="panel-head">{t.common.attributes}</div>
-        <div className="scroll-x">
-          <Table>
-            <TableBody>
-              {Object.entries(d.entity.attributes).map(([k, v]) => (
-                <TableRow key={k}>
-                  <TableHead style={{ width: "22%" }}>{k}</TableHead>
-                  <TableCell>{attributeValue(v)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel-head">{t.entity.provenance}</div>
-        <div className="scroll-x">
-          <Table>
-            <TableBody>
-              <TableRow>
-                <TableHead style={{ width: "22%" }}>
-                  {t.entity.recordedBy}
-                </TableHead>
+      <Panel>
+        <PanelHead>{t.common.attributes}</PanelHead>
+        <Table>
+          <TableBody>
+            {Object.entries(d.entity.attributes).map(([k, v]) => (
+              <TableRow key={k}>
+                <TableHead style={{ width: "22%" }}>{k}</TableHead>
                 <TableCell>
-                  <Actor
-                    actor={d.entity.actor}
-                    actorName={d.entity.actorName}
-                  />
+                  <AttributeValue value={v} />
                 </TableCell>
               </TableRow>
-              <TableRow>
-                <TableHead>{t.entity.origin}</TableHead>
-                <TableCell className="mono">{d.entity.origin}</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableHead>{t.entity.occurredAt}</TableHead>
-                <TableCell className="mono">
-                  <Instant iso={d.entity.occurred_at} />
-                </TableCell>
-              </TableRow>
-              <TableRow>
-                <TableHead>{t.entity.lastConfirmed}</TableHead>
-                <TableCell className="mono">
-                  <Instant iso={d.entity.last_confirmed} />
-                </TableCell>
-              </TableRow>
-              {/* Compact, like everywhere else. Every field the raw string contains is already a row
-                  in this table (id in the header, version, recorded by, occurred at) — its only
-                  unique value is being copyable exactly, which the click gives. */}
-              <TableRow>
-                <TableHead>{t.entity.citation}</TableHead>
-                <TableCell>
-                  <Citation row={d.entity} />
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </div>
+            ))}
+          </TableBody>
+        </Table>
+      </Panel>
 
-      <div className="panel">
-        <div className="panel-head">
+      <Panel>
+        <PanelHead>{t.entity.provenance}</PanelHead>
+        <Table>
+          <TableBody>
+            <TableRow>
+              <TableHead style={{ width: "22%" }}>
+                {t.entity.recordedBy}
+              </TableHead>
+              <TableCell>
+                <Actor actor={d.entity.actor} actorName={d.entity.actorName} />
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableHead>{t.entity.origin}</TableHead>
+              <TableCell className="mono">{d.entity.origin}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableHead>{t.entity.occurredAt}</TableHead>
+              <TableCell className="mono">
+                <Instant iso={d.entity.occurred_at} />
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableHead>{t.entity.lastConfirmed}</TableHead>
+              <TableCell className="mono">
+                <Instant iso={d.entity.last_confirmed} />
+              </TableCell>
+            </TableRow>
+            {/* Compact, like everywhere else. Every field the raw string contains is already a row
+                in this table (id in the header, version, recorded by, occurred at) — its only
+                unique value is being copyable exactly, which the click gives. */}
+            <TableRow>
+              <TableHead>{t.entity.citation}</TableHead>
+              <TableCell>
+                <Citation row={d.entity} />
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </Panel>
+
+      <Panel>
+        <PanelHead>
           {t.entity.versionHistory}
           <span className="muted">{d.history.length}</span>
-        </div>
-        <div className="scroll-x">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t.common.version}</TableHead>
-                <TableHead>{t.entity.storedStatus}</TableHead>
-                <TableHead>{t.common.actor}</TableHead>
-                <TableHead>{t.entity.occurredAt}</TableHead>
-                <TableHead>{t.common.source}</TableHead>
+        </PanelHead>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t.common.version}</TableHead>
+              <TableHead>{t.entity.storedStatus}</TableHead>
+              <TableHead>{t.common.actor}</TableHead>
+              <TableHead>{t.entity.occurredAt}</TableHead>
+              <TableHead>{t.common.source}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {historyPage.items.map((h) => (
+              <TableRow key={h.version}>
+                <TableCell className="num">{h.version}</TableCell>
+                <TableCell>
+                  <StatusBadge status={h.status} />
+                </TableCell>
+                <TableCell>
+                  <Actor actor={h.actor} actorName={h.actorName} />
+                </TableCell>
+                <TableCell className="mono">
+                  <Instant iso={h.occurred_at} />
+                </TableCell>
+                <TableCell>
+                  <Citation row={h} />
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {d.history.map((h) => (
-                <TableRow key={h.version}>
-                  <TableCell className="num">{h.version}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={h.status} />
-                  </TableCell>
-                  <TableCell>
-                    <Actor actor={h.actor} actorName={h.actorName} />
-                  </TableCell>
-                  <TableCell className="mono">
-                    <Instant iso={h.occurred_at} />
-                  </TableCell>
-                  <TableCell>
-                    <Citation row={h} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
+            ))}
+          </TableBody>
+        </Table>
+        <Pagination
+          page={historyPage.page}
+          pages={historyPage.pages}
+          setPage={historyPage.setPage}
+          total={d.history.length}
+        />
+      </Panel>
 
-      <div className="panel">
-        <div className="panel-head">
+      <Panel>
+        <PanelHead>
           {t.common.relations}
           <span className="muted">{edges.length}</span>
-        </div>
+        </PanelHead>
         {/* `yoke link` for this record. Any declared relation, either direction — the general case
             the collaboration screen specialises. */}
         <LinkRecord
@@ -286,7 +270,7 @@ function EntityBody() {
         {edges.length === 0 ? (
           <div className="empty">{t.entity.standsAlone}</div>
         ) : (
-          <div className="scroll-x">
+          <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -298,12 +282,20 @@ function EntityBody() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {edges.map((e) => (
+                {edgePage.items.map((e) => (
                   <TableRow key={e.id}>
                     <TableCell className="mono">
+                      {/* The readable phrasing, not the stored field name: this used to announce
+                        "out"/"in" as both the aria-label and the tooltip — untranslated, and a
+                        column heading's worth of meaning left to the reader to infer. The two
+                        sentences already existed for this exact concept on the link control. */}
                       <DirectionIcon
                         direction={e.dir === "out" ? "right" : "left"}
-                        label={e.dir}
+                        label={
+                          e.dir === "out"
+                            ? t.entity.pointsAt
+                            : t.entity.isPointedAt
+                        }
                       />
                     </TableCell>
                     <TableCell className="mono">{e.type}</TableCell>
@@ -333,9 +325,15 @@ function EntityBody() {
                 ))}
               </TableBody>
             </Table>
-          </div>
+            <Pagination
+              page={edgePage.page}
+              pages={edgePage.pages}
+              setPage={edgePage.setPage}
+              total={edges.length}
+            />
+          </>
         )}
-      </div>
+      </Panel>
     </>
   );
 }

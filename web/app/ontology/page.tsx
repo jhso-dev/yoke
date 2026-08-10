@@ -26,6 +26,7 @@ import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Modal } from "../../components/Modal";
 import { Pagination, usePage } from "../../components/Pagination";
+import { Panel, PanelHead } from "../../components/Panel";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import { announce } from "../../lib/toast";
@@ -48,11 +49,11 @@ export default function Ontology() {
         <AddTypeButton onSaved={defs.reload} />
       </div>
       <p className="lede">{t.ontology.lede}</p>
-      <ErrorBanner error={defs.error} />
+      <ErrorBanner error={defs.error} onRetry={defs.reload} />
       {defs.loading ? (
-        <div className="panel">
+        <Panel>
           <div className="empty">{t.common.loading}</div>
-        </div>
+        </Panel>
       ) : (
         <>
           <TypeTable title={t.ontology.entityTypes} list={entities} />
@@ -68,15 +69,15 @@ function TypeTable({ title, list }: { title: string; list: TypeDef[] }) {
   const t = useT();
   const page = usePage(list);
   return (
-    <div className="panel">
-      <div className="panel-head">
+    <Panel>
+      <PanelHead>
         {title}
         <span className="muted">{list.length}</span>
-      </div>
+      </PanelHead>
       {list.length === 0 ? (
         <div className="empty">{t.common.none}</div>
       ) : (
-        <div className="scroll-x">
+        <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -117,9 +118,9 @@ function TypeTable({ title, list }: { title: string; list: TypeDef[] }) {
             setPage={page.setPage}
             total={list.length}
           />
-        </div>
+        </>
       )}
-    </div>
+    </Panel>
   );
 }
 
@@ -137,6 +138,7 @@ function AddTypeButton({ onSaved }: { onSaved: () => void }) {
         title={t.ontology.declare}
         description={t.ontology.declareNote}
         onClose={() => setOpen(false)}
+        holdsForm
       >
         {/* Saving closes and says the name, like every other create dialog here. It used to clear
             the fields and sit open, so the one screen where the change lands in a table BEHIND the
@@ -319,11 +321,11 @@ function Maintenance({
     .filter((g) => g.list.length > 0);
 
   return (
-    <div className="panel">
-      <div className="panel-head">
+    <Panel>
+      <PanelHead>
         {t.ontology.maintenance}
         <span className="muted">{t.ontology.maintenanceNote}</span>
-      </div>
+      </PanelHead>
       <div className="controls">
         <Button
           type="button"
@@ -389,6 +391,6 @@ function Maintenance({
         </Button>
       </div>
       <ErrorBanner error={error} />
-    </div>
+    </Panel>
   );
 }

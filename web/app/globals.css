@@ -359,31 +359,15 @@ h1 {
 
 /* --- panels, tables, rows --- */
 
-.panel {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.panel + .panel {
-  margin-top: 14px;
-}
-
-.panel-head {
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--secondary);
-  font-weight: 600;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.scroll-x {
-  overflow-x: auto;
-}
+/* `.panel`, `.panel-head` and `.scroll-x` are gone — the last of the structural classes this file's
+   header promised would leave as each screen migrated.
+   - The box and its title bar are `components/Panel.tsx`, i.e. `Card` composed once. The four rules
+     that were COUPLED to the class (the box, the 14px gap between consecutive panels, the inset on a
+     control row, the inset on a notice) live there together instead of being restated as utilities at
+     every one of the thirty-odd call sites.
+   - `.scroll-x` around a table was inert: `Table` renders its own `overflow-x-auto` container, so the
+     outer scroller could never move — and the pagers that sat inside it scrolled sideways out of
+     view. Markdown keeps its own scroller for wide code blocks; that one is real. */
 
 /* The table box moved into components/ui/table.tsx (every screen now renders <Table>). These bare
    element rules could not stay: unlayered CSS beats Tailwind utilities, so while they existed the
@@ -640,14 +624,6 @@ td.num {
    ontology and collaboration — therefore sits flush against the border unless it brings its own.
    Scoped to direct children so a top-level `.controls` row, which sits on the page background and
    wants no padding, is untouched. */
-.panel > .controls {
-  padding: 12px;
-  margin: 0;
-}
-/* Stacked rows in one panel (ontology's maintenance): the gap belongs between them, not doubled. */
-.panel > .controls + .controls {
-  padding-top: 0;
-}
 
 /* The banners are <Alert variant="error|warn|info"> now (components/ui/alert.tsx). The tighter box
    those variants carry is what `.banner` was; `default` keeps shadcn's, because it is the inline result
@@ -659,9 +635,6 @@ td.num {
 [data-slot="alert"] code {
   font-family: var(--font-mono);
   font-size: 12px;
-}
-.panel > [data-slot="alert"] {
-  margin: 0 12px 12px;
 }
 
 /* --- login --- */

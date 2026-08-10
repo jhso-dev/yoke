@@ -64,11 +64,25 @@ function drawArrow(
   ctx.fill();
 }
 
+/**
+ * The gestures, since a canvas can advertise none of them itself:
+ *
+ * - wheel / two-finger scroll → scrolls the PAGE, untouched. The graph is not a scroll trap.
+ * - Ctrl/Cmd + wheel, trackpad pinch → zoom about the pointer.
+ * - click a node → select, centre, and fetch its neighbours once.
+ * - drag a node → move it; drag the background → pan the view.
+ * - vertical swipe (touch) → scrolls the page; horizontal drag pans.
+ *
+ * Nothing on the screen SAYS any of this — the lede only mentions clicking a node — so zoom is
+ * currently discoverable only by trying the modifier. A one-line hint belongs next to the legend,
+ * which needs an i18n key this component cannot add.
+ */
 export function GraphCanvas({
   graph,
   colorOf,
   membership,
   selected,
+  expanded,
   onSelect,
   onExpand,
 }: {
@@ -77,6 +91,13 @@ export function GraphCanvas({
   /** Relation types the ontology marks `membership` — drawn as not-knowledge. */
   membership: Set<string>;
   selected: string | null;
+  /**
+   * Which nodes have already been expanded. This used to be a private ref in here, which made the
+   * page's Expand button a guaranteed no-op: clicking a node expands it, so the button that then
+   * appeared for that same node could only refetch and announce it had added nothing. The page owns
+   * the set now and disables the button from it; this component only reads it to avoid re-asking.
+   */
+  expanded: ReadonlySet<string>;
   onSelect: (id: string | null) => void;
   onExpand: (id: string) => void;
 }) {
@@ -99,6 +120,8 @@ export function GraphCanvas({
   onSelectRef.current = onSelect;
   const onExpandRef = useRef(onExpand);
   onExpandRef.current = onExpand;
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
   // Filled by the main effect with its `draw` closure, so a selection-only change can repaint
   // without going through that effect at all.
   const drawRef = useRef<(() => void) | null>(null);
@@ -109,7 +132,6 @@ export function GraphCanvas({
     viewX: number;
     viewY: number;
   } | null>(null);
-  const expanded = useRef(new Set<string>());
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -286,6 +308,12 @@ export function GraphCanvas({
       view.current = { k, x: -(n.x ?? 0) * k, y: -(n.y ?? 0) * k };
       draw();
     };
+    /** Ask for a node's neighbours unless they have already been fetched. Recording that it happened
+     * is the page's job, not a ref in here — the Expand button it renders reads the same set. */
+    const expandOnce = (n: GraphNode) => {
+      if (expandedRef.current.has(n.id)) return;
+      onExpandRef.current(n.id);
+    };
 
     const onPointerDown = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
@@ -359,23 +387,31 @@ export function GraphCanvas({
       );
       if (moved > 4) return;
       focus(n);
-      if (!expanded.current.has(n.id)) {
-        expanded.current.add(n.id);
-        onExpandRef.current(n.id);
-      }
+      expandOnce(n);
     };
     const onDoubleClick = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
       const n = hit(e.clientX - rect.left, e.clientY - rect.top);
       if (n) {
         focus(n);
-        if (!expanded.current.has(n.id)) {
-          expanded.current.add(n.id);
-          onExpandRef.current(n.id);
-        }
+        expandOnce(n);
       }
     };
+    /**
+     * Ctrl/Cmd + wheel zooms. A bare wheel is left alone, so the page scrolls.
+     *
+     * It used to preventDefault EVERY wheel event, and this canvas is 520px of full width: a
+     * trackpad scroll anywhere over it zoomed the graph instead of moving the page, and a reader
+     * heading for the node table below had to find the strip of margin beside it. The modifier is
+     * also the platform convention — a trackpad pinch arrives as a ctrl+wheel event — so
+     * pinch-to-zoom keeps working without anyone being told about a key.
+     *
+     * preventDefault happens only on the events actually consumed — a bare wheel returns before it,
+     * so the browser is never told to cancel a scroll this canvas has no interest in. The listener
+     * still registers non-passive, because cancelling the ctrl+wheel is the whole point.
+     */
     const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -388,10 +424,7 @@ export function GraphCanvas({
       view.current.y = y - h / 2 - before.y * k;
       const n =
         hit(x, y) ?? graph.nodes.find((n) => n.id === selectedRef.current);
-      if (e.deltaY < 0 && k > 1.25 && n && !expanded.current.has(n.id)) {
-        expanded.current.add(n.id);
-        onExpandRef.current(n.id);
-      }
+      if (e.deltaY < 0 && k > 1.25 && n) expandOnce(n);
       draw();
     };
     const onResize = () => {
@@ -457,7 +490,11 @@ export function GraphCanvas({
         height: 520,
         display: "block",
         cursor: "grab",
-        touchAction: "none",
+        // pan-y, not none: a vertical swipe is the page's, so a touch reader can scroll past 520px of
+        // canvas to the node table. Everything else stays the canvas's — a horizontal drag pans the
+        // view and a drag that starts on a node moves it, and when the browser claims a gesture
+        // mid-drag it fires pointercancel, which endDrag already handles.
+        touchAction: "pan-y",
       }}
       // Out of the accessibility tree AND out of the tab order: a canvas can take focus, and
       // aria-hidden on a focusable element strands screen-reader users on an element they cannot

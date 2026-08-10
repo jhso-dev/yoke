@@ -1474,6 +1474,39 @@ describe("creating from the browser says whether anything was compared", () => {
     expect(created.duplicateDetection).toBe("skipped");
     expect(created.duplicates).toEqual([]);
   });
+
+  // The route used to accept only strings and string arrays, which made it NARROWER than the gate it
+  // fronts: a `decision`'s `rejected_alternatives` is declared string[] in the seed, so the web form
+  // (which sent every field as a string) could not fill the field the entity screen calls the
+  // most-read in the model. All four declared shapes now travel.
+  it("carries every attribute shape the ontology can declare", async () => {
+    const created = await post("/api/entity", {
+      type: "decision",
+      attributes: {
+        conclusion: "settle nightly",
+        rationale: "the window is quiet",
+        rejected_alternatives: ["settle hourly", "settle on demand"],
+      },
+    });
+    const detail = await get(`/api/entity/${created.id}`);
+    expect(detail.entity.attributes.rejected_alternatives).toEqual([
+      "settle hourly",
+      "settle on demand",
+    ]);
+  });
+
+  it("still refuses a shape no attribute can hold", async () => {
+    const res = await fetch(`${base}/api/entity`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "fact",
+        attributes: { statement: { nested: "object" } },
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/must be a string, number/);
+  });
 });
 
 describe("POST /api/backfill --embeddings", () => {

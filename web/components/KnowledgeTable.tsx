@@ -76,76 +76,74 @@ export function KnowledgeTable({
   if (rows.length === 0) return <div className="empty">{empty}</div>;
   return (
     <>
-      <div className="scroll-x">
-        <Table>
-          <TableHeader>
-            <TableRow>
+      {/* No `.scroll-x` wrapper: `Table` renders its own `overflow-x-auto` container, so the outer
+          one could never scroll (its only child is `w-full`) and only nested two scrollers. */}
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {select && (
+              <TableHead>
+                <Checkbox
+                  // "Some of these are selected" is a VALUE here, not a DOM property poked into the
+                  // node by a ref after render — which is what a native checkbox forced, since
+                  // `indeterminate` has no attribute form.
+                  checked={head.indeterminate ? "indeterminate" : head.checked}
+                  onCheckedChange={() => {
+                    const next = head.checked
+                      ? visible
+                      : visible.filter((r) => !select.chosen.has(r.id));
+                    for (const r of next) select.toggle(r.id);
+                  }}
+                  aria-label={t.review.selectAll}
+                  title={t.review.selectAll}
+                />
+              </TableHead>
+            )}
+            <TableHead>{t.common.type}</TableHead>
+            <TableHead>{t.chrome.summary}</TableHead>
+            <TableHead>{t.common.status}</TableHead>
+            <TableHead>{t.common.actor}</TableHead>
+            <TableHead>{t.common.source}</TableHead>
+            {trailing && <TableHead>{trailing.head}</TableHead>}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {visible.map((r) => (
+            <TableRow key={r.id}>
               {select && (
-                <TableHead>
+                <TableCell>
                   <Checkbox
-                    // "Some of these are selected" is a VALUE here, not a DOM property poked into the
-                    // node by a ref after render — which is what a native checkbox forced, since
-                    // `indeterminate` has no attribute form.
-                    checked={
-                      head.indeterminate ? "indeterminate" : head.checked
-                    }
-                    onCheckedChange={() => {
-                      const next = head.checked
-                        ? visible
-                        : visible.filter((r) => !select.chosen.has(r.id));
-                      for (const r of next) select.toggle(r.id);
-                    }}
-                    aria-label={t.review.selectAll}
-                    title={t.review.selectAll}
+                    checked={select.chosen.has(r.id)}
+                    onCheckedChange={() => select.toggle(r.id)}
+                    // The record's own label, never its id: this prop IS the human surface for a
+                    // screen-reader user, and it used to read out a 26-character ULID — in English
+                    // — on every one of twenty rows, while the visible cell two columns over said
+                    // the summary. The no-raw-ids guard cannot see it (prop position, and the id
+                    // arrived through a template), so it is a rule the reviewer has to hold.
+                    aria-label={t.review.selectRow(recordLabel(r))}
                   />
-                </TableHead>
+                </TableCell>
               )}
-              <TableHead>{t.common.type}</TableHead>
-              <TableHead>{t.chrome.summary}</TableHead>
-              <TableHead>{t.common.status}</TableHead>
-              <TableHead>{t.common.actor}</TableHead>
-              <TableHead>{t.common.source}</TableHead>
-              {trailing && <TableHead>{trailing.head}</TableHead>}
+              <TableCell className="mono">{r.type}</TableCell>
+              <TableCell>
+                <Link href={`/entity/?id=${encodeURIComponent(r.id)}`}>
+                  {recordLabel(r)}
+                </Link>
+              </TableCell>
+              <TableCell>
+                <StatusBadge status={r.effectiveStatus} />
+              </TableCell>
+              <TableCell>
+                <Actor actor={r.actor} actorName={r.actorName} />
+              </TableCell>
+              <TableCell>
+                <Citation row={r} />
+              </TableCell>
+              {trailing && <TableCell>{trailing.cell(r)}</TableCell>}
             </TableRow>
-          </TableHeader>
-          <TableBody>
-            {visible.map((r) => (
-              <TableRow key={r.id}>
-                {select && (
-                  <TableCell>
-                    <Checkbox
-                      checked={select.chosen.has(r.id)}
-                      onCheckedChange={() => select.toggle(r.id)}
-                      // The record's own label, never its id: this prop IS the human surface for a
-                      // screen-reader user, and it used to read out a 26-character ULID — in English
-                      // — on every one of twenty rows, while the visible cell two columns over said
-                      // the summary. The no-raw-ids guard cannot see it (prop position, and the id
-                      // arrived through a template), so it is a rule the reviewer has to hold.
-                      aria-label={t.review.selectRow(recordLabel(r))}
-                    />
-                  </TableCell>
-                )}
-                <TableCell className="mono">{r.type}</TableCell>
-                <TableCell>
-                  <Link href={`/entity/?id=${encodeURIComponent(r.id)}`}>
-                    {recordLabel(r)}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={r.effectiveStatus} />
-                </TableCell>
-                <TableCell>
-                  <Actor actor={r.actor} actorName={r.actorName} />
-                </TableCell>
-                <TableCell>
-                  <Citation row={r} />
-                </TableCell>
-                {trailing && <TableCell>{trailing.cell(r)}</TableCell>}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+          ))}
+        </TableBody>
+      </Table>
       {paginate && (
         <Pagination
           page={paged.page}

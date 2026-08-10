@@ -7,7 +7,7 @@ import {
   mergeGraph,
   nodeRadius,
   toGraph,
-  truncationNotice,
+  truncationCounts,
 } from "./graph";
 import type { Edge, GraphData, Knowledge } from "./types";
 
@@ -80,7 +80,11 @@ describe("toGraph", () => {
     const g = toGraph(data({ nodes: many }));
     expect(g.nodes).toHaveLength(MAX_NODES);
     expect(g.truncated).toBe(true);
-    expect(truncationNotice(g)).toContain(`showing ${MAX_NODES}`);
+    // The numbers, not a sentence — the wording is t.graph.truncated's now.
+    expect(truncationCounts(g)).toEqual({
+      shown: MAX_NODES,
+      offered: MAX_NODES + 25,
+    });
   });
 
   it("seeds positions deterministically, so a reload is the same layout", () => {
@@ -137,6 +141,27 @@ describe("mergeGraph", () => {
     expect(merged.nodes.find((n) => n.id === "b")?.degree).toBe(2);
   });
 
+  it("counts each offered record once, however many expansions offer it again", () => {
+    // The defect this closes: `offered` was `current.offered + added.offered`, and each expansion's
+    // count included nodes already drawn — so repeatedly expanding an overlapping neighbourhood
+    // announced "showing 300 of 1500+" over a corpus of 340.
+    const many = Array.from({ length: MAX_NODES + 40 }, (_, i) =>
+      node(`n${String(i).padStart(4, "0")}`),
+    );
+    let g = toGraph(data({ nodes: many }));
+    for (let i = 0; i < 5; i++) g = mergeGraph(g, data({ nodes: many }));
+    expect(truncationCounts(g)).toEqual({
+      shown: MAX_NODES,
+      offered: many.length,
+    });
+  });
+
+  it("unions in the ids an expansion offered for the first time", () => {
+    const base = toGraph(data({ nodes: [node("a")] }));
+    const merged = mergeGraph(base, data({ nodes: [node("a"), node("b")] }));
+    expect([...merged.offered].sort()).toEqual(["a", "b"]);
+  });
+
   it("respects the cap when a merge would exceed it", () => {
     const base = toGraph(
       data({
@@ -185,7 +210,7 @@ describe("presentation", () => {
   });
 
   it("says nothing when nothing was cut", () => {
-    expect(truncationNotice(toGraph(data({ nodes: [node("a")] })))).toBeNull();
+    expect(truncationCounts(toGraph(data({ nodes: [node("a")] })))).toBeNull();
   });
 
   it("reads an endpoint whether d3 has replaced it with an object yet or not", () => {

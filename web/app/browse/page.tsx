@@ -16,6 +16,7 @@ import {
 import { CreateButton } from "../../components/CreateButton";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
+import { Panel } from "../../components/Panel";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import type { Knowledge, Page, SearchResult } from "../../lib/types";
@@ -100,7 +101,13 @@ function BrowseBody() {
         <CreateButton ontology={defs.data ?? []} onCreated={page.reload} />
       </div>
       <p className="lede">{t.browse.lede}</p>
-      <ErrorBanner error={page.error ?? defs.error} />
+      <ErrorBanner
+        error={page.error ?? defs.error}
+        onRetry={() => {
+          page.reload();
+          defs.reload();
+        }}
+      />
       <div className="controls">
         <Select
           value={type || ANY}
@@ -139,7 +146,7 @@ function BrowseBody() {
             e.preventDefault();
             setFilter({ q: draft.trim() });
           }}
-          style={{ display: "flex", gap: 8 }}
+          className="flex gap-2"
         >
           <Input
             value={draft}
@@ -165,6 +172,21 @@ function BrowseBody() {
         <span className="muted">
           {t.browse.shown(rows.length, !!page.data?.next)}
         </span>
+        {/* One escape from ALL of them. The search box had its own Clear while type and status did
+            not, so a filter combination with no rows named "this filter" in the empty state and gave
+            the reader nothing to press. */}
+        {(type || status || query) && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              setDraft("");
+              setFilter({ type: "", status: "", q: "" });
+            }}
+          >
+            {t.browse.clearAll}
+          </Button>
+        )}
         {/* 'stale' is absent on purpose: it is computed at read time and never stored, so it cannot
             be a stored-status filter. It still shows in the status column. */}
       </div>
@@ -173,8 +195,12 @@ function BrowseBody() {
       {found?.truncated && (
         <Alert variant="warn">{t.browse.searchTruncated(found.limit)}</Alert>
       )}
-      <div className="panel">
-        {page.loading ? (
+      <Panel>
+        {/* `!page.data` — only the FIRST load may replace the table. useAsync deliberately keeps the
+            previous rows while refetching, and collapsing the panel to a one-line box on every filter
+            change threw them away, so changing a type or pressing Next flashed the panel shut and
+            open again over data that was already on screen. */}
+        {page.loading && !page.data ? (
           <div className="empty">{t.common.loading}</div>
         ) : (
           <KnowledgeTable
@@ -182,7 +208,7 @@ function BrowseBody() {
             empty={query ? t.browse.noSearchMatch : t.browse.noMatch}
           />
         )}
-      </div>
+      </Panel>
       {/* Hidden while searching, rather than disabled: `search` takes no cursor, so a Next here
           would be a control that cannot do anything. */}
       <div
