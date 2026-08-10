@@ -43,6 +43,9 @@ export const en = {
     // The date-time picker. "Any time" is the unset state of a FILTER — absence of a bound, not a
     // missing value, so it must not read like an error or a placeholder to fill.
     anyTime: "Any time",
+    apply: "Apply",
+    startTime: "from",
+    endTime: "to",
     timeOfDay: "time",
     clear: "Clear",
     type: "type",

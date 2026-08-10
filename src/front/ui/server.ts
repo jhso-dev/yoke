@@ -849,6 +849,7 @@ export function createUiHandler(
       const limit = intParam(url, "limit", 200, 2000);
       const events = store.listAudit({
         since: url.searchParams.get("since") ?? undefined,
+        until: url.searchParams.get("until") ?? undefined,
         ns,
         limit,
       });

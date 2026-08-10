@@ -956,6 +956,24 @@ describe("scope-anchored injection over HTTP", () => {
 
 // The audit viewer's whole job is legibility, so its two detail shapes must both resolve. A verify
 // row stores a bare id list (no " -> "), and reading only the post-arrow half rendered it as ULIDs.
+describe("the audit window has two bounds", () => {
+  it("until closes the window, inclusively", async () => {
+    const all = await get("/api/audit");
+    expect(all.items.length).toBeGreaterThan(1);
+    const cut = all.items[0].at;
+    const upTo = await get(`/api/audit?until=${encodeURIComponent(cut)}`);
+    // Everything returned is <= the bound, the bound row itself included.
+    expect(upTo.items.length).toBeGreaterThan(0);
+    for (const e of upTo.items) expect(e.at <= cut).toBe(true);
+    expect(upTo.items.some((e: { at: string }) => e.at === cut)).toBe(true);
+    // since + until braket to exactly that instant's rows.
+    const only = await get(
+      `/api/audit?since=${encodeURIComponent(cut)}&until=${encodeURIComponent(cut)}`,
+    );
+    for (const e of only.items) expect(e.at).toBe(cut);
+  });
+});
+
 describe("audit detail resolves both of its shapes", () => {
   it("resolves a lifecycle transition's bare id list, not just a read's arrow form", async () => {
     await post("/api/verify", { ids: [scopedFactId] });

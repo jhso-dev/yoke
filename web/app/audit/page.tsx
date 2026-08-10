@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/table";
 import { Actor } from "../../components/Actor";
 import { CopyCode } from "../../components/CopyCode";
-import { DateTimePicker } from "../../components/DateTimePicker";
+import { DateRangePicker } from "../../components/DateTimePicker";
 import { DirectionIcon } from "../../components/DirectionIcon";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Instant } from "../../components/Instant";
@@ -120,8 +120,9 @@ export default function Audit() {
   // The control's own vocabulary — local wall time, no zone, no seconds. Round-tripping an ISO string
   // through `value` is what made the field clear itself on every pick; the conversion happens once, at
   // the request, and `since` stays the only thing `<input type="datetime-local">` will accept.
-  const [since, setSince] = useState("");
-  const sinceIso = isoFromLocalInput(since);
+  const [range, setRange] = useState({ from: "", to: "" });
+  const sinceIso = isoFromLocalInput(range.from);
+  const untilIso = isoFromLocalInput(range.to);
   const [action, setAction] = useState("");
   // "Filterable by actor, action and time" is what ROADMAP claims this screen does; actor was
   // missing. It is the axis that answers the question the trail exists for — which agent received
@@ -129,8 +130,13 @@ export default function Audit() {
   // was invisible.
   const [actor, setActor] = useState("");
   const trail = useAsync(
-    () => api.audit({ since: sinceIso || undefined, limit: 500 }),
-    [sinceIso],
+    () =>
+      api.audit({
+        since: sinceIso || undefined,
+        until: untilIso || undefined,
+        limit: 500,
+      }),
+    [sinceIso, untilIso],
   );
 
   const loaded = trail.data?.items ?? [];
@@ -165,12 +171,16 @@ export default function Audit() {
           className="gap-1.5 text-[inherit] font-[inherit]"
         >
           {t.audit.since}
-          {/* Every timestamp on this screen reads in the viewer's zone, so the filter takes one too. */}
-          <DateTimePicker
+          {/* Every timestamp on this screen reads in the viewer's zone, so the filter takes one
+              too. A RANGE, because "what happened that week" is the question an auditor actually
+              asks; from-only stays possible (open-ended since). */}
+          <DateRangePicker
             id="audit-since"
-            value={since}
-            onChange={setSince}
+            value={range}
+            onChange={setRange}
             title={t.audit.sinceHint}
+            unsetLabel={t.common.anyTime}
+            resetLabel={t.common.clear}
           />
         </Label>
         <Select

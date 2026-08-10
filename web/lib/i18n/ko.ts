@@ -46,6 +46,9 @@ export const ko: typeof en = {
     // 날짜·시각 선택기. "언제든"은 필터의 미설정 상태 — 값이 비었다는 뜻이 아니라 경계가
     // 없다는 뜻이라, 채워야 할 빈칸처럼 읽히면 안 됩니다.
     anyTime: "언제든",
+    apply: "적용",
+    startTime: "시작",
+    endTime: "종료",
     timeOfDay: "시각",
     clear: "지우기",
     type: "타입",

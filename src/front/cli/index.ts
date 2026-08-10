@@ -909,6 +909,8 @@ async function cmdAudit(v: Values, env: Env): Promise<number> {
   return withStore(v, env, async (store) => {
     const events = store.listAudit({
       since: v.since,
+      // The same flag `export` uses, here as the closed end of a window. Both bounds inclusive.
+      until: v.until,
       ns,
       limit: v.limit === undefined ? undefined : Number(v.limit),
     });

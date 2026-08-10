@@ -125,17 +125,12 @@ function InjectBody() {
             value={asOfLocal}
             onChange={(next) => run({ asOf: next })}
             title={t.inject.asOfHint}
+            // Unset MEANS the present on this screen, so both the empty trigger and the in-popover
+            // reset say so — one control, one place to operate it, no twin button beside it.
+            unsetLabel={t.inject.asOfClear}
+            resetLabel={t.inject.asOfClear}
           />
         </Label>
-        {asOfLocal && (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => run({ asOf: "" })}
-          >
-            {t.inject.asOfClear}
-          </Button>
-        )}
       </form>
 
       {!q && !scope ? (

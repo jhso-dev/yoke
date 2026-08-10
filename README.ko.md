@@ -215,7 +215,7 @@ yoke init | add | get | search | list | link | review | verify | deprecate
 yoke inject <query> [--include-draft] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--scope <id>]          # 코퍼스 한눈에 보기 / 엣지로 보기
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
-yoke history <id> | audit [--since ts] [--limit n] [--shape]
+yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
 yoke connect github-pr|slack|notes|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup | restore | export --until <ts> --out <new.db>   # --shards <file> 로 백엔드 연합

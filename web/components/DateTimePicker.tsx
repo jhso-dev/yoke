@@ -2,6 +2,7 @@
 
 import { CalendarIcon } from "lucide-react";
 import { useState } from "react";
+import type { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
@@ -12,101 +13,248 @@ import {
 } from "@/components/ui/popover";
 import { useT } from "../lib/i18n";
 
+// Values are local wall time as `YYYY-MM-DDTHH:mm` (or "" unset) — exactly what datetime-local
+// emitted, so `web/lib/time.ts`'s convention and every call site's URL state survive unchanged.
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const dayOf = (local: string): Date | undefined =>
+  local
+    ? new Date(
+        // From parts, never `new Date("YYYY-MM-DD")` — that parses as UTC midnight and shifts the
+        // day in any zone east of it, the exact bug class time.ts exists to keep out.
+        Number(local.slice(0, 4)),
+        Number(local.slice(5, 7)) - 1,
+        Number(local.slice(8, 10)),
+      )
+    : undefined;
+const dateStr = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const timeOf = (local: string, fallback: string) =>
+  local ? local.slice(11, 16) : fallback;
+
+function Trigger({
+  id,
+  title,
+  label,
+}: {
+  id?: string;
+  title?: string;
+  label: string;
+}) {
+  return (
+    <PopoverTrigger asChild>
+      <Button
+        id={id}
+        type="button"
+        variant="secondary"
+        title={title}
+        className="border border-border font-normal tabular-nums hover:border-primary"
+      >
+        <CalendarIcon className="size-3.5 opacity-70" />
+        {label}
+      </Button>
+    </PopoverTrigger>
+  );
+}
+
+function Footer({
+  resetLabel,
+  onReset,
+  onApply,
+  canApply,
+}: {
+  resetLabel: string;
+  onReset: () => void;
+  onApply: () => void;
+  canApply: boolean;
+}) {
+  const t = useT();
+  return (
+    <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
+      <Button
+        type="button"
+        variant="ghost"
+        size="text"
+        className="muted"
+        onClick={onReset}
+      >
+        {resetLabel}
+      </Button>
+      {/* Nothing leaves this popover without Apply — a half-picked draft must not fire a query. */}
+      <Button
+        type="button"
+        className="ml-auto"
+        disabled={!canApply}
+        onClick={onApply}
+      >
+        {t.common.apply}
+      </Button>
+    </div>
+  );
+}
+
 /**
- * A date + time control over the app's own calendar, replacing `<input type="datetime-local">` —
- * the last OS-styled control in the product, and the one whose popup ignored the theme entirely.
+ * A point in time, confirmed explicitly.
  *
- * The VALUE contract is unchanged: local wall time as `YYYY-MM-DDTHH:mm`, or "" for unset — exactly
- * what datetime-local emitted, so the URL round-trip convention (`web/lib/time.ts`, "the control's
- * vocabulary is local wall time") and both call sites' state handling survive untouched. This is a
- * rendering swap, not a semantics change.
- *
- * Time is a separate small field beside the calendar rather than a second popover: picking an
- * instant is one gesture on this screen ("that afternoon"), and a time wheel would be more chrome
- * than the 5 characters it replaces.
+ * The popover edits a DRAFT: picking a day or a time changes nothing outside until Apply — an as-of
+ * query re-running on every intermediate click both spams the backend and makes the URL lie about
+ * what the person meant. The reset action lives INSIDE the popover (the caller names it — "Now" for
+ * an as-of, since unset means the present), so there is exactly one place this control is operated.
  */
 export function DateTimePicker({
   id,
   value,
   onChange,
   title,
+  unsetLabel,
+  resetLabel,
 }: {
   id?: string;
   /** `YYYY-MM-DDTHH:mm` local wall time, or "" for unset. */
   value: string;
   onChange: (next: string) => void;
   title?: string;
+  /** What the trigger says when unset — the MEANING of no value here ("Now", "Any time"). */
+  unsetLabel: string;
+  /** The in-popover action that returns to unset. */
+  resetLabel: string;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const [datePart, timePart] = value ? value.split("T") : ["", ""];
-  const selected = datePart
-    ? // Constructed from parts: `new Date("YYYY-MM-DD")` parses as UTC midnight and shifts the day
-      // in any zone east of it — the exact bug class time.ts exists to keep out.
-      new Date(
-        Number(datePart.slice(0, 4)),
-        Number(datePart.slice(5, 7)) - 1,
-        Number(datePart.slice(8, 10)),
-      )
-    : undefined;
+  const [day, setDay] = useState<Date | undefined>();
+  const [time, setTime] = useState("");
 
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const pick = (day: Date | undefined) => {
-    if (!day) {
-      onChange("");
-      return;
+  const openWith = (next: boolean) => {
+    if (next) {
+      setDay(dayOf(value));
+      setTime(
+        timeOf(
+          value,
+          `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`,
+        ),
+      );
     }
-    const date = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
-    // A fresh pick defaults the time to now's wall clock — "as of that day, about now" is the
-    // useful reading; midnight would silently exclude the day's own events.
-    const now = new Date();
-    onChange(
-      `${date}T${timePart || `${pad(now.getHours())}:${pad(now.getMinutes())}`}`,
-    );
+    setOpen(next);
+  };
+  const commit = (next: string) => {
+    onChange(next);
+    setOpen(false);
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          id={id}
-          type="button"
-          variant="secondary"
-          title={title}
-          className="border border-border font-normal tabular-nums hover:border-primary"
-        >
-          <CalendarIcon className="size-3.5 opacity-70" />
-          {value ? value.replace("T", " ") : t.common.anyTime}
-        </Button>
-      </PopoverTrigger>
+    <Popover open={open} onOpenChange={openWith}>
+      <Trigger
+        id={id}
+        title={title}
+        label={value ? value.replace("T", " ") : unsetLabel}
+      />
       <PopoverContent className="w-auto">
-        <Calendar mode="single" selected={selected} onSelect={pick} />
-        <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
+        <Calendar mode="single" selected={day} onSelect={setDay} />
+        <div className="mt-2 flex items-center gap-2">
           <Input
             type="time"
             aria-label={t.common.timeOfDay}
-            value={timePart}
-            disabled={!datePart}
-            onChange={(e) =>
-              datePart &&
-              e.target.value &&
-              onChange(`${datePart}T${e.target.value}`)
-            }
+            value={time}
+            disabled={!day}
+            onChange={(e) => setTime(e.target.value)}
             className="w-auto tabular-nums"
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="text"
-            className="muted ml-auto"
-            onClick={() => {
-              onChange("");
-              setOpen(false);
-            }}
-          >
-            {t.common.clear}
-          </Button>
         </div>
+        <Footer
+          resetLabel={resetLabel}
+          onReset={() => commit("")}
+          onApply={() => day && commit(`${dateStr(day)}T${time || "00:00"}`)}
+          canApply={!!day}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * A period — both bounds optional-ended is a lie for a range control, so: `from` required to apply,
+ * `to` optional (an open-ended "since then"). Times default to the widest reading of the picked days
+ * (00:00 and 23:59): a person dragging two dates means those whole days.
+ */
+export function DateRangePicker({
+  id,
+  value,
+  onChange,
+  title,
+  unsetLabel,
+  resetLabel,
+}: {
+  id?: string;
+  /** Local wall time bounds; "" = unset. `to` may be "" while `from` is set (open-ended). */
+  value: { from: string; to: string };
+  onChange: (next: { from: string; to: string }) => void;
+  title?: string;
+  unsetLabel: string;
+  resetLabel: string;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [range, setRange] = useState<DateRange | undefined>();
+  const [fromTime, setFromTime] = useState("00:00");
+  const [toTime, setToTime] = useState("23:59");
+
+  const openWith = (next: boolean) => {
+    if (next) {
+      setRange(
+        value.from
+          ? { from: dayOf(value.from), to: dayOf(value.to) }
+          : undefined,
+      );
+      setFromTime(timeOf(value.from, "00:00"));
+      setToTime(timeOf(value.to, "23:59"));
+    }
+    setOpen(next);
+  };
+  const commit = (next: { from: string; to: string }) => {
+    onChange(next);
+    setOpen(false);
+  };
+  const label = value.from
+    ? `${value.from.replace("T", " ")} ~ ${value.to ? value.to.replace("T", " ") : ""}`
+    : unsetLabel;
+
+  return (
+    <Popover open={open} onOpenChange={openWith}>
+      <Trigger id={id} title={title} label={label} />
+      <PopoverContent className="w-auto">
+        <Calendar mode="range" selected={range} onSelect={setRange} />
+        <div className="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1">
+          <span className="muted text-[12px]">{t.common.startTime}</span>
+          <Input
+            type="time"
+            aria-label={t.common.startTime}
+            value={fromTime}
+            disabled={!range?.from}
+            onChange={(e) => setFromTime(e.target.value)}
+            className="w-auto tabular-nums"
+          />
+          <span className="muted text-[12px]">{t.common.endTime}</span>
+          <Input
+            type="time"
+            aria-label={t.common.endTime}
+            value={toTime}
+            disabled={!range?.to}
+            onChange={(e) => setToTime(e.target.value)}
+            className="w-auto tabular-nums"
+          />
+        </div>
+        <Footer
+          resetLabel={resetLabel}
+          onReset={() => commit({ from: "", to: "" })}
+          onApply={() =>
+            range?.from &&
+            commit({
+              from: `${dateStr(range.from)}T${fromTime || "00:00"}`,
+              to: range.to ? `${dateStr(range.to)}T${toTime || "23:59"}` : "",
+            })
+          }
+          canApply={!!range?.from}
+        />
       </PopoverContent>
     </Popover>
   );

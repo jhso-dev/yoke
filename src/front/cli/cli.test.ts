@@ -798,6 +798,26 @@ describe("runCli", () => {
       await runCli(["audit", "--db", db, "--since", "2099-01-01T00:00:00Z"]),
     ).toBe(0);
     expect(logs.at(-1)).toBe("no audit events");
+
+    // --until in the past closes the window before anything happened.
+    expect(
+      await runCli(["audit", "--db", db, "--until", "2000-01-01T00:00:00Z"]),
+    ).toBe(0);
+    expect(logs.at(-1)).toBe("no audit events");
+    // A window wide enough to hold everything returns it all — the two flags compose.
+    expect(
+      await runCli([
+        "audit",
+        "--db",
+        db,
+        "--since",
+        "2000-01-01T00:00:00Z",
+        "--until",
+        "2099-01-01T00:00:00Z",
+        "--json",
+      ]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string).length).toBeGreaterThan(0);
   });
 
   it("audit --shape counts the workload composition, and only of real injections", async () => {
