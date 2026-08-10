@@ -21,9 +21,11 @@
   box-sizing: border-box;
 }
 
+/* No `background` here. The page canvas comes from `color-scheme` (theme.css sets it per theme), so
+   the UA paints it — which is also what stops the one-frame flash a hand-set background can cause
+   before the theme is stamped. */
 body {
   margin: 0;
-  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
   font-size: 14px;

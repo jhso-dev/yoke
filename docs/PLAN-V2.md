@@ -157,10 +157,13 @@ Nothing in `src/` gets a build step beyond `tsc`.
   one kilobyte of headroom is a tripwire, not a budget. What the rise bought is
   named in the test: Radix Select on the token form, Dialog on two more screens,
   Checkbox on the create form, Separator.
-- **Shipped images ≤ 120 KB gzipped**, asserted by the same test. It exists because
-  for a while nothing measured them: the two home-page heroes were 475 KB together —
-  more than the entire JS+CSS budget — both preloaded at high priority, and one of
-  the two always hidden by the active theme. They are 42 KB now.
+- **Shipped images ≤ 500 KB gzipped**, asserted by the same test. It exists because
+  for a while nothing measured them at all: the JS+CSS figure filters on `.js|.css`,
+  so the two home-page heroes — 460 KB gzipped between them, both preloaded at high
+  priority, one of the two always hidden by the active theme — were invisible to every
+  check. The ceiling sits above what they cost on purpose: they are the artwork as
+  authored, and recompressing them is the art owner's call. It is a tripwire for a new
+  unmeasured asset; lower it in the same commit that optimises these two.
 - **Dependency budget: `next`, `react`, `react-dom`, `d3-force`, plus the
   shadcn/ui prerequisites** — `tailwindcss`, `@tailwindcss/postcss`, `postcss`,
   `radix-ui`, `class-variance-authority`, `clsx`, `tailwind-merge`,
