@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -27,6 +28,7 @@ import { Modal } from "../../components/Modal";
 import { Pagination, usePage } from "../../components/Pagination";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
+import { announce } from "../../lib/toast";
 import type { TypeDef } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
@@ -49,13 +51,13 @@ export default function Ontology() {
       <ErrorBanner error={defs.error} />
       {defs.loading ? (
         <div className="panel">
-          <div className="empty">loading…</div>
+          <div className="empty">{t.common.loading}</div>
         </div>
       ) : (
         <>
           <TypeTable title={t.ontology.entityTypes} list={entities} />
           <TypeTable title={t.ontology.relationTypes} list={relations} />
-          <Maintenance names={rows.map((d) => d.name)} onDone={defs.reload} />
+          <Maintenance types={rows} onDone={defs.reload} />
         </>
       )}
     </>
@@ -136,14 +138,23 @@ function AddTypeButton({ onSaved }: { onSaved: () => void }) {
         description={t.ontology.declareNote}
         onClose={() => setOpen(false)}
       >
-        <AddType onSaved={onSaved} />
+        {/* Saving closes and says the name, like every other create dialog here. It used to clear
+            the fields and sit open, so the one screen where the change lands in a table BEHIND the
+            modal was also the one that gave no sign anything had happened. */}
+        <AddType
+          onSaved={(name) => {
+            announce(t.ontology.typeSaved(name));
+            setOpen(false);
+            onSaved();
+          }}
+        />
       </Modal>
     </>
   );
 }
 
 /** `yoke ontology add-type`. Append-only per name, so declaring an existing name is a migration. */
-function AddType({ onSaved }: { onSaved: () => void }) {
+function AddType({ onSaved }: { onSaved: (name: string) => void }) {
   const t = useT();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"entity" | "relation">("entity");
@@ -172,16 +183,22 @@ function AddType({ onSaved }: { onSaved: () => void }) {
                   : [a, { type: "string" }],
               ),
           );
-          await api.addType({
+          // A freshness window is only sent when it is a real one. `Number("30 days")` is NaN,
+          // which JSON.stringify writes as `null`, which nothing rejects and the table then
+          // renders as "null days" — a type whose freshness rule is a typo.
+          const days = Number(ttl.trim());
+          const saved = await api.addType({
             name: name.trim(),
             kind,
             attrs: parsed,
-            ...(ttl.trim() ? { ttl_days: Number(ttl) } : {}),
+            ...(ttl.trim() && Number.isFinite(days) && days > 0
+              ? { ttl_days: days }
+              : {}),
           });
           setName("");
           setAttrs("");
           setTtl("");
-          onSaved();
+          onSaved(saved.name);
         } catch (e) {
           setError(e);
         } finally {
@@ -237,6 +254,9 @@ function AddType({ onSaved }: { onSaved: () => void }) {
           </Label>
           <Input
             id="type-ttl"
+            type="number"
+            min={1}
+            step={1}
             value={ttl}
             onChange={(e) => setTtl(e.target.value)}
             inputMode="numeric"
@@ -262,10 +282,10 @@ function AddType({ onSaved }: { onSaved: () => void }) {
  * a dialog before it.
  */
 function Maintenance({
-  names,
+  types,
   onDone,
 }: {
-  names: string[];
+  types: TypeDef[];
   onDone: () => void;
 }) {
   const t = useT();
@@ -273,14 +293,16 @@ function Maintenance({
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [result, setResult] = useState<string | null>(null);
 
+  // The outcome is ANNOUNCED, never held in this component's state: `onDone()` reloads the
+  // ontology, the parent swaps in its loading branch, and this panel unmounts — which is how
+  // "scanned 412 records, added 7 edges" and "renamed X to Y — 42 rows rewritten" were computed,
+  // translated, and then thrown away. Two whole-namespace repairs with no feedback at all.
   const run = async (fn: () => Promise<string>) => {
     setBusy(true);
     setError(null);
-    setResult(null);
     try {
-      setResult(await fn());
+      announce(await fn());
       onDone();
     } catch (e) {
       setError(e);
@@ -288,6 +310,13 @@ function Maintenance({
       setBusy(false);
     }
   };
+
+  // Grouped by kind, and keyed by kind:name. A flat list of every type gave no clue whether you
+  // were renaming an entity or a relation, and two kinds sharing a name produced two options with
+  // the same value — Radix picks one and the target of the rename became a coin toss.
+  const groups = (["entity", "relation"] as const)
+    .map((kind) => ({ kind, list: types.filter((d) => d.kind === kind) }))
+    .filter((g) => g.list.length > 0);
 
   return (
     <div className="panel">
@@ -317,10 +346,19 @@ function Maintenance({
             <SelectValue placeholder={t.ontology.renamePlaceholder} />
           </SelectTrigger>
           <SelectContent>
-            {names.map((n) => (
-              <SelectItem key={n} value={n}>
-                {n}
-              </SelectItem>
+            {groups.map((g) => (
+              <SelectGroup key={g.kind}>
+                <SelectLabel>
+                  {g.kind === "entity"
+                    ? t.ontology.entity
+                    : t.ontology.relation}
+                </SelectLabel>
+                {g.list.map((d) => (
+                  <SelectItem key={`${d.kind}:${d.name}`} value={d.name}>
+                    {d.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             ))}
           </SelectContent>
         </Select>
@@ -329,12 +367,13 @@ function Maintenance({
           value={to}
           onChange={(e) => setTo(e.target.value)}
           placeholder={t.ontology.newName}
-          aria-label="rename to"
+          aria-label={t.ontology.renameTo}
           className="w-56"
         />
+        {/* Not destructive: a rename is reversible by running it back (see this panel's note), and
+            red here devalues the red on Deprecate, which is the one act that retires knowledge. */}
         <Button
           type="button"
-          variant="destructive"
           disabled={busy || !from || !to.trim() || from === to.trim()}
           title={t.ontology.renameHint}
           onClick={() =>
@@ -349,11 +388,6 @@ function Maintenance({
           {t.ontology.rename}
         </Button>
       </div>
-      {result && (
-        <Alert>
-          <AlertDescription>{result}</AlertDescription>
-        </Alert>
-      )}
       <ErrorBanner error={error} />
     </div>
   );

@@ -221,8 +221,7 @@ function ReviewBody() {
             select={{
               chosen,
               toggle,
-              setAll: (next: boolean) =>
-                setChosen(next ? new Set(rows.map((r) => r.id)) : new Set()),
+              clear: () => setChosen(new Set()),
             }}
           />
         )}

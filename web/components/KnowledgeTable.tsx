@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -28,20 +29,21 @@ import { StatusBadge } from "./StatusBadge";
  * and cannot make a screen render one. */
 export function KnowledgeTable({
   rows,
-  empty = "nothing here",
+  empty,
   paginate = false,
   select,
   trailing,
 }: {
   rows: Knowledge[];
-  empty?: string;
+  /** Required, because the default was an English literal that one of seven call sites relied on. */
+  empty: string;
   paginate?: boolean;
   /** When given, renders a checkbox column for bulk governance actions. */
   select?: {
     chosen: Set<string>;
     toggle: (id: string) => void;
-    /** Select or clear every row currently in the table — the header checkbox. */
-    setAll: (next: boolean) => void;
+    /** Drop the whole selection. Called when the page turns — see the effect below. */
+    clear: () => void;
   };
   /** One optional extra column at the end, for a queue-specific signal (the stale queue's
    * consumption count). A prop rather than a fork of this table, so the citation guard keeps
@@ -54,6 +56,17 @@ export function KnowledgeTable({
   const t = useT();
   const paged = usePage(rows);
   const visible = paginate ? paged.items : rows;
+  // A selection belongs to the page it was made on. It used to survive paging while the header
+  // checkbox deliberately did not, so ticking twenty drafts and pressing Next left the toolbar
+  // reading "Deprecate 20" with not one visible row checked — and pressing it retired twenty
+  // records the reader could not see. Bulk work wider than a page is what the CLI is for.
+  const clearSelection = select?.clear;
+  const shownPage = useRef(paged.page);
+  useEffect(() => {
+    if (shownPage.current === paged.page) return;
+    shownPage.current = paged.page;
+    clearSelection?.();
+  }, [paged.page, clearSelection]);
   // Counted against the rows on screen, not `chosen.size`: the header must describe THIS table, and
   // a selection made before a filter narrowed it would otherwise show as "all".
   const here = select
@@ -103,7 +116,12 @@ export function KnowledgeTable({
                     <Checkbox
                       checked={select.chosen.has(r.id)}
                       onCheckedChange={() => select.toggle(r.id)}
-                      aria-label={`select ${r.id}`}
+                      // The record's own label, never its id: this prop IS the human surface for a
+                      // screen-reader user, and it used to read out a 26-character ULID — in English
+                      // — on every one of twenty rows, while the visible cell two columns over said
+                      // the summary. The no-raw-ids guard cannot see it (prop position, and the id
+                      // arrived through a template), so it is a rule the reviewer has to hold.
+                      aria-label={t.review.selectRow(recordLabel(r))}
                     />
                   </TableCell>
                 )}

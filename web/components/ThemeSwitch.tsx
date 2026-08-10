@@ -68,8 +68,15 @@ export function ThemeSwitch() {
 
   return (
     <Select value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+      {/* `aria-labelledby`, not `aria-label`: an aria-label REPLACES the subtree for name
+          computation, so the sr-only current value was computed away and the control announced
+          "theme, combobox" — a switch that says nothing about which theme is on. Pointing at a
+          hidden label instead keeps both the name and the value. */}
+      <span id="theme-switch-label" className="sr-only">
+        {t.theme.label}
+      </span>
       <SelectTrigger
-        aria-label={t.theme.label}
+        aria-labelledby="theme-switch-label"
         title={labels[theme]}
         size="sm"
         className="w-8 justify-center px-0 [&>svg:last-child]:hidden"
@@ -79,7 +86,9 @@ export function ThemeSwitch() {
           <SelectValue />
         </span>
       </SelectTrigger>
-      <SelectContent align="end">
+      {/* `position="popper"` because `align` is ignored in the default item-aligned mode — the menu
+          asked to sit at the trigger's right edge and silently did not. */}
+      <SelectContent position="popper" align="end">
         {THEMES.map((name) => (
           <SelectItem key={name} value={name}>
             <ThemeIcon theme={name} />

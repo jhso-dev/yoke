@@ -106,7 +106,7 @@ function BrowseBody() {
           value={type || ANY}
           onValueChange={(v) => setFilter({ type: v === ANY ? "" : v })}
         >
-          <SelectTrigger aria-label="type">
+          <SelectTrigger aria-label={t.common.type}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -124,7 +124,7 @@ function BrowseBody() {
           value={status || ANY}
           onValueChange={(v) => setFilter({ status: v === ANY ? "" : v })}
         >
-          <SelectTrigger aria-label="status">
+          <SelectTrigger aria-label={t.common.status}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -146,7 +146,7 @@ function BrowseBody() {
             onChange={(e) => setDraft(e.target.value)}
             placeholder={t.browse.search}
             title={t.browse.searchHint}
-            aria-label="search"
+            aria-label={t.common.search}
             className="w-auto min-w-60"
           />
           {query && (

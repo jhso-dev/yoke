@@ -26,23 +26,41 @@ const built = existsSync(join(bundle, "index.html"));
  */
 const BUDGET_KB = 380;
 
-function transferBytes(dir: string): number {
+function transferBytes(dir: string, pattern: RegExp): number {
   let total = 0;
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
-    if (statSync(p).isDirectory()) total += transferBytes(p);
-    else if (/\.(js|css)$/.test(name))
-      total += gzipSync(readFileSync(p)).length;
+    if (statSync(p).isDirectory()) total += transferBytes(p, pattern);
+    else if (pattern.test(name)) total += gzipSync(readFileSync(p)).length;
   }
   return total;
 }
 
+/**
+ * Images have their own budget, because for a while they had none and the largest thing this app
+ * shipped was the one thing not measured: the two home-page hero PNGs were 475 KB together —
+ * more than the entire JS+CSS budget — both preloaded at high priority on every visit, and one of
+ * them always hidden by the theme. A single number covering both would let a 40 KB script hide
+ * inside an image regression, and vice versa.
+ */
+const IMAGE_BUDGET_KB = 120;
+
 describe.skipIf(!built)("shipped bundle size", () => {
   it(`stays under ${BUDGET_KB} KB gzipped`, () => {
-    const kb = Math.round(transferBytes(bundle) / 1024);
+    const kb = Math.round(transferBytes(bundle, /\.(js|css)$/) / 1024);
     // Reported on every run, pass or fail: a budget you only hear about when it breaks tells you
     // nothing about the direction you are heading in.
     console.log(`shipped JS+CSS: ${kb} KB gzipped (budget ${BUDGET_KB} KB)`);
     expect(kb).toBeLessThanOrEqual(BUDGET_KB);
+  });
+
+  it(`ships under ${IMAGE_BUDGET_KB} KB of images`, () => {
+    const kb = Math.round(
+      transferBytes(bundle, /\.(png|jpe?g|gif|webp|avif|svg)$/i) / 1024,
+    );
+    console.log(
+      `shipped images: ${kb} KB gzipped (budget ${IMAGE_BUDGET_KB} KB)`,
+    );
+    expect(kb).toBeLessThanOrEqual(IMAGE_BUDGET_KB);
   });
 });

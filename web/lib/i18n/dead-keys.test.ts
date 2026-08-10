@@ -20,7 +20,7 @@ const webRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /** Looked up by computed key (`t.nav[l.key]`, `t.audit.meaning[e.action]`), so no source file
  * spells the leaf out. Checked as a group instead: something must still read the group. */
-const DYNAMIC = new Set(["audit.meaning", "nav"]);
+const DYNAMIC = new Set(["audit.meaning", "nav", "status.meaning"]);
 
 function leaves(obj: object, prefix = ""): string[] {
   return Object.entries(obj).flatMap(([k, v]) => {

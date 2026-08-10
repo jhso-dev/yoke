@@ -7,16 +7,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LOCALES, type Locale, useLocale } from "../lib/i18n";
+import { LOCALES, type Locale, useLocale, useT } from "../lib/i18n";
 
 /** The language control, in the top bar beside the credential state. */
 export function LocaleSwitch() {
   const { locale, setLocale } = useLocale();
+  const t = useT();
   return (
     <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
       {/* Sized to the longest label rather than to content, so switching language does not shift
           everything beside it in the top bar. */}
-      <SelectTrigger aria-label="language" size="sm" className="w-28">
+      <SelectTrigger aria-label={t.common.language} size="sm" className="w-28">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

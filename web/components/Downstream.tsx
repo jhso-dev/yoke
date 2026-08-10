@@ -32,7 +32,9 @@ export function Downstream({ rows }: { rows: Knowledge[] }) {
           straight into the Verify/Deprecate buttons. Adjacent margins collapse to the max, so a panel
           after this one still sits 14px away rather than 28. */}
       <div className="panel mb-[14px]">
-        <KnowledgeTable rows={rows} />
+        {/* `empty` is unreachable here (the guard above returns on an empty list) but required, so
+            the last caller relying on an English default is gone. */}
+        <KnowledgeTable rows={rows} empty={t.common.none} />
       </div>
     </>
   );

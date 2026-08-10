@@ -37,6 +37,12 @@ export const en = {
     notFound: "not found in this namespace",
     required: "required by the ontology",
     draftNotice: "saved as a draft and must be verified",
+    skipToContent: "Skip to content",
+    /** Accessible names for controls whose visible label is a placeholder or an icon. They were
+     * English literals in JSX, which neither the untranslated nor the dead-key guard can see. */
+    search: "search",
+    query: "query",
+    language: "language",
     copyFull: "click to copy",
     copy: "Copy",
     copied: "Copied",
@@ -146,10 +152,24 @@ export const en = {
     createdToast: (label: string) =>
       `Created "${label}" as a draft — verify it in Review.`,
   },
+  status: {
+    /** Why a record in this state is or is not injected. The stored NAME stays English (it is what
+     * the database and the CLI say); the explanation is said to a person, so it is translated. */
+    meaning: {
+      draft: "staged but not verified — withheld from injection",
+      verified: "a human promoted this; agents may receive it",
+      stale:
+        "past its type's freshness window — withheld until someone re-confirms it",
+      deprecated: "retired; never injected",
+      unknown: "unrecognized status",
+    },
+  },
   review: {
     heading: "Review queue",
     lede: "Review drafts that have not been verified. They are not injected into an agent until a person promotes them.",
     selectAll: "Select all",
+    /** The row checkbox's accessible name — the record, not its id. */
+    selectRow: (label: string) => `Select ${label}`,
     empty: "no drafts are waiting for review",
     draftCount: (n: number) => `${n} draft(s)`,
     // The two queues. Named for what a record in each needs, not for its status: a draft was never
@@ -263,6 +283,7 @@ export const en = {
     attrsHint: "— comma separated, * = required",
     ttlHint: "— days, blank = never goes stale",
     saveType: "Save type",
+    typeSaved: (name: string) => `Saved the type "${name}".`,
     maintenance: "maintenance",
     maintenanceNote: "Repairs apply to the entire namespace",
     backfill: "Backfill authorship",
@@ -273,6 +294,7 @@ export const en = {
     renameFrom: "rename from",
     attrsExample: "title*, owner",
     renamePlaceholder: "rename a type…",
+    renameTo: "rename to",
     newName: "new name",
     rename: "Rename",
     renameHint:

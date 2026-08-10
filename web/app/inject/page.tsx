@@ -93,14 +93,14 @@ function InjectBody() {
           placeholder={t.inject.queryPlaceholder}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          aria-label="query"
+          aria-label={t.common.query}
           className="w-auto min-w-65"
         />
         <Input
           placeholder={t.inject.scopePlaceholder}
           value={draftScope}
           onChange={(e) => setDraftScope(e.target.value)}
-          aria-label="scope"
+          aria-label={t.inject.scopePlaceholder}
           className="mono w-auto min-w-55"
         />
         <Button type="submit">{t.inject.run}</Button>

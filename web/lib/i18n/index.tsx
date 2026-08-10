@@ -3,9 +3,9 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { en } from "./en";
 import { ko } from "./ko";
-import { chooseLocale, LOCALES, type Locale } from "./locale";
+import { chooseLocale, LOCALES, type Locale, preferredLocale } from "./locale";
 
-export { chooseLocale, LOCALES, type Locale };
+export { chooseLocale, LOCALES, type Locale, preferredLocale };
 
 const DICTS = { en, ko };
 const STORAGE_KEY = "yoke.locale";
@@ -27,8 +27,13 @@ const LocaleContext = createContext<{
   setLocale: (l: Locale) => void;
 }>({ locale: "en", setLocale: () => {} });
 
+/** A stored choice wins; otherwise the browser's own language preference decides. Falling straight
+ * to English meant a Korean reader met an English UI even though the Korean catalog is complete and
+ * already shipping — a switcher they had to find first. */
 function detect(): Locale {
-  return chooseLocale(localStorage.getItem(STORAGE_KEY));
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored !== null) return chooseLocale(stored);
+  return preferredLocale(navigator.languages ?? [navigator.language]);
 }
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {

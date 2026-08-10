@@ -27,10 +27,14 @@ export function ToastHost() {
     };
   }, []);
 
-  if (!message) return null;
+  // The live region is ALWAYS mounted and only its text changes. Returning null when idle meant the
+  // region was inserted in the same mutation as its content, which assistive tech announces
+  // unreliably — so every outcome that goes through `announce()` (created, duplicates found, copied,
+  // nothing new to expand) was silent for a screen-reader user much of the time. The wrapper is
+  // inert when empty: no box, no space, nothing to click.
   return (
-    <div className="toast" role="status" aria-live="polite">
-      {message}
+    <div role="status" aria-live="polite" aria-atomic="true">
+      {message ? <div className="toast">{message}</div> : null}
     </div>
   );
 }

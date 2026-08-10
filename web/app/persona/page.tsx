@@ -163,7 +163,7 @@ function Person({ id }: { id: string }) {
           placeholder={t.persona.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          aria-label="search"
+          aria-label={t.common.search}
           className="w-auto min-w-65"
         />
         {/* Counted only while searching: "12 of 12" beside an untouched box is noise, but an empty

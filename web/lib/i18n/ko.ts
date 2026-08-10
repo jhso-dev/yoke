@@ -40,6 +40,10 @@ export const ko: typeof en = {
     notFound: "이 네임스페이스에서 찾을 수 없음",
     required: "온톨로지에서 필수로 지정한 속성",
     draftNotice: "draft로 저장되며 검증이 필요합니다",
+    skipToContent: "본문으로 건너뛰기",
+    search: "검색",
+    query: "질문",
+    language: "언어",
     copyFull: "클릭하면 전체 복사",
     copy: "복사",
     copied: "복사됨",
@@ -147,10 +151,21 @@ export const ko: typeof en = {
     createdToast: (label: string) =>
       `"${label}" 초안으로 생성됨 — 리뷰에서 검증하세요.`,
   },
+  status: {
+    meaning: {
+      draft: "staged 상태이며 검증되지 않았습니다 — 주입에서 제외됩니다",
+      verified: "사람이 승격했습니다. 에이전트가 받을 수 있습니다",
+      stale:
+        "타입의 신선도 기간을 넘겼습니다 — 누군가 재확인할 때까지 제외됩니다",
+      deprecated: "폐기되었습니다. 주입되지 않습니다",
+      unknown: "알 수 없는 상태",
+    },
+  },
   review: {
     heading: "리뷰 대기열",
     lede: "아직 검증하지 않은 draft를 확인합니다. 사람이 승격하기 전까지 에이전트에는 주입되지 않습니다.",
     selectAll: "전체 선택",
+    selectRow: (label: string) => `${label} 선택`,
     empty: "대기 중인 draft가 없습니다",
     draftCount: (n: number) => `draft ${n}개`,
     // draft/verified/stale은 저장되는 상태 이름이라 영어를 유지하고, 탭 이름은 사람에게 하는
@@ -260,6 +275,7 @@ export const ko: typeof en = {
     attrsHint: "— 쉼표로 구분, * = 필수",
     ttlHint: "— 일 단위, 비우면 오래되지 않음",
     saveType: "타입 저장",
+    typeSaved: (name: string) => `"${name}" 타입을 저장했습니다.`,
     maintenance: "유지보수",
     maintenanceNote: "네임스페이스 전체에 적용하는 복구 작업입니다",
     backfill: "authorship 백필",
@@ -270,6 +286,7 @@ export const ko: typeof en = {
     renameFrom: "이름 바꿀 타입",
     attrsExample: "title*, owner",
     renamePlaceholder: "타입 이름 바꾸기…",
+    renameTo: "새 이름",
     newName: "새 이름",
     rename: "이름 바꾸기",
     renameHint: "타입 선언과 저장된 모든 행의 이름을 이력까지 변경합니다",

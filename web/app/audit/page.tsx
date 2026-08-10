@@ -191,7 +191,7 @@ export default function Audit() {
           value={action || ANY}
           onValueChange={(v) => setAction(v === ANY ? "" : v)}
         >
-          <SelectTrigger aria-label="action">
+          <SelectTrigger aria-label={t.common.action}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -207,7 +207,7 @@ export default function Audit() {
           value={actor || ANY}
           onValueChange={(v) => setActor(v === ANY ? "" : v)}
         >
-          <SelectTrigger aria-label="actor">
+          <SelectTrigger aria-label={t.common.actor}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
