@@ -13,6 +13,7 @@ import {
 import { api } from "../lib/api";
 import { recordLabel } from "../lib/citation";
 import { useT } from "../lib/i18n";
+import { announce } from "../lib/toast";
 import type { Knowledge, TypeDef } from "../lib/types";
 import { DirectionIcon } from "./DirectionIcon";
 import { ErrorBanner } from "./ErrorBanner";
@@ -29,6 +30,20 @@ import { ErrorBanner } from "./ErrorBanner";
  * The other end is typed, not picked from a list: a namespace can hold more records than a select
  * should ever contain, and pasting an id is what the graph and every table already hand you. The
  * gate rejects an id that does not resolve, so there is nothing to validate here.
+ *
+ * Two things this control deliberately refuses to guess:
+ *
+ * The relation type has NO default. It used to default to the first declared relation, which in the
+ * seed is `authored_by` — so pasting an id and pressing Link recorded "this record was written by
+ * that one". Recording a relation is a claim, and the one thing a picker must not do is pick for
+ * you.
+ *
+ * And `authored_by` is not offered at all. The gate creates it from `provenance.actor` on every
+ * commit, so a hand-made one is almost always a mistake — and it is the edge a persona walks, so a
+ * wrong one puts records into someone's judgment that they never wrote. `yoke link X authored_by Y`
+ * stays available for the deliberate case (and `yoke backfill` for the bulk one), which is the
+ * pattern this product uses everywhere: the screen offers what a reader should reach for, the CLI
+ * keeps what an operator sometimes needs.
  */
 export function LinkRecord({
   ontology,
@@ -40,8 +55,10 @@ export function LinkRecord({
   onLinked: () => void;
 }) {
   const tr = useT();
-  const relations = ontology.filter((d) => d.kind === "relation");
-  const [type, setType] = useState(relations[0]?.name ?? "");
+  const relations = ontology.filter(
+    (d) => d.kind === "relation" && d.name !== "authored_by",
+  );
+  const [type, setType] = useState("");
   const [outgoing, setOutgoing] = useState(true);
   const [other, setOther] = useState("");
   const [busy, setBusy] = useState(false);
@@ -53,11 +70,14 @@ export function LinkRecord({
     setError(null);
     try {
       const id = other.trim();
-      await api.link({
+      // A relation's identity is (type, from, to), so linking the same pair again stores nothing.
+      // Saying so beats a silent success that looks identical to having added something.
+      const { existed } = await api.link({
         from: outgoing ? record.id : id,
         type,
         to: outgoing ? id : record.id,
       });
+      announce(existed ? tr.entity.alreadyLinked : tr.entity.linked);
       setOther("");
       onLinked();
     } catch (e) {
@@ -84,7 +104,7 @@ export function LinkRecord({
       </Button>
       <Select value={type} onValueChange={setType}>
         <SelectTrigger aria-label={tr.common.relation} className="w-48">
-          <SelectValue />
+          <SelectValue placeholder={tr.entity.pickRelation} />
         </SelectTrigger>
         <SelectContent>
           {relations.map((r) => (

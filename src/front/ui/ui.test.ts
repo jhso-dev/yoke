@@ -211,6 +211,13 @@ const post = (p: string, body: unknown) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   }).then((r) => r.json());
+/** Raw response, for the routes whose STATUS is the contract. */
+const postRaw2 = (p: string, body: unknown) =>
+  fetch(base + p, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 const del = (p: string) =>
   fetch(base + p, { method: "DELETE" }).then(async (r) => ({
     status: r.status,
@@ -1493,6 +1500,39 @@ describe("creating from the browser says whether anything was compared", () => {
       "settle hourly",
       "settle on demand",
     ]);
+  });
+
+  // A relation's identity is (type, from, to), so the route must not report a creation it did not do.
+  it("links once: a repeat answers 200 with existed, and stores no second edge", async () => {
+    const a = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "the queue is at-least-once" },
+    });
+    const b = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "consumers must be idempotent" },
+    });
+    const first = await postRaw2("/api/link", {
+      type: "relates_to",
+      from: b.id,
+      to: a.id,
+    });
+    expect(first.status).toBe(201);
+    expect((await first.json()).existed).toBe(false);
+
+    const again = await postRaw2("/api/link", {
+      type: "relates_to",
+      from: b.id,
+      to: a.id,
+    });
+    expect(again.status).toBe(200);
+    expect((await again.json()).existed).toBe(true);
+
+    const detail = await get(`/api/entity/${b.id}`);
+    const edges = [...detail.relations.in, ...detail.relations.out].filter(
+      (e: { type: string }) => e.type === "relates_to",
+    );
+    expect(edges).toHaveLength(1);
   });
 
   it("still refuses a shape no attribute can hold", async () => {

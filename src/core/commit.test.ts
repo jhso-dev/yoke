@@ -131,6 +131,48 @@ describe("commit gate", () => {
     const found = await port.neighbors("a", "relates_to", "out");
     expect(found).toEqual([entity]);
   });
+
+  // A relation's identity is (type, from, to) in a namespace. Pressing Link twice used to store two
+  // rows with different ids, the same actor and the same instant — the entity screen listed the link
+  // three times, the graph drew three arrows over each other, and a collaboration counted one
+  // attached record as three.
+  it("commits the same edge once, and says it was already there", async () => {
+    const input = {
+      type: "relates_to" as const,
+      attributes: {},
+      from: "x",
+      to: "y",
+    };
+    const first = await commit(port, ont, input, prov, now);
+    expect(first.existed).toBeUndefined();
+
+    const again = await commit(port, ont, input, prov, now);
+    expect(again.existed).toBe(true);
+    // The SAME edge comes back — a caller that stores the returned id keeps pointing at one row.
+    expect(again.entity.id).toBe(first.entity.id);
+    expect(await port.neighbors("x", "relates_to", "out")).toHaveLength(1);
+  });
+
+  it("keeps edges that differ in type, in direction, or in namespace", async () => {
+    const base = { attributes: {}, from: "p", to: "q" };
+    await commit(port, ont, { ...base, type: "relates_to" }, prov, now);
+    // A different type between the same two records is a different claim.
+    await commit(port, ont, { ...base, type: "supersedes" }, prov, now);
+    // The reverse edge is its own edge: for `supersedes` the direction IS the claim.
+    await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: "q", to: "p" },
+      prov,
+      now,
+    );
+    // And a namespace is a separate world — the same pair there is not this pair.
+    await commit(port, ont, { ...base, type: "relates_to" }, prov, now, {
+      ns: "other",
+    });
+    expect(await port.neighbors("p", undefined, "out")).toHaveLength(3);
+    expect(await port.neighbors("q", "supersedes", "out")).toHaveLength(1);
+  });
 });
 
 describe("commit gate stage 3 (duplicates)", () => {

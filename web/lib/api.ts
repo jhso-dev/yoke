@@ -172,14 +172,16 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(p),
     }),
-  /** Record a relation. `yoke link` in the browser; direction is the caller's to get right. */
+  /** Record a relation. `yoke link` in the browser; direction is the caller's to get right.
+   * `existed` is true when that edge was already recorded and nothing was stored — a relation's
+   * identity is (type, from, to), so a second link of the same pair is a no-op. */
   link: (p: {
     from: string;
     type: string;
     to: string;
     attributes?: Record<string, string | string[]>;
   }) =>
-    request<Edge>("/api/link", {
+    request<Edge & { existed: boolean }>("/api/link", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(p),

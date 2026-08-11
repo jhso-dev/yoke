@@ -7,7 +7,9 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 // package.json sits at the package root in both source (../../../ from src/front/cli)
 // and published layouts (../../../ from dist/front/cli) — npm always ships it.
-const { version } = require("../../../package.json") as { version: string };
+export const { version } = require("../../../package.json") as {
+  version: string;
+};
 
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";

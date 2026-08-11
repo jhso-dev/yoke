@@ -760,7 +760,7 @@ endpoint shares it at `POST /mcp`.
 | `POST /api/verify` | `verify` | verify | yes |
 | `POST /api/deprecate` | `deprecate` + `downstreamOf` | verify | yes |
 | `POST /api/entity` | `commit({type, attributes})` (+ a `relates_to` commit when `scope` is given) | write (typed) | no — the v1 row records it |
-| `POST /api/link` | `commit({type, attributes, from, to})` | write (typed) | no — same |
+| `POST /api/link` | `commit({type, attributes, from, to})` | write (typed) | no — same. **200 with `existed: true`** when that edge is already recorded, 201 when it is new |
 | `POST /api/backfill` | `backfillAuthorship`, or `backfillEmbeddings` with `{embeddings:true, rebuild?}` | write | no — the edges it creates record it, and a vector is not knowledge |
 | `POST /api/ontology` | `saveOntology([def], ns)` | **verify** | no |
 | `POST /api/rename-type` | `renameType(from, to, ns)` | **verify** | **yes** (`rename_type`) |
@@ -770,6 +770,14 @@ endpoint shares it at `POST /mcp`.
 
 Rules that hold for every route:
 
+- **A relation is identified by `(type, from, to)` in a namespace.** Committing one that already
+  exists stores nothing and returns the existing edge with `existed: true` — the same pair linked
+  twice is one edge, not two facts. Nothing else distinguishes an edge from itself: relations carry
+  no `existingId`, so without this a second Link stored a second row with a different id, the same
+  actor and the same instant, and a collaboration counted one attached record as three. Type,
+  direction and namespace all still separate edges — for `supersedes` the direction IS the claim.
+  `ceiling:` the check ignores `attributes`, because no seeded relation type declares any; giving a
+  relation attributes needs a way to name an existing edge first.
 - **Creation goes through the gate, never around it.** `POST /api/entity` and `POST /api/link` call
   `commit()` like every other adapter, so a record made in a browser is validated against the
   ontology, enters as `draft`, and needs the same human `verify`. It carries

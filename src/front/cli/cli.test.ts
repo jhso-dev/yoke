@@ -163,6 +163,11 @@ describe("runCli", () => {
     expect(human).toContain("injected 2x");
   });
 
+  it("bare --version prints the package version", async () => {
+    expect(await runCli(["--version"])).toBe(0);
+    expect(logs.at(-1)).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
   it("rejects invalid add with exit 1", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

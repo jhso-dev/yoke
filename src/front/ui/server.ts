@@ -1097,7 +1097,7 @@ export function createUiHandler(
             sendJson(res, 400, { error: "from and to are required" });
             return;
           }
-          const { entity } = await commit(
+          const { entity, existed } = await commit(
             store,
             ontology,
             { type, attributes, from, to },
@@ -1105,7 +1105,13 @@ export function createUiHandler(
             ts,
             { ns },
           );
-          sendJson(res, 201, await asRelRow()(entity as Relation));
+          // 200, not 201, when the edge was already there: nothing was created, and a screen that
+          // said "linked" would be reporting a change it did not cause. The row is the same either
+          // way, so `existed` is what tells the caller which of the two happened.
+          sendJson(res, existed ? 200 : 201, {
+            ...(await asRelRow()(entity as Relation)),
+            existed: existed ?? false,
+          });
           return;
         }
         const { entity, duplicates, duplicateDetection } = await commit(

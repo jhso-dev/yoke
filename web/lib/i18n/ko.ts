@@ -229,6 +229,9 @@ export const ko: typeof en = {
     pointsAt: "상대 레코드를 가리킴",
     isPointedAt: "상대가 이 레코드를 가리킴",
     copyId: "클릭하면 복사",
+    pickRelation: "관계 고르기",
+    linked: "연결했습니다.",
+    alreadyLinked: "이미 연결돼 있어 새로 기록하지 않았습니다.",
   },
   collaboration: {
     heading: "협업",
@@ -254,6 +257,8 @@ export const ko: typeof en = {
     briefingEmptyLinked: (n: number) =>
       `verified 지식이 없어 에이전트는 아무것도 받지 못합니다 — 아래 연결된 레코드 ${n}건은 draft이거나 오래되었습니다.`,
     memberAdded: (name: string) => `${name}을(를) 이 협업에 추가했습니다.`,
+    alreadyOnThisWork: (name: string) =>
+      `${name}은(는) 이미 이 협업에 있어 새로 기록하지 않았습니다.`,
     noPeople: "기록된 사람이 없어 추가할 대상이 없습니다.",
     peopleCapped: (n: number) =>
       `여기에는 앞의 ${n}명만 표시됩니다. 나머지는 각자의 레코드에서 연결하세요.`,

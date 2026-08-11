@@ -59,7 +59,7 @@ import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
 import { runUi } from "../ui/server.js";
-import { banner, decorated, getStartedBlock, log } from "./banner.js";
+import { banner, decorated, getStartedBlock, log, version } from "./banner.js";
 
 type Values = {
   db?: string;
@@ -476,7 +476,7 @@ async function cmdLink(
     try {
       // Straight through the same gate as everything else: it is the gate that checks the type is a
       // declared relation and that both endpoints exist, so this command adds no rules of its own.
-      const { entity } = await commit(
+      const { entity, existed } = await commit(
         store,
         ontology,
         { type, attributes, from, to },
@@ -485,6 +485,10 @@ async function cmdLink(
         { ns },
       );
       emit(v, formatEntity(entity), entity);
+      // Said out loud, because the exit code and the printed row are identical either way: a second
+      // `link` of the same edge is now a no-op, and reporting it as a link would credit the caller
+      // with a change they did not make. Human output only — --json stays the record.
+      if (existed) console.error("already linked — no new relation recorded");
       return 0;
     } catch (e) {
       if (e instanceof CommitRejected) {
@@ -1641,6 +1645,12 @@ export async function runCli(
   argv: string[],
   env: Env = process.env,
 ): Promise<number> {
+  // Bare `yoke --version` prints the package version. Handled before parseArgs
+  // because --version is also `get`'s value-taking option (--version <n>).
+  if (argv.length === 1 && argv[0] === "--version") {
+    console.log(version);
+    return 0;
+  }
   let parsed: { values: Values; positionals: string[] };
   try {
     parsed = parseArgs({
