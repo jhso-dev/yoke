@@ -6,7 +6,11 @@
 // Everything that can go wrong with one is a form of misattribution or leakage, so this measures the
 // four failure modes against a corpus deliberately full of bait:
 //
-//   1) Impersonation rate — records returned by persona(A) that A did not author (target 0%).
+//   1) Impersonation rate — records returned by persona(A) that A did not author (target 0%), and
+//      records A DID author that are not knowledge at all: the collaboration they started, the person
+//      record filed for a colleague. This axis was missing and the gap was real — the bait below was
+//      all about AUTHORSHIP, so a corpus where the subject creates their own collaboration passed
+//      while the persona listed a project name among the things that person knows.
 //      Bait: B's verified records on the SAME topics as A's, plus records linked to A by
 //      `relates_to` (an association is not authorship), plus facts A's own decisions cite via
 //      `derived_from` but which someone else wrote — the depth-2 vector the graph's shape is
@@ -126,6 +130,7 @@ async function run() {
     derivedSource: [] as string[], // Bob's facts that Alice's decisions REST ON (derived_from, depth 2)
     aliceDraft: [] as string[], // Alice's own drafts
     aliceStale: [] as string[], // Alice's own verified-but-aged facts
+    aliceStructural: [] as string[], // things Alice CREATED that are not knowledge
   };
   for (let i = 0; i < TOPICS.length; i++) {
     const t = TOPICS[i];
@@ -142,6 +147,32 @@ async function run() {
     bait.aliceStale.push(await record(alice, t, "fact", { at: LONG_AGO }));
   }
 
+  // A collaboration Alice started, and a colleague's person record she filed. Both are authored by
+  // her and verified, so nothing about authorship or lifecycle excludes them — only the fact that a
+  // structural type names a thing rather than asserting one.
+  for (const title of ["PAY-42", "settlement revamp"]) {
+    const { entity } = await commit(
+      store,
+      ontology,
+      { type: "collaboration", attributes: { title } },
+      prov(alice),
+      NOW,
+    );
+    await verify(store, [entity.id], alice, NOW);
+    bait.aliceStructural.push(entity.id);
+  }
+  {
+    const { entity } = await commit(
+      store,
+      ontology,
+      { type: "person", attributes: { name: "Colleague Alice filed" } },
+      prov(alice),
+      NOW,
+    );
+    await verify(store, [entity.id], alice, NOW);
+    bait.aliceStructural.push(entity.id);
+  }
+
   // ---- Run the persona, whole and per-topic. ----
   const whole = await personaQuery(store, ontology, alice, NOW);
   const wholeIds = new Set(
@@ -154,6 +185,7 @@ async function run() {
     ...leaked(bait.related),
     ...leaked(bait.derivedSource),
   ];
+  const structuralLeaks = leaked(bait.aliceStructural);
   const draftLeaks = leaked(bait.aliceDraft);
   const staleLeaks = leaked(bait.aliceStale);
   const recalled = gold.filter((id) => wholeIds.has(id));
@@ -181,7 +213,8 @@ async function run() {
         bait.related.length +
         bait.derivedSource.length +
         bait.aliceDraft.length +
-        bait.aliceStale.length,
+        bait.aliceStale.length +
+        bait.aliceStructural.length,
     },
     impersonation: {
       returned,
@@ -195,6 +228,10 @@ async function run() {
     staleLeak: {
       leaked: staleLeaks.length,
       rate: staleLeaks.length / gold.length,
+    },
+    structuralLeak: {
+      leaked: structuralLeaks.length,
+      rate: structuralLeaks.length / bait.aliceStructural.length,
     },
     recall: {
       whole: recalled.length / gold.length,
@@ -220,6 +257,9 @@ console.log(
 );
 console.log(`draft leak rate (target 0%)           ${pct(r.draftLeak.rate)}`);
 console.log(`stale leak rate (target 0%)           ${pct(r.staleLeak.rate)}`);
+console.log(
+  `structural leak rate (target 0%)      ${pct(r.structuralLeak.rate)}`,
+);
 console.log(`recall, whole persona (target 100%)   ${pct(r.recall.whole)}`);
 console.log(`recall, topic queries (target 100%)   ${pct(r.recall.query)}`);
 console.log("========================================");
@@ -229,6 +269,7 @@ process.exit(
   r.impersonation.rate === 0 &&
     r.draftLeak.rate === 0 &&
     r.staleLeak.rate === 0 &&
+    r.structuralLeak.rate === 0 &&
     r.recall.whole === 1 &&
     r.recall.query === 1
     ? 0

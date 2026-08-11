@@ -527,17 +527,45 @@ describe("inject scoped: a briefing is knowledge, in a defined order", () => {
   });
 
   it("is driven by the ontology, not by a relation name in core", async () => {
-    // A tenant ontology that has not marked works_on gets the members, because nothing declared them
-    // to be membership. That is the point of putting the flag in data: a tenant's own membership
-    // relation (assigned_to, member_of) works the same way with no core change.
+    // A tenant ontology that has marked NEITHER flag gets the members, because nothing declared them
+    // to be either a roster edge or a structural type. That is the point of putting both in data: a
+    // tenant's own membership relation (assigned_to, member_of) and its own unit type (squad,
+    // service) work the same way with no core change.
+    //
+    // Both have to be cleared, and that is the design rather than an inconvenience: they say
+    // different things. `membership` is "this EDGE records who is involved"; `structural` is "this
+    // TYPE names a thing rather than asserting one". An org that decides its roster is knowledge has
+    // not thereby decided that a bare person record is.
     const unmarked = ont.map((t) =>
-      t.name === "works_on" ? { ...t, membership: undefined } : t,
+      t.name === "works_on"
+        ? { ...t, membership: undefined }
+        : t.name === "person"
+          ? { ...t, structural: undefined }
+          : t,
     );
     const s = await scene();
     const { items } = await inject(port, unmarked, "", now, { scope: s.ws });
     expect(items.map((i) => i.entity.id)).toEqual(
       expect.arrayContaining(s.people),
     );
+  });
+
+  // The defect: `membership` only skips the roster EDGE, so linking a person with any other relation
+  // put them back in the briefing as a record to answer from.
+  it("keeps a person out of a briefing even when an unmarked relation reached them", async () => {
+    const s = await scene();
+    const { entity: outsider } = await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "passer-by" } },
+      prov,
+      now,
+    );
+    // `relates_to`, not `works_on` — an ordinary link, which is how the roster rule was escapable.
+    await link(outsider.id, s.ws);
+    await verify(port, [outsider.id], "alice", now);
+    const { items } = await inject(port, ont, "", now, { scope: s.ws });
+    expect(items.map((i) => i.entity.id)).not.toContain(outsider.id);
   });
 });
 

@@ -27,6 +27,24 @@ export type TypeDef = {
    * membership relation marks it here and gets the same behaviour, with no core change.
    */
   membership?: boolean;
+  /**
+   * Entity types only: an entity of this type NAMES something knowledge is attached to — a person, a
+   * piece of work — rather than being something someone recorded as true.
+   *
+   * The counterpart of `membership` one level down. That keeps a roster RELATION out of a briefing;
+   * this keeps the roster's members out of it whatever relation reached them, which matters because
+   * `membership` is escapable: link a person to a collaboration with `relates_to` instead of
+   * `works_on` and the briefing hands the person over as knowledge again.
+   *
+   * It is what stops a persona from listing the projects someone created as things they know. A
+   * collaboration record is the trace of having started something, not a judgment — and a persona
+   * that mixes the two says a person "knows" a project name, under a limit that real judgments then
+   * have to compete with.
+   *
+   * Ontology DATA for the same reason `membership` is: an org whose unit is `squad`, `service` or
+   * `initiative` marks that type and gets the behaviour with no core change.
+   */
+  structural?: boolean;
 };
 
 /** Whether the actual value matches AttrSpec.type. */
@@ -82,6 +100,7 @@ export function seedOntology(): TypeDef[] {
       name: "person",
       kind: "entity",
       attrs: { name: { type: "string", required: true } },
+      structural: true,
     },
     { name: "fact", kind: "entity", attrs: {}, ttl_days: 180 },
     {
@@ -114,6 +133,7 @@ export function seedOntology(): TypeDef[] {
       attrs: {
         title: { type: "string", required: true },
       },
+      structural: true,
     },
     { name: "authored_by", kind: "relation", attrs: {} },
     { name: "relates_to", kind: "relation", attrs: {} },

@@ -115,6 +115,34 @@ describe("personaQuery", () => {
     expect([...res.decisions, ...res.facts]).toEqual([]);
   });
 
+  // The case the test above misses: there the collaboration was created by ADMIN, so authorship kept
+  // it out. When the person creates their own — pressing "New collaboration" on the web screen is
+  // exactly this — authorship points at them, and the record was handed to an agent under "Knowledge"
+  // as something that person knows. A project name is the trace of having started something, not a
+  // judgment, and under a limit it competes with the judgments that are.
+  it("does not count the work someone STARTED as something they know", async () => {
+    await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Alex" } },
+      prov("admin"),
+      now,
+      { existingId: "alex" },
+    );
+    const own = await add("collaboration", { title: "PAY-42" }, "alex");
+    const judgment = await add(
+      "decision",
+      { conclusion: "settle nightly", rationale: "the window is quiet" },
+      "alex",
+    );
+    await verify(port, ["alex", own, judgment], "admin", now);
+
+    const res = await personaQuery(port, ont, "alex", now);
+    const ids = [...res.decisions, ...res.facts].map((e) => e.id);
+    expect(ids).toContain(judgment);
+    expect(ids).not.toContain(own);
+  });
+
   it("filters the person's own records by query, without pulling org-wide matches in", async () => {
     const mine = await add("fact", { note: "we cache with redis" }, "alex");
     const theirs = await add(
