@@ -304,6 +304,31 @@ function sendJson(res: ServerResponse, code: number, data: unknown): void {
  * memory. ceiling: one cap for the one POST shape we accept; make it per-route if that changes. */
 const MAX_BODY = 256 * 1024;
 
+/**
+ * The governance act that retired a record, read back from the trail: who, when, and why if anyone
+ * said. The LAST deprecate naming this id wins — a record can be retired, re-verified and retired
+ * again, and the current status is explained by the most recent act, not the first.
+ *
+ * `ceiling:` scans the namespace's audit rows rather than querying by id, because the trail is a log
+ * with no index on the records a row mentions. It is bounded by the deprecate rows in one namespace,
+ * which is the count of governance acts rather than of knowledge — add an index when a corpus has
+ * enough retirements for this to be felt.
+ */
+function retirementOf(
+  store: YokeStore,
+  id: string,
+  ns: string | null,
+): { actor: string; at: string; reason?: string } | undefined {
+  const rows = store.listAudit({ ns });
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i];
+    if (r.action !== "deprecate") continue;
+    if (!r.detail.split(" ").includes(id)) continue;
+    return { actor: r.actor, at: r.at, ...(r.note ? { reason: r.note } : {}) };
+  }
+  return undefined;
+}
+
 /** How many of an audit event's referenced records get resolved to a readable summary. A bulk verify
  * can name thousands of ids; resolving all of them would turn one audit page into thousands of point
  * reads. The untouched `detail` string still holds every id, so nothing is hidden — only unexpanded.
@@ -327,12 +352,20 @@ async function readBody(
   return raw ? JSON.parse(raw) : {};
 }
 
-async function readIds(req: IncomingMessage): Promise<string[]> {
-  const ids = (await readBody(req)).ids;
+async function readIds(
+  req: IncomingMessage,
+): Promise<{ ids: string[]; reason?: string }> {
+  const body = await readBody(req);
+  const ids = body.ids;
   if (!Array.isArray(ids) || ids.some((i) => typeof i !== "string")) {
     throw new Error("body must be { ids: string[] }");
   }
-  return ids as string[];
+  // `reason` is optional and only a governance act carries one. Rejected if it is the wrong shape
+  // rather than coerced: a number where a sentence belongs is a caller bug, not a reason.
+  const reason = body.reason;
+  if (reason !== undefined && typeof reason !== "string")
+    throw new Error("reason must be a string");
+  return { ids: ids as string[], reason: reason as string | undefined };
 }
 
 /** Attribute values a form can send. Anything else (nested objects, numbers that should have been
@@ -654,6 +687,15 @@ export function createUiHandler(
         // Core's helper, not `store.listHistory` — that extension is synchronous and therefore absent
         // on a remote backend (SPEC "Remote backends"), and it is what makes this screen work there.
         history: await Promise.all((await listVersions(store, id)).map(asR)),
+        // Why it was retired, if anyone said. A deprecated record raises exactly one question and
+        // could not answer it: the status was on the record and the reason nowhere. It comes from the
+        // audit trail rather than the record because verify/deprecate change status, never knowledge
+        // content — so this reads the governance act back instead of copying it onto the row.
+        // `asR` already resolved the read-time status; reading it off the row keeps one answer to
+        // "is this retired" rather than recomputing the rule here.
+        ...((await asR(e)).effectiveStatus === "deprecated"
+          ? { retirement: retirementOf(store, id, ns) }
+          : {}),
         relations: {
           out: edges.filter((x) => x.dir === "out"),
           in: edges.filter((x) => x.dir === "in"),
@@ -1025,17 +1067,20 @@ export function createUiHandler(
       const action = path === "/api/verify" ? "verify" : "deprecate";
       // Both verify and deprecate are governance actions → gated on the verify permission.
       if (denied(res, "verify")) return;
-      const ids = await readIds(req);
+      const { ids, reason } = await readIds(req);
       const ts = now();
       const fn = action === "verify" ? verify : deprecate;
       const done = await fn(store, ids, actor, ts);
-      // Governance action audit — who verified/deprecated what, when (same tier as CLI inject audit).
+      // Governance action audit — who verified/deprecated what, when (same tier as CLI inject audit),
+      // and for a deprecate, WHY: the record's own screen reads it back, because a retired record
+      // otherwise raises a question it cannot answer.
       store.logAudit({
         actor,
         action,
         detail: done.map((e) => e.id).join(" "),
         at: ts,
         ns,
+        note: action === "deprecate" ? reason : undefined,
       });
       if (action === "verify") {
         sendJson(res, 200, await rowsOf(done));

@@ -770,6 +770,14 @@ endpoint shares it at `POST /mcp`.
 
 Rules that hold for every route:
 
+- **Retiring records WHY, when someone says.** `deprecate` carries an optional reason, and it is
+  stored on the audit row rather than on the record: verify and deprecate change status, never
+  knowledge content. `GET /api/entity/:id` returns `retirement {actor, at, reason?}` for a record whose
+  read-time status is `deprecated`, resolved from the LAST deprecate naming it — a record can be
+  retired, re-verified and retired again, and what explains the current status is the most recent act.
+  Absent `reason` means nobody wrote one, never an empty one. `yoke deprecate --reason "…"` is the CLI
+  half. Optional rather than required because retiring is reversible, and a required field on a
+  recoverable act teaches people to type "x".
 - **A symmetric relation has no direction to record.** A relation type the ontology marks
   `symmetric: true` (seeded: `relates_to`, `conflicts_with`, `same_as`) means the same thing read
   either way, so `from`/`to` carry only the order someone typed. The identity check above therefore

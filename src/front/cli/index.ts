@@ -63,6 +63,8 @@ import { banner, decorated, getStartedBlock, log, version } from "./banner.js";
 
 type Values = {
   db?: string;
+  /** `--reason` on a governance act: why a record was retired, kept on the audit row. */
+  reason?: string;
   shards?: string;
   actor?: string;
   ns?: string;
@@ -128,6 +130,8 @@ const OPTIONS = {
   scopes: { type: "string" },
   auth: { type: "boolean" },
   until: { type: "string" },
+  // Why a record was retired. Governance acts only — see cmdDeprecate.
+  reason: { type: "string" },
   force: { type: "boolean" },
   "replica-of": { type: "string" },
   "refresh-sec": { type: "string" },
@@ -752,7 +756,9 @@ async function cmdDeprecate(
   env: Env,
 ): Promise<number> {
   if (positionals.length === 0) {
-    console.error("usage: yoke deprecate <id...> [--actor a]");
+    console.error(
+      'usage: yoke deprecate <id...> [--actor a] [--reason "why it was retired"]',
+    );
     return 1;
   }
   const actor = resolveActor(v, env);
@@ -764,12 +770,16 @@ async function cmdDeprecate(
     const done = await deprecate(store, positionals, actor, ts);
     // Retiring knowledge changes what every future injection returns, so it belongs in the trail
     // for the same reason verify does.
+    // `--reason` rides on the audit row, not on the record: verify/deprecate change status, never
+    // knowledge content (see lifecycle.ts). It is the answer to the question a retired record raises
+    // and could not answer — "why is this deprecated" had nowhere to be written down.
     store.logAudit({
       actor,
       action: "deprecate",
       detail: done.map((e) => e.id).join(" "),
       at: ts,
       ns,
+      note: v.reason,
     });
     // What rests on it (v5.8). Retiring a record is not a repair unless the records built on it can be
     // found, and the moment of retiring is the one moment someone is looking. Read AFTER the transition

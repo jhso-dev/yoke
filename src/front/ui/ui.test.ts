@@ -1549,6 +1549,58 @@ describe("creating from the browser says whether anything was compared", () => {
   });
 });
 
+// A deprecated record raised exactly one question — why — and could not answer it: the status was on
+// the record and the reason nowhere.
+describe("a retired record says why", () => {
+  it("carries the reason from the act to the record's own detail", async () => {
+    const doomed = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "the settlement batch runs at 02:00" },
+    });
+    await post("/api/verify", { ids: [doomed.id] });
+    await post("/api/deprecate", {
+      ids: [doomed.id],
+      reason: "moved to 03:10 — superseded by the reframed record",
+    });
+
+    const detail = await get(`/api/entity/${doomed.id}`);
+    expect(detail.entity.effectiveStatus).toBe("deprecated");
+    expect(detail.retirement.reason).toBe(
+      "moved to 03:10 — superseded by the reframed record",
+    );
+    expect(detail.retirement.actor).toBeTruthy();
+    expect(detail.retirement.at).toBeTruthy();
+  });
+
+  it("says who and when even with no reason, and nothing at all while it stands", async () => {
+    const quiet = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "the webhook retries three times" },
+    });
+    const standing = await get(`/api/entity/${quiet.id}`);
+    // A record nobody retired must not carry a retirement — absence is the answer.
+    expect(standing.retirement).toBeUndefined();
+
+    await post("/api/deprecate", { ids: [quiet.id] });
+    const after = await get(`/api/entity/${quiet.id}`);
+    expect(after.retirement.actor).toBeTruthy();
+    // Absent, never an empty string: "nobody wrote one" and "the reason was blank" are different.
+    expect(after.retirement.reason).toBeUndefined();
+  });
+
+  it("explains the retirement it is currently in, not the first one", async () => {
+    const twice = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "the ledger closes on Friday" },
+    });
+    await post("/api/deprecate", { ids: [twice.id], reason: "first reason" });
+    await post("/api/verify", { ids: [twice.id] });
+    await post("/api/deprecate", { ids: [twice.id], reason: "second reason" });
+    const detail = await get(`/api/entity/${twice.id}`);
+    expect(detail.retirement.reason).toBe("second reason");
+  });
+});
+
 describe("POST /api/backfill --embeddings", () => {
   it("switches repair by body flag, and the authorship shape is untouched", async () => {
     const authorship = await post("/api/backfill", {});

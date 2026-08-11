@@ -7,6 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Citation } from "../../components/Citation";
+import { DeprecateButton } from "../../components/DeprecateButton";
 import { Downstream } from "../../components/Downstream";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Pagination, usePage } from "../../components/Pagination";
@@ -27,24 +28,11 @@ import { useAsync } from "../../lib/useAsync";
  */
 export default function Conflicts() {
   const pairs = useAsync(() => api.conflicts(), []);
+  // Which side is being retired, so the OTHER side's button is refused while it happens: two quick
+  // clicks used to retire both halves of a contradiction.
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
   const [downstream, setDownstream] = useState<Knowledge[]>([]);
-
-  async function retire(id: string) {
-    setBusy(id);
-    setActionError(null);
-    try {
-      // Resolving a contradiction is a deprecate, so it owes the same answer (v5.8): a decision that
-      // rested on the side you just retired is exactly what someone needs to look at next.
-      setDownstream((await api.deprecate([id])).downstream);
-      pairs.reload();
-    } catch (e) {
-      setActionError(e);
-    } finally {
-      setBusy(null);
-    }
-  }
 
   const side = (s: ConflictPair["from"]) => {
     if (isMissing(s))
@@ -75,19 +63,29 @@ export default function Conflicts() {
         <div className="mt-2.5">
           {/* Disabled while ANY retire is in flight, not just this side's. Per-side it left the other
               button live, so two quick clicks retired both halves of a contradiction — the one
-              outcome this screen exists to prevent. */}
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={busy !== null || retired}
-            onClick={() => retire(k.id)}
-          >
-            {retired
-              ? t.conflicts.alreadyRetired
-              : busy === k.id
-                ? t.common.deprecating
-                : t.common.deprecate}
-          </Button>
+              outcome this screen exists to prevent.
+              Retired sides keep a plain disabled button: there is nothing to ask about an act that
+              already happened, and its reason is on the record's own screen. */}
+          {retired ? (
+            <Button type="button" variant="destructive" disabled>
+              {t.conflicts.alreadyRetired}
+            </Button>
+          ) : (
+            <DeprecateButton
+              ids={[k.id]}
+              disabled={busy !== null}
+              label={t.common.deprecate}
+              onOpen={() => setBusy(k.id)}
+              onClose={() => setBusy(null)}
+              onDone={(down) => {
+                // Resolving a contradiction is a deprecate, so it owes the same answer (v5.8): a
+                // decision that rested on the side just retired is what to look at next.
+                setDownstream(down);
+                setBusy(null);
+                pairs.reload();
+              }}
+            />
+          )}
         </div>
       </Card>
     );

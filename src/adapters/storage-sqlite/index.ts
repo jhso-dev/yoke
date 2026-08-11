@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
   action TEXT NOT NULL,
   detail TEXT NOT NULL,
   at TEXT NOT NULL,                  -- ISO 8601
-  ns TEXT                            -- tenant namespace; NULL = default shared ns
+  ns TEXT,                           -- tenant namespace; NULL = default shared ns
+  note TEXT                          -- why, in the actor's words. Only governance acts carry one
 );
 
 -- API tokens (PLAN-V2 10.3). Only a salted sha256 of the secret is stored — never the plaintext.
@@ -117,6 +118,10 @@ export interface AuditEvent {
   action: string;
   detail: string;
   at: string;
+  /** Why, in the actor's words. Only a governance act carries one, and only when someone typed it:
+   * a `deprecate` that cannot say why leaves whoever finds the record later with a status and no
+   * reason. Absent means no reason was recorded — never an empty one. */
+  note?: string;
   /** Tenant namespace the read/action happened in. Omitted = the default shared namespace.
    * Without it an audit viewer would show every tenant's queries to every tenant. */
   ns?: string | null;
@@ -201,6 +206,14 @@ export class SqliteStorage implements StoragePort {
       } catch {
         // column already exists — nothing to do.
       }
+    }
+    // Same pattern, for the `note` a governance act carries: a deprecate that cannot say WHY leaves
+    // whoever finds the record later with a status and no reason. NULL on every pre-existing row,
+    // which reads as "no reason was recorded" rather than as an empty one.
+    try {
+      this.db.exec(`ALTER TABLE audit_log ADD COLUMN note TEXT`);
+    } catch {
+      // column already exists — nothing to do.
     }
   }
 
@@ -648,7 +661,7 @@ export class SqliteStorage implements StoragePort {
   logAudit(event: AuditEvent): void {
     this.db
       .prepare(
-        `INSERT INTO audit_log (actor, action, detail, at, ns) VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO audit_log (actor, action, detail, at, ns, note) VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(
         event.actor,
@@ -656,6 +669,7 @@ export class SqliteStorage implements StoragePort {
         event.detail,
         event.at,
         normalizeNs(event.ns),
+        event.note?.trim() || null,
       );
   }
 
@@ -670,7 +684,7 @@ export class SqliteStorage implements StoragePort {
     const limitClause = q.limit === undefined ? "" : " LIMIT @limit";
     const rows = this.db
       .prepare(
-        `SELECT actor, action, detail, at, ns FROM audit_log
+        `SELECT actor, action, detail, at, ns, note FROM audit_log
          WHERE ns IS @ns${sinceClause}${untilClause}
          ORDER BY ${order}${limitClause}`,
       )
@@ -680,8 +694,13 @@ export class SqliteStorage implements StoragePort {
         until: q.until,
         limit: q.limit,
       }) as AuditEvent[];
-    // Default ns leaves the field absent, matching how entity rows carry ns (opaque parity).
-    for (const r of rows) if (r.ns == null) delete r.ns;
+    // Default ns leaves the field absent, matching how entity rows carry ns (opaque parity). A row
+    // with no reason recorded drops `note` for the same reason: absent says "nobody wrote one",
+    // where an empty string would read as a reason that happened to be blank.
+    for (const r of rows) {
+      if (r.ns == null) delete r.ns;
+      if (r.note == null) delete r.note;
+    }
     return q.limit === undefined ? rows : rows.reverse();
   }
 

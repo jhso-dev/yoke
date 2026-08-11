@@ -175,6 +175,24 @@ export const en = {
       unknown: "unrecognized status",
     },
   },
+  retire: {
+    /** The dialog's own sentence: it names who the reason is for, which is the argument for writing
+     * one. Optional on purpose — retiring is reversible, and a required field teaches people to type
+     * "x". */
+    why: (n: number) =>
+      n === 1
+        ? "Say why, for whoever finds this record later and sees only that it was retired."
+        : `Say why, for whoever finds these ${n} records later and sees only that they were retired.`,
+    reason: "reason",
+    optional: "(optional)",
+    placeholder:
+      "superseded by the reframed version · was a test fixture · no longer true since …",
+    kept: "The record is kept and stops being injected.",
+    /** Shown on the retired record itself. */
+    retiredBy: (actor: string, when: string) =>
+      `Retired by ${actor} on ${when}`,
+    noReason: "No reason was recorded.",
+  },
   review: {
     heading: "Review queue",
     lede: "Review drafts that have not been verified. They are not injected into an agent until a person promotes them.",

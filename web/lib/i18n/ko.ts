@@ -169,6 +169,19 @@ export const ko: typeof en = {
       unknown: "알 수 없는 상태",
     },
   },
+  retire: {
+    why: (n: number) =>
+      n === 1
+        ? "나중에 이 레코드를 발견한 사람은 '폐기됨'만 봅니다. 이유를 남겨주세요."
+        : `나중에 이 레코드 ${n}건을 발견한 사람은 '폐기됨'만 봅니다. 이유를 남겨주세요.`,
+    reason: "이유",
+    optional: "(선택)",
+    placeholder:
+      "재프레이밍한 버전으로 대체 · 테스트 픽스처였음 · … 이후로는 사실이 아님",
+    kept: "레코드는 보존되며 주입에서만 제외됩니다.",
+    retiredBy: (actor: string, when: string) => `${actor}이(가) ${when}에 폐기`,
+    noReason: "기록된 이유가 없습니다.",
+  },
   review: {
     heading: "리뷰 대기열",
     lede: "아직 검증하지 않은 draft를 확인합니다. 사람이 승격하기 전까지 에이전트에는 주입되지 않습니다.",

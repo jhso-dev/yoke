@@ -53,6 +53,10 @@ export interface EntityDetail {
     ns?: string;
   };
   history: Knowledge[];
+  /** Present only on a retired record: who retired it, when, and why if anyone said. Read back from
+   * the audit trail — verify/deprecate change status, never knowledge content, so the reason is a
+   * property of the ACT rather than of the record. */
+  retirement?: { actor: string; at: string; reason?: string };
   relations: {
     out: (Edge & {
       dir: "out";

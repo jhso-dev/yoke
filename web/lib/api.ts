@@ -144,13 +144,15 @@ export const api = {
   /** Retiring knowledge also answers what rests on it (`derived_from`, v5.8) — the same two halves
    * `yoke deprecate` prints, since retiring a record is not a repair unless the records built on it can
    * be found. `downstream` is `[]` when nothing declared a basis, never absent. */
-  deprecate: (ids: string[]) =>
+  deprecate: (ids: string[], reason?: string) =>
     request<{ deprecated: Knowledge[]; downstream: Knowledge[] }>(
       "/api/deprecate",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ids }),
+        // The reason rides on the governance act, not on the record: it is read back on the retired
+        // record's own screen, which is where the question gets asked.
+        body: JSON.stringify({ ids, ...(reason?.trim() ? { reason } : {}) }),
       },
     ),
   /** Create a record. It enters as a draft like any other — the gate does not care which adapter
