@@ -59,14 +59,14 @@ describe("runCli", () => {
         "--db",
         db,
         "--attr",
-        "title=hello",
+        "statement=hello",
         "--json",
       ]),
     ).toBe(0);
     const added = JSON.parse(logs.at(-1) as string);
     expect(added.type).toBe("fact");
     expect(added.status).toBe("draft");
-    expect(added.attributes.title).toBe("hello");
+    expect(added.attributes.statement).toBe("hello");
 
     // get
     expect(await runCli(["get", added.id, "--db", db, "--json"])).toBe(0);
@@ -125,7 +125,7 @@ describe("runCli", () => {
       const { entity } = await commit(
         store,
         ont,
-        { type: "fact", attributes: { title } },
+        { type: "fact", attributes: { statement: title } },
         past,
         then,
       );
@@ -195,7 +195,7 @@ describe("runCli", () => {
         "--db",
         db,
         "--attr",
-        "title=scoped fact",
+        "statement=scoped fact",
         "--scope",
         wsId,
         "--json",
@@ -222,7 +222,7 @@ describe("runCli", () => {
         "--db",
         db,
         "--attr",
-        "title=lifecycletoken",
+        "statement=lifecycletoken",
         "--json",
       ]),
     ).toBe(0);
@@ -293,7 +293,7 @@ describe("runCli", () => {
     expect(await runCli(["init", "--db", db])).toBe(0);
     for (const t of ["alpha", "beta"]) {
       expect(
-        await runCli(["add", "fact", "--db", db, "--attr", `title=${t}`]),
+        await runCli(["add", "fact", "--db", db, "--attr", `statement=${t}`]),
       ).toBe(0);
     }
     expect(await runCli(["verify", "--all-drafts", "--db", db, "--json"])).toBe(
@@ -434,7 +434,7 @@ describe("runCli", () => {
         "--actor",
         "yoke:system",
         "--attr",
-        "note=deploys are on fridays",
+        "statement=deploys are on fridays",
         "--json",
       ]),
     ).toBe(0);
@@ -462,7 +462,9 @@ describe("runCli", () => {
     const report = JSON.parse(logs.at(-1) as string);
     expect(report.moved).toBe(1);
     expect(report.sources[0].verdict).toBe("deprecated");
-    expect(report.sources[0].attributes.note).toBe("deploys are on fridays");
+    expect(report.sources[0].attributes.statement).toBe(
+      "deploys are on fridays",
+    );
     // ...and the human report reads as words plus the id, not as a JSON dump: one governed decision's
     // rationale is a page of prose, so a routing list built from `formatEntity` scrolls off the screen.
     expect(await runCli(["persona", "--check", file, "--db", db])).toBe(1);
@@ -490,7 +492,7 @@ describe("runCli", () => {
   it("deprecate reports the records that declared they derive from it", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
-    const addFact = async (note: string) => {
+    const addFact = async (statement: string) => {
       expect(
         await runCli([
           "add",
@@ -498,7 +500,7 @@ describe("runCli", () => {
           "--db",
           db,
           "--attr",
-          `note=${note}`,
+          `statement=${statement}`,
           "--json",
         ]),
       ).toBe(0);
@@ -639,7 +641,7 @@ describe("runCli", () => {
         "--db",
         db,
         "--attr",
-        "note=tokenizer swap",
+        "statement=tokenizer swap",
         "--scope",
         ws,
         "--json",
@@ -758,7 +760,7 @@ describe("runCli", () => {
         "--db",
         db,
         "--attr",
-        "title=audittoken",
+        "statement=audittoken",
         "--json",
       ]),
     ).toBe(0);
@@ -925,7 +927,7 @@ describe("runCli", () => {
         "--db",
         db,
         "--attr",
-        "title=backuptoken",
+        "statement=backuptoken",
         "--json",
       ]),
     ).toBe(0);
@@ -965,7 +967,7 @@ describe("runCli", () => {
         "--db",
         db,
         "--attr",
-        "title=pitrtoken",
+        "statement=pitrtoken",
         "--json",
       ]),
     ).toBe(0);
@@ -1007,7 +1009,7 @@ describe("runCli", () => {
         "--ns",
         "tenant-a",
         "--attr",
-        "title=nstoken",
+        "statement=nstoken",
         "--json",
       ]),
     ).toBe(0);
@@ -1072,9 +1074,9 @@ describe("runCli", () => {
 
   it("ontology-needing commands on an uninitialized DB point at 'yoke init'", async () => {
     const db = newDb();
-    expect(await runCli(["add", "fact", "--db", db, "--attr", "note=x"])).toBe(
-      1,
-    );
+    expect(
+      await runCli(["add", "fact", "--db", db, "--attr", "statement=x"]),
+    ).toBe(1);
     expect(errs.at(-1)).toContain("yoke init");
     expect(await runCli(["inject", "anything", "--db", db])).toBe(1);
     expect(errs.at(-1)).toContain("yoke init");
@@ -1084,7 +1086,14 @@ describe("runCli", () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli(["add", "fact", "--db", db, "--attr", "note=quarantined"]),
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "statement=quarantined",
+      ]),
     ).toBe(0);
 
     expect(await runCli(["inject", "quarantined", "--db", db])).toBe(0);
@@ -1271,7 +1280,7 @@ describe("review --stale (the queue SPEC promised and nothing built)", () => {
     const { entity } = await commit(
       store,
       ont,
-      { type: "fact", attributes: { note: "zqstaleone" } },
+      { type: "fact", attributes: { statement: "zqstaleone" } },
       old,
       "2020-01-01T00:00:00Z",
     );
@@ -1283,7 +1292,7 @@ describe("review --stale (the queue SPEC promised and nothing built)", () => {
       ont,
       {
         type: "term",
-        attributes: { title: "RPO", definition: "recovery point" },
+        attributes: { title: "RPO", statement: "recovery point objective" },
       },
       old,
       "2020-01-01T00:00:00Z",
@@ -1327,7 +1336,7 @@ describe("inject --as-of", () => {
     const { entity } = await commit(
       store,
       ont,
-      { type: "fact", attributes: { note: "zqasofcli" } },
+      { type: "fact", attributes: { statement: "zqasofcli" } },
       { actor: "alice", origin: "cli", occurred_at: t0 },
       t0,
     );
@@ -1377,7 +1386,14 @@ describe("the duplicate check says when it did not run", () => {
     // `.mcp.json` only reaches the MCP server's process.
     expect(
       await runCli(
-        ["add", "fact", "--db", db, "--attr", "note=the cache warms on boot"],
+        [
+          "add",
+          "fact",
+          "--db",
+          db,
+          "--attr",
+          "statement=the cache warms on boot",
+        ],
         {},
       ),
     ).toBe(0);
@@ -1393,7 +1409,15 @@ describe("the duplicate check says when it did not run", () => {
     expect(await runCli(["init", "--db", db])).toBe(0);
     expect(
       await runCli(
-        ["add", "fact", "--db", db, "--json", "--attr", "note=json contract"],
+        [
+          "add",
+          "fact",
+          "--db",
+          db,
+          "--json",
+          "--attr",
+          "statement=json contract",
+        ],
         {},
       ),
     ).toBe(0);
@@ -1410,7 +1434,10 @@ describe("backfill --embeddings", () => {
     expect(await runCli(["init", "--db", db])).toBe(0);
     for (const n of ["one", "two"])
       expect(
-        await runCli(["add", "fact", "--db", db, "--attr", `note=${n}`], {}),
+        await runCli(
+          ["add", "fact", "--db", db, "--attr", `statement=${n}`],
+          {},
+        ),
       ).toBe(0);
 
     // No embedder in env: every row is skipped, and that is exit 0 — a repair that cannot run is not
@@ -1435,7 +1462,7 @@ describe("backfill --embeddings", () => {
     expect(await runCli(["init", "--db", db])).toBe(0);
     expect(
       await runCli(
-        ["add", "fact", "--db", db, "--attr", "note=vector coverage"],
+        ["add", "fact", "--db", db, "--attr", "statement=vector coverage"],
         {},
       ),
     ).toBe(0);

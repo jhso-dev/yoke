@@ -42,7 +42,7 @@ beforeAll(async () => {
   const fact = await commit(
     store,
     ont,
-    { type: "fact", attributes: { title: "sky is blue" } },
+    { type: "fact", attributes: { statement: "sky is blue" } },
     prov,
     now,
   );
@@ -96,7 +96,7 @@ beforeAll(async () => {
   const byPerson = await commit(
     store,
     ont,
-    { type: "fact", attributes: { title: "index rebuilds nightly" } },
+    { type: "fact", attributes: { statement: "index rebuilds nightly" } },
     { actor: personId, origin: "cli", occurred_at: now },
     now,
   );
@@ -153,7 +153,7 @@ beforeAll(async () => {
     ont,
     {
       type: "term",
-      attributes: { title: "RTO", definition: "recovery time objective" },
+      attributes: { title: "RTO", statement: "recovery time objective" },
     },
     prov,
     now,
@@ -243,7 +243,7 @@ describe("ui API", () => {
     const basis = await commit(
       store,
       ont,
-      { type: "fact", attributes: { title: "the queue is at-least-once" } },
+      { type: "fact", attributes: { statement: "the queue is at-least-once" } },
       prov,
       now,
     );
@@ -299,7 +299,7 @@ describe("ui API", () => {
     const d = await commit(
       store,
       ont,
-      { type: "fact", attributes: { title: "shape guard" } },
+      { type: "fact", attributes: { statement: "shape guard" } },
       prov,
       now,
     );
@@ -313,14 +313,14 @@ describe("ui API", () => {
     const older = await commit(
       store,
       ont,
-      { type: "fact", attributes: { title: "older draft" } },
+      { type: "fact", attributes: { statement: "older draft" } },
       { actor: "tester", origin: "cli", occurred_at: "2026-07-01T00:00:00Z" },
       "2026-07-01T00:00:00Z",
     );
     const newer = await commit(
       store,
       ont,
-      { type: "fact", attributes: { title: "newer draft" } },
+      { type: "fact", attributes: { statement: "newer draft" } },
       { actor: "tester", origin: "cli", occurred_at: "2026-07-31T00:00:00Z" },
       "2026-07-31T00:00:00Z",
     );
@@ -494,7 +494,7 @@ describe("ui API", () => {
       await commit(
         store,
         ont,
-        { type: "fact", attributes: { title: `quokka sighting ${n}` } },
+        { type: "fact", attributes: { statement: `quokka sighting ${n}` } },
         { actor: "tester", origin: "cli", occurred_at: "2026-07-31T00:00:00Z" },
         "2026-07-31T00:00:00Z",
       );
@@ -750,7 +750,7 @@ describe("ui API", () => {
     const { entity } = await commit(
       store,
       ont,
-      { type: "fact", attributes: { title: "namespaced author resolves" } },
+      { type: "fact", attributes: { statement: "namespaced author resolves" } },
       { actor: seeded, origin: "cli", occurred_at: at },
       at,
     );
@@ -936,7 +936,7 @@ describe("scope-anchored injection over HTTP", () => {
       const { entity } = await commit(
         store,
         ont,
-        { type: "fact", attributes: { title: `${many} ${i}` } },
+        { type: "fact", attributes: { statement: `${many} ${i}` } },
         prov,
         now,
       );
@@ -1015,7 +1015,7 @@ describe("creating from the browser", () => {
   it("creates a draft carrying origin 'web' — allowed, and labelled as hand-typed", async () => {
     const res = await postRaw("/api/entity", {
       type: "fact",
-      attributes: { title: "typed at a screen" },
+      attributes: { statement: "typed at a screen" },
     });
     expect(res.status).toBe(201);
     const created = await res.json();
@@ -1029,7 +1029,7 @@ describe("creating from the browser", () => {
       await postRaw("/api/entity", {
         type: "fact",
         status: "verified",
-        attributes: { title: "asked to be born verified" },
+        attributes: { statement: "asked to be born verified" },
       })
     ).json();
     expect(asked.status).toBe("draft");
@@ -1115,7 +1115,7 @@ describe("creating from the browser", () => {
     const fact = await (
       await postRaw("/api/entity", {
         type: "fact",
-        attributes: { title: "attached at creation" },
+        attributes: { statement: "attached at creation" },
         scope: work.id,
       })
     ).json();
@@ -1141,7 +1141,7 @@ describe("creating from the browser", () => {
       (
         await postRaw("/api/entity", {
           type: "fact",
-          attributes: { title: { nested: true } },
+          attributes: { statement: { nested: true } },
         })
       ).status,
     ).toBe(400);
@@ -1214,7 +1214,7 @@ describe("schema and maintenance from the browser", () => {
     const created = await (
       await postRaw("/api/entity", {
         type: "term",
-        attributes: { title: "renameable" },
+        attributes: { title: "renameable", statement: "a term to rename" },
       })
     ).json();
     const res = await postRaw("/api/rename-type", {
@@ -1411,7 +1411,7 @@ describe("the stale queue over HTTP (SPEC's unimplemented clause)", () => {
       const { entity } = await commit(
         store,
         ont,
-        { type: "fact", attributes: { title } },
+        { type: "fact", attributes: { statement: title } },
         prov,
         at,
       );

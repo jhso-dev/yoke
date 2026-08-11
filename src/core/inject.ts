@@ -299,17 +299,21 @@ export async function inject(
           { rows: vec, weight: 1 },
         ]);
   };
+  // Relation types the ontology marks as membership. Walking them would hand the roster to an agent
+  // as knowledge; who is involved in the work belongs on a screen, not in a briefing. Skipped only
+  // when the caller did not ask for that type by name — `scopeRel: 'works_on'` is someone
+  // deliberately asking for members, and this must not silently return nothing.
+  const membership = new Set(
+    ontology
+      .filter((t) => t.kind === "relation" && t.membership)
+      .map((t) => t.name),
+  );
+  // A caller who named a membership relation asked for the roster ON PURPOSE. That is the one request
+  // structural records are the answer to, so it is the one request they survive.
+  const askedForRoster =
+    opts?.scopeRel !== undefined && membership.has(opts.scopeRel);
   let candidates: Entity[];
   if (scope) {
-    // Relation types the ontology marks as membership. Walking them would hand the roster to an agent
-    // as knowledge; who is involved in the work belongs on a screen, not in a briefing. Skipped only
-    // when the caller did not ask for that type by name — `scopeRel: 'works_on'` is someone
-    // deliberately asking for members, and this must not silently return nothing.
-    const membership = new Set(
-      ontology
-        .filter((t) => t.kind === "relation" && t.membership)
-        .map((t) => t.name),
-    );
     // The anchor walk: `depth` relation hops out, breadth-first, each id held at its SHORTEST
     // distance (SPEC "Multi-hop"). At depth 1 this is the single `neighbors` call it always was.
     const depth = Math.max(1, opts?.depth ?? 1);
@@ -390,8 +394,22 @@ export async function inject(
     // request for 50 returned 29 while 589,285 injectable records sat unreturned (docs/SCALE.md).
     candidates = await retrieve();
   }
+  // Entity types the ontology marks as structural: a person, a piece of work — the things knowledge
+  // is attached TO, rather than things anyone recorded as true.
+  //
+  // This is the rule `membership` states for relations, applied where that one cannot reach.
+  // `membership` skips the roster EDGE, so a person linked to a collaboration by `relates_to`
+  // instead of `works_on` still arrived as a record to brief an agent with; and on the persona path
+  // the walk IS `authored_by`, so nothing skipped the collaborations its subject had created — they
+  // were handed over as things that person knows, competing for the same limit as real judgments.
+  const structural = new Set(
+    ontology
+      .filter((t) => t.kind === "entity" && t.structural)
+      .map((t) => t.name),
+  );
   const items: InjectItem[] = [];
   for (const found of candidates) {
+    if (!askedForRoster && structural.has(found.type)) continue;
     // Under as-of, rewind to the version that was current then before judging it. A record with no
     // version at or before that instant did not exist yet, so it is not knowledge the question can
     // have been answered with.

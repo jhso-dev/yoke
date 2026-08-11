@@ -12,7 +12,7 @@ import {
 const ont = seedOntology();
 
 describe("summarize", () => {
-  it("prefers a required attribute over whatever was written first", () => {
+  it("prefers a declared attribute over whatever was written first", () => {
     // The defect this fixes: three decisions on different conclusions all read "caching", because
     // `topic` happened to be the first string attribute and is not part of the decision schema.
     const e = {
@@ -39,11 +39,40 @@ describe("summarize", () => {
     expect(summarize(e, ont)).toBe("The index rebuilds nightly.");
   });
 
-  it("falls back to the first content string when the type declares nothing required", () => {
-    // `person` has no declared attrs at all, so convention is all there is.
+  it("falls back to the first content string when the type declares nothing", () => {
+    // A type an org added without declaring attributes: convention is all there is.
+    const loose = [
+      ...ont,
+      { name: "memo", kind: "entity" as const, attrs: {} },
+    ];
     expect(
-      summarize({ type: "person", attributes: { name: "Bora" } }, ont),
+      summarize({ type: "memo", attributes: { body: "Bora" } }, loose),
     ).toBe("Bora");
+  });
+
+  // The regression that made this rule declaration-order rather than required-ness: `fact` declares
+  // `{title, statement}` and only `statement` is required, because the connectors have no title to
+  // give — so under the old rule every hand-filed fact read as the first 60 characters of its body.
+  it("reads a fact as its title when it has one, and as its statement when it does not", () => {
+    expect(
+      summarize(
+        {
+          type: "fact",
+          attributes: {
+            title: "포스트모템: PG A사 지연",
+            statement:
+              "## 개요\n2026-07-14 새벽, 승인 API 응답 지연이 발생했다.",
+          },
+        },
+        ont,
+      ),
+    ).toBe("포스트모템: PG A사 지연");
+    expect(
+      summarize(
+        { type: "fact", attributes: { statement: "captured from Slack" } },
+        ont,
+      ),
+    ).toBe("captured from Slack");
   });
 
   it("shows bookkeeping rather than nothing when that is all there is", () => {

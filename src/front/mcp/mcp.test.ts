@@ -99,7 +99,7 @@ describe("yoke MCP server", () => {
 
     const good = await s.client.callTool({
       name: "yoke_commit",
-      arguments: { type: "fact", attributes: { title: "hello" } },
+      arguments: { type: "fact", attributes: { statement: "hello" } },
     });
     expect(good.isError).toBeFalsy();
     expect(text(good)).toMatch(/"status":"draft"/);
@@ -487,10 +487,13 @@ describe("yoke_commit / yoke_record_decision derived_from", () => {
     }
   }
 
-  async function commitFact(client: Client, note: string): Promise<string> {
+  async function commitFact(
+    client: Client,
+    statement: string,
+  ): Promise<string> {
     const r = await client.callTool({
       name: "yoke_commit",
-      arguments: { type: "fact", attributes: { note } },
+      arguments: { type: "fact", attributes: { statement } },
     });
     return JSON.parse(text(r)).id;
   }
@@ -523,7 +526,7 @@ describe("yoke_commit / yoke_record_decision derived_from", () => {
       name: "yoke_commit",
       arguments: {
         type: "fact",
-        attributes: { note: "rests on the above" },
+        attributes: { statement: "rests on the above" },
         derived_from: [basis],
       },
     });
@@ -596,7 +599,10 @@ describe("yoke_commit / yoke_record_decision derived_from", () => {
     const s = await openSession();
     const r = await s.client.callTool({
       name: "yoke_commit",
-      arguments: { type: "fact", attributes: { note: "no declared basis" } },
+      arguments: {
+        type: "fact",
+        attributes: { statement: "no declared basis" },
+      },
     });
     const out = JSON.parse(text(r));
     await s.close();

@@ -31,7 +31,7 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 
 ## Default ontology (seed)
 
-- entity types: `person` (attributes: name (required) — a person is referred to by name on every surface, and the ontology-driven create form offers exactly the declared fields), `fact` (`ttl_days: 180`), `decision` (attributes: conclusion, rationale, rejected_alternatives[]; `ttl_days: 365`), `term`, `resource`, `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). Those two `ttl_days` are the seed's only ones; everything else is unlimited, and their absence from this list left the freshness rule below with no stated starting point. `collaboration` declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature
+- entity types: `person` (attributes: name (required) — a person is referred to by name on every surface, and the ontology-driven create form offers exactly the declared fields), `fact` (attributes: title, statement (required); `ttl_days: 180` — `statement` is the required one and `title` is not, because the capture connectors turn a message into a statement and have no honest title to give), `decision` (attributes: conclusion, rationale, rejected_alternatives[]; `ttl_days: 365`), `term` (attributes: title (required), statement (required) — a name with no meaning explains nothing and a meaning with no name cannot be looked up), `resource` (attributes: title (required), statement, url), `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). Those two `ttl_days` are the seed's only ones; everything else is unlimited, and their absence from this list left the freshness rule below with no stated starting point. `collaboration` declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature. `person` and `collaboration` are marked `structural: true` — they name what knowledge is attached to rather than asserting anything, so injection never returns them as knowledge (see "A roster is not knowledge")
 - relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (created by the gate at stage 4), `works_on` (person → collaboration, v4.0), `same_as` (person → person, v5.6 — see "Identity across sources"), `derived_from` (record → the knowledge it rests on, v5.8 — see "Derivation")
 - **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
@@ -601,6 +601,16 @@ entry points**: a `collaboration` anchor is the shared working context, a `perso
   returns them. The flag is ontology **data**, not a relation name in core, because orgs define their
   own equivalents (`assigned_to`, `member_of`); a tenant marks theirs and gets the same behaviour with
   no core change.
+- **Nor is the thing knowledge is attached to.** An entity type the ontology marks `structural: true`
+  (seeded: `person`, `collaboration`) is never injected as knowledge, whatever relation reached it.
+  `membership` alone was escapable — it skips the roster EDGE, so linking a person to a collaboration
+  with `relates_to` instead of `works_on` put them back in the briefing — and on the persona path the
+  walk IS `authored_by`, so nothing kept out the collaborations the subject had created: a project
+  name was handed over as something that person knows, competing for the same `limit` as their
+  judgments. A caller who names a `membership` relation in `scopeRel` is asking for the roster on
+  purpose and still gets it. Ontology **data** for the same reason `membership` is: an org whose unit
+  is `squad` or `service` marks that type. The two flags are separate because they say different
+  things — one is about an edge, the other about a type — so clearing one does not clear the other.
 - The **same filters** apply as unscoped injection: verified-only by default (`includeDraft` still
   works), stale/deprecated always excluded, and the namespace filter is enforced on fetched
   entities (`getEntity` is id-based, so the ns check happens in `inject`, not the port).
