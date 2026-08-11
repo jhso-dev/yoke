@@ -41,11 +41,11 @@ beforeEach(async () => {
 });
 
 /** Commit WITHOUT an embedder — the exact state this repair exists for. */
-async function addFact(note: string) {
+async function addFact(statement: string) {
   const { entity } = await commit(
     port,
     ont,
-    { type: "fact", attributes: { note } },
+    { type: "fact", attributes: { statement } },
     prov,
     now,
   );

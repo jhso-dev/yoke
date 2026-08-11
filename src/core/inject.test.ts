@@ -24,11 +24,11 @@ beforeEach(async () => {
   await port.init();
 });
 
-async function addFact(note: string) {
+async function addFact(statement: string) {
   const { entity } = await commit(
     port,
     ont,
-    { type: "fact", attributes: { note } },
+    { type: "fact", attributes: { statement } },
     prov,
     now,
   );
@@ -37,11 +37,11 @@ async function addFact(note: string) {
 
 /** Same, but embedded at commit time — so the vector index has a row to find. `ns` puts it in
  * another tenant, which is how the cross-namespace check gets a record it must not return. */
-async function addFactWith(note: string, embedder: Embedder, ns?: string) {
+async function addFactWith(statement: string, embedder: Embedder, ns?: string) {
   const { entity } = await commit(
     port,
     ont,
-    { type: "fact", attributes: { note } },
+    { type: "fact", attributes: { statement } },
     prov,
     now,
     { embedder, ns },

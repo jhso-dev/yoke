@@ -20,11 +20,16 @@ const NOT_CONTENT = new Set([
 /**
  * The compact one-line reading of a record, ≤60 chars.
  *
- * Attribute ORDER is caller-controlled, so "first string value" is not good enough: a decision
- * committed as `{topic, conclusion, rationale}` summarised as its topic, which made three unrelated
- * decisions all read "caching". The ontology already declares which attributes matter, so a REQUIRED
- * string attribute wins when the type has one — `decision.conclusion` beats an undeclared `topic`
- * whatever order they were written in.
+ * Attribute ORDER as WRITTEN is caller-controlled, so "first string value" is not good enough: a
+ * decision committed as `{topic, conclusion, rationale}` summarised as its topic, which made three
+ * unrelated decisions all read "caching". Attribute order as DECLARED is not caller-controlled — it
+ * is the ontology saying which attribute carries the meaning — so the first declared string that the
+ * record actually has wins.
+ *
+ * Declared order, not required-ness. Required-ness was the rule until `fact` declared `{title,
+ * statement}`: `statement` is the required one (it is all the capture path can promise), so every
+ * hand-filed fact started summarising as the first 60 characters of its body — "## 개요\n2026-07-14
+ * 새벽, 주 결제대행사…" instead of its title. What a type declares FIRST is what it wants read.
  *
  * Falls back to the first string that is not bookkeeping, then to "".
  */
@@ -35,7 +40,7 @@ export function summarize(
   const def = ontology.find((t) => t.name === entity.type);
   if (def) {
     for (const [key, spec] of Object.entries(def.attrs)) {
-      if (!spec.required || spec.type !== "string") continue;
+      if (spec.type !== "string") continue;
       const val = entity.attributes[key];
       if (typeof val === "string" && val) return val.slice(0, 60);
     }

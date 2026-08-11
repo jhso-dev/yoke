@@ -62,7 +62,12 @@ describe("commit gate", () => {
       commit(
         port,
         ont,
-        { type: "fact", attributes: {} },
+        // A valid record, so the rejection under test is the provenance one and not the ontology's:
+        // the gate checks the type first, and an empty fact now fails there.
+        {
+          type: "fact",
+          attributes: { statement: "the pool drains at midnight" },
+        },
         { ...prov, actor: "" },
         now,
       ),
@@ -73,7 +78,7 @@ describe("commit gate", () => {
     const { entity, duplicates } = await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "water boils at 100C" } },
+      { type: "fact", attributes: { statement: "water boils at 100C" } },
       prov,
       now,
     );
@@ -89,7 +94,7 @@ describe("commit gate", () => {
     const first = await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "v1" } },
+      { type: "fact", attributes: { statement: "v1" } },
       prov,
       now,
     );
@@ -97,7 +102,7 @@ describe("commit gate", () => {
     const second = await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "v2" } },
+      { type: "fact", attributes: { statement: "v2" } },
       prov,
       later,
       { existingId: first.entity.id },
@@ -108,7 +113,7 @@ describe("commit gate", () => {
     // History preserved: the past version is still queryable.
     const v1 = await port.getEntity(first.entity.id, 1);
     expect(v1?.version).toBe(1);
-    expect(v1?.attributes).toEqual({ note: "v1" });
+    expect(v1?.attributes).toEqual({ statement: "v1" });
     // Latest is v2.
     expect(await port.getEntity(first.entity.id)).toEqual(second.entity);
   });
@@ -130,7 +135,7 @@ describe("commit gate", () => {
 
 describe("commit gate stage 3 (duplicates)", () => {
   const facts = {
-    note: "water boils at one hundred celsius everywhere always",
+    statement: "water boils at one hundred celsius everywhere always",
   };
 
   it("returns similar entity as duplicate when >= threshold (embedding)", async () => {
@@ -158,7 +163,10 @@ describe("commit gate stage 3 (duplicates)", () => {
     await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "cats are small furry mammals" } },
+      {
+        type: "fact",
+        attributes: { statement: "cats are small furry mammals" },
+      },
       prov,
       now,
       { embedder: stubEmbedder },
@@ -168,7 +176,7 @@ describe("commit gate stage 3 (duplicates)", () => {
       ont,
       {
         type: "fact",
-        attributes: { note: "quantum tunneling barrier probability" },
+        attributes: { statement: "quantum tunneling barrier probability" },
       },
       prov,
       now,
@@ -269,7 +277,7 @@ describe("authorship edge", () => {
     commit(port, ont, { type: "fact", attributes }, { ...prov, actor }, now);
 
   it("records authored_by from the entity to its provenance actor", async () => {
-    const { entity } = await add({ note: "ships fridays" }, "alex");
+    const { entity } = await add({ statement: "ships fridays" }, "alex");
     const rels = await port.neighbors(entity.id, "authored_by", "out");
     expect(rels.map((r) => r.to)).toEqual(["alex"]);
     // Reachable from the person's side too — the direction persona traverses.
@@ -278,11 +286,11 @@ describe("authorship edge", () => {
   });
 
   it("does not duplicate the edge when the same author re-commits", async () => {
-    const { entity } = await add({ note: "v1" }, "alex");
+    const { entity } = await add({ statement: "v1" }, "alex");
     await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "v2" } },
+      { type: "fact", attributes: { statement: "v2" } },
       { ...prov, actor: "alex" },
       now,
       { existingId: entity.id },
@@ -293,11 +301,11 @@ describe("authorship edge", () => {
   });
 
   it("adds a second edge when a different author re-commits", async () => {
-    const { entity } = await add({ note: "v1" }, "alex");
+    const { entity } = await add({ statement: "v1" }, "alex");
     await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "v2" } },
+      { type: "fact", attributes: { statement: "v2" } },
       { ...prov, actor: "kim" },
       now,
       { existingId: entity.id },
@@ -307,7 +315,7 @@ describe("authorship edge", () => {
   });
 
   it("does not author relations, and never authors an entity to itself", async () => {
-    const { entity } = await add({ note: "anchor" }, "alex");
+    const { entity } = await add({ statement: "anchor" }, "alex");
     // The authored_by relation itself must not get an authorship edge (that would recurse).
     const [edge] = await port.neighbors(entity.id, "authored_by", "out");
     expect((await port.neighbors(edge.id, "authored_by", "out")).length).toBe(

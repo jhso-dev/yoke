@@ -113,7 +113,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     const draft = await commit(
       store,
       ont,
-      { type: "fact", attributes: { title: "sky is blue" } },
+      { type: "fact", attributes: { statement: "sky is blue" } },
       { actor: "yoke:system", origin: "cli", occurred_at: now() },
       now(),
     );
@@ -226,7 +226,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     );
     const commitRes = await client.callTool({
       name: "yoke_commit",
-      arguments: { type: "fact", attributes: { title: "from agent" } },
+      arguments: { type: "fact", attributes: { statement: "from agent" } },
     });
     expect(commitRes.isError).toBeFalsy();
 
@@ -420,7 +420,7 @@ describe("read replica (PLAN-V2 11.2)", () => {
     const d = await commit(
       p,
       p.loadOntology(),
-      { type: "fact", attributes: { title: "replicated" } },
+      { type: "fact", attributes: { statement: "replicated" } },
       { actor: "yoke:system", origin: "cli", occurred_at: now() },
       now(),
     );
@@ -487,7 +487,7 @@ describe("read replica (PLAN-V2 11.2)", () => {
     const d2 = await commit(
       p2,
       p2.loadOntology(),
-      { type: "fact", attributes: { title: "afterrefresh" } },
+      { type: "fact", attributes: { statement: "afterrefresh" } },
       { actor: "yoke:system", origin: "cli", occurred_at: now() },
       now(),
     );

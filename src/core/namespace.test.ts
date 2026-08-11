@@ -40,7 +40,7 @@ describe("gate assigns ns", () => {
     const a = await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "x" } },
+      { type: "fact", attributes: { statement: "x" } },
       prov,
       now,
       {
@@ -51,7 +51,7 @@ describe("gate assigns ns", () => {
     const d = await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "y" } },
+      { type: "fact", attributes: { statement: "y" } },
       prov,
       now,
     );
@@ -68,7 +68,7 @@ describe("inject isolation", () => {
       const { entity } = await commit(
         port,
         ont,
-        { type: "fact", attributes: { note: "shared-token secret" } },
+        { type: "fact", attributes: { statement: "shared-token secret" } },
         prov,
         now,
         { ns },

@@ -34,10 +34,10 @@ const rel = async (type: string, from: string, to: string) => {
 
 describe("overview", () => {
   it("counts by type and by EFFECTIVE status, not stored status", async () => {
-    const fresh = await add("fact", { note: "current" });
-    const aging = await add("fact", { note: "will go stale" });
-    const gone = await add("fact", { note: "retired" });
-    await add("term", { note: "never reviewed" }); // stays draft
+    const fresh = await add("fact", { statement: "current" });
+    const aging = await add("fact", { statement: "will go stale" });
+    const gone = await add("fact", { statement: "retired" });
+    await add("term", { title: "grace window", statement: "never reviewed" }); // stays draft
     await verify(port, [fresh, aging, gone], "alice", now);
     await deprecate(port, [gone], "alice", now);
 
@@ -65,12 +65,12 @@ describe("overview", () => {
 
   it("ranks hubs by degree, counting both directions", async () => {
     const hub = await add("collaboration", { title: "the centre" });
-    const edge = await add("fact", { note: "one link only" });
-    const mid = await add("fact", { note: "two links" });
+    const edge = await add("fact", { statement: "one link only" });
+    const mid = await add("fact", { statement: "two links" });
     await rel("relates_to", edge, hub);
     await rel("relates_to", mid, hub);
     await rel("relates_to", mid, edge); // mid: 2, edge: 2, hub: 2 — so make hub clearly biggest
-    const third = await add("fact", { note: "third link" });
+    const third = await add("fact", { statement: "third link" });
     await rel("relates_to", third, hub);
 
     const res = await overview(port, ont, now);
@@ -90,8 +90,8 @@ describe("overview", () => {
   });
 
   it("attributes only injectable knowledge to its author", async () => {
-    const kept = await add("fact", { note: "verified work" }, "bora");
-    await add("fact", { note: "still a draft" }, "chul");
+    const kept = await add("fact", { statement: "verified work" }, "bora");
+    await add("fact", { statement: "still a draft" }, "chul");
     await verify(port, [kept], "admin", now);
 
     const res = await overview(port, ont, now);
@@ -106,12 +106,12 @@ describe("overview", () => {
     await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "theirs" } },
+      { type: "fact", attributes: { statement: "theirs" } },
       prov,
       now,
       { ns: "acme" },
     );
-    await add("fact", { note: "mine" });
+    await add("fact", { statement: "mine" });
 
     const mine = await overview(port, ont, now);
     expect(mine.entities.total).toBe(1);
@@ -123,7 +123,7 @@ describe("overview", () => {
   it("counts everything but ranks only the top N", async () => {
     const hub = await add("collaboration", { title: "centre" });
     for (let i = 0; i < 12; i++) {
-      const f = await add("fact", { note: `spoke ${i}` }, `person-${i}`);
+      const f = await add("fact", { statement: `spoke ${i}` }, `person-${i}`);
       await rel("relates_to", f, hub);
       await verify(port, [f], "admin", now);
     }

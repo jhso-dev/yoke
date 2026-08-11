@@ -403,7 +403,7 @@ describe("CLI --shards smoke", () => {
         "--ns",
         "teamb",
         "--attr",
-        "title=tenant knowledge",
+        "statement=tenant knowledge",
         "--shards",
         cfg,
         "--json",

@@ -30,11 +30,11 @@ beforeEach(async () => {
   await port.init();
 });
 
-async function addFact(note: string) {
+async function addFact(statement: string) {
   const { entity } = await commit(
     port,
     ont,
-    { type: "fact", attributes: { note } },
+    { type: "fact", attributes: { statement } },
     prov,
     now,
   );
@@ -80,7 +80,13 @@ describe("lifecycle", () => {
     const { entity } = await commit(
       port,
       ont,
-      { type: "term", attributes: {} },
+      {
+        type: "term",
+        attributes: {
+          title: "grace window",
+          statement: "the days a late adjustment is still accepted",
+        },
+      },
       prov,
       now,
     );
@@ -178,7 +184,13 @@ describe("staleEntities", () => {
     const { entity } = await commit(
       port,
       ont,
-      { type: "term", attributes: {} },
+      {
+        type: "term",
+        attributes: {
+          title: "grace window",
+          statement: "the days a late adjustment is still accepted",
+        },
+      },
       prov,
       now,
     );
@@ -231,7 +243,13 @@ describe("staleEntities", () => {
     const { entity: t } = await commit(
       port,
       ont,
-      { type: "term", attributes: {} },
+      {
+        type: "term",
+        attributes: {
+          title: "grace window",
+          statement: "the days a late adjustment is still accepted",
+        },
+      },
       prov,
       now,
     );

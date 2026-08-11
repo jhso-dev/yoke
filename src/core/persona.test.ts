@@ -51,7 +51,7 @@ describe("personaQuery", () => {
       { conclusion: "use SQLite", rationale: "zero-config" },
       "alex",
     );
-    const f = await add("fact", { note: "ships fridays" }, "alex");
+    const f = await add("fact", { statement: "ships fridays" }, "alex");
     await verify(port, [d, f], "alex", now);
 
     const res = await personaQuery(port, ont, "alex", now);
@@ -60,7 +60,7 @@ describe("personaQuery", () => {
   });
 
   it("collects via a hand-written authored_by relation (connector-ingested knowledge)", async () => {
-    const f = await add("fact", { note: "connector fact" }, "connector");
+    const f = await add("fact", { statement: "connector fact" }, "connector");
     // authored_by: from=entity → to=person (the entity was authored by the person).
     await commit(
       port,
@@ -144,10 +144,14 @@ describe("personaQuery", () => {
   });
 
   it("filters the person's own records by query, without pulling org-wide matches in", async () => {
-    const mine = await add("fact", { note: "we cache with redis" }, "alex");
+    const mine = await add(
+      "fact",
+      { statement: "we cache with redis" },
+      "alex",
+    );
     const theirs = await add(
       "fact",
-      { note: "redis runs on port 6379" },
+      { statement: "redis runs on port 6379" },
       "kim",
     );
     await verify(port, [mine, theirs], "alex", now);
@@ -167,7 +171,7 @@ describe("personaQuery", () => {
   });
 
   it("excludes verified-but-stale (TTL exceeded)", async () => {
-    const f = await add("fact", { note: "aging" }, "alex"); // fact TTL = 180 days
+    const f = await add("fact", { statement: "aging" }, "alex"); // fact TTL = 180 days
     await verify(port, [f], "alex", now);
     const res = await personaQuery(port, ont, "alex", "2027-06-01T00:00:00Z");
     expect(res.facts).toEqual([]);
@@ -189,10 +193,14 @@ describe("personaQuery", () => {
     }
 
     it("unions the knowledge of every record that is the same person", async () => {
-      const fromRdb = await add("fact", { note: "deploys on fridays" }, "a-hr");
+      const fromRdb = await add(
+        "fact",
+        { statement: "deploys on fridays" },
+        "a-hr",
+      );
       const fromNotes = await add(
         "fact",
-        { note: "owns the gateway" },
+        { statement: "owns the gateway" },
         "a-git",
       );
       await verify(port, [fromRdb, fromNotes], "admin", now);
@@ -209,7 +217,11 @@ describe("personaQuery", () => {
     });
 
     it("terminates on a cycle and does not repeat a record", async () => {
-      const f = await add("fact", { note: "one fact, three records" }, "a1");
+      const f = await add(
+        "fact",
+        { statement: "one fact, three records" },
+        "a1",
+      );
       await verify(port, [f], "admin", now);
       // a1 -> a2 -> a3 -> a1. A visited set is the only thing between this and a hang.
       await link("a1", "a2");
@@ -225,7 +237,7 @@ describe("personaQuery", () => {
 
     it("keeps the alias out of the briefing anchored on the person", async () => {
       // `same_as` is marked membership: the person's OTHER record is not a finding about them.
-      const f = await add("fact", { note: "real knowledge" }, "b1");
+      const f = await add("fact", { statement: "real knowledge" }, "b1");
       await verify(port, [f], "admin", now);
       await link("b2", "b1");
       const b2 = await commit(
@@ -275,7 +287,7 @@ describe("renderPersonaSkill", () => {
       type: "fact",
       version: 1,
       status: "verified",
-      attributes: { note: "team ships on Fridays" },
+      attributes: { statement: "team ships on Fridays" },
       last_confirmed: "2026-07-12T00:00:00Z",
       provenance: {
         actor: "alex",
@@ -334,7 +346,7 @@ describe("parsePersonaSources", () => {
       { conclusion: "use SQLite", rationale: "zero-config" },
       "alex",
     );
-    const f = await add("fact", { note: "ships fridays" }, "alex");
+    const f = await add("fact", { statement: "ships fridays" }, "alex");
     await verify(port, [d, f], "alex", now);
     // The real person record, so this round-trips what the CLI actually writes.
     await commit(
@@ -385,7 +397,7 @@ describe("checkPersonaSources", () => {
   /** A verified fact, exported at its current version. */
   async function exported(
     type = "fact",
-    attrs: Record<string, unknown> = { note: "ships fridays" },
+    attrs: Record<string, unknown> = { statement: "ships fridays" },
   ) {
     const id = await add(type, attrs, "alex");
     const [row] = await verify(port, [id], "alex", now);
@@ -399,7 +411,7 @@ describe("checkPersonaSources", () => {
     // Enough of the record travels back for a caller to label it. Core does not render the label —
     // picking the attribute that means something needs the ontology-aware `summarize`, which is front
     // tier, and core imports no adapter.
-    expect(c.attributes).toEqual({ note: "ships fridays" });
+    expect(c.attributes).toEqual({ statement: "ships fridays" });
     expect(c.type).toBe("fact");
   });
 
@@ -410,7 +422,7 @@ describe("checkPersonaSources", () => {
     const { entity } = await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "ships thursdays now" } },
+      { type: "fact", attributes: { statement: "ships thursdays now" } },
       prov("alex"),
       now,
       { existingId: src.id },
@@ -468,7 +480,7 @@ describe("checkPersonaSources", () => {
     const { entity } = await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "superseded wording" } },
+      { type: "fact", attributes: { statement: "superseded wording" } },
       prov("alex"),
       now,
       { existingId: src.id },
@@ -483,7 +495,7 @@ describe("checkPersonaSources", () => {
     const { entity } = await commit(
       port,
       ont,
-      { type: "fact", attributes: { note: "tenant fact" } },
+      { type: "fact", attributes: { statement: "tenant fact" } },
       prov("alex"),
       now,
       { ns: "acme" },

@@ -102,7 +102,23 @@ export function seedOntology(): TypeDef[] {
       attrs: { name: { type: "string", required: true } },
       structural: true,
     },
-    { name: "fact", kind: "entity", attrs: {}, ttl_days: 180 },
+    // Declared, and in this order, because the ontology is what tells `summarize` which attribute
+    // carries the meaning — undeclared, three types were guessed at, the create form offered zero
+    // fields for them, and an empty record committed cleanly.
+    //
+    // `statement` is required and `title` is not, because that is what the capture path can promise:
+    // the Slack and meeting-notes connectors turn a message into a statement and have no honest
+    // title to give (inventing one would be writing knowledge nobody recorded). A hand-filed fact
+    // adds the title, and then it is what the row reads as.
+    {
+      name: "fact",
+      kind: "entity",
+      attrs: {
+        title: { type: "string" },
+        statement: { type: "string", required: true },
+      },
+      ttl_days: 180,
+    },
     {
       name: "decision",
       kind: "entity",
@@ -113,8 +129,27 @@ export function seedOntology(): TypeDef[] {
       },
       ttl_days: 365,
     },
-    { name: "term", kind: "entity", attrs: {} },
-    { name: "resource", kind: "entity", attrs: {} },
+    // A term is a name and what it means here; both are required because either alone is unusable —
+    // a name with no meaning explains nothing, a meaning with no name cannot be looked up.
+    {
+      name: "term",
+      kind: "entity",
+      attrs: {
+        title: { type: "string", required: true },
+        statement: { type: "string", required: true },
+      },
+    },
+    // A resource is a pointer: it needs a name to be referred to, and everything else is optional —
+    // `url` for the ones that have an address, `statement` for what it is good for.
+    {
+      name: "resource",
+      kind: "entity",
+      attrs: {
+        title: { type: "string", required: true },
+        statement: { type: "string" },
+        url: { type: "string" },
+      },
+    },
     // One thing being worked on together, for as long as it lasts (v4.0 shared working context). Named
     // for what the definition always said — "a unit of collaborative work" — because a type name that
     // is a different word from its own definition is a name nobody can guess. It groups nothing in the
