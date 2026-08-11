@@ -37,7 +37,15 @@ export function Panel({
   );
 }
 
-/** The panel's title bar. A row, not a stacked header — the count and the note sit beside the name. */
+/**
+ * The panel's title bar. A row, not a stacked header — the count and the note sit beside the name.
+ *
+ * `border-b-[1px]`, never `border-b`. CardHeader carries `[.border-b]:pb-6`, which compiles to a
+ * two-class compound ON THE HEADER ITSELF (`.[.border-b]:pb-6.border-b`), not a descendant selector
+ * — so writing `border-b` silently claims 24px of bottom padding that a single-class `py-*` cannot
+ * outrank, and the title bar grows to 53px with its text sitting off-centre. Same width, same
+ * colour, no hidden padding.
+ */
 export function PanelHead({
   className,
   ...props
@@ -45,7 +53,7 @@ export function PanelHead({
   return (
     <CardHeader
       className={cn(
-        "flex flex-row items-center gap-2.5 border-b border-border bg-secondary px-3 py-[9px] text-[13px] font-semibold",
+        "flex flex-row items-center gap-2.5 border-b-[1px] border-border bg-secondary px-3 py-[9px] text-[13px] font-semibold",
         className,
       )}
       {...props}

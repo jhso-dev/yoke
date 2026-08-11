@@ -42,7 +42,12 @@ function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
       // The last row of the BODY drops its rule, so a table never draws a line against the panel
       // border below it. `tr:last-child td` did this before; scoping it to the body is the same
       // result on every table here and stops depending on the table's last element being a row.
-      className={cn("[&_tr:last-child>td]:border-b-0", className)}
+      //
+      // `>*`, not `>td`: a two-column detail table (the entity screen's attributes and provenance)
+      // puts a `th` in the first column as the ROW header, and clearing only the td left that one
+      // cell drawing its rule straight onto the panel border — a hairline that looked twice as thick
+      // for the width of one column and stopped where the header column did.
+      className={cn("[&_tr:last-child>*]:border-b-0", className)}
       {...props}
     />
   );
