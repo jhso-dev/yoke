@@ -40,9 +40,27 @@ export const ko: typeof en = {
     notFound: "이 네임스페이스에서 찾을 수 없음",
     required: "온톨로지에서 필수로 지정한 속성",
     draftNotice: "draft로 저장되며 검증이 필요합니다",
+    skipToContent: "본문으로 건너뛰기",
+    search: "검색",
+    query: "질문",
+    language: "언어",
     copyFull: "클릭하면 전체 복사",
     copy: "복사",
     copied: "복사됨",
+    // 날짜·시각 선택기. "언제든"은 필터의 미설정 상태 — 값이 비었다는 뜻이 아니라 경계가
+    // 없다는 뜻이라, 채워야 할 빈칸처럼 읽히면 안 됩니다.
+    anyTime: "언제든",
+    apply: "적용",
+    onward: (from: string) => `${from} 이후`,
+    startTime: "시작",
+    endTime: "종료",
+    timeOfDay: "시각",
+    clear: "지우기",
+    retry: "다시 시도",
+    requestFailed:
+      "서버에 연결할 수 없습니다. 서버가 멈췄거나 연결이 끊겼을 수 있습니다.",
+    verifying: "검증 중…",
+    deprecating: "폐기 중…",
     type: "타입",
     status: "상태",
     actor: "기록자",
@@ -130,17 +148,32 @@ export const ko: typeof en = {
     draftNotice:
       "에이전트가 커밋한 레코드와 마찬가지로 draft로 저장되며, 검증이 필요합니다.",
     pickType: "타입 고르기",
+    listHint: "(쉼표로 구분)",
+    yes: "예",
     noAttrs: "이 타입에는 선언된 속성이 없어 속성 없이 생성됩니다.",
     duplicates: (n: number, names: string) =>
       `생성했지만 비슷한 레코드가 이미 ${n}개 있습니다: ${names}`,
     // "중복이 없다"가 아니라 "비교를 안 했다" — 이 구분이 요점입니다.
     notChecked:
       "생성했습니다. 다만 무엇과도 비교하지 않았습니다: 이 작업 공간에 임베딩 제공자가 설정되지 않아 중복 탐지가 실행되지 않았습니다.",
+    createdToast: (label: string) =>
+      `"${label}" 초안으로 생성됨 — 리뷰에서 검증하세요.`,
+  },
+  status: {
+    meaning: {
+      draft: "staged 상태이며 검증되지 않았습니다 — 주입에서 제외됩니다",
+      verified: "사람이 승격했습니다. 에이전트가 받을 수 있습니다",
+      stale:
+        "타입의 신선도 기간을 넘겼습니다 — 누군가 재확인할 때까지 제외됩니다",
+      deprecated: "폐기되었습니다. 주입되지 않습니다",
+      unknown: "알 수 없는 상태",
+    },
   },
   review: {
     heading: "리뷰 대기열",
     lede: "아직 검증하지 않은 draft를 확인합니다. 사람이 승격하기 전까지 에이전트에는 주입되지 않습니다.",
     selectAll: "전체 선택",
+    selectRow: (label: string) => `${label} 선택`,
     empty: "대기 중인 draft가 없습니다",
     draftCount: (n: number) => `draft ${n}개`,
     // draft/verified/stale은 저장되는 상태 이름이라 영어를 유지하고, 탭 이름은 사람에게 하는
@@ -153,9 +186,13 @@ export const ko: typeof en = {
     staleScanned: (n: number, scanned: number) =>
       `살펴본 verified 레코드 ${scanned}개 중 ${n}개가 기한을 넘겼습니다`,
     staleMore: "아직 살펴보지 않은 레코드가 남아 있습니다",
+    // 큐 정렬 기준인 소비 신호. "주입"은 감사 트레일의 동사 그대로 — 이 레코드를 반환한
+    // inject·persona 행의 수이지 화면 조회 수가 아닙니다.
+    injectedHead: "주입",
+    injectedTimes: (n: number) => `${n}회`,
     // Was singular and said "this record" while listing thirty people about a hundred records.
     staleOwners:
-      "이 사람들에게 재확인을 요청하세요 — 숫자는 각자가 기록한 오래된 레코드 수입니다:",
+      "이 사람들에게 재확인을 요청하세요 — 숫자는 살펴본 범위 안에서 각자가 기록한 오래된 레코드 수입니다:",
     staleOwnerCount: (n: number) => `${n}`,
   },
   browse: {
@@ -170,6 +207,7 @@ export const ko: typeof en = {
     searchHint:
       "yoke 자신이 폴백으로 쓰는 그 전문 검색입니다 — 답이 아니라 상태가 붙은 레코드를 돌려줍니다",
     clear: "지우기",
+    clearAll: "필터 지우기",
     noSearchMatch: "그 텍스트와 일치하는 레코드가 없습니다",
     searchTruncated: (limit: number) =>
       `일치하는 것 중 앞의 ${limit}개만 표시합니다. 검색은 전체가 아니라 상한이 있는 집합을 돌려줍니다 — 검색어를 좁히거나, 에이전트가 받을 것은 yoke inject로 확인하세요.`,
@@ -213,6 +251,14 @@ export const ko: typeof en = {
     briefing: "에이전트가 받는 브리핑",
     briefingNote:
       "inject(scope)가 반환하는 verified 레코드를 최근 확인 순서대로 표시합니다. 이 미리보기는 감사 로그에 기록됩니다",
+    briefingEmptyLinked: (n: number) =>
+      `verified 지식이 없어 에이전트는 아무것도 받지 못합니다 — 아래 연결된 레코드 ${n}건은 draft이거나 오래되었습니다.`,
+    memberAdded: (name: string) => `${name}을(를) 이 협업에 추가했습니다.`,
+    noPeople: "기록된 사람이 없어 추가할 대상이 없습니다.",
+    peopleCapped: (n: number) =>
+      `여기에는 앞의 ${n}명만 표시됩니다. 나머지는 각자의 레코드에서 연결하세요.`,
+    peopleCount: (n: number) => `참여자 ${n}명`,
+    attachedCount: (n: number) => `이 협업을 가리키는 레코드 ${n}건`,
     briefingEmpty: "이 협업에 연결된 지식이 없습니다",
     attached: "연결된 레코드",
     attachedNote:
@@ -224,9 +270,12 @@ export const ko: typeof en = {
   },
   conflicts: {
     heading: "모순",
-    lede: "서로 모순되는 verified 레코드를 확인합니다. yoke는 두 레코드를 모두 보존하며 어느 쪽이 맞는지 결정하지 않습니다. 한쪽을 폐기하거나, 불일치 자체가 중요한 정보라면 둘 다 유지하세요.",
+    lede: "서로 모순되는 레코드를 확인합니다. yoke는 두 레코드를 모두 보존하며 어느 쪽이 맞는지 결정하지 않습니다. 한쪽을 폐기하거나, 불일치 자체가 중요한 정보라면 둘 다 유지하세요.",
     empty: "기록된 모순이 없습니다",
     alreadyRetired: "이미 폐기됨",
+    settledNote: "한쪽이 폐기됨",
+    allSettled:
+      "기록된 모순은 모두 한쪽이 폐기되었습니다. 불일치 자체가 지식이므로 목록에는 남습니다.",
   },
   ontology: {
     heading: "온톨로지",
@@ -246,6 +295,7 @@ export const ko: typeof en = {
     attrsHint: "— 쉼표로 구분, * = 필수",
     ttlHint: "— 일 단위, 비우면 오래되지 않음",
     saveType: "타입 저장",
+    typeSaved: (name: string) => `"${name}" 타입을 저장했습니다.`,
     maintenance: "유지보수",
     maintenanceNote: "네임스페이스 전체에 적용하는 복구 작업입니다",
     backfill: "authorship 백필",
@@ -256,6 +306,7 @@ export const ko: typeof en = {
     renameFrom: "이름 바꿀 타입",
     attrsExample: "title*, owner",
     renamePlaceholder: "타입 이름 바꾸기…",
+    renameTo: "새 이름",
     newName: "새 이름",
     rename: "이름 바꾸기",
     renameHint: "타입 선언과 저장된 모든 행의 이름을 이력까지 변경합니다",
@@ -264,6 +315,9 @@ export const ko: typeof en = {
   },
   persona: {
     heading: "페르소나",
+    // 읽는 사람이 만들러 온 것의 이름. 버튼이 실제로 기록하는 것은 페르소나가 파생될 '사람'입니다 —
+    // 페르소나는 그 사람의 verified 레코드를 되읽는 것이니까요.
+    newPersona: "새 페르소나",
     lede: "한 사람이 남긴 verified 지식을 확인합니다. 에이전트가 그 사람의 판단을 물으면 해당 레코드와 출처를 전달합니다. 그 사람의 말투를 흉내 낸 글은 만들지 않습니다.",
     headingOne: "페르소나",
     all: "전체 페르소나",
@@ -313,12 +367,15 @@ export const ko: typeof en = {
     wholeNamespace: "전체 네임스페이스",
     counts: (nodes: number, links: number) =>
       `노드 ${nodes}개 · 관계 ${links}개`,
+    zoomHint: "Ctrl 또는 ⌘ + 스크롤로 확대·축소 · 드래그로 이동",
     legend:
       "화살표는 엣지의 목적지를 가리킵니다 · 점선은 지식이 아닌 관계입니다 (authorship, membership)",
     empty: "이 네임스페이스에 표시할 레코드가 없습니다",
     nodes: "노드",
     nodesNote:
       "그래프와 같은 데이터를 키보드와 스크린 리더로 탐색할 수 있습니다",
+    truncated: (shown: number, offered: number) =>
+      `여기서 도달할 수 있는 레코드 ${offered}건 중 ${shown}건을 표시합니다. 레코드를 열어 거기서 계속 따라가거나, 둘러보기에서 타입·상태로 좁히세요.`,
     expanded: (nodes: number, links: number) =>
       `레코드 +${nodes}개, 관계 +${links}개`,
     expandedNothing:
@@ -328,6 +385,11 @@ export const ko: typeof en = {
     heading: "감사 로그",
     lede: "조회한 지식과 수행한 거버넌스 작업을 append-only 방식으로 기록합니다. 화면의 필터는 현재 불러온 기록에만 적용됩니다. 전체 이력을 확인하려면 ",
     ledeAfter: " 명령을 사용하세요.",
+    period: "기간",
+    capped: (limit: number) =>
+      `최근 ${limit}건만 표시합니다. 전체 기록은 yoke audit --json으로 확인하세요.`,
+    noneMatch: "이 필터와 일치하는 이벤트가 없습니다",
+    noneInWindow: (label: string) => `${label} (이 기간에 없음)`,
     since: "시작 시각",
     sinceHint: "현지 시각 기준",
     allActions: "모든 동작",
@@ -352,16 +414,29 @@ export const ko: typeof en = {
     heading: "토큰",
     lede: "브라우저 공유와 원격 접근에 사용할 API 토큰을 관리합니다. secret은 토큰을 만들 때 한 번만 표시됩니다. 접근을 차단하려면 토큰 이름으로 폐기하세요.",
     create: "토큰 생성",
+    newToken: "새 토큰",
     name: "이름",
-    namePlaceholder: "친구-readonly",
+    namePlaceholder: "ci-agent",
     scopes: "스코프",
-    scopesHint: "쉼표로 구분",
+    permissions: "권한",
+    readHint: "지식 읽기 — 브리핑·주입·검색",
+    writeHint: "레코드 생성 — draft로 들어갑니다",
+    verifyHint: "거버넌스 — 검증·재확인·폐기",
+    restrictLegend: "(선택)",
+    recordType: "레코드 타입",
+    anyPlaceholder: "전체",
+    grants: "부여되는 권한",
+    revoked: (name: string) => `"${name}" 폐기됨.`,
     created: "토큰 생성됨",
     createdNote: "지금 저장하세요. yoke에는 해시만 저장됩니다.",
     secret: "비밀 토큰",
     shareUrl: "공유 URL",
     empty: "토큰 없음",
     revoke: "폐기",
+    revokeTitle: "이 토큰을 폐기할까요?",
+    revokeConfirm: (name: string) =>
+      `"${name}"은 즉시 동작을 멈추고, secret은 복구할 수 없습니다 — yoke는 해시만 저장합니다. 이 토큰을 쓰던 것에는 새 토큰이 필요합니다.`,
+    allTypes: "모든 타입",
   },
   login: {
     heading: "로그인",

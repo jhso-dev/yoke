@@ -956,6 +956,24 @@ describe("scope-anchored injection over HTTP", () => {
 
 // The audit viewer's whole job is legibility, so its two detail shapes must both resolve. A verify
 // row stores a bare id list (no " -> "), and reading only the post-arrow half rendered it as ULIDs.
+describe("the audit window has two bounds", () => {
+  it("until closes the window, inclusively", async () => {
+    const all = await get("/api/audit");
+    expect(all.items.length).toBeGreaterThan(1);
+    const cut = all.items[0].at;
+    const upTo = await get(`/api/audit?until=${encodeURIComponent(cut)}`);
+    // Everything returned is <= the bound, the bound row itself included.
+    expect(upTo.items.length).toBeGreaterThan(0);
+    for (const e of upTo.items) expect(e.at <= cut).toBe(true);
+    expect(upTo.items.some((e: { at: string }) => e.at === cut)).toBe(true);
+    // since + until braket to exactly that instant's rows.
+    const only = await get(
+      `/api/audit?since=${encodeURIComponent(cut)}&until=${encodeURIComponent(cut)}`,
+    );
+    for (const e of only.items) expect(e.at).toBe(cut);
+  });
+});
+
 describe("audit detail resolves both of its shapes", () => {
   it("resolves a lifecycle transition's bare id list, not just a read's arrow form", async () => {
     await post("/api/verify", { ids: [scopedFactId] });
@@ -1384,6 +1402,56 @@ describe("the stale queue over HTTP (SPEC's unimplemented clause)", () => {
     }
   });
 
+  // The queue is a work list, so it orders by what matters: the records agents are actually being
+  // fed. The count comes from the audit trail's own inject/persona rows — no new bookkeeping.
+  it("orders the page most-consumed first and says the count", async () => {
+    const ont = store.loadOntology(null);
+    const at = "2026-07-13T00:00:00Z";
+    const mk = async (title: string) => {
+      const { entity } = await commit(
+        store,
+        ont,
+        { type: "fact", attributes: { title } },
+        prov,
+        at,
+      );
+      await verify(store, [entity.id], "reviewer", at);
+      return entity.id;
+    };
+    const cold = await mk("stale but nobody reads it");
+    const hot = await mk("stale and agents are fed it daily");
+    // Two agent reads for `hot`, none for `cold`; a preview names both and must not count.
+    store.logAudit({ actor: "a", action: "inject", detail: `q -> ${hot}`, at });
+    store.logAudit({
+      actor: "a",
+      action: "persona",
+      detail: `p -> ${hot}`,
+      at,
+    });
+    store.logAudit({
+      actor: "a",
+      action: "inject_preview",
+      detail: `q -> ${hot} ${cold}`,
+      at,
+    });
+
+    const late = await laterServer("2027-09-01T00:00:00Z");
+    try {
+      const aged = await late.get("/api/review?stale=1");
+      const rows = aged.items.filter((i: { id: string }) =>
+        [hot, cold].includes(i.id),
+      );
+      expect(rows.map((r: { id: string }) => r.id)).toEqual([hot, cold]);
+      expect(rows[0].injections).toBe(2);
+      expect(rows[1].injections).toBe(0);
+      // hot ranks above cold in the WHOLE page too, not just between themselves.
+      const ids = aged.items.map((i: { id: string }) => i.id);
+      expect(ids.indexOf(hot)).toBeLessThan(ids.indexOf(cold));
+    } finally {
+      late.close();
+    }
+  });
+
   it("the draft queue is unaffected by the parameter it does not get", async () => {
     const drafts = await get("/api/review");
     // Still an array, not the {items,next,scanned} envelope — the two shapes are different on
@@ -1405,6 +1473,39 @@ describe("creating from the browser says whether anything was compared", () => {
     // unless YOKE_EMBED_* is exported — so "skipped" is the honest answer here.
     expect(created.duplicateDetection).toBe("skipped");
     expect(created.duplicates).toEqual([]);
+  });
+
+  // The route used to accept only strings and string arrays, which made it NARROWER than the gate it
+  // fronts: a `decision`'s `rejected_alternatives` is declared string[] in the seed, so the web form
+  // (which sent every field as a string) could not fill the field the entity screen calls the
+  // most-read in the model. All four declared shapes now travel.
+  it("carries every attribute shape the ontology can declare", async () => {
+    const created = await post("/api/entity", {
+      type: "decision",
+      attributes: {
+        conclusion: "settle nightly",
+        rationale: "the window is quiet",
+        rejected_alternatives: ["settle hourly", "settle on demand"],
+      },
+    });
+    const detail = await get(`/api/entity/${created.id}`);
+    expect(detail.entity.attributes.rejected_alternatives).toEqual([
+      "settle hourly",
+      "settle on demand",
+    ]);
+  });
+
+  it("still refuses a shape no attribute can hold", async () => {
+    const res = await fetch(`${base}/api/entity`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "fact",
+        attributes: { statement: { nested: "object" } },
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/must be a string, number/);
   });
 });
 

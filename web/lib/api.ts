@@ -121,7 +121,7 @@ export const api = {
   }) => request<InjectPreview>(`/api/inject${qs(p)}`),
   graph: (p: { limit?: number; scope?: string; depth?: number }) =>
     request<GraphData>(`/api/graph${qs(p)}`),
-  audit: (p: { since?: string; limit?: number }) =>
+  audit: (p: { since?: string; until?: string; limit?: number }) =>
     request<{ items: AuditEntry[]; limit: number }>(`/api/audit${qs(p)}`),
   tokens: () => request<TokenInfo[]>("/api/tokens"),
   createToken: (p: { name: string; scopes: string[] }) =>
@@ -157,7 +157,7 @@ export const api = {
    * called it — and comes back with whatever duplicates the gate found, so a form can show them. */
   create: (p: {
     type: string;
-    attributes: Record<string, string | string[]>;
+    attributes: Record<string, string | number | boolean | string[]>;
     scope?: string;
   }) =>
     request<

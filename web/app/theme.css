@@ -1,8 +1,10 @@
 /* shadcn's token contract, filled with THIS product's palette rather than the generated default.
    The workbench is terminal-adjacent — an operator's tool that borrows the CLI's vocabulary
    (monospace ids and citations, a teal accent) instead of looking like a SaaS dashboard — and
-   adopting a component library is not a reason to lose that. Every value below is the one the
-   hand-written stylesheet already used; only the names are shadcn's. */
+   adopting a component library is not a reason to lose that. The values started as the ones the
+   hand-written stylesheet already used, and three have since been corrected against measured
+   contrast rather than kept for fidelity: --accent-foreground, --primary, and --input each carry
+   the ratio that forced the change. Where a value is unannotated, it is the original. */
 
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -21,7 +23,11 @@
   --card-foreground: #17191c;
   --popover: #ffffff;
   --popover-foreground: #17191c;
-  --primary: #0d9488;
+  /* teal-700, not the teal-600 this palette started from. White on teal-600 measures 3.74:1 and
+     teal-600 on the page background 3.62:1 — both under AA — and between them that covered every
+     primary button and every prose link in the light theme, at 13px. teal-700 is 5.47:1 on white
+     and 5.29:1 on the background, and keeps the teal identity. Dark is 10.24:1 and unchanged. */
+  --primary: #0f766e;
   --primary-foreground: #ffffff;
   --secondary: #f4f5f7;
   --secondary-foreground: #17191c;
@@ -34,8 +40,12 @@
   --accent-foreground: #115e59;
   --destructive: #b91c1c;
   --border: #dfe1e6;
-  --input: #dfe1e6;
-  --ring: #0d9488;
+  /* Separate from --border, and darker, because the two do different jobs: a border divides
+     regions (decoration, no contrast floor), while --input draws a CONTROL's boundary, which
+     WCAG 1.4.11 holds to 3:1. At --border's value an unchecked checkbox measured 1.31:1 against
+     the card, so which rows of the review queue were even selectable was a guess. 3.18:1. */
+  --input: #8b9199;
+  --ring: #0f766e;
 
   /* Lifecycle tones. Deliberately NOT derived from the accent: they encode a record's real state,
      and a palette change must never be able to make "verified" and "draft" look alike. */
@@ -72,7 +82,8 @@
     --accent-foreground: #2dd4bf;
     --destructive: #f87171;
     --border: #2a2f36;
-    --input: #2a2f36;
+    /* Same 3:1 control-boundary rule as the light theme; --border stays the divider. 3.13:1. */
+    --input: #606873;
     --ring: #2dd4bf;
 
     --tone-draft: #fbbf24;
@@ -107,7 +118,7 @@
   --accent-foreground: #2dd4bf;
   --destructive: #f87171;
   --border: #2a2f36;
-  --input: #2a2f36;
+  --input: #606873;
   --ring: #2dd4bf;
 
   --tone-draft: #fbbf24;
@@ -166,7 +177,6 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground font-sans text-sm;
-  }
+  /* No `body` rule here: globals.css declares body UNLAYERED, and unlayered author CSS beats any
+     layer, so a layered copy of the same four properties could never apply. */
 }

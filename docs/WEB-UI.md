@@ -71,7 +71,9 @@ fix is the filter the audit screen already has, not a quieter rule.
 The governance set:
 
 1. **Review queue** — the draft list and the stale queue beside it, each row with its
-   source, and bulk verify/deprecate. Reason for being: drive promotion friction close to
+   source, and bulk verify/deprecate. The stale queue arrives most-consumed first with the count on
+   each row — the number of inject/persona audit rows naming it — so the reviewer meets the records
+   agents are still being fed before the ones nothing reads. Reason for being: drive promotion friction close to
    zero (addressing MARKET risk 1). The core screen. Duplicate candidates surface on
    **create** (the gate returns them to the form), not here — the review payload does not
    carry them. There is no `reject`: the lifecycle has no such transition, and the negative

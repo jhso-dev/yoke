@@ -353,6 +353,10 @@ describe("audit extensions (PLAN 8.4)", () => {
     store.logAudit(tenant);
     expect(store.listAudit()).toEqual([a, b]);
     expect(store.listAudit({ since: "2026-01-15T00:00:00Z" })).toEqual([b]);
+    // Both bounds inclusive — a person picking an end day means through that instant.
+    expect(store.listAudit({ until: "2026-01-15T00:00:00Z" })).toEqual([a]);
+    expect(store.listAudit({ until: b.at })).toEqual([a, b]);
+    expect(store.listAudit({ since: a.at, until: a.at })).toEqual([a]);
     // Namespace isolation: an audit viewer must not show one tenant's queries to another, and the
     // default namespace is not a wildcard over tenants.
     expect(store.listAudit({ ns: "acme" })).toEqual([tenant]);

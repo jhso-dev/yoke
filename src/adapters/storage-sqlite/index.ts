@@ -122,9 +122,11 @@ export interface AuditEvent {
   ns?: string | null;
 }
 
-/** listAudit filter. Most-recent-N window: `limit` takes the newest rows, returned oldest-first. */
+/** listAudit filter. Most-recent-N window: `limit` takes the newest rows, returned oldest-first.
+ * `since`/`until` are both inclusive — a person picking an end day means through that instant. */
 export interface AuditQuery {
   since?: string;
+  until?: string;
   ns?: string | null;
   limit?: number;
 }
@@ -662,18 +664,20 @@ export class SqliteStorage implements StoragePort {
    * `yoke audit` read the same direction. */
   listAudit(q: AuditQuery = {}): AuditEvent[] {
     const sinceClause = q.since === undefined ? "" : " AND at >= @since";
+    const untilClause = q.until === undefined ? "" : " AND at <= @until";
     // DESC + LIMIT selects the newest rows; the reverse below restores ascending order.
     const order = q.limit === undefined ? "rowid" : "rowid DESC";
     const limitClause = q.limit === undefined ? "" : " LIMIT @limit";
     const rows = this.db
       .prepare(
         `SELECT actor, action, detail, at, ns FROM audit_log
-         WHERE ns IS @ns${sinceClause}
+         WHERE ns IS @ns${sinceClause}${untilClause}
          ORDER BY ${order}${limitClause}`,
       )
       .all({
         ns: normalizeNs(q.ns),
         since: q.since,
+        until: q.until,
         limit: q.limit,
       }) as AuditEvent[];
     // Default ns leaves the field absent, matching how entity rows carry ns (opaque parity).

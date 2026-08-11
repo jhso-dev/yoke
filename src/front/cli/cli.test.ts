@@ -107,6 +107,62 @@ describe("runCli", () => {
     expect(rows[0].detail).toContain("overview ->");
   });
 
+  it("review --stale orders most-consumed first and says the count", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    // Aged fixtures need a past clock, which the CLI does not have — seed through the store the way
+    // the lifecycle tests do, then read through the real command against the real current clock.
+    const store = new SqliteStorage(db);
+    await store.init();
+    const ont = store.loadOntology(null);
+    const then = "2020-06-01T00:00:00Z";
+    const past: Provenance = {
+      actor: "seed",
+      origin: "cli",
+      occurred_at: then,
+    };
+    const mk = async (title: string) => {
+      const { entity } = await commit(
+        store,
+        ont,
+        { type: "fact", attributes: { title } },
+        past,
+        then,
+      );
+      await verify(store, [entity.id], "seed", then);
+      return entity.id;
+    };
+    const cold = await mk("aged, never consumed");
+    const hot = await mk("aged, agents still fed it");
+    store.logAudit({
+      actor: "a",
+      action: "inject",
+      detail: `q -> ${hot}`,
+      at: then,
+    });
+    store.logAudit({
+      actor: "a",
+      action: "persona",
+      detail: `p -> ${hot}`,
+      at: then,
+    });
+    store.close();
+
+    expect(await runCli(["review", "--stale", "--db", db, "--json"])).toBe(0);
+    const rows = JSON.parse(logs.at(-1) as string) as Array<{
+      id: string;
+      injections: number;
+    }>;
+    expect(rows.map((r) => r.id)).toEqual([hot, cold]);
+    expect(rows[0].injections).toBe(2);
+    expect(rows[1].injections).toBe(0);
+
+    // The human line carries the same answer — parity is about the answer, not the format.
+    expect(await runCli(["review", "--stale", "--db", db])).toBe(0);
+    const human = logs.slice(-3).join("\n");
+    expect(human).toContain("injected 2x");
+  });
+
   it("rejects invalid add with exit 1", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
@@ -742,6 +798,26 @@ describe("runCli", () => {
       await runCli(["audit", "--db", db, "--since", "2099-01-01T00:00:00Z"]),
     ).toBe(0);
     expect(logs.at(-1)).toBe("no audit events");
+
+    // --until in the past closes the window before anything happened.
+    expect(
+      await runCli(["audit", "--db", db, "--until", "2000-01-01T00:00:00Z"]),
+    ).toBe(0);
+    expect(logs.at(-1)).toBe("no audit events");
+    // A window wide enough to hold everything returns it all — the two flags compose.
+    expect(
+      await runCli([
+        "audit",
+        "--db",
+        db,
+        "--since",
+        "2000-01-01T00:00:00Z",
+        "--until",
+        "2099-01-01T00:00:00Z",
+        "--json",
+      ]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string).length).toBeGreaterThan(0);
   });
 
   it("audit --shape counts the workload composition, and only of real injections", async () => {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { seedOntology } from "../core/ontology.js";
-import { injectDetail, injectShape, summarize, ULID } from "./display.js";
+import {
+  consumptionCounts,
+  injectDetail,
+  injectShape,
+  rankByConsumption,
+  summarize,
+  ULID,
+} from "./display.js";
 
 const ont = seedOntology();
 
@@ -162,5 +169,52 @@ describe("injectShape", () => {
       shape: "plain",
       asOf: false,
     });
+  });
+});
+
+describe("consumptionCounts", () => {
+  it("counts inject and persona rows per id, and only those actions", () => {
+    const counts = consumptionCounts([
+      { action: "inject", detail: "queue timeout -> A B" },
+      { action: "inject", detail: "SCOPE1 -> B" },
+      { action: "persona", detail: "person:kim -> B C" },
+      // A human governing is not an agent being fed — none of these count.
+      { action: "inject_preview", detail: "queue -> A B C" },
+      { action: "search", detail: "queue -> A" },
+      { action: "read", detail: "A -> A" },
+      { action: "verify", detail: "A" },
+    ]);
+    expect(counts.get("A")).toBe(1);
+    expect(counts.get("B")).toBe(3);
+    expect(counts.get("C")).toBe(1);
+  });
+
+  it("takes the ids side from the LAST arrow, so an arrow inside a query cannot corrupt it", () => {
+    const counts = consumptionCounts([
+      { action: "inject", detail: "why a -> b mapping -> X" },
+    ]);
+    expect(counts.get("X")).toBe(1);
+    expect(counts.get("b")).toBeUndefined();
+  });
+
+  it("an empty result row counts nothing", () => {
+    // `inject` audits even when it returned nothing; "q -> " must not mint a phantom id.
+    expect(
+      consumptionCounts([{ action: "inject", detail: "q -> " }]).size,
+    ).toBe(0);
+  });
+});
+
+describe("rankByConsumption", () => {
+  it("orders most-consumed first, keeps the caller's order on ties, and carries the count", () => {
+    const ranked = rankByConsumption(
+      [{ id: "a" }, { id: "b" }, { id: "c" }],
+      new Map([
+        ["c", 2],
+        ["a", 1],
+      ]),
+    );
+    expect(ranked.map((r) => r.id)).toEqual(["c", "a", "b"]);
+    expect(ranked.map((r) => r.injections)).toEqual([2, 1, 0]);
   });
 });

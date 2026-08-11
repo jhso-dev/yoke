@@ -32,15 +32,28 @@ const alertVariants = cva(
   },
 );
 
+/**
+ * `role="alert"` is an assertive live region, so it belongs only on the variants that report
+ * something that just happened. It used to be on every variant, which made the login screen's
+ * standing help panel — two `yoke token create` commands, present from first paint — interrupt a
+ * screen reader before the reader had reached the field. A static panel is content, not an alert.
+ */
+const ANNOUNCES: Record<string, boolean> = {
+  error: true,
+  warn: true,
+  destructive: true,
+};
+
 function Alert({
   className,
   variant,
+  role,
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
   return (
     <div
       data-slot="alert"
-      role="alert"
+      role={role ?? (variant && ANNOUNCES[variant] ? "alert" : undefined)}
       className={cn(alertVariants({ variant }), className)}
       {...props}
     />

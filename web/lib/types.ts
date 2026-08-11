@@ -134,7 +134,7 @@ export interface InjectPreview {
  * `scanned` is not decoration: freshness is computed at read time from the ontology's TTL, so finding
  * these is a bounded walk over verified rows rather than an indexed query. The screen has to say what
  * the walk covered, because "12 stale" alone reads as a corpus-wide count it never computed. */
-export interface StaleQueue extends Page<Knowledge> {
+export interface StaleQueue extends Page<Knowledge & { injections: number }> {
   scanned: number;
 }
 

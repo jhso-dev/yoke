@@ -4,6 +4,7 @@ import { Alert } from "@/components/ui/alert";
 import { useT } from "../lib/i18n";
 import type { Knowledge } from "../lib/types";
 import { KnowledgeTable } from "./KnowledgeTable";
+import { Panel } from "./Panel";
 
 /**
  * What rested on a record that was just deprecated (`derived_from`, v5.8).
@@ -31,9 +32,11 @@ export function Downstream({ rows }: { rows: Knowledge[] }) {
           panel appears mid-page next to controls, so nothing supplies that gap and the table butted
           straight into the Verify/Deprecate buttons. Adjacent margins collapse to the max, so a panel
           after this one still sits 14px away rather than 28. */}
-      <div className="panel mb-[14px]">
-        <KnowledgeTable rows={rows} />
-      </div>
+      <Panel className="mb-[14px]">
+        {/* `empty` is unreachable here (the guard above returns on an empty list) but required, so
+            the last caller relying on an English default is gone. */}
+        <KnowledgeTable rows={rows} empty={t.common.none} />
+      </Panel>
     </>
   );
 }

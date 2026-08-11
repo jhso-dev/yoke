@@ -632,6 +632,27 @@ test that pins it.
       `vitest.config.ts`) — measured: without it, `npm test` picked up an in-progress worktree's copy
       of the suite (1,156 tests instead of 542) with cross-fork mock leaks as bonus failures
 
+## v6.1 — the queue orders by consumption, and persona gets its eval
+
+Two ideas worth keeping from a competitor survey (TencentDB Agent Memory), translated into yoke's
+shape rather than imported:
+
+- [x] **The stale queue orders by what agents are actually fed.** Every `inject`/`persona` audit row
+      already names the ids it returned, so the count is an aggregation, not new bookkeeping —
+      `consumptionCounts` + `rankByConsumption` at the front tier, core untouched. Both surfaces
+      carry the answer: `yoke review --stale` prints `injected Nx` and sorts, `/api/review?stale=1`
+      returns `injections` per row and the web table grew an optional trailing column (a prop, not a
+      fork, so the citation guard keeps covering it). Human reads (`inject_preview`/`read`/`search`)
+      deliberately do not count. ceiling: within-page ordering — the scan cursor pages by position;
+      a globally-ranked queue needs the whole scan first, and no corpus has earned that yet
+- [x] **Persona quality is measured** (`npm run eval:persona`), the way injection quality has been
+      since v1.0: five planted failure modes (foreign authorship, `relates_to` association,
+      `derived_from` sources, own drafts, own aged records), impersonation/draft-leak/stale-leak
+      rates at 0% and whole/query recall at 100%, non-zero exit on any miss. Query recall counts
+      precision too — exactly one record, the right one — so a filter that stops filtering fails as
+      loudly as one that empties the persona. Mutation-checked: including drafts reads as 100% draft
+      leak, dropping `scopeRel` as 50% impersonation
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

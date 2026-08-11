@@ -21,29 +21,58 @@
   box-sizing: border-box;
 }
 
+/* No `background` here. The page canvas comes from `color-scheme` (theme.css sets it per theme), so
+   the UA paints it — which is also what stops the one-frame flash a hand-set background can cause
+   before the theme is stamped. */
 body {
   margin: 0;
-  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
 }
 
-:where(a:not([data-slot="button"])) {
-  color: var(--primary);
-  text-decoration: none;
-}
-:where(a:not([data-slot="button"])):hover {
-  text-decoration: underline;
-}
+/* These two are LAYERED, unlike everything else in this file, and that is the whole point: unlayered
+   author CSS beats any @layer regardless of specificity, so as bare rules they defeated every
+   primitive's own `outline-none` + `ring` focus treatment — a focused control drew this 2px outline
+   AND its 3px ring, and the review queue's segmented control could not use the inset offset it asks
+   for (the ring was clipped by the group's overflow-hidden). In `base` they are what they were meant
+   to be: a default a component may override. */
+@layer base {
+  :where(a:not([data-slot="button"])) {
+    color: var(--primary);
+    text-decoration: none;
+  }
+  :where(a:not([data-slot="button"])):hover {
+    text-decoration: underline;
+  }
 
-:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
 }
 
 /* --- shell --- */
+
+/* Off-screen until focused, then pinned to the top-left over everything. Not `display: none`, which
+   would take it out of the tab order and defeat the point. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 70;
+}
+.skip-link:focus-visible {
+  left: 8px;
+  top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  text-decoration: none;
+}
 
 .shell {
   display: flex;
@@ -95,9 +124,12 @@ body {
   background: var(--secondary);
   text-decoration: none;
 }
+/* --accent-foreground, not --primary: on the pale accent background --primary measures 3.32:1, the
+   exact ratio theme.css introduced --accent-foreground to fix. The one nav item a reader most needs
+   to find — the page they are on — was the one that failed. 6.73:1. */
 .nav a[aria-current="page"] {
   background: var(--accent);
-  color: var(--primary);
+  color: var(--accent-foreground);
   font-weight: 600;
 }
 
@@ -125,7 +157,7 @@ body {
   margin-left: 0;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .topbar {
     gap: 8px;
     padding: 6px 12px;
@@ -263,10 +295,6 @@ h1 {
   font-size: 24px;
   margin-bottom: 8px;
 }
-.home-hero .lede {
-  white-space: pre-line;
-}
-
 .home-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -317,7 +345,7 @@ h1 {
   height: 16px;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .home-hero {
     grid-template-columns: 1fr;
   }
@@ -333,31 +361,15 @@ h1 {
 
 /* --- panels, tables, rows --- */
 
-.panel {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.panel + .panel {
-  margin-top: 14px;
-}
-
-.panel-head {
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--secondary);
-  font-weight: 600;
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.scroll-x {
-  overflow-x: auto;
-}
+/* `.panel`, `.panel-head` and `.scroll-x` are gone — the last of the structural classes this file's
+   header promised would leave as each screen migrated.
+   - The box and its title bar are `components/Panel.tsx`, i.e. `Card` composed once. The four rules
+     that were COUPLED to the class (the box, the 14px gap between consecutive panels, the inset on a
+     control row, the inset on a notice) live there together instead of being restated as utilities at
+     every one of the thirty-odd call sites.
+   - `.scroll-x` around a table was inert: `Table` renders its own `overflow-x-auto` container, so the
+     outer scroller could never move — and the pagers that sat inside it scrolled sideways out of
+     view. Markdown keeps its own scroller for wide code blocks; that one is real. */
 
 /* The table box moved into components/ui/table.tsx (every screen now renders <Table>). These bare
    element rules could not stay: unlayered CSS beats Tailwind utilities, so while they existed the
@@ -538,11 +550,16 @@ td.num {
   }
 }
 
+/* Bottom, not top: at top it sat over the topbar and hid the nav and both switchers for as long as
+   it was up — and the longest messages (the gate's duplicate warning) are up the longest. Nothing
+   sits at the bottom of these screens, so it covers nothing. Above the Radix dialog layer (z-50) on
+   purpose: a create dialog closes and its outcome follows the reader out. */
 .toast {
   position: fixed;
-  top: 16px;
+  bottom: 16px;
   left: 50%;
   transform: translateX(-50%);
+  max-width: min(560px, calc(100vw - 32px));
   z-index: 60;
   padding: 9px 12px;
   border: 1px solid var(--border);
@@ -609,14 +626,6 @@ td.num {
    ontology and collaboration — therefore sits flush against the border unless it brings its own.
    Scoped to direct children so a top-level `.controls` row, which sits on the page background and
    wants no padding, is untouched. */
-.panel > .controls {
-  padding: 12px;
-  margin: 0;
-}
-/* Stacked rows in one panel (ontology's maintenance): the gap belongs between them, not doubled. */
-.panel > .controls + .controls {
-  padding-top: 0;
-}
 
 /* The banners are <Alert variant="error|warn|info"> now (components/ui/alert.tsx). The tighter box
    those variants carry is what `.banner` was; `default` keeps shadcn's, because it is the inline result
@@ -628,9 +637,6 @@ td.num {
 [data-slot="alert"] code {
   font-family: var(--font-mono);
   font-size: 12px;
-}
-.panel > [data-slot="alert"] {
-  margin: 0 12px 12px;
 }
 
 /* --- login --- */
@@ -651,71 +657,13 @@ td.num {
   margin-top: 14px;
 }
 
-/* --- modal (native <dialog>) --- */
+/* --- modal --- */
 
-/* The element brings the behaviour — focus trap, Esc, inert background — so this is only its look.
-   `dialog` ships with a UA border and padding; both are reset here rather than fought later. */
-dialog {
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
-  color: var(--foreground);
-  width: min(560px, calc(100vw - 32px));
-  /* Tall content scrolls inside the dialog, so the page behind never becomes the scroller. */
-  max-height: calc(100vh - 64px);
-  overflow: auto;
-}
+/* Nothing here styles the dialog any more. The screens moved to Radix (components/ui/dialog.tsx),
+   which renders a <div> — so the `dialog` element rules, `dialog::backdrop`, `.modal-head` and
+   `.modal-body` matched nothing and shipped anyway. One of them was load-bearing and its loss was
+   invisible: `max-height: calc(100vh - 64px); overflow: auto` kept a tall form scrolling inside the
+   dialog. That contract now lives on DialogContent itself. */
 
-dialog::backdrop {
-  background: rgb(0 0 0 / 45%);
-}
-
-.modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--secondary);
-  /* Sticky so a long form's close button stays reachable without scrolling back up. */
-  position: sticky;
-  top: 0;
-}
-
-.modal-body {
-  padding: 14px;
-}
-
-/* Labelled fields stacked one per row — a wrapping flex row put labels beside their inputs and, at
-   three or more fields, beside the wrong ones. */
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-}
-
-.field > span {
-  color: var(--muted-foreground);
-}
-
-.field input,
-.field select {
-  width: 100%;
-}
-
-.token-form {
-  align-items: end;
-  padding: 12px;
-}
-.token-form .field {
-  flex: 1 1 220px;
-}
+/* .stack / .field / .token-form are gone: the last form on them (tokens) moved to the shared modal
+   form shape — Tailwind grid gap with components/ui fields — like every other create form. */

@@ -36,6 +36,10 @@ export function Pagination({
   const t = useT();
   if (total <= LIST_PAGE_SIZE) return null;
   return (
+    // `pager` carries no CSS rule of its own — it is a HOOK, and the screens that moved from `.panel`
+    // to `Card` target it (`[&>.pager]:px-3`) to reconstitute the inset that `.panel > .controls` used
+    // to give the pager. Removing it silently un-insets those pagers, so it is load-bearing despite
+    // matching nothing in globals.css.
     <div className="controls pager">
       <Button
         type="button"

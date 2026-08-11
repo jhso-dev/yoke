@@ -31,7 +31,7 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 
 ## Default ontology (seed)
 
-- entity types: `person`, `fact` (`ttl_days: 180`), `decision` (attributes: conclusion, rationale, rejected_alternatives[]; `ttl_days: 365`), `term`, `resource`, `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). Those two `ttl_days` are the seed's only ones; everything else is unlimited, and their absence from this list left the freshness rule below with no stated starting point. `collaboration` declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature
+- entity types: `person` (attributes: name (required) — a person is referred to by name on every surface, and the ontology-driven create form offers exactly the declared fields), `fact` (`ttl_days: 180`), `decision` (attributes: conclusion, rationale, rejected_alternatives[]; `ttl_days: 365`), `term`, `resource`, `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). Those two `ttl_days` are the seed's only ones; everything else is unlimited, and their absence from this list left the freshness rule below with no stated starting point. `collaboration` declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature
 - relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (created by the gate at stage 4), `works_on` (person → collaboration, v4.0), `same_as` (person → person, v5.6 — see "Identity across sources"), `derived_from` (record → the knowledge it rests on, v5.8 — see "Derivation")
 - **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
@@ -554,6 +554,14 @@ docs/RESEARCH.md's freshness findings converge on.
 - Exposed as `yoke review --stale` and `GET /api/review?stale=1` — the same command and route as the
   draft queue, because the contract clause names `review` and because both queues take the same two
   actions. `--type` narrows either queue.
+- **The page is ordered by consumption, and each row says its count.** The count is the number of
+  `inject` and `persona` audit rows naming the record — what AGENTS have been fed, not what humans
+  looked at (`inject_preview`/`read`/`search` do not count) — so re-confirmation effort meets the
+  records still reaching agents first. This is an aggregation over the audit trail the front tier
+  already writes, computed at the front tier (the trail is not a port concern), and it inherits the
+  trail's scope: under `serve` it is the team's central count; a client pointed straight at a shared
+  remote backend counts only its own reads. Ordering applies WITHIN the returned page — the cursor
+  resumes the scan by position, unaffected by rank.
 
 ### Anchored injection (v4.0 — shared working context, and persona)
 
@@ -876,7 +884,7 @@ yoke inject <query> [--include-draft] [--limit n] [--scope id] [--depth n] [--as
 yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
 yoke conflicts             # list conflicts_with
 yoke history <id>          # every version of one id (the append-only rows)
-yoke audit [--since ts] [--limit n] [--shape]   # the injection / governance audit trail; --shape counts workload composition
+yoke audit [--since ts] [--until ts] [--limit n] [--shape]   # the audit trail; both bounds inclusive; --shape counts workload composition
 yoke ontology <subcmd>     # inspect types / migrate
 yoke persona <person>      # generate/export a persona skill (SKILL.md)
 yoke persona --check <file> # audit an exported SKILL.md against the store now; exit 1 if any source moved
@@ -942,6 +950,13 @@ A persona is the person-anchored reading of an anchored injection — not a seco
 
 Because authorship is a graph edge rather than a provenance lookup outside the storage contract,
 persona works on every conformant backend (sqlite, sharded, opensearch, postgres).
+
+**Measured, not asserted** (`npm run eval:persona`): against a corpus of five planted failure modes —
+another author's records on the same topics, records tied to the person by `relates_to`, the
+`derived_from` sources under their decisions, their own drafts, their own aged records — the eval
+reports impersonation, draft-leak and stale-leak rates (target 0%) and whole/query recall (target
+100%), and exits non-zero on any miss. Both regressions it exists to catch were planted once to prove
+it bites: including drafts reads as a 100% draft leak, dropping `scopeRel` as 50% impersonation.
 
 **Upgrade path**: databases written before stage 4b have no authorship edges. `yoke backfill`
 re-derives them through the gate from each version's recorded provenance, skipping `origin:

@@ -149,16 +149,34 @@ Nothing in `src/` gets a build step beyond `tsc`.
 
 ### Budgets
 
-- **Shipped bundle ≤ 380 KB gzipped** (JS + CSS, whole static export), asserted by
+- **Shipped bundle ≤ 400 KB gzipped** (JS + CSS, whole static export), asserted by
   `src/front/ui/bundle.size.test.ts`, which stats the build output and skips when
   there is none. shadcn + Tailwind + Radix cost +117 KB (+52%) over the
   hand-written CSS it replaced, measured both ways before the number moved.
+  Raised from 380 by the accessibility and consistency pass, which measured 379 —
+  one kilobyte of headroom is a tripwire, not a budget. What the rise bought is
+  named in the test: Radix Select on the token form, Dialog on two more screens,
+  Checkbox on the create form, Separator.
+- **Shipped images ≤ 500 KB gzipped**, asserted by the same test. It exists because
+  for a while nothing measured them at all: the JS+CSS figure filters on `.js|.css`,
+  so the two home-page heroes — 460 KB gzipped between them, both preloaded at high
+  priority, one of the two always hidden by the active theme — were invisible to every
+  check. The ceiling sits above what they cost on purpose: they are the artwork as
+  authored, and recompressing them is the art owner's call. It is a tripwire for a new
+  unmeasured asset; lower it in the same commit that optimises these two.
 - **Dependency budget: `next`, `react`, `react-dom`, `d3-force`, plus the
   shadcn/ui prerequisites** — `tailwindcss`, `@tailwindcss/postcss`, `postcss`,
   `radix-ui`, `class-variance-authority`, `clsx`, `tailwind-merge`,
   `lucide-react`, `tw-animate-css`, and the type-only `typescript` / `@types/*`.
   Everything but `radix-ui` and `lucide-react` is build-time. **Anything further
   requires a note here first, naming what it buys.**
+
+  Amended again for the date-time picker: **`react-day-picker`** (which brings `date-fns`
+  transitively) replaces the two `<input type="datetime-local">` controls — the last OS-styled
+  element in the product, whose popup ignored the theme entirely. What it buys: the calendar renders
+  on this product's own tokens in both themes; the value contract (`web/lib/time.ts` local wall
+  time) is unchanged, so it is a rendering swap. Cost, measured: the shipped bundle moved to
+  **362 KB gzipped** against the 380 KB budget the size test enforces.
 
   What shadcn bought and cost: the hand-written CSS layer shrinks and the
   accessibility work in dialogs, selects and focus management stops being ours to

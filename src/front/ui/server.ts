@@ -28,7 +28,13 @@ import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
-import { injectDetail, summarize, ULID } from "../display.js";
+import {
+  consumptionCounts,
+  injectDetail,
+  rankByConsumption,
+  summarize,
+  ULID,
+} from "../display.js";
 import { openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
 
@@ -331,6 +337,15 @@ async function readIds(req: IncomingMessage): Promise<string[]> {
 
 /** Attribute values a form can send. Anything else (nested objects, numbers that should have been
  * strings) is refused here rather than reaching the gate as a shape the ontology cannot describe. */
+/**
+ * The four value shapes an attribute may take — the same four the ontology declares (`string`,
+ * `number`, `boolean`, `string[]`, see core/ontology.ts AttrSpec).
+ *
+ * It used to accept only strings and string arrays, which made the route narrower than the gate it
+ * fronts: a type declaring a `number` attribute could be committed from the CLI and not from HTTP,
+ * so the web form had no honest way to offer the field at all. Validation still belongs to the gate;
+ * this only refuses shapes no attribute can ever hold (objects, nested arrays, null).
+ */
 function readAttributes(v: unknown): Record<string, unknown> {
   if (v === undefined || v === null) return {};
   if (typeof v !== "object" || Array.isArray(v))
@@ -338,8 +353,13 @@ function readAttributes(v: unknown): Record<string, unknown> {
   for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
     const ok =
       typeof val === "string" ||
+      typeof val === "number" ||
+      typeof val === "boolean" ||
       (Array.isArray(val) && val.every((x) => typeof x === "string"));
-    if (!ok) throw new Error(`attribute "${k}" must be a string or string[]`);
+    if (!ok)
+      throw new Error(
+        `attribute "${k}" must be a string, number, boolean or string[]`,
+      );
   }
   return v as Record<string, unknown>;
 }
@@ -498,10 +518,20 @@ export function createUiHandler(
             after: url.searchParams.get("after") ?? undefined,
           },
         );
+        // Most-consumed first (same rule as `yoke review --stale`): the count is inject+persona
+        // audit rows naming the record, so re-confirmation effort goes where agents are actually
+        // reading. Ranked before serialization; `injections` rides on each row.
+        const ranked = rankByConsumption(
+          items,
+          consumptionCounts(store.listAudit({ ns })),
+        );
         // `scanned` travels with the rows: the walk is bounded, so a screen that printed only the
         // count would be claiming a corpus-wide number this did not compute.
         sendJson(res, 200, {
-          items: await rowsOf(items),
+          items: (await rowsOf(ranked)).map((r, i) => ({
+            ...r,
+            injections: ranked[i].injections,
+          })),
           next,
           scanned,
         });
@@ -833,6 +863,7 @@ export function createUiHandler(
       const limit = intParam(url, "limit", 200, 2000);
       const events = store.listAudit({
         since: url.searchParams.get("since") ?? undefined,
+        until: url.searchParams.get("until") ?? undefined,
         ns,
         limit,
       });

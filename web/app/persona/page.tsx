@@ -9,8 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Citation } from "../../components/Citation";
 import { CopyCode } from "../../components/CopyCode";
+import { CreateButton } from "../../components/CreateButton";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
+import { Panel, PanelHead } from "../../components/Panel";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel } from "../../lib/citation";
@@ -42,21 +44,33 @@ function Roster() {
     () => api.entities({ type: "person", after, limit: PER_PAGE }),
     [after],
   );
+  // For the create form's fields — a tenant that added attributes to `person` gets them here too.
+  const ontology = useAsync(() => api.ontology(), []);
   const rows = page.data?.items ?? [];
 
   return (
     <>
-      <h1>{t.persona.heading}</h1>
+      <div className="page-head">
+        <h1>{t.persona.heading}</h1>
+        {/* A persona is a derivative, never a stored artifact (VISION): what this actually records
+            is the person the persona anchors to, so the form is the person type's. */}
+        <CreateButton
+          ontology={ontology.data ?? []}
+          type="person"
+          label={t.persona.newPersona}
+          onCreated={page.reload}
+        />
+      </div>
       <p className="lede">{t.persona.lede}</p>
-      <ErrorBanner error={page.error} />
-      {page.loading ? (
-        <div className="panel">
+      <ErrorBanner error={page.error} onRetry={page.reload} />
+      {page.loading && !page.data ? (
+        <Panel>
           <div className="empty">{t.common.loading}</div>
-        </div>
+        </Panel>
       ) : rows.length === 0 ? (
-        <div className="panel">
+        <Panel>
           <div className="empty">{t.persona.emptyList}</div>
-        </div>
+        </Panel>
       ) : (
         <div className="cards">
           {rows.map((p) => (
@@ -143,14 +157,20 @@ function Person({ id }: { id: string }) {
         {who.data && <StatusBadge status={who.data.entity.effectiveStatus} />}{" "}
         <Link href="/persona/">{t.persona.all}</Link>
       </p>
-      <ErrorBanner error={who.error ?? persona.error} />
+      <ErrorBanner
+        error={who.error ?? persona.error}
+        onRetry={() => {
+          who.reload();
+          persona.reload();
+        }}
+      />
 
       <div className="controls">
         <Input
           placeholder={t.persona.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          aria-label="search"
+          aria-label={t.common.search}
           className="w-auto min-w-65"
         />
         {/* Counted only while searching: "12 of 12" beside an untouched box is noise, but an empty
@@ -158,20 +178,12 @@ function Person({ id }: { id: string }) {
         {query && (
           <span className="muted">{t.persona.matched(shown, total)}</span>
         )}
-        <Button
-          asChild
-          variant="secondary"
-          className="border border-border hover:border-primary"
-        >
+        <Button asChild variant="outline">
           <Link href={`/entity/?id=${encodeURIComponent(id)}`}>
             {t.common.openAsRecord}
           </Link>
         </Button>
-        <Button
-          asChild
-          variant="secondary"
-          className="border border-border hover:border-primary"
-        >
+        <Button asChild variant="outline">
           <Link href={`/graph/?scope=${encodeURIComponent(id)}`}>
             {t.common.openInGraph}
           </Link>
@@ -180,33 +192,33 @@ function Person({ id }: { id: string }) {
       </div>
 
       {persona.loading ? (
-        <div className="panel">
+        <Panel>
           <div className="empty">{t.common.loading}</div>
-        </div>
+        </Panel>
       ) : (
         <>
-          <div className="panel">
-            <div className="panel-head">
+          <Panel>
+            <PanelHead>
               {t.persona.decisions}
               <span className="muted">{decisions.length}</span>
-            </div>
+            </PanelHead>
             <KnowledgeTable
               rows={decisions}
               paginate
               empty={query ? t.persona.noMatch : t.persona.noDecisions}
             />
-          </div>
-          <div className="panel">
-            <div className="panel-head">
+          </Panel>
+          <Panel>
+            <PanelHead>
               {t.persona.otherKnowledge}
               <span className="muted">{facts.length}</span>
-            </div>
+            </PanelHead>
             <KnowledgeTable
               rows={facts}
               paginate
               empty={query ? t.persona.noMatch : t.common.none}
             />
-          </div>
+          </Panel>
         </>
       )}
     </>

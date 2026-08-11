@@ -7,9 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { CopyCode } from "../../components/CopyCode";
+import { DateTimePicker } from "../../components/DateTimePicker";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
+import { Panel, PanelHead } from "../../components/Panel";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import { isoFromLocalInput, localTime } from "../../lib/time";
@@ -80,7 +83,7 @@ function InjectBody() {
         <CopyCode value="yoke_inject" />
         {t.inject.ledeAfter}
       </p>
-      <ErrorBanner error={result.error} />
+      <ErrorBanner error={result.error} onRetry={result.reload} />
       <form
         className="controls"
         onSubmit={(e) => {
@@ -92,61 +95,69 @@ function InjectBody() {
           placeholder={t.inject.queryPlaceholder}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          aria-label="query"
+          aria-label={t.common.query}
           className="w-auto min-w-65"
         />
         <Input
           placeholder={t.inject.scopePlaceholder}
           value={draftScope}
           onChange={(e) => setDraftScope(e.target.value)}
-          aria-label="scope"
+          aria-label={t.inject.scopePlaceholder}
           className="mono w-auto min-w-55"
         />
         <Button type="submit">{t.inject.run}</Button>
-        <Label
-          htmlFor="inject-include-draft"
-          className="gap-1.5 text-[inherit] font-[inherit]"
-        >
+      </form>
+      {/* The QUERY row above, the LENS row here: what to ask, then under which reading — drafts in
+          or out, and as of when. Filters act immediately, so they need no seat next to the submit.
+          Labels sit BESIDE their control, never around it: a label that wraps the control it also
+          points at (htmlFor) makes some engines activate it twice per click — the two toggles cancel
+          and the checkbox reads as dead. */}
+      <div className="controls">
+        <span className="flex items-center gap-1.5">
           <Checkbox
             id="inject-include-draft"
             checked={includeDraft}
             onCheckedChange={(v) => run({ draft: v === true })}
           />
-          {t.inject.includeDraft}
-        </Label>
-        <Label
-          htmlFor="inject-as-of"
-          className="gap-1.5 text-[inherit] font-[inherit]"
-        >
-          {t.inject.asOf}
-          <Input
-            id="inject-as-of"
-            type="datetime-local"
-            value={asOfLocal}
-            onChange={(e) => run({ asOf: e.target.value })}
-            title={t.inject.asOfHint}
-            className="w-auto"
-          />
-        </Label>
-        {asOfLocal && (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => run({ asOf: "" })}
+          <Label
+            htmlFor="inject-include-draft"
+            className="text-[inherit] font-[inherit]"
           >
-            {t.inject.asOfClear}
-          </Button>
-        )}
-      </form>
+            {t.inject.includeDraft}
+          </Label>
+        </span>
+        <Separator orientation="vertical" />
+        <span className="flex items-center gap-1.5">
+          <Label
+            htmlFor="inject-as-of"
+            className="text-[inherit] font-[inherit]"
+          >
+            {t.inject.asOf}
+          </Label>
+          <DateTimePicker
+            id="inject-as-of"
+            value={asOfLocal}
+            onChange={(next) => run({ asOf: next })}
+            title={t.inject.asOfHint}
+            // Unset MEANS the present on this screen, so both the empty trigger and the in-popover
+            // reset say so — one control, one place to operate it, no twin button beside it.
+            unsetLabel={t.inject.asOfClear}
+            resetLabel={t.inject.asOfClear}
+            // An as-of read looks BACK. Nothing clamps a future instant server-side, so without this
+            // the screen would announce a historical view over a query that ran against now.
+            disableFuture
+          />
+        </span>
+      </div>
 
       {!q && !scope ? (
-        <div className="panel">
+        <Panel>
           <div className="empty">{t.inject.prompt}</div>
-        </div>
-      ) : result.loading ? (
-        <div className="panel">
+        </Panel>
+      ) : result.loading && !result.data ? (
+        <Panel>
           <div className="empty">{t.common.loading}</div>
-        </div>
+        </Panel>
       ) : (
         <>
           {includeDraft && (
@@ -162,8 +173,8 @@ function InjectBody() {
               <span className="muted">{t.inject.asOfCeiling}</span>
             </Alert>
           )}
-          <div className="panel">
-            <div className="panel-head">
+          <Panel>
+            <PanelHead>
               {t.inject.wouldBeInjected}
               <span className="muted">{items.length}</span>
               {result.data?.scope && (
@@ -171,7 +182,7 @@ function InjectBody() {
                   {t.inject.scopeNote(result.data.scope)}
                 </span>
               )}
-            </div>
+            </PanelHead>
             {/* A preview that silently showed 50 of 312 would misrepresent what an agent receives —
                 which is this screen's whole job. */}
             {(result.data?.omitted ?? 0) > 0 && (
@@ -183,7 +194,7 @@ function InjectBody() {
               </Alert>
             )}
             <KnowledgeTable rows={items} empty={t.inject.empty} paginate />
-          </div>
+          </Panel>
         </>
       )}
     </>

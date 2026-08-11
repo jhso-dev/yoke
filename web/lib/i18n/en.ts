@@ -37,9 +37,32 @@ export const en = {
     notFound: "not found in this namespace",
     required: "required by the ontology",
     draftNotice: "saved as a draft and must be verified",
+    skipToContent: "Skip to content",
+    /** Accessible names for controls whose visible label is a placeholder or an icon. They were
+     * English literals in JSX, which neither the untranslated nor the dead-key guard can see. */
+    search: "search",
+    query: "query",
+    language: "language",
     copyFull: "click to copy",
     copy: "Copy",
     copied: "Copied",
+    // The date-time picker. "Any time" is the unset state of a FILTER — absence of a bound, not a
+    // missing value, so it must not read like an error or a placeholder to fill.
+    anyTime: "Any time",
+    apply: "Apply",
+    /** An open-ended range: one end picked, the other deliberately left off. */
+    onward: (from: string) => `${from} onward`,
+    startTime: "from",
+    endTime: "to",
+    timeOfDay: "time",
+    clear: "Clear",
+    retry: "Retry",
+    /** A transport failure, not the API refusing: the browser's own "Failed to fetch" used to reach
+     * the reader untranslated, in the middle of an otherwise-translated screen. */
+    requestFailed:
+      "Could not reach the server. It may have stopped, or the connection dropped.",
+    verifying: "Verifying…",
+    deprecating: "Retiring…",
     type: "type",
     status: "status",
     actor: "actor",
@@ -128,6 +151,8 @@ export const en = {
     draftNotice:
       "Saved as a draft and must be verified, just like a record committed by an agent.",
     pickType: "pick a type",
+    listHint: "(comma separated)",
+    yes: "yes",
     noAttrs:
       "This type has no declared attributes, so the record will be created without them.",
     duplicates: (n: number, names: string) =>
@@ -135,11 +160,27 @@ export const en = {
     // Not "no duplicates found" — nothing was compared. The distinction is the point.
     notChecked:
       "Created. Nothing was compared against it: this workspace has no embedding provider configured, so duplicate detection did not run.",
+    createdToast: (label: string) =>
+      `Created "${label}" as a draft — verify it in Review.`,
+  },
+  status: {
+    /** Why a record in this state is or is not injected. The stored NAME stays English (it is what
+     * the database and the CLI say); the explanation is said to a person, so it is translated. */
+    meaning: {
+      draft: "staged but not verified — withheld from injection",
+      verified: "a human promoted this; agents may receive it",
+      stale:
+        "past its type's freshness window — withheld until someone re-confirms it",
+      deprecated: "retired; never injected",
+      unknown: "unrecognized status",
+    },
   },
   review: {
     heading: "Review queue",
     lede: "Review drafts that have not been verified. They are not injected into an agent until a person promotes them.",
     selectAll: "Select all",
+    /** The row checkbox's accessible name — the record, not its id. */
+    selectRow: (label: string) => `Select ${label}`,
     empty: "no drafts are waiting for review",
     draftCount: (n: number) => `${n} draft(s)`,
     // The two queues. Named for what a record in each needs, not for its status: a draft was never
@@ -154,12 +195,18 @@ export const en = {
     staleScanned: (n: number, scanned: number) =>
       `${n} aged out among the ${scanned} verified record(s) examined`,
     staleMore: "more records left to examine",
+    // The consumption signal the queue is ordered by. "injected" is the audit trail's own verb —
+    // inject and persona rows naming this record — not page views.
+    injectedHead: "injected",
+    injectedTimes: (n: number) => `${n}×`,
     // The point of the screen: a stale record's fix is a person, so name them.
     // The number needs a unit. It rendered as "노태경 7, 오태민 5, …" — a name and a naked integer,
     // which a reader has to guess at, and the heading is the one place to say it once instead of
     // repeating it thirty times.
+    /** "among the records examined", because the stale walk is bounded (see staleScanned): when
+     * there is a next cursor every count here understates and the panel used to imply otherwise. */
     staleOwners:
-      "Ask these people to re-confirm — the number is how many aged-out records each of them recorded:",
+      "Ask these people to re-confirm — the number is how many aged-out records each of them recorded, among those examined:",
     staleOwnerCount: (n: number) => `${n}`,
   },
   browse: {
@@ -174,6 +221,7 @@ export const en = {
     searchHint:
       "the same full-text search yoke itself falls back to — records with their status, never an answer",
     clear: "Clear",
+    clearAll: "Clear filters",
     noSearchMatch: "no records match that text",
     searchTruncated: (limit: number) =>
       `showing the first ${limit} matches. Search returns a bounded set, not the whole corpus — narrow the text, or use yoke inject for what an agent would receive.`,
@@ -216,6 +264,14 @@ export const en = {
     briefing: "the briefing an agent receives",
     briefingNote:
       "Shows the verified records returned by inject(scope), most recently confirmed first. This preview is recorded in the audit log",
+    briefingEmptyLinked: (n: number) =>
+      `No VERIFIED knowledge yet, so an agent receives nothing — the ${n} linked record(s) below are draft or stale.`,
+    memberAdded: (name: string) => `Added ${name} to this collaboration.`,
+    noPeople: "No people are recorded yet, so there is nobody to add.",
+    peopleCapped: (n: number) =>
+      `Only the first ${n} people are offered here. Link anyone else from their own record.`,
+    peopleCount: (n: number) => `${n} on this work`,
+    attachedCount: (n: number) => `${n} records point here`,
     briefingEmpty: "no knowledge is linked to this collaboration",
     attached: "linked records",
     attachedNote:
@@ -227,9 +283,15 @@ export const en = {
   },
   conflicts: {
     heading: "Conflicts",
-    lede: "Review verified records that contradict each other. yoke keeps both and does not decide which one is correct. Deprecate one record, or keep both when the disagreement itself matters.",
+    /** Not "verified records": the list is every `conflicts_with` pair whatever its sides' status,
+     * so it holds draft and already-retired ones too, and saying otherwise made a reader distrust
+     * the screen rather than the sentence. */
+    lede: "Review records that contradict each other. yoke keeps both and does not decide which one is correct. Deprecate one record, or keep both when the disagreement itself matters.",
     empty: "no contradictions recorded",
     alreadyRetired: "Already retired",
+    settledNote: "one side is retired",
+    allSettled:
+      "Every contradiction on record has a side retired. They stay listed because the disagreement is itself knowledge.",
   },
   ontology: {
     heading: "Ontology",
@@ -249,6 +311,7 @@ export const en = {
     attrsHint: "— comma separated, * = required",
     ttlHint: "— days, blank = never goes stale",
     saveType: "Save type",
+    typeSaved: (name: string) => `Saved the type "${name}".`,
     maintenance: "maintenance",
     maintenanceNote: "Repairs apply to the entire namespace",
     backfill: "Backfill authorship",
@@ -259,6 +322,7 @@ export const en = {
     renameFrom: "rename from",
     attrsExample: "title*, owner",
     renamePlaceholder: "rename a type…",
+    renameTo: "rename to",
     newName: "new name",
     rename: "Rename",
     renameHint:
@@ -268,6 +332,9 @@ export const en = {
   },
   persona: {
     heading: "Persona",
+    // Named for what the reader is here to make. What the button records is the person the
+    // persona derives from — a persona is that person's verified records, read back.
+    newPersona: "New persona",
     lede: "View the verified knowledge authored by one person. When an agent asks how that person would decide, it receives their records and sources. It does not generate text in their voice.",
     headingOne: "Persona",
     all: "All personas",
@@ -319,11 +386,17 @@ export const en = {
     wholeNamespace: "Whole namespace",
     counts: (nodes: number, links: number) =>
       `${nodes} nodes · ${links} relations`,
+    /** The canvas stopped swallowing the page scroll, so zoom needs saying: it is now modifier +
+     * wheel (which is also what a pinch gesture sends). Undiscoverable otherwise. */
+    zoomHint: "Ctrl or ⌘ + scroll to zoom · drag to pan",
     legend:
       "Arrows point to an edge's target · dashed lines are non-knowledge relations (authorship, membership)",
     empty: "no records to display in this namespace",
     nodes: "nodes",
     nodesNote: "Navigate the same data with a keyboard or screen reader",
+    /** Moved out of lib/graph.ts, where it was English prose rendered into an Alert on every UI. */
+    truncated: (shown: number, offered: number) =>
+      `Showing ${shown} of ${offered} records reachable from here. Open a record to keep walking from it, or use Browse to filter by type and status.`,
     expanded: (nodes: number, links: number) =>
       `+${nodes} records, +${links} relations`,
     expandedNothing: "already drawn — nothing new one step from this record",
@@ -332,6 +405,14 @@ export const en = {
     heading: "Audit",
     lede: "Track knowledge reads and governance actions in an append-only log. Filters apply only to the records currently loaded. To view the full history, use ",
     ledeAfter: ".",
+    /** The control is a from–to range, so the label says period. It said "since" for as long as
+     * the control was one-ended. */
+    period: "period",
+    capped: (limit: number) =>
+      `Showing the most recent ${limit} events. The full trail is in yoke audit --json.`,
+    /** Two different emptinesses: no events in the window, versus events the filters hid. */
+    noneMatch: "no events match these filters",
+    noneInWindow: (label: string) => `${label} (none in this window)`,
     since: "since",
     sinceHint: "your local time",
     allActions: "all actions",
@@ -355,16 +436,30 @@ export const en = {
     heading: "Tokens",
     lede: "Manage API tokens for browser sharing and remote access. A secret is shown only when its token is created. Revoke the token by name to end access.",
     create: "Create token",
+    newToken: "New token",
     name: "name",
-    namePlaceholder: "friend-readonly",
+    namePlaceholder: "ci-agent",
     scopes: "scopes",
-    scopesHint: "comma separated",
+    permissions: "permissions",
+    readHint: "see knowledge — briefings, injections, search",
+    writeHint: "create records — they enter as drafts",
+    verifyHint: "governance — verify, re-confirm, deprecate",
+    restrictLegend: "(optional)",
+    recordType: "record type",
+    anyPlaceholder: "any",
+    grants: "this token grants",
+    revoked: (name: string) => `Revoked "${name}".`,
     created: "Token created",
     createdNote: "Save it now. yoke stores only the hash.",
     secret: "secret",
     shareUrl: "share URL",
     empty: "no tokens",
     revoke: "Revoke",
+    revokeTitle: "Revoke this token?",
+    /** Irreversible, and the project's rule for skipping a confirmation is reversibility. */
+    revokeConfirm: (name: string) =>
+      `"${name}" stops working immediately, and the secret cannot be recovered — yoke stores only its hash. Anything using it needs a new token.`,
+    allTypes: "all types",
   },
   login: {
     heading: "Sign in",
