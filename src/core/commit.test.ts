@@ -153,6 +153,49 @@ describe("commit gate", () => {
     expect(await port.neighbors("x", "relates_to", "out")).toHaveLength(1);
   });
 
+  // Direction is not a claim for a symmetric relation, so recording it the other way round is not a
+  // second fact. Without this, the link control's direction toggle turned one claim into two rows.
+  it("treats a symmetric relation as one edge whichever way it was recorded", async () => {
+    await commit(
+      port,
+      ont,
+      { type: "relates_to", attributes: {}, from: "m", to: "n" },
+      prov,
+      now,
+    );
+    const reverse = await commit(
+      port,
+      ont,
+      { type: "relates_to", attributes: {}, from: "n", to: "m" },
+      prov,
+      now,
+    );
+    expect(reverse.existed).toBe(true);
+    expect(await port.neighbors("m", "relates_to")).toHaveLength(1);
+    // The stored row keeps the direction it was recorded with — provenance is not rewritten.
+    expect("from" in reverse.entity && reverse.entity.from).toBe("m");
+  });
+
+  it("still treats a DIRECTIONAL relation's two ways round as two edges", async () => {
+    // `supersedes` is the counter-case: which record supersedes which is the whole content.
+    await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: "new", to: "old" },
+      prov,
+      now,
+    );
+    const back = await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: "old", to: "new" },
+      prov,
+      now,
+    );
+    expect(back.existed).toBeUndefined();
+    expect(await port.neighbors("new", "supersedes")).toHaveLength(2);
+  });
+
   it("keeps edges that differ in type, in direction, or in namespace", async () => {
     const base = { attributes: {}, from: "p", to: "q" };
     await commit(port, ont, { ...base, type: "relates_to" }, prov, now);

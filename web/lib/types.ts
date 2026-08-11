@@ -76,6 +76,10 @@ export interface TypeDef {
   kind: "entity" | "relation";
   attrs: Record<string, { type: string; required?: boolean }>;
   ttl_days?: number;
+  /** True when the edge means the same thing read either way (`relates_to`, `conflicts_with`,
+   * `same_as`). The link control then does not offer a direction, because there is nothing to
+   * choose: core treats either way round as one edge. */
+  symmetric?: boolean;
   /** A roster edge, not knowledge. Core skips these when it builds an anchored briefing; the graph
    * draws them as not-knowledge for the same reason. */
   membership?: boolean;

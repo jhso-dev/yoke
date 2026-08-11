@@ -157,8 +157,21 @@ export async function commit(
     // ceiling: dedup ignores `attributes`, because no seeded relation type declares any. A relation
     // that carried them would need the versioning entities get through `existingId`, and there is no
     // way to name an existing edge today — declare that before giving a relation attributes.
-    const already = (await port.neighbors(rel.from, rel.type, "out")).find(
-      (r) => r.to === rel.to && (r.ns ?? null) === ns,
+    // A symmetric relation means the same thing read either way (see `symmetric` in the ontology), so
+    // the edge already exists whichever end it was recorded from — otherwise "A relates_to B" and "B
+    // relates_to A" are one claim in two rows, which is the duplicate this check exists to stop.
+    const symmetric =
+      ontology.find((d) => d.kind === "relation" && d.name === rel.type)
+        ?.symmetric === true;
+    const already = (
+      await port.neighbors(rel.from, rel.type, symmetric ? undefined : "out")
+    ).find(
+      (r) =>
+        (r.ns ?? null) === ns &&
+        (symmetric
+          ? (r.from === rel.from && r.to === rel.to) ||
+            (r.from === rel.to && r.to === rel.from)
+          : r.from === rel.from && r.to === rel.to),
     );
     if (already)
       return {

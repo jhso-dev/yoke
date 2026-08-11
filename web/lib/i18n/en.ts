@@ -244,6 +244,8 @@ export const en = {
     isPointedAt: "is pointed at",
     copyId: "click to copy",
     pickRelation: "pick a relation",
+    /** A symmetric relation has no direction to choose. */
+    bothWays: "reads the same either way",
     linked: "Linked.",
     /** A relation is identified by (type, from, to), so the same pair again stores nothing. */
     alreadyLinked: "These were already linked — nothing new was recorded.",

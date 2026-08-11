@@ -21,11 +21,15 @@ import { ErrorBanner } from "./ErrorBanner";
 /**
  * `yoke link` for one record: pick a relation type, a direction, and the other end.
  *
- * Direction is a control rather than an assumption because a general link cannot assume one — the
+ * Direction is a control rather than an assumption for the relations where it is a CLAIM — the
  * collaboration screen fixes it (works_on only ever points person → collaboration) precisely because
- * it knows which relation it is recording. Here the caller does not, so the arrow is shown and
- * chosen: `supersedes` recorded backwards silently reverses which record the ontology considers
- * current.
+ * it knows which relation it is recording; here the caller does not, and `supersedes` recorded
+ * backwards silently reverses which record the ontology considers current.
+ *
+ * But it is only shown for those. A relation the ontology marks `symmetric` means the same thing read
+ * either way, so asking would be asking a question with no answer — and not a free one: the two
+ * answers used to produce two rows for one claim. Core now treats either way round as one edge, and
+ * this control stops offering the choice.
  *
  * The other end is typed, not picked from a list: a namespace can hold more records than a select
  * should ever contain, and pasting an id is what the graph and every table already hand you. The
@@ -60,6 +64,7 @@ export function LinkRecord({
   );
   const [type, setType] = useState("");
   const [outgoing, setOutgoing] = useState(true);
+  const symmetric = relations.find((r) => r.name === type)?.symmetric === true;
   const [other, setOther] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -72,10 +77,13 @@ export function LinkRecord({
       const id = other.trim();
       // A relation's identity is (type, from, to), so linking the same pair again stores nothing.
       // Saying so beats a silent success that looks identical to having added something.
+      // A symmetric relation is recorded from this record outwards, always. The stored direction is
+      // arbitrary by definition, and picking one keeps the rows consistent for anyone reading them.
+      const forward = symmetric || outgoing;
       const { existed } = await api.link({
-        from: outgoing ? record.id : id,
+        from: forward ? record.id : id,
         type,
-        to: outgoing ? id : record.id,
+        to: forward ? id : record.id,
       });
       announce(existed ? tr.entity.alreadyLinked : tr.entity.linked);
       setOther("");
@@ -93,15 +101,20 @@ export function LinkRecord({
       <span className="text-muted-foreground text-sm">
         {recordLabel(record)}
       </span>
-      <Button
-        type="button"
-        variant="secondary"
-        onClick={() => setOutgoing((v) => !v)}
-        title={tr.entity.swapDirection}
-        aria-label={outgoing ? tr.entity.pointsAt : tr.entity.isPointedAt}
-      >
-        <DirectionIcon direction={outgoing ? "right" : "left"} />
-      </Button>
+      {symmetric ? (
+        // Not a control: the icon says the edge reads both ways, which is what `symmetric` means.
+        <DirectionIcon direction="both" label={tr.entity.bothWays} />
+      ) : (
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => setOutgoing((v) => !v)}
+          title={tr.entity.swapDirection}
+          aria-label={outgoing ? tr.entity.pointsAt : tr.entity.isPointedAt}
+        >
+          <DirectionIcon direction={outgoing ? "right" : "left"} />
+        </Button>
+      )}
       <Select value={type} onValueChange={setType}>
         <SelectTrigger aria-label={tr.common.relation} className="w-48">
           <SelectValue placeholder={tr.entity.pickRelation} />

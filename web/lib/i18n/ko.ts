@@ -230,6 +230,7 @@ export const ko: typeof en = {
     isPointedAt: "상대가 이 레코드를 가리킴",
     copyId: "클릭하면 복사",
     pickRelation: "관계 고르기",
+    bothWays: "양방향으로 같은 뜻",
     linked: "연결했습니다.",
     alreadyLinked: "이미 연결돼 있어 새로 기록하지 않았습니다.",
   },

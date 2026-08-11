@@ -770,6 +770,14 @@ endpoint shares it at `POST /mcp`.
 
 Rules that hold for every route:
 
+- **A symmetric relation has no direction to record.** A relation type the ontology marks
+  `symmetric: true` (seeded: `relates_to`, `conflicts_with`, `same_as`) means the same thing read
+  either way, so `from`/`to` carry only the order someone typed. The identity check above therefore
+  matches either way round, and the link control offers no direction — asking would be a question with
+  no answer, and not a free one: the two answers used to store one claim as two rows. `same_as` shows
+  this was always a property of the model rather than a new idea — `identitySet` has always walked it
+  with no direction, because "the same person" cannot have one. Storage is not rewritten: the row keeps
+  the direction it was recorded with, because provenance records what happened.
 - **A relation is identified by `(type, from, to)` in a namespace.** Committing one that already
   exists stores nothing and returns the existing edge with `existed: true` — the same pair linked
   twice is one edge, not two facts. Nothing else distinguishes an edge from itself: relations carry
