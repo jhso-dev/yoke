@@ -394,13 +394,22 @@ export const en = {
       "No verified knowledge matches this query, so nothing will be sent to the agent",
     // The empty state above claims nothing matches. When something DID match and was held back, saying
     // so is the difference between "we know nothing about this" and "this is waiting for review".
-    withheld: (w: {
-      draft: number;
-      stale: number;
-      deprecated: number;
-      structural: number;
-    }) =>
-      `Nothing will be sent, but this query did match records: ${[
+    withheld: (
+      w: {
+        draft: number;
+        stale: number;
+        deprecated: number;
+        structural: number;
+      },
+      // How many records ARE being sent. The lead-in turns on it: with a full table on screen the
+      // reader's mistake is not "we know nothing" but "this is all we know".
+      sent: number,
+    ) =>
+      `${
+        sent === 0
+          ? "Nothing will be sent, but this query did match records"
+          : `Also matched and NOT sent — the table above is not everything this query found`
+      }: ${[
         w.draft && `${w.draft} awaiting review`,
         w.stale && `${w.stale} past its freshness window`,
         w.deprecated && `${w.deprecated} retired`,

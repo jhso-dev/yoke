@@ -57,8 +57,9 @@ export interface InjectResult {
   omitted: number;
   /** Present only when the walk went deeper than one hop. */
   walk?: WalkStats;
-  /** Present only when `items` is empty AND something matched that could not be injected. Absent
-   * means the query matched nothing at all, which is a different answer and reads as one. */
+  /** Present when something matched that could not be injected — including alongside a non-empty
+   * `items`, where a reader handed a full page has no other way to learn that the record answering
+   * their question was held back. Absent means everything that matched was handed over. */
   withheld?: WithheldStats;
 }
 
@@ -495,24 +496,44 @@ export async function inject(
   // within the over-fetched window rather than the whole corpus: `search` is a top-k, so a number
   // for "everything that matched" is not knowable without materializing it, which is the thing that
   // crashed. Under-reporting a truncation the reader can see is better than a guess they cannot.
-  // Nothing to hand over: say why, once, here. The diagnostic costs a retrieval, so it is paid only
-  // on the empty answer — the one case where the reader cannot tell an absence from a filter.
+  // Say what was held back, whether or not anything came through. It was once computed only for the
+  // empty answer, on the theory that an empty result is the one a reader cannot interpret. A partial
+  // answer is worse: measured on the demo corpus, "why didn't we choose Kafka" returns ten unrelated
+  // records while the decision that answers it — rationale, rejected alternatives and all — sits one
+  // TTL past its window. The reader gets a full page and concludes nothing was ever recorded. An
+  // absence a reader can see beats a filter they cannot, and that argument does not stop at zero.
   //
   // The query path has to re-ask because `candidateQuery` pushes `status` DOWN: a withheld draft never
-  // reached this function to be counted. The anchor path already holds every status (the walk filters
-  // none), so it reuses the candidates it has.
-  const withheld =
-    limited.length === 0
-      ? await countWithheld(
-          port,
-          ontology,
-          scope
-            ? candidates
-            : await port.search({ text: query, ns, limit: opts?.limit }),
-          readAt,
-          askedForRoster,
-        )
-      : undefined;
+  // reached this function to be counted, and over-fetching INSTEAD of pushing was tried and disproven
+  // (see candidateQuery). The anchor path already holds every status (the walk filters none), so it
+  // reuses the candidates it has and costs nothing.
+  //
+  // The diagnostic asks for the same 3x window the primary retrieval uses, minus the status push-down.
+  // At the caller's bare limit it cannot see what it is looking for: the whole point is a record ranked
+  // BELOW the page that was filtered out of it, and a window the size of the page contains only records
+  // that made the page. The bias the push-down exists to correct — verified rows sorting last on tied
+  // relevance, because `verify` rewrites the FTS row — is harmless here and mildly helpful: this pass
+  // wants the rows injection rejected.
+  //
+  // ceiling: one extra `search` per query-path injection, bounded by the same O(matches) ranking cost
+  // as the primary retrieval (docs/SCALE.md). The way out is a port-level count of matches by status,
+  // which no backend exposes today — add that before widening this window again.
+  const withheld = await countWithheld(
+    port,
+    ontology,
+    scope
+      ? candidates
+      : await port.search({
+          text: query,
+          ns,
+          limit:
+            opts?.limit === undefined ? undefined : opts.limit * STALE_HEADROOM,
+        }),
+    readAt,
+    askedForRoster,
+    limited,
+    opts?.asOf,
+  );
   return {
     items: limited,
     omitted: items.length - limited.length,
@@ -536,7 +557,13 @@ async function countWithheld(
   candidates: Entity[],
   readAt: string,
   askedForRoster: boolean,
+  injected: InjectItem[],
+  asOf?: string,
 ): Promise<WithheldStats | undefined> {
+  // What was handed over is not withheld. Only matters now that this runs alongside a non-empty
+  // answer: the anchor path passes the very candidates the items were built from, so without this
+  // every injected record would also be counted as held back.
+  const handed = new Set(injected.map((i) => i.entity.id));
   const structuralTypes = new Set(
     ontology
       .filter((t) => t.kind === "entity" && t.structural)
@@ -549,11 +576,19 @@ async function countWithheld(
     structural: 0,
   };
   for (const found of candidates) {
+    if (handed.has(found.id)) continue;
     if (!askedForRoster && structuralTypes.has(found.type)) {
       stats.structural++;
       continue;
     }
-    const status = effectiveStatus(found, ontology, readAt);
+    // Classify the version that was current at the instant asked about, the way the returning path
+    // already does. Judging today's row made an as-of read blame a retirement that had not happened
+    // yet: `--as-of 2020-01-01` on a corpus created in 2026 answered "1 retired", and a record that
+    // was a draft then was reported retired because it is retired now.
+    const entity = asOf ? await versionAsOf(port, found.id, asOf) : found;
+    // No version at or before that instant: the record did not exist yet, so nothing was withheld.
+    if (!entity) continue;
+    const status = effectiveStatus(entity, ontology, readAt);
     if (status === "draft") stats.draft++;
     else if (status === "stale") stats.stale++;
     else if (status === "deprecated") stats.deprecated++;

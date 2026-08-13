@@ -193,10 +193,12 @@ function InjectBody() {
                 )}
               </Alert>
             )}
-            {/* Empty, but not because the corpus is silent — name what was held back and why. */}
-            {items.length === 0 && result.data?.withheld && (
+            {/* Name what was held back and why — on a full page as much as an empty one. This screen
+                answers "what will my agent receive", and a reader shown ten records has no other way
+                to learn that the one answering their question is past its freshness window. */}
+            {result.data?.withheld && (
               <Alert variant="warn">
-                {t.inject.withheld(result.data.withheld)}
+                {t.inject.withheld(result.data.withheld, items.length)}
               </Alert>
             )}
             <KnowledgeTable rows={items} empty={t.inject.empty} paginate />

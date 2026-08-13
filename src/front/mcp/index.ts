@@ -310,6 +310,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         (it) =>
           `${it.citation} [${it.effectiveStatus}]\n${JSON.stringify(it.entity.attributes)}`,
       );
+      // The same reasons on a NON-empty answer, phrased as the instruction an agent needs. This is the
+      // case that produces a confident wrong answer: the model receives a full page, has no way to know
+      // the record that actually answered the question was one day past its TTL, and reports what it
+      // was handed as the state of the org's knowledge.
+      if (withheld)
+        blocks.push(
+          `[Also matched but NOT injected: ${describeWithheld(withheld)}. ` +
+            `Do not report the records above as everything known on this subject — say that ` +
+            `${withheld.draft > 0 ? "unreviewed or " : ""}withheld knowledge exists and name the reason.]`,
+        );
       // Never a silent slice — and for a model the notice has to be an INSTRUCTION, not a flag. An
       // agent that reads a truncated briefing as the complete record answers from part of the
       // knowledge without knowing it. Saying where the rest is turns the cap from loss into paging.

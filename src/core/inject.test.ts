@@ -959,11 +959,74 @@ describe("an empty injection says why it is empty", () => {
     expect(res.withheld).toBeUndefined();
   });
 
-  it("is absent when records were actually injected", async () => {
+  it("is absent when everything that matched was handed over", async () => {
     const f = await addFact("the pool drains at midnight");
     await verify(port, [f], "admin", now);
     const res = await inject(port, ont, "pool", now);
     expect(res.items).toHaveLength(1);
     expect(res.withheld).toBeUndefined();
+  });
+});
+
+// The dangerous case, and the one the empty-only version could not reach: a full page of answers with
+// the record that actually answers the question filtered out of it. The reader concludes nothing was
+// recorded, having been shown proof that the corpus is not silent.
+describe("a partial injection says what it held back", () => {
+  it("reports a stale record alongside the records it did return", async () => {
+    const fresh = await addFact("the pool drains at midnight");
+    const stale = await addFact("the pool drains at noon");
+    await verify(port, [fresh], "admin", now);
+    // Verified long before the read, so only this one is past the 180-day fact TTL.
+    await verify(port, [stale], "admin", "2026-01-01T00:00:00Z");
+    const res = await inject(port, ont, "pool", now);
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0].entity.id).toBe(fresh);
+    expect(res.withheld?.stale).toBe(1);
+  });
+
+  it("does not count the records it injected as withheld", async () => {
+    const a = await addFact("the gateway retries twice");
+    const b = await addFact("the gateway retries three times");
+    await verify(port, [a, b], "admin", now);
+    const res = await inject(port, ont, "gateway", now);
+    expect(res.items).toHaveLength(2);
+    expect(res.withheld).toBeUndefined();
+  });
+
+  it("reports drafts held back from an answer that was not empty", async () => {
+    const v = await addFact("the gateway retries twice");
+    await addFact("the gateway retries three times");
+    await verify(port, [v], "admin", now);
+    const res = await inject(port, ont, "gateway", now);
+    expect(res.items).toHaveLength(1);
+    expect(res.withheld?.draft).toBe(1);
+  });
+});
+
+// A reason computed from today's row is a reason about the wrong record. `--as-of 2020` on a corpus
+// created in 2026 answered "1 retired": nothing existed then, and the retirement it named had not
+// happened yet.
+describe("as-of withheld reasons are about the version that existed then", () => {
+  it("says nothing was withheld for an instant before the record existed", async () => {
+    const f = await addFact("we deploy on fridays");
+    await verify(port, [f], "admin", now);
+    await deprecate(port, [f], "admin", now);
+    const res = await inject(port, ont, "fridays", now, {
+      asOf: "2020-01-01T00:00:00Z",
+    });
+    expect(res.items).toEqual([]);
+    expect(res.withheld).toBeUndefined();
+  });
+
+  it("names the status the record actually had then, not the one it has now", async () => {
+    const f = await addFact("we deploy on fridays");
+    // Still a draft at this instant; verified and retired afterwards.
+    const whileDraft = "2026-07-12T00:00:01Z";
+    await verify(port, [f], "admin", "2026-07-13T00:00:00Z");
+    await deprecate(port, [f], "admin", "2026-07-14T00:00:00Z");
+    const res = await inject(port, ont, "fridays", now, { asOf: whileDraft });
+    expect(res.items).toEqual([]);
+    expect(res.withheld?.draft).toBe(1);
+    expect(res.withheld?.deprecated).toBe(0);
   });
 });

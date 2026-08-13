@@ -1017,10 +1017,17 @@ async function cmdInject(
     // — the draft-only version of this lived here and the two agent-facing paths never got it.
     // The one next action this surface can name. Losing it would be a regression: it is the sentence
     // that taught readers the gate exists ("review with 'yoke review'").
+    //
+    // The same sentence rides a PARTIAL answer, where it matters more: a full page of loosely related
+    // records reads as "that is everything we know", and the record that answered the question can be
+    // one day past its TTL. The lead-in differs because the reader's next move does — "no verified
+    // knowledge" is the answer; "also held back" is a footnote on an answer they already have.
     const reasonLine = withheld
-      ? `no verified knowledge — ${describeWithheld(withheld)}` +
+      ? `${items.length ? "-- also held back:" : "no verified knowledge —"} ` +
+        describeWithheld(withheld) +
         (withheld.draft > 0 ? " — review with 'yoke review'" : "")
       : "no results";
+    if (items.length && withheld) lines.push(reasonLine);
     const human = items.length ? lines.join("\n") : reasonLine;
     // Under --json stdout stays the raw items array (contract unchanged, and a shape that alternates
     // between array and object is worse than a silent one). The reason goes to stderr, where a script

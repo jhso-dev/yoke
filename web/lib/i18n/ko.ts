@@ -369,13 +369,20 @@ export const ko: typeof en = {
       `${total}개 중 ${shown}개를 표시합니다. 에이전트도 같은 내용을 받고, 나머지 정보를 찾으려면 더 구체적으로 질문하라는 안내를 함께 받습니다. 더 많이 미리 보려면 limit을 늘리세요.`,
     empty:
       "이 질문과 일치하는 verified 지식이 없어 에이전트에 전달할 내용이 없습니다",
-    withheld: (w: {
-      draft: number;
-      stale: number;
-      deprecated: number;
-      structural: number;
-    }) =>
-      `전달할 내용은 없지만 이 질문에 걸린 레코드는 있습니다: ${[
+    withheld: (
+      w: {
+        draft: number;
+        stale: number;
+        deprecated: number;
+        structural: number;
+      },
+      sent: number,
+    ) =>
+      `${
+        sent === 0
+          ? "전달할 내용은 없지만 이 질문에 걸린 레코드는 있습니다"
+          : "위 표가 이 질문이 찾은 전부는 아닙니다 — 걸렸지만 전달되지 않은 레코드가 있습니다"
+      }: ${[
         w.draft && `검토 대기 ${w.draft}건`,
         w.stale && `신선도 기간이 지난 것 ${w.stale}건`,
         w.deprecated && `폐기된 것 ${w.deprecated}건`,
