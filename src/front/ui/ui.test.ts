@@ -13,7 +13,7 @@ import { commit } from "../../core/commit.js";
 import { verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
-import { createUiServer } from "./server.js";
+import { createUiServer, isLoopbackPeer } from "./server.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-ui-"));
 const now = "2026-07-13T00:00:00Z";
@@ -1643,5 +1643,40 @@ describe("POST /api/backfill --embeddings", () => {
     expect(vectors).toMatchObject({ embedded: 0 });
     expect(vectors.scanned).toBeGreaterThan(0);
     expect(vectors.skipped).toBe(vectors.scanned);
+  });
+});
+
+// `yoke ui --host 0.0.0.0` warns and binds anyway, deliberately: a container cannot port-forward to a
+// loopback-bound process. What the operator did not choose is that anonymous LAN callers may mint
+// credentials — measured before the fix, `POST /api/tokens` from another machine returned a working
+// `["read","write","verify"]` token, and that token authenticated against a hardened `serve --auth`
+// process on the same database. The exposure escaped the server that was exposed.
+//
+// The route wiring was verified against a real LAN peer (403 on all three credential routes, 200 on
+// /api/entities, 201 from the host itself). What is asserted here is the decision, because the shape
+// of the address is where this goes wrong: a dual-stack listener reports a loopback peer as an
+// IPv4-mapped `::ffff:127.0.0.1`, and reading that as remote would lock the host out of its own tokens.
+describe("isLoopbackPeer", () => {
+  it.each([
+    "127.0.0.1",
+    "::1",
+    "127.0.1.2",
+    "::ffff:127.0.0.1",
+  ])("treats %s as this machine", (addr) => {
+    expect(isLoopbackPeer(addr)).toBe(true);
+  });
+
+  it.each([
+    "192.168.1.50",
+    "10.0.0.7",
+    "::ffff:192.168.1.50",
+    "2001:db8::1",
+  ])("treats %s as remote", (addr) => {
+    expect(isLoopbackPeer(addr)).toBe(false);
+  });
+
+  it("treats a missing address as remote, which is the safe default", () => {
+    expect(isLoopbackPeer(undefined)).toBe(false);
+    expect(isLoopbackPeer("")).toBe(false);
   });
 });

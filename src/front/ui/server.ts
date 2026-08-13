@@ -399,6 +399,35 @@ export function createUiHandler(
   const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
+  /**
+   * Refuse the credential routes to a remote caller on a server that authenticates nobody.
+   *
+   * `yoke ui --host 0.0.0.0` warned and bound anyway, which is deliberate: a container cannot
+   * port-forward to a loopback-bound process, so widening the bind is a decision the operator is
+   * allowed to make. What they did not decide is that anonymous LAN callers may MINT CREDENTIALS —
+   * measured: `POST /api/tokens` from another machine returned `{"scopes":["read","write","verify"],
+   * "token":"yk_…"}`, and that token then authenticated against a hardened `serve --auth` process on
+   * the same database. The exposure escapes the server that was deliberately exposed.
+   *
+   * Narrow on purpose. Reading and retiring knowledge over a bind the operator widened is the
+   * documented trade; issuing credentials that work somewhere else is not, and it is the one thing on
+   * this surface that is not about this deployment's knowledge.
+   */
+  const remoteCredentialRequest = (req: IncomingMessage): boolean =>
+    // serve --auth: scopes decide, not the socket.
+    !deps.authRequired && !isLoopbackPeer(req.socket.remoteAddress);
+  const refusedRemoteCredential = (
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): boolean => {
+    if (!remoteCredentialRequest(req)) return false;
+    sendJson(res, 403, {
+      error:
+        "credentials cannot be issued or listed over a non-loopback connection on an " +
+        "unauthenticated server — run 'yoke token create' on the host, or 'yoke serve --auth'",
+    });
+    return true;
+  };
   // No principal on the local ungated path, so nothing is out of reach there (invariant 4).
   const grantable = deps.grantable ?? (() => []);
   /**
@@ -979,6 +1008,7 @@ export function createUiHandler(
       // `admin`, not `verify`: this is the credential surface, and every reviewer holds verify. See the
       // Action union in serve/rbac.ts for what stood in for admin and what it cost.
       if (denied(res, "admin")) return;
+      if (refusedRemoteCredential(req, res)) return;
       // Only the rows this caller could have issued. A tenant admin listing every tenant's credentials
       // and their scopes is a map of the whole deployment's access.
       const visible = store
@@ -990,6 +1020,7 @@ export function createUiHandler(
 
     if (method === "POST" && path === "/api/tokens") {
       if (denied(res, "admin")) return;
+      if (refusedRemoteCredential(req, res)) return;
       const body = await readBody(req);
       const name = body.name;
       const scopes = body.scopes;
@@ -1051,6 +1082,7 @@ export function createUiHandler(
 
     if (method === "DELETE" && path.startsWith("/api/tokens/")) {
       if (denied(res, "admin")) return;
+      if (refusedRemoteCredential(req, res)) return;
       const name = decodeURIComponent(path.slice("/api/tokens/".length));
       if (!name) {
         sendJson(res, 400, { error: "token name is required" });
@@ -1371,6 +1403,17 @@ export function createUiServer(deps: UiDeps): Server {
  * the console said "localhost". Widening is an explicit `--host`. */
 export const DEFAULT_HOST = "127.0.0.1";
 
+/**
+ * Whether a CONNECTED PEER is this machine. Separate from `isLoopback`, which asks about a bind
+ * address, because the string arrives in a different shape: a dual-stack listener reports a loopback
+ * peer as the IPv4-mapped `::ffff:127.0.0.1`, and treating that as remote would refuse the host its own
+ * credential routes. An absent address (a socket already gone) counts as remote — the safe default.
+ */
+export function isLoopbackPeer(addr: string | undefined): boolean {
+  if (!addr) return false;
+  return isLoopback(addr.replace(/^::ffff:/, ""));
+}
+
 /** Whether an address reaches only this machine (so serving it ungated is safe). */
 export function isLoopback(host: string): boolean {
   return (
@@ -1426,10 +1469,17 @@ export async function runUi(
   const bound = typeof addr === "object" && addr ? addr.port : port;
   // `yoke ui` has no authentication at all, so a non-loopback bind is a decision, not a detail.
   // It is allowed (a container cannot port-forward to a loopback-bound process) but never quiet.
+  // It understated the exposure: "read and deprecate knowledge" left out that the same routes create
+  // records, edit the ontology, rename types and rewrite history through it. Credential issuing is the
+  // one thing that is now refused outright to a remote caller here (see `refusedRemoteCredential`),
+  // because a token minted this way works against a hardened `serve --auth` process on the same
+  // database — an exposure that escapes the server the operator chose to expose.
   if (!isLoopback(host))
     process.stderr.write(
-      `yoke ui: bound to ${host} with NO authentication — anyone who can reach this port can read\n` +
-        `  and deprecate knowledge. Use 'yoke serve --auth --host ${host}' to expose it safely.\n`,
+      `yoke ui: bound to ${host} with NO authentication — anyone who can reach this port can read,\n` +
+        `  create, retire and rename this database's knowledge. Issuing credentials is refused to\n` +
+        `  non-loopback callers; everything else is not. Use 'yoke serve --auth --host ${host}' to\n` +
+        `  expose it safely.\n`,
     );
   console.log(`yoke ui listening: http://${host}:${bound}`);
   return server;
