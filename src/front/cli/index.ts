@@ -464,20 +464,15 @@ async function cmdAdd(
         { type, attributes },
         prov,
         ts,
-        { embedder: makeFetchEmbedder(env), ns },
+        {
+          embedder: makeFetchEmbedder(env),
+          ns,
+          // Capture-side linking (v4.0): --scope <entity-id> attaches the new knowledge to that
+          // record. One commit, not two — a bad --scope used to be reported as a rejection with the
+          // record already stored (see `attachTo` in core/commit.ts).
+          ...(v.scope ? { attachTo: v.scope } : {}),
+        },
       );
-      // Capture-side linking (v4.0): --scope <entity-id> links the new knowledge to that entity via
-      // relates_to, through the same gate (a second commit at the front tier — core commit untouched).
-      if (v.scope) {
-        await commit(
-          store,
-          ontology,
-          { type: "relates_to", attributes: {}, from: entity.id, to: v.scope },
-          prov,
-          ts,
-          { ns },
-        );
-      }
       const lines = [formatEntity(entity)];
       if (duplicates.length > 0)
         lines.push(
@@ -1022,15 +1017,15 @@ async function cmdInject(
     // — the draft-only version of this lived here and the two agent-facing paths never got it.
     // The one next action this surface can name. Losing it would be a regression: it is the sentence
     // that taught readers the gate exists ("review with 'yoke review'").
-    const emptyReason = withheld
+    const reasonLine = withheld
       ? `no verified knowledge — ${describeWithheld(withheld)}` +
         (withheld.draft > 0 ? " — review with 'yoke review'" : "")
       : "no results";
-    const human = items.length ? lines.join("\n") : emptyReason;
+    const human = items.length ? lines.join("\n") : reasonLine;
     // Under --json stdout stays the raw items array (contract unchanged, and a shape that alternates
     // between array and object is worse than a silent one). The reason goes to stderr, where a script
     // ignores it and the person debugging the script reads it.
-    if (v.json && withheld) console.error(emptyReason);
+    if (v.json && withheld) console.error(reasonLine);
     emit(v, human, items);
     return 0;
   });

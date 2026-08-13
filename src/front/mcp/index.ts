@@ -132,21 +132,20 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       occurred_at: ts,
     };
     try {
+      // Capture-side linking (v4.0): attach the new knowledge to the scope entity via relates_to.
+      // Passed INTO the gate rather than filed afterwards: as a second commit its endpoint check
+      // threw after the entity was durable, so an agent heard "rejected" about a record that exists
+      // and retried (see `attachTo` in core/commit.ts).
+      const linkTo = effectiveScope(scope);
       const { entity, duplicates } = await commit(
         store,
         ontology,
         input,
         prov,
         ts,
-        { embedder, ns },
+        { embedder, ns, ...(linkTo ? { attachTo: linkTo } : {}) },
       );
-      // Capture-side linking (v4.0): attach the new knowledge to the scope entity via relates_to.
-      // A second gate-passing commit at the front tier — core commit stays untouched (like conflicts_with,
-      // but that lives inside commit for decisions; this is caller-driven so it belongs here).
-      const linkTo = effectiveScope(scope);
-      const edges: Array<[string, string]> = linkTo
-        ? [["relates_to", linkTo]]
-        : [];
+      const edges: Array<[string, string]> = [];
       // Derivation (v5.8) travels this same road for the same reason: the caller declares its basis, so
       // the edge belongs where the caller is. Deduped and self-edge-free — citing one record twice, or
       // citing the record being written, files one edge and none respectively.

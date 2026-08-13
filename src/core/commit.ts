@@ -48,6 +48,10 @@ export interface CommitResult {
    * this today (see the identity note in `commit`), and a caller that says "linked" either way is
    * telling someone they did something they did not. */
   existed?: boolean;
+  /** The `relates_to` edge filed for `opts.attachTo`, if one was asked for. Reported rather than
+   * assumed: an already-existing edge and a newly filed one are different facts to a caller that
+   * pressed the button twice. */
+  attached?: Relation;
 }
 
 interface CommitOpts {
@@ -68,6 +72,19 @@ interface CommitOpts {
    * derived edge must never be the reason the caller's own commit fails.
    */
   derived?: boolean;
+  /**
+   * Attach the new entity to this record with a `relates_to` edge, as ONE act with the entity.
+   *
+   * The target is checked before anything is stored, so a typo refuses the whole commit and leaves
+   * nothing behind. The front tier used to file this edge as a second `commit()` after the first had
+   * returned: the entity was already durable when the edge's endpoint check threw, so the caller was
+   * told "rejected" and the record existed anyway. An agent that believes a rejection retries, and
+   * the corpus doubles. One caller intent, one outcome.
+   *
+   * Not `derived`: the caller asked for this edge by name, so an unresolvable target is the caller's
+   * error to hear about, unlike the gate's own bookkeeping edges above.
+   */
+  attachTo?: string;
 }
 
 /** Whether actor/origin/occurred_at are all non-empty strings. */
@@ -122,6 +139,17 @@ export async function commit(
 
   const existingId = opts?.existingId;
   const isRelation = "from" in input;
+
+  // (2b) The attachment target, before anything is stored and before the embedder is paid for. An
+  // entity plus its attachment is one thing the caller asked for; half of it is not a smaller
+  // success. See `attachTo` for what the two-commit version cost.
+  if (opts?.attachTo !== undefined && !isRelation) {
+    if (!(await port.getEntity(opts.attachTo)))
+      throw new CommitRejected(
+        "ontology",
+        `nothing to attach to: ${opts.attachTo} is not a record — the record was not created`,
+      );
+  }
 
   // (3) Look up similar entities → duplicate candidates. Relations are not subject to this.
   let duplicates: Entity[] = [];
@@ -270,10 +298,32 @@ export async function commit(
       );
   }
 
+  // (4c) The caller's attachment. Filed last so the edge never precedes the record it describes, and
+  // through the ordinary gate so it inherits relation identity — `relates_to` is symmetric, so
+  // attaching the same record twice is one edge, not two rows pointing opposite ways.
+  let attached: Relation | undefined;
+  if (opts?.attachTo !== undefined) {
+    const link = await commit(
+      port,
+      ontology,
+      {
+        type: "relates_to",
+        attributes: {},
+        from: entity.id,
+        to: opts.attachTo,
+      },
+      prov,
+      now,
+      { ns },
+    );
+    attached = link.entity as Relation;
+  }
+
   return {
     entity,
     duplicates,
     duplicateDetection,
     ...(conflicts.length > 0 ? { conflicts } : {}),
+    ...(attached ? { attached } : {}),
   };
 }

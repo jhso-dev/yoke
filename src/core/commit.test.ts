@@ -58,6 +58,67 @@ async function nodes(...ids: string[]): Promise<void> {
     });
 }
 
+describe("attachTo", () => {
+  it("writes nothing when the attachment target is not a record", async () => {
+    // The regression this exists for: the edge used to be a second commit at the front tier, so the
+    // entity was already durable when the endpoint check threw. The caller heard "rejected" about a
+    // record that existed, and an agent that retries on a rejection doubles the corpus.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "orphan probe" } },
+        prov,
+        now,
+        { attachTo: "01NOSUCHRECORD0000000000" },
+      ),
+    ).rejects.toMatchObject({ reason: "ontology" });
+    expect((await port.listEntities({})).items).toEqual([]);
+  });
+
+  it("files one relates_to edge to the target", async () => {
+    await nodes("collab");
+    const { entity, attached } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "attached knowledge" } },
+      prov,
+      now,
+      { attachTo: "collab" },
+    );
+    expect(attached).toMatchObject({
+      type: "relates_to",
+      from: entity.id,
+      to: "collab",
+    });
+    const edges = await port.neighbors(entity.id, "relates_to");
+    expect(edges).toHaveLength(1);
+  });
+
+  it("attaching the same pair twice is one edge", async () => {
+    // relates_to is symmetric, so the second attach must find the first rather than file the mirror.
+    await nodes("collab");
+    const first = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "first" } },
+      prov,
+      now,
+      { attachTo: "collab" },
+    );
+    const again = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "first" } },
+      prov,
+      now,
+      { existingId: first.entity.id, attachTo: "collab" },
+    );
+    expect(again.attached?.id).toBe(first.attached?.id);
+    expect(await port.neighbors(first.entity.id, "relates_to")).toHaveLength(1);
+  });
+});
+
 describe("commit gate", () => {
   it("rejects unregistered ontology type", async () => {
     await expect(

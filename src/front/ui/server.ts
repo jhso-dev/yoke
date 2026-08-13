@@ -1160,25 +1160,17 @@ export function createUiHandler(
           { type, attributes },
           prov,
           ts,
-          { embedder: deps.embedder, ns },
+          {
+            embedder: deps.embedder,
+            ns,
+            // Capture-side linking, the same act `yoke add --scope` makes — so the browser path and
+            // the CLI path attach knowledge to a collaboration identically, and a bad scope refuses
+            // the whole write here too rather than leaving a record the caller was told was rejected.
+            ...(typeof body.scope === "string" && body.scope
+              ? { attachTo: body.scope }
+              : {}),
+          },
         );
-        // Capture-side linking, the same second commit `yoke add --scope` makes — so the browser
-        // path and the CLI path attach knowledge to a collaboration identically.
-        if (typeof body.scope === "string" && body.scope) {
-          await commit(
-            store,
-            ontology,
-            {
-              type: "relates_to",
-              attributes: {},
-              from: entity.id,
-              to: body.scope,
-            },
-            prov,
-            ts,
-            { ns },
-          );
-        }
         // Duplicates travel with the response: the gate found them, and a form that discards them
         // is a form that helps someone create the thing they were warned about.
         //
