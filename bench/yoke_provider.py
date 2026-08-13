@@ -55,6 +55,9 @@ class YokeMemoryProvider(MemoryProvider):
         # ingest to answer four documents' worth of questions.
         raw = os.environ.get("YOKE_BENCH_ONLY_USERS", "")
         self._only_users = {u.strip() for u in raw.split(",") if u.strip()}
+        # Per-user cache of the whole verified store (YOKE_BENCH_FULL_STORE). The store is frozen
+        # once answering starts, and 42 extra `yoke list` subprocesses would say nothing new.
+        self._store_cache: dict[str | None, list[dict]] = {}
 
     # ── lifecycle ────────────────────────────────────────────────────────────
 
@@ -187,9 +190,7 @@ class YokeMemoryProvider(MemoryProvider):
 
             items = sorted(items, key=_source_order)
 
-        docs: list[Document] = []
-        for item in items:
-            entity = item.get("entity", item)
+        def _doc(entity: dict, citation=None) -> Document:
             attrs = entity.get("attributes", {})
             # Every declared attribute, in the order the ontology declares them, minus the id this
             # capture path adds for bookkeeping. Guessing one field would drop the rationale of a
@@ -206,13 +207,33 @@ class YokeMemoryProvider(MemoryProvider):
                 for key, v in attrs.items()
                 if key != "external_id" and v not in (None, "")
             )
-            docs.append(
-                Document(
-                    id=entity.get("id", ""),
-                    content=body,
-                    user_id=user_id,
-                    timestamp=entity.get("provenance", {}).get("occurred_at"),
-                    context=item.get("citation"),
-                )
+            return Document(
+                id=entity.get("id", ""),
+                content=body,
+                user_id=user_id,
+                timestamp=entity.get("provenance", {}).get("occurred_at"),
+                context=citation,
             )
+
+        docs = [_doc(item.get("entity", item), item.get("citation")) for item in items]
+
+        # EXPERIMENT, off by default (YOKE_BENCH_FULL_STORE=1): append the rest of the verified
+        # store after the query hits. The 32k transcript distills to ~1.5–3k tokens of records —
+        # small enough to hand over whole, still under bm25's 5,120-token context. Motive, measured:
+        # every suggest_new_ideas gold hinges on a standing preference the store HOLDS but the
+        # retrieval query never names (the query is the user's last statement, modes/rag.py), so
+        # 0/4 is a selection loss, not an extraction loss. Query hits stay at the head — the head
+        # is the measured-winning config, and the answering model attends to it most.
+        if os.environ.get("YOKE_BENCH_FULL_STORE") == "1":
+            if user_id not in self._store_cache:
+                raw_all = self._run(["list", "--status", "verified", "--json"], ns=user_id)
+                page = json.loads(raw_all) if raw_all.strip() else {}
+                self._store_cache[user_id] = [
+                    e for e in page.get("items", []) if e.get("type") != "person"
+                ]
+            have = {d.id for d in docs}
+            docs += [
+                _doc(e) for e in self._store_cache[user_id] if e.get("id") not in have
+            ]
+
         return docs, {"count": len(docs)}

@@ -16,6 +16,7 @@ import {
   BRIEFING_LIMIT,
   citation,
   entityIdCandidates,
+  envKeywordWeight,
   inject,
   WALK_BUDGET,
 } from "../../core/inject.js";
@@ -43,6 +44,8 @@ export interface YokeMcpDeps {
   now?: () => string;
   /** Embedder for the duplicate/conflict gate. Tests inject a deterministic stub; unset = detection skipped. */
   embedder?: Embedder;
+  /** Per-deployment hybrid fusion weight (YOKE_KEYWORD_WEIGHT) — see core KEYWORD_WEIGHT's ceiling. */
+  keywordWeight?: number;
   /** Per-request RBAC hook (PLAN-V2 10.4). Default allow-all — stdio `yoke mcp` is single-user
    * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */
   authorize?: (action: "read" | "write" | "verify", type?: string) => boolean;
@@ -92,7 +95,7 @@ const err = (text: string) => ({ ...ok(text), isError: true });
 
 /** Assembles an MCP server instance. Tests connect to it over InMemoryTransport. */
 export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
-  const { store, ontology, defaultActor, embedder } = deps;
+  const { store, ontology, defaultActor, embedder, keywordWeight } = deps;
   const ns = deps.ns ?? null;
   const defaultScope = deps.defaultScope ?? null;
   // Runtime scope pinned by yoke_use_scope. Mutable state in the closure is fine for stdio's
@@ -277,6 +280,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           // The same embedder the commit gate gets (SPEC "Hybrid retrieval"). Without it an agent's
           // query was keyword-only while its writes were being embedded — half a vector index.
           embedder,
+          keywordWeight,
         },
       );
       // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
@@ -603,6 +607,7 @@ export async function runMcp(
     defaultActor: env.YOKE_ACTOR ?? "yoke:system",
     ns,
     embedder: makeFetchEmbedder(env),
+    keywordWeight: envKeywordWeight(env),
     defaultScope,
   });
   await server.connect(new StdioServerTransport());

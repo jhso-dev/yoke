@@ -38,7 +38,12 @@ import { overview } from "../../core/aggregate.js";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
-import { BRIEFING_LIMIT, inject, WALK_BUDGET } from "../../core/inject.js";
+import {
+  BRIEFING_LIMIT,
+  envKeywordWeight,
+  inject,
+  WALK_BUDGET,
+} from "../../core/inject.js";
 import {
   deprecate,
   downstreamOf,
@@ -860,6 +865,7 @@ async function cmdInject(
       // Hybrid retrieval (SPEC "Hybrid retrieval"): the same env-configured embedder the gate uses,
       // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
       embedder: makeFetchEmbedder(env),
+      keywordWeight: envKeywordWeight(env),
     });
     // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core stays pure.
     store.logAudit({
