@@ -535,7 +535,7 @@ describe("checkPersonaSources", () => {
       now,
       { ns: "acme" },
     );
-    await verify(port, [entity.id], "alex", now);
+    await verify(port, [entity.id], "alex", now, "acme");
     const src = { id: entity.id, version: 2 };
 
     expect(

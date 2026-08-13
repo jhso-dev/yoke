@@ -1065,7 +1065,9 @@ export function createUiHandler(
       const { ids, reason } = await readIds(req);
       const ts = now();
       const fn = action === "verify" ? verify : deprecate;
-      const done = await fn(store, ids, actor, ts);
+      // The caller's namespace, so a governance act cannot reach another tenant's record — every
+      // READ route on this server filters ns and this one did not (see core/lifecycle's transition).
+      const done = await fn(store, ids, actor, ts, ns);
       // Governance action audit — who verified/deprecated what, when (same tier as CLI inject audit),
       // and for a deprecate, WHY: the record's own screen reads it back, because a retired record
       // otherwise raises a question it cannot answer.

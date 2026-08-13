@@ -25,9 +25,25 @@ async function transition(
   actor: string,
   now: string,
   status: Status,
+  ns?: string | null,
 ): Promise<Entity[]> {
+  const wantNs = normalizeNs(ns);
   const found = new Map(
-    (await readEntities(port, ids)).map((e) => [e.id, e] as const),
+    (await readEntities(port, ids))
+      // The namespace is the tenant isolation unit (ENTERPRISE.md), and this path had no notion of it.
+      // Every READ route filters ns; promotion and retirement did not, and RBAC only ever asked "may
+      // you verify" and never "is this record yours". Measured on one database: a token scoped
+      // `teamA:verify` promoted, read back the text of, and then retired a record belonging to teamB —
+      // and because the audit row is written with the CALLER's ns, teamB's own trail showed nothing at
+      // all. Three losses from one missing filter: the record mutated, its contents disclosed, and the
+      // governance history of the tenant that owns it left blank.
+      //
+      // A foreign record is reported as unknown rather than as forbidden, deliberately. "exists, but
+      // not yours" is an existence oracle: it lets one tenant enumerate another's ids by watching which
+      // refusals change wording. Reads already answer this way (`GET /api/entity/:id` 404s for a
+      // foreign id), so the two agree.
+      .filter((e) => normalizeNs(e.ns) === wantNs)
+      .map((e) => [e.id, e] as const),
   );
   // Distinct: the read is a batch, so a repeated id would otherwise apply the same `prev` twice and
   // write (id, version+1) twice — two governance rows for one action.
@@ -69,24 +85,29 @@ async function transition(
   return out;
 }
 
-/** status → 'verified', last_confirmed = now. Appends a new version row (append-only). */
+/** status → 'verified', last_confirmed = now. Appends a new version row (append-only).
+ *
+ * `ns` is the caller's tenant: an id outside it is refused as unknown. Omitting it means the default
+ * shared namespace, which is what the single-user local path uses. */
 export function verify(
   port: StoragePort,
   ids: string[],
   actor: string,
   now: string,
+  ns?: string | null,
 ): Promise<Entity[]> {
-  return transition(port, ids, actor, now, "verified");
+  return transition(port, ids, actor, now, "verified", ns);
 }
 
-/** status → 'deprecated'. Same mechanism as verify (append-only new version). */
+/** status → 'deprecated'. Same mechanism as verify (append-only new version), same `ns` rule. */
 export function deprecate(
   port: StoragePort,
   ids: string[],
   actor: string,
   now: string,
+  ns?: string | null,
 ): Promise<Entity[]> {
-  return transition(port, ids, actor, now, "deprecated");
+  return transition(port, ids, actor, now, "deprecated", ns);
 }
 
 /**

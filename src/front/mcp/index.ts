@@ -19,7 +19,7 @@ import {
   inject,
   WALK_BUDGET,
 } from "../../core/inject.js";
-import { resolveNs } from "../../core/namespace.js";
+import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import {
   NotAPerson,
@@ -73,7 +73,13 @@ export async function resolveScope(
     title: String(e.attributes.title ?? e.id),
   });
   const byId = await store.getEntity(key);
-  if (byId) return asEntity(byId);
+  // The id path took `ns` and never used it, so this was the one MCP read that crossed a tenant
+  // boundary. Measured: a `teamA:read` token resolved a teamB resource and got its title back —
+  // "Acquisition of Northwind Corp - confidential term sheet". It was also an existence oracle, since a
+  // nonexistent id answered "no collaboration matches" while any real id in any namespace resolved.
+  // Every other MCP read (`yoke_inject`, `yoke_persona`) already held the line; the `search` fallback
+  // below always did, because `search` takes the ns.
+  if (byId && normalizeNs(byId.ns) === normalizeNs(ns)) return asEntity(byId);
   const hits = await store.search({ text: key, ns });
   const named = hits.filter(
     (e) => e.attributes.key === key || e.attributes.title === key,

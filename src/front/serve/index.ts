@@ -155,7 +155,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       ts,
       { existingId: id, ns },
     );
-    await verify(store, [id], id, ts);
+    await verify(store, [id], id, ts, ns);
   }
 
   async function authenticate(cred: string): Promise<Principal | null> {

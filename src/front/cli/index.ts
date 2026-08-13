@@ -714,12 +714,17 @@ async function cmdGet(
   const actor = resolveActor(v, env);
   const getNs = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const e = await store.getEntity(id, version);
+    // Filtered after the read, because ids are globally unique and the port's `getEntity` takes no ns.
+    // Without this, `yoke --ns teamA get <teamB id>` printed another tenant's knowledge in full — the
+    // same hole `verify`/`deprecate` had, on the read side.
+    const inNs = <T extends { ns?: string | null }>(r: T | null): T | null =>
+      r && normalizeNs(r.ns) === getNs ? r : null;
+    const e = inNs(await store.getEntity(id, version));
     if (!e) {
       // An id `link` handed back is an edge id, and until the port could read one this said "not
       // found" for a row the same command had just reported storing. A relation is knowledge in its
       // own right, so it answers a read like everything else.
-      const rel = await store.getRelation?.(id, version);
+      const rel = inNs((await store.getRelation?.(id, version)) ?? null);
       if (rel) {
         store.logAudit({
           actor,
@@ -741,7 +746,8 @@ async function cmdGet(
       // resolve and a version that does not exist are different answers.
       if (version !== undefined) {
         const latest =
-          (await store.getEntity(id)) ?? (await store.getRelation?.(id));
+          inNs(await store.getEntity(id)) ??
+          inNs((await store.getRelation?.(id)) ?? null);
         if (latest) {
           console.error(
             `${id} has no version ${version} — the latest is ${latest.version} (omit --version for it)`,
@@ -1019,7 +1025,7 @@ async function cmdVerify(
       return 1;
     }
     const ts = now();
-    const promoted = await verify(store, ids, actor, ts);
+    const promoted = await verify(store, ids, actor, ts, ns);
     // Verify is THE governance act — ENTERPRISE.md calls it the most important axis in this
     // product's permission model — and the CLI is its primary interface (ROADMAP v0.2). Auditing it
     // in the web tier and not here meant the trail could not answer "who promoted this" for any
@@ -1057,7 +1063,7 @@ async function cmdDeprecate(
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
     const ts = now();
-    const done = await deprecate(store, positionals, actor, ts);
+    const done = await deprecate(store, positionals, actor, ts, ns);
     // Retiring knowledge changes what every future injection returns, so it belongs in the trail
     // for the same reason verify does.
     // `--reason` rides on the audit row, not on the record: verify/deprecate change status, never

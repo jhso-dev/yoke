@@ -871,7 +871,7 @@ describe("hybrid retrieval: the vector half of the Embedder contract", () => {
       semantic,
       "tenant-b",
     );
-    await verify(port, [theirs], "alice", now);
+    await verify(port, [theirs], "alice", now, "tenant-b");
 
     const items = (await inject(port, ont, QUERY, now, { embedder: semantic }))
       .items;
