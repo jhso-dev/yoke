@@ -689,3 +689,87 @@ describe("an exported record says what it actually says", () => {
     expect(md).not.toContain("slack:C1:1700.001");
   });
 });
+
+// Two ways a persona document could be about someone other than who it named.
+describe("the anchor and the union are stated honestly", () => {
+  it("refuses a person from another namespace", async () => {
+    // `getEntity` takes no ns and ids are globally unique, so this produced `source knowledge: 0`, exit 0,
+    // and a written file headed "# <their name> persona" with the description built from their `name`.
+    // No knowledge crossed — inject filters ns one layer down — but the identity did, which is the same
+    // "green light on a document about nobody" NotAPerson exists to prevent.
+    await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Theirs" } },
+      prov("theirs"),
+      now,
+      { existingId: "theirs", ns: "acme" },
+    );
+    await verify(port, ["theirs"], "admin", now, "acme");
+    await expect(personaQuery(port, ont, "theirs", now)).rejects.toBeInstanceOf(
+      NotAPerson,
+    );
+    // In its own namespace it answers.
+    await expect(
+      personaQuery(port, ont, "theirs", now, { ns: "acme" }),
+    ).resolves.toBeTruthy();
+  });
+
+  it("names the identity records it combined", async () => {
+    // Anchoring on a second identity re-attributed every source line to that record's name while their
+    // `authored_by` edges pointed at the other. Per-line lookups would not help — `same_as` asserts these
+    // are one person — so what was missing is a trace that a union happened at all.
+    for (const [id, name] of [
+      ["aisha", "Aisha Rahman"],
+      ["a-rahman", "A. Rahman"],
+    ]) {
+      await commit(
+        port,
+        ont,
+        { type: "person", attributes: { name } },
+        prov(id),
+        now,
+        { existingId: id },
+      );
+    }
+    await verify(port, ["aisha", "a-rahman"], "admin", now);
+    await commit(
+      port,
+      ont,
+      { type: "same_as", attributes: {}, from: "a-rahman", to: "aisha" },
+      prov("admin"),
+      now,
+    );
+    const f = await add(
+      "fact",
+      { statement: "filed under one identity" },
+      "aisha",
+    );
+    await verify(port, [f], "admin", now);
+
+    const result = await personaQuery(port, ont, "a-rahman", now);
+    expect(result.identities?.slice().sort()).toEqual(["a-rahman", "aisha"]);
+    const person = (await port.getEntity("a-rahman")) as Entity;
+    const md = renderPersonaSkill(person, result, now, ont);
+    expect(md).toContain("Identity union (2)");
+    expect(md).toContain("recorded as the same person by same_as");
+  });
+
+  it("says nothing about a union when there is only one record", async () => {
+    await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Solo" } },
+      prov("solo"),
+      now,
+      { existingId: "solo" },
+    );
+    await verify(port, ["solo"], "admin", now);
+    const result = await personaQuery(port, ont, "solo", now);
+    expect(result.identities).toBeUndefined();
+    const person = (await port.getEntity("solo")) as Entity;
+    expect(renderPersonaSkill(person, result, now, ont)).not.toContain(
+      "Identity union",
+    );
+  });
+});

@@ -21,6 +21,17 @@ import type { Entity } from "./types.js";
 export interface PersonaResult {
   decisions: Entity[];
   facts: Entity[];
+  /**
+   * The identity records this persona unions, when there is more than one (`same_as`, v5.6).
+   *
+   * Reported so the DOCUMENT can say it. The author name on every source line is computed once from the
+   * anchor, which is right if the merge is right — `same_as` asserts these are one person — and invisible
+   * if it is not: anchoring on a second identity re-attributed all eleven sources to that record's name
+   * while ten of their `authored_by` edges pointed at the other. Per-line lookups would not help, since
+   * the names are the same person by assertion; what was missing is any trace that a union happened, so
+   * an erroneous merge could be seen. Absent on the ordinary single-record case.
+   */
+  identities?: string[];
 }
 
 /** Thrown when the anchor is not someone a persona can be about. */
@@ -64,7 +75,14 @@ export async function personaQuery(
   // Enforced here rather than per surface: the CLI checked the id EXISTS (a fact id passes that) and
   // MCP and the web checked nothing.
   const anchor = await port.getEntity(personId);
-  if (!anchor) throw new NotAPerson(`not found: ${personId}`);
+  // Filtered by namespace, because `getEntity` takes none and ids are globally unique. Without it, a
+  // person id from another tenant produced `source knowledge: 0`, exit 0, and a written file headed
+  // "# <their name> persona" with the description built from their `name` attribute. No knowledge
+  // crossed — `inject` filters ns one layer down — but the identity did, and the result is the same
+  // "green light on a document about nobody" that this check exists to prevent, arriving through a
+  // different door. `checkPersonaSources` beside it already filters for exactly this reason.
+  if (!anchor || normalizeNs(anchor.ns) !== normalizeNs(opts?.ns))
+    throw new NotAPerson(`not found: ${personId}`);
   if (anchor.type !== PERSON_TYPE)
     throw new NotAPerson(
       `a persona is anchored on a ${PERSON_TYPE}, and ${personId} is a ${anchor.type}`,
@@ -103,16 +121,24 @@ export async function personaQuery(
           q === undefined ||
           JSON.stringify(e.attributes).toLowerCase().includes(q),
       ),
+    ids,
   );
 }
 
 /** Splits injected knowledge into the persona shape. type==='decision' → decisions, rest → facts.
  * The verified/stale/draft filtering already happened in inject — no second filter lives here. */
-function classifyPersona(entities: Entity[]): PersonaResult {
+function classifyPersona(
+  entities: Entity[],
+  identities?: string[],
+): PersonaResult {
   const decisions: Entity[] = [];
   const facts: Entity[] = [];
   for (const e of entities) (e.type === "decision" ? decisions : facts).push(e);
-  return { decisions, facts };
+  return {
+    decisions,
+    facts,
+    ...(identities && identities.length > 1 ? { identities } : {}),
+  };
 }
 
 /** Makes personId safe for use as a file/skill name (anything but alphanumerics, -, _ → -). */
@@ -195,6 +221,15 @@ export function renderPersonaSkill(
       sources.map((e) => `${e.id}@v${e.version}`).join(", ") || "(none)"
     }`,
   );
+  // Say when this document is a union. The author name on every source line is computed once from the
+  // anchor, so a persona spanning two identity records attributes all of them to whichever one was
+  // anchored — right if the `same_as` merge is right, and untraceable if it is not. Naming the records
+  // makes an erroneous merge something a reader can see and `yoke get` can check.
+  if (result.identities)
+    out.push(
+      `Identity union (${result.identities.length}): ${result.identities.join(", ")} — ` +
+        `recorded as the same person by same_as, so their knowledge is combined here`,
+    );
   out.push("");
 
   // The conclusion, not the rationale. This section was every decision's `rationale` verbatim — the same
