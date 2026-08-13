@@ -26,6 +26,7 @@ import {
 import { normalizeNs } from "../../core/namespace.js";
 import {
   kindChangeRefusal,
+  renameRefusal,
   type TypeDef,
   validateTypeDef,
 } from "../../core/ontology.js";
@@ -1332,8 +1333,37 @@ export function createUiHandler(
         sendJson(res, 400, { error: "from and to are required" });
         return;
       }
+      // Kept as a 400 ahead of the refusals below: renaming a name to itself is a malformed request,
+      // not a conflict with the database's state.
       if (from === to) {
         sendJson(res, 400, { error: "from and to are the same name" });
+        return;
+      }
+      // The same refusals the CLI applies, from the same place in core — see `renameRefusal` for the
+      // three measured failures each one closes.
+      const effective = store.loadOntology(ns);
+      const shared = ns === null ? effective : store.loadOntology(null);
+      const defOf = (list: TypeDef[], name: string) =>
+        JSON.stringify(list.find((t) => t.name === name) ?? null);
+      const refusal = renameRefusal(from, to, {
+        toRows: (await store.listEntities({ ns, type: to, limit: 1 })).items
+          .length,
+        toDeclared: effective.some((t) => t.name === to),
+        ns,
+        fromSharedOnly:
+          ns !== null && defOf(effective, from) === defOf(shared, from),
+      });
+      if (refusal) {
+        sendJson(res, 409, { error: refusal });
+        return;
+      }
+      // A typo'd source name is a 404, not a success with rows: 0. The screen rendered
+      // "renamed nosuch to other — 0 rows rewritten", a success sentence for a no-op, while the CLI
+      // said "no rows carried type" — so the governance surface was the one that misreported.
+      if (!effective.some((t) => t.name === from)) {
+        sendJson(res, 404, {
+          error: `no type named ${from} in this namespace`,
+        });
         return;
       }
       const ts = now();

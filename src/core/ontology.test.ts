@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   kindChangeRefusal,
+  renameRefusal,
   seedOntology,
   validateInput,
   validateTypeDef,
@@ -223,5 +224,86 @@ describe("kindChangeRefusal", () => {
 
   it("is silent when the kind is unchanged", () => {
     expect(kindChangeRefusal("fact", "entity", "entity", 99)).toBeNull();
+  });
+});
+
+// Three exit-0 commands that destroyed data. `rename-type` rewrites rows in place — deliberately, and
+// SPEC records that history cannot capture it — so every refusal here is about damage nothing can undo.
+describe("renameRefusal", () => {
+  const ok = { toRows: 0, toDeclared: false, ns: null, fromSharedOnly: false };
+
+  it("allows an ordinary rename to an unused name", () => {
+    expect(renameRefusal("term", "glossary", ok)).toBeNull();
+  });
+
+  it("refuses a rename to itself", () => {
+    expect(renameRefusal("fact", "fact", ok)).toMatch(/same name/);
+  });
+
+  it.each([
+    "authored_by",
+    "same_as",
+    "derived_from",
+    "conflicts_with",
+    "supersedes",
+    "relates_to",
+  ])("refuses %s, which core reads by name", (name) => {
+    // `rename-type authored_by wrote` exited 0 and reported 15 rows rewritten; `yoke persona` then wrote
+    // a complete SKILL.md containing nothing, the overview's author ranking went empty, and `backfill`
+    // died on "unknown type: authored_by".
+    expect(renameRefusal(name, "something", ok)).toMatch(/core reads by name/);
+  });
+
+  it("allows renaming a relation whose behaviour is a FLAG, not a name", () => {
+    // `works_on` is only special because it is marked `membership`. An org renaming it to `assigned_to`
+    // and re-marking it is the documented extension path.
+    expect(renameRefusal("works_on", "assigned_to", ok)).toBeNull();
+  });
+
+  it("refuses merging into a type that has records", () => {
+    // `rename-type fact decision` merged four facts into the decision type and DELETED the fact
+    // declaration — after which `add fact` was an unknown type and `init` refused to re-seed. Nothing
+    // records which ids were rewritten, so the audit row cannot reverse it.
+    expect(
+      renameRefusal("fact", "decision", { ...ok, toDeclared: true, toRows: 1 }),
+    ).toMatch(/merge two types/);
+  });
+
+  it("allows merging into a declared type that is empty", () => {
+    // The documented case: the code was renamed before the database, so a later `init` seeded the new
+    // type beside the old one and the rows belong on the survivor.
+    expect(
+      renameRefusal("fact", "claim", { ...ok, toDeclared: true, toRows: 0 }),
+    ).toBeNull();
+  });
+
+  it("refuses a tenant rename of a shared declaration", () => {
+    // `--ns team-b rename-type fact factoid` half-applied: the tenant's rows became a type declared
+    // nowhere, and `isFresh` returns true for an undeclared type — so records correctly withheld as
+    // stale started being injected as current, from an exit-0 command.
+    expect(
+      renameRefusal("fact", "factoid", {
+        ...ok,
+        ns: "team-b",
+        fromSharedOnly: true,
+      }),
+    ).toMatch(/declared nowhere/);
+  });
+
+  it("allows it once the target is declared in that tenant", () => {
+    expect(
+      renameRefusal("fact", "factoid", {
+        ...ok,
+        ns: "team-b",
+        fromSharedOnly: true,
+        toDeclared: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not apply the shared-declaration rule in the default namespace", () => {
+    expect(
+      renameRefusal("fact", "claim", { ...ok, ns: null, fromSharedOnly: true }),
+    ).toBeNull();
   });
 });

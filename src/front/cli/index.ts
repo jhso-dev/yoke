@@ -46,6 +46,7 @@ import {
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import {
   kindChangeRefusal,
+  renameRefusal,
   seedOntology,
   type TypeDef,
   validateTypeDef,
@@ -1507,13 +1508,30 @@ async function cmdRenameType(
     );
     return 1;
   }
-  if (from === to) {
-    console.error("rename-type: from and to are the same name");
-    return 1;
-  }
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     if (!requireOntology(store, ns, v, env)) return 1;
+    // The refusals live in core (four adapters implement renameType); the counts are the store's to
+    // supply. `fromSharedOnly` is inferred by comparing the tenant's effective ontology with the shared
+    // one: a declaration present in both, byte-identical, is the shared one showing through the overlay.
+    // A tenant override that happens to be identical to the shared definition would be refused here
+    // unnecessarily — a conservative miss whose message names the fix, against a half-renamed database.
+    const effective = store.loadOntology(ns);
+    const shared = ns === null ? effective : store.loadOntology(null);
+    const defOf = (list: TypeDef[], name: string) =>
+      JSON.stringify(list.find((t) => t.name === name) ?? null);
+    const refusal = renameRefusal(from, to, {
+      toRows: (await store.listEntities({ ns, type: to, limit: 1 })).items
+        .length,
+      toDeclared: effective.some((t) => t.name === to),
+      ns,
+      fromSharedOnly:
+        ns !== null && defOf(effective, from) === defOf(shared, from),
+    });
+    if (refusal) {
+      console.error(refusal);
+      return 1;
+    }
     const rows = await store.renameType(from, to, ns);
     if (rows === 0) {
       // Not an error: nothing carried that name, so the database is already where the caller wants

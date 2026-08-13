@@ -197,6 +197,72 @@ export function kindChangeRefusal(
   return null;
 }
 
+/**
+ * Relation type names core itself reads. Renaming one is a code change disguised as a data change.
+ *
+ * Every entry is a name that appears in a `neighbors(...)` call in core: `authored_by` (persona's anchor,
+ * the overview's author ranking, backfill), `same_as` (identitySet), `derived_from` (downstreamOf),
+ * `conflicts_with` (the gate's stage 4 and injection's contradiction marker), `supersedes` (injection's
+ * supersession filter), `relates_to` (the gate's `attachTo`).
+ *
+ * `membership` and `structural` are NOT here, deliberately: those are ontology FLAGS, so an org renames
+ * `works_on` to `assigned_to`, marks it, and core never needed the name.
+ */
+const CORE_ANCHORED = [
+  "authored_by",
+  "same_as",
+  "derived_from",
+  "conflicts_with",
+  "supersedes",
+  "relates_to",
+] as const;
+
+/**
+ * May `from` be renamed to `to`? Returns a reason, or null.
+ *
+ * Rewriting a type name rewrites rows in place — deliberately, and SPEC records that history cannot
+ * capture it — so every refusal here is about damage nothing can undo. Four adapters implement
+ * `renameType`, which is exactly why the rules live in core and the front tier supplies the counts.
+ *
+ * Each rule is one measured failure:
+ *
+ * - `rename-type authored_by wrote` exited 0 and reported 15 rows rewritten. `yoke persona <someone>`
+ *   then wrote a complete SKILL.md containing nothing ("source knowledge: 0", exit 0), the overview's
+ *   author ranking went empty, and `backfill` died on `unknown type: authored_by`.
+ * - `rename-type fact decision` exited 0, merged four facts into the decision type, and DELETED the
+ *   `fact` declaration — after which `yoke add fact` was an unknown type, `yoke init` said "already
+ *   initialized" so it could not be re-seeded, and the persona export rendered `### undefined` /
+ *   `- Rationale: undefined` for records missing the target type's attributes. Nothing records WHICH
+ *   ids were rewritten, so the audit row cannot reverse it.
+ * - `--ns team-b rename-type fact factoid` exited 0 and half-applied: the tenant's rows became
+ *   `factoid`, a type declared nowhere, while `ontology list` still showed `fact`. `isFresh` returns
+ *   true for a type absent from the ontology, so a record that had been correctly withheld as stale
+ *   started being injected as current — an exit-0 command that broke invariant 5.
+ */
+export function renameRefusal(
+  from: string,
+  to: string,
+  opts: {
+    /** Rows already carrying `to` in this namespace (0 or 1 is enough — the caller may cap the read). */
+    toRows: number;
+    /** Whether `to` is declared in the effective ontology for this namespace. */
+    toDeclared: boolean;
+    /** The namespace being renamed in. null = the default shared one. */
+    ns: string | null;
+    /** Whether `from`'s only declaration is the shared one, so a tenant rename would not rewrite it. */
+    fromSharedOnly: boolean;
+  },
+): string | null {
+  if (from === to) return `${from} and ${to} are the same name`;
+  if ((CORE_ANCHORED as readonly string[]).includes(from))
+    return `${from} is a relation core reads by name (persona, identity, derivation, conflicts, supersession) — renaming it would silently empty those answers`;
+  if (opts.toDeclared && opts.toRows > 0)
+    return `${to} already exists and has records: this would merge two types and drop the ${from} declaration, and nothing records which rows were rewritten so it could not be undone`;
+  if (opts.ns !== null && opts.fromSharedOnly && !opts.toDeclared)
+    return `${from} is declared in the shared ontology, not in ${opts.ns}, so renaming it here would leave this tenant's rows on a type declared nowhere — and an undeclared type has no TTL, so stale records would start being injected as current. Declare ${to} in ${opts.ns} first.`;
+  return null;
+}
+
 export function validateInput(
   ontology: TypeDef[],
   input: EntityInput | RelationInput,
