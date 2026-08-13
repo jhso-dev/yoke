@@ -61,7 +61,7 @@ Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server requir
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
-| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
+| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
 | **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
@@ -254,7 +254,7 @@ yoke inject <query> [--include-draft] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--scope <id>]          # the corpus at a glance / as edges
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
-yoke connect github-pr|slack|notes|rdb ...
+yoke connect github-pr|slack|notes|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup | restore | export --until <ts> --out <new.db>   # --shards <file> federates backends
 yoke backfill [--embeddings [--rebuild]]      # repair authorship edges / the vector index
