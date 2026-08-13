@@ -2,7 +2,7 @@
 // write does NOT imply verify, ns mismatch denies, wildcards match narrower requests.
 
 import { describe, expect, it } from "vitest";
-import { allowed, parseScope } from "./rbac.js";
+import { allowed, parseScope, ungrantable } from "./rbac.js";
 
 describe("rbac allowed()", () => {
   it("deny by default (no scopes)", () => {
@@ -55,5 +55,73 @@ describe("rbac allowed()", () => {
     expect(parseScope("a:b:c:d")).toBeNull();
     expect(allowed(["bogus", "read"], null, undefined, "read")).toBe(true);
     expect(allowed(["bogus"], null, undefined, "read")).toBe(false);
+  });
+});
+
+// `admin` was missing, and `verify` stood in for it: every reviewer could mint, list and revoke
+// credentials for every tenant. ENTERPRISE.md claimed the separation the code did not have.
+describe("admin is its own axis", () => {
+  it("verify does not grant admin, and admin does not grant verify", () => {
+    expect(allowed(["teamA:verify"], "teamA", undefined, "admin")).toBe(false);
+    expect(allowed(["teamA:admin"], "teamA", undefined, "verify")).toBe(false);
+  });
+
+  it("admin does not imply reading knowledge", () => {
+    // The point of the separation: whoever hands out credentials is not automatically able to read
+    // every tenant's knowledge.
+    expect(allowed(["teamA:admin"], "teamA", undefined, "read")).toBe(false);
+  });
+
+  it("is a real action rather than a typo the parser drops", () => {
+    expect(parseScope("teamA:admin")).toEqual({
+      ns: "teamA",
+      type: null,
+      action: "admin",
+    });
+    expect(parseScope("teamA:administrator")).toBeNull();
+  });
+});
+
+// Holding admin is permission to run the credential routes; it is not permission to write any scope
+// string into a token. Without this the escalation just takes two steps: mint `["*:read"]`, then use it.
+describe("ungrantable()", () => {
+  it("lets a namespace admin grant inside its own namespace", () => {
+    expect(
+      ungrantable(["teamA:admin"], ["teamA:read", "teamA:fact:verify"]),
+    ).toEqual([]);
+  });
+
+  it("refuses another namespace", () => {
+    expect(ungrantable(["teamA:admin"], ["teamB:read"])).toEqual([
+      "teamB:read",
+    ]);
+  });
+
+  it("refuses a wildcard-namespace scope, which is the whole deployment", () => {
+    expect(ungrantable(["teamA:admin"], ["read"])).toEqual(["read"]);
+    expect(ungrantable(["teamA:admin"], ["*:read"])).toEqual(["*:read"]);
+  });
+
+  it("lets a wildcard admin grant anything", () => {
+    expect(ungrantable(["admin"], ["read", "teamB:verify", "*:write"])).toEqual(
+      [],
+    );
+  });
+
+  it("names every scope out of reach, not just the first", () => {
+    expect(
+      ungrantable(["teamA:admin"], ["teamA:read", "teamB:read", "read"]),
+    ).toEqual(["teamB:read", "read"]);
+  });
+
+  it("refuses an unparseable scope rather than treating it as grantable", () => {
+    expect(ungrantable(["admin"], ["reed"])).toEqual([]);
+    expect(ungrantable(["teamA:admin"], ["reed"])).toEqual(["reed"]);
+  });
+
+  it("grants nothing without an admin scope at all", () => {
+    expect(ungrantable(["teamA:verify"], ["teamA:read"])).toEqual([
+      "teamA:read",
+    ]);
   });
 });

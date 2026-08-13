@@ -8,8 +8,25 @@
 
 import { normalizeNs } from "../../core/namespace.js";
 
-export type Action = "read" | "write" | "verify";
-const ACTIONS: readonly string[] = ["read", "write", "verify"];
+/**
+ * The four axes. `admin` grants the credential routes and NOTHING else.
+ *
+ * It was missing, and `verify` stood in for it: `docs/ENTERPRISE.md` says "we separate admin / write /
+ * verify" while the code had no admin axis, so the three `/api/tokens` routes gated on `verify` — which
+ * every reviewer holds. Measured: a `teamA:verify` token minted a working `["teamB:read",
+ * "teamB:verify", "write"]` credential, listed all thirteen tokens in the database with their scopes,
+ * and revoked another tenant's. Verify is the governance permission; issuing credentials is not
+ * governance, it is the thing governance is granted BY.
+ *
+ * `admin` is deliberately not a superset: an admin who needs to read knowledge asks for `read` too.
+ * The point of the separation is that the person who hands out credentials is not automatically the
+ * person who can read every tenant's knowledge.
+ *
+ * Bootstrap is the local path, per invariant 4: `yoke token create` is ungated and single-user, so the
+ * first credential — including the first admin one — is minted by whoever owns the machine.
+ */
+export type Action = "read" | "write" | "verify" | "admin";
+const ACTIONS: readonly string[] = ["read", "write", "verify", "admin"];
 
 interface Scope {
   ns: string | null; // null = wildcard (matches any namespace, incl. the default)
@@ -60,5 +77,35 @@ export function allowed(
     if (sc.ns !== null && sc.ns !== reqNs) return false;
     if (sc.type !== null && sc.type !== type) return false;
     return true;
+  });
+}
+
+/**
+ * May a holder of `held` issue a credential carrying `wanted`?
+ *
+ * Holding `admin` is permission to run the credential routes; it is not permission to write any scope
+ * string into a token. Without this, a tenant admin mints `["*:read"]` and has crossed every boundary
+ * the rest of this file enforces — the escalation just takes two steps instead of one.
+ *
+ * The rule is reach: a namespace-scoped admin may grant only within that namespace, and only a
+ * wildcard-ns admin may grant a wildcard-ns scope. Nothing here is a claim about `action` — an admin may
+ * hand out `verify` without holding it, which is what delegating governance means.
+ *
+ * Returns the scopes that are out of reach, so the caller can name them. Empty means "all grantable".
+ */
+export function ungrantable(held: string[], wanted: string[]): string[] {
+  const adminNs = held
+    .map(parseScope)
+    .filter((s): s is Scope => s !== null && s.action === "admin")
+    .map((s) => s.ns);
+  // A wildcard-ns admin reaches everywhere; there is nothing left to check.
+  if (adminNs.includes(null)) return [];
+  return wanted.filter((raw) => {
+    const sc = parseScope(raw);
+    // Unparseable is refused by the caller's own validation, not silently treated as grantable.
+    if (!sc) return true;
+    // A wildcard-ns scope is the whole deployment, so only a wildcard-ns admin may write one.
+    if (sc.ns === null) return true;
+    return !adminNs.includes(sc.ns);
   });
 }

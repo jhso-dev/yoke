@@ -62,6 +62,7 @@ import {
 } from "../display.js";
 import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
+import { parseScope } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
 import { runUi } from "../ui/server.js";
 import { banner, decorated, getStartedBlock, log, version } from "./banner.js";
@@ -1867,6 +1868,12 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
 }
 
 // token (PLAN-V2 10.3): API tokens for serve-mode Bearer auth. Secret is shown once on create.
+const TOKEN_CREATE_USAGE =
+  'usage: yoke token create --name <n> --scopes "<ns>:read,<ns>:write[,<ns>:<type>:verify,<ns>:admin]"\n' +
+  "  scope = action | namespace:action | namespace:type:action\n" +
+  "  actions: read, write, verify (promote/retire), admin (issue credentials)\n" +
+  "  an action with NO namespace grants every tenant — name the namespace unless you mean that";
+
 async function cmdToken(
   positionals: string[],
   v: Values,
@@ -1875,15 +1882,27 @@ async function cmdToken(
   const [sub] = positionals;
   if (sub === "create") {
     if (!v.name || !v.scopes) {
-      console.error(
-        'usage: yoke token create --name <n> --scopes "read,write[,ns:type:verify...]"',
-      );
+      console.error(TOKEN_CREATE_USAGE);
       return 1;
     }
     const scopes = v.scopes
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+    // Validated at issue time, because a token whose scopes are nonsense is indistinguishable from a
+    // working one until someone tries to use it. Measured: `--scopes "reed,wrote"` and `--scopes teamA`
+    // were both accepted, listed by `token list` like any other credential, and then 403'd on
+    // everything; `--scopes ","` produced a token with a blank scope column and no warning anywhere.
+    // The parser that decides what a scope MEANS is the right thing to ask what one IS.
+    const bad = scopes.filter((raw) => parseScope(raw) === null);
+    if (bad.length > 0 || scopes.length === 0) {
+      console.error(
+        (scopes.length === 0
+          ? "--scopes is empty: a credential with no scope can do nothing"
+          : `not a scope: ${bad.join(", ")}`) + `\n${TOKEN_CREATE_USAGE}`,
+      );
+      return 1;
+    }
     return withStore(v, env, async (store) => {
       const { token } = store.createToken({
         name: v.name as string,
@@ -1891,15 +1910,41 @@ async function cmdToken(
         created_at: now(),
       });
       // The plaintext secret is only ever returned here — store it now (only the hash is persisted).
-      emit(v, token, { name: v.name, scopes, token });
+      // Human output used to be the bare secret and nothing else: the one moment an admin can record
+      // what this credential is for said neither its name nor its scopes nor that it is shown once.
+      // A wildcard-ns scope is called out, because `read` reads EVERY tenant and both the usage string
+      // and `serve`'s own refusal message teach exactly that spelling.
+      const wildcard = scopes.filter((raw) => parseScope(raw)?.ns === null);
+      emit(
+        v,
+        [
+          token,
+          `  shown once — this is the only time the secret is printed`,
+          `  name: ${v.name}   scopes: ${scopes.join(", ")}`,
+          ...(wildcard.length > 0
+            ? [
+                `  note: ${wildcard.join(", ")} ${wildcard.length === 1 ? "has" : "have"} no namespace, ` +
+                  `so ${wildcard.length === 1 ? "it grants" : "they grant"} every tenant — ` +
+                  `write '<namespace>:${parseScope(wildcard[0])?.action}' to scope it to one`,
+              ]
+            : []),
+        ].join("\n"),
+        { name: v.name, scopes, token },
+      );
       return 0;
     });
   }
   if (sub === "list") {
     return withStore(v, env, async (store) => {
       const toks = store.listTokens();
+      // A wildcard-ns scope is marked: it is the difference between a credential for one tenant and one
+      // for all of them, and this listing is the only answer to "who can reach what right now".
       const lines = toks.map(
-        (t) => `${t.name}  ${t.scopes.join(",")}  ${t.created_at}`,
+        (t) =>
+          `${t.name}  ${t.scopes.join(",")}  ${t.created_at}` +
+          (t.scopes.some((raw) => parseScope(raw)?.ns === null)
+            ? "  [all namespaces]"
+            : ""),
       );
       emit(v, toks.length ? lines.join("\n") : "no tokens", toks);
       return 0;

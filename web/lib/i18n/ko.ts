@@ -463,6 +463,7 @@ export const ko: typeof en = {
     readHint: "지식 읽기 — 브리핑·주입·검색",
     writeHint: "레코드 생성 — draft로 들어갑니다",
     verifyHint: "거버넌스 — 검증·재확인·폐기",
+    adminHint: "크레덴셜 발급·폐기 — 지식 자체에는 접근 권한을 주지 않습니다",
     restrictLegend: "(선택)",
     recordType: "레코드 타입",
     anyPlaceholder: "전체",

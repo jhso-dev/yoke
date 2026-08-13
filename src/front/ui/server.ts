@@ -40,6 +40,7 @@ import {
   summarize,
   ULID,
 } from "../display.js";
+import { parseScope } from "../serve/rbac.js";
 import { openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
 
@@ -54,7 +55,19 @@ export interface UiDeps {
   now?: () => string;
   /** RBAC hook (PLAN-V2 10.4) — checked per API endpoint. Default allow-all (local single-user
    * `yoke ui` stays ungated); serve mode injects a per-request scope check. */
-  authorize?: (action: "read" | "write" | "verify", type?: string) => boolean;
+  authorize?: (
+    action: "read" | "write" | "verify" | "admin",
+    type?: string,
+  ) => boolean;
+  /**
+   * Which of `wanted` this caller may NOT put into a credential (empty = all of them).
+   *
+   * Holding `admin` is permission to run these routes; it is not permission to write any scope string
+   * into a token. Injected rather than computed here because only serve mode knows the principal's own
+   * scopes — and because the local ungated path has no principal and must stay unrestricted
+   * (invariant 4). See `ungrantable` in serve/rbac.ts for the reach rule.
+   */
+  grantable?: (wanted: string[]) => string[];
   /** Directory holding the built web bundle. Injectable so tests point at a fixture and never
    * depend on a build existing (CI runs tests before build). Defaults to the resolved location. */
   webRoot?: string | null;
@@ -386,6 +399,8 @@ export function createUiHandler(
   const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
+  // No principal on the local ungated path, so nothing is out of reach there (invariant 4).
+  const grantable = deps.grantable ?? (() => []);
   /**
    * Authorize, and on refusal answer 403 naming the scope that would have granted it.
    *
@@ -401,7 +416,7 @@ export function createUiHandler(
    */
   const denied = (
     res: ServerResponse,
-    action: "read" | "write" | "verify",
+    action: "read" | "write" | "verify" | "admin",
     type?: string,
   ): boolean => {
     if (authorize(action, type)) return false;
@@ -961,13 +976,20 @@ export function createUiHandler(
     }
 
     if (method === "GET" && path === "/api/tokens") {
-      if (denied(res, "verify")) return;
-      sendJson(res, 200, store.listTokens());
+      // `admin`, not `verify`: this is the credential surface, and every reviewer holds verify. See the
+      // Action union in serve/rbac.ts for what stood in for admin and what it cost.
+      if (denied(res, "admin")) return;
+      // Only the rows this caller could have issued. A tenant admin listing every tenant's credentials
+      // and their scopes is a map of the whole deployment's access.
+      const visible = store
+        .listTokens()
+        .filter((t) => grantable(t.scopes).length === 0);
+      sendJson(res, 200, visible);
       return;
     }
 
     if (method === "POST" && path === "/api/tokens") {
-      if (denied(res, "verify")) return;
+      if (denied(res, "admin")) return;
       const body = await readBody(req);
       const name = body.name;
       const scopes = body.scopes;
@@ -983,6 +1005,35 @@ export function createUiHandler(
         return;
       }
       const cleanScopes = scopes.map((s) => s.trim());
+      // Shape was the whole check, so `["reed"]` produced a credential that authenticates and then 403s
+      // on everything — indistinguishable from a working one until someone tries to use it. The parser
+      // that decides what a scope MEANS is the right thing to ask what one IS, and the CLI now asks it
+      // too (`yoke token create`).
+      const unparsed = cleanScopes.filter((raw) => parseScope(raw) === null);
+      if (unparsed.length > 0 || cleanScopes.length === 0) {
+        sendJson(res, 400, {
+          error:
+            cleanScopes.length === 0
+              ? "scopes is empty: a credential with no scope can do nothing"
+              : `not a scope: ${unparsed.join(", ")} — scope is action | namespace:action | namespace:type:action`,
+          ...(unparsed.length > 0 ? { scopes: unparsed } : {}),
+        });
+        return;
+      }
+      // Every scope has to be one this caller could grant. Without it, `admin` on one namespace mints a
+      // wildcard credential and the boundary the rest of this server enforces is gone in two steps
+      // instead of one.
+      const outOfReach = grantable(cleanScopes);
+      if (outOfReach.length > 0) {
+        sendJson(res, 403, {
+          error:
+            `forbidden: this credential cannot grant ${outOfReach.join(", ")}` +
+            " — an admin scoped to a namespace grants only within it",
+          required: "admin",
+          scopes: outOfReach,
+        });
+        return;
+      }
       const created_at = now();
       const { token } = store.createToken({
         name: name.trim(),
@@ -999,10 +1050,17 @@ export function createUiHandler(
     }
 
     if (method === "DELETE" && path.startsWith("/api/tokens/")) {
-      if (denied(res, "verify")) return;
+      if (denied(res, "admin")) return;
       const name = decodeURIComponent(path.slice("/api/tokens/".length));
       if (!name) {
         sendJson(res, 400, { error: "token name is required" });
+        return;
+      }
+      // Out of reach reads as absent, for the same reason a foreign record does: "exists, but not
+      // yours" lets one tenant enumerate another's credentials by name.
+      const target = store.listTokens().find((t) => t.name === name);
+      if (target && grantable(target.scopes).length > 0) {
+        sendJson(res, 404, { error: `no such token: ${name}` });
         return;
       }
       if (!store.revokeToken(name)) {

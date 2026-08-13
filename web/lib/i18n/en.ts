@@ -496,6 +496,10 @@ export const en = {
     readHint: "see knowledge — briefings, injections, search",
     writeHint: "create records — they enter as drafts",
     verifyHint: "governance — verify, re-confirm, deprecate",
+    // Spelled out because it is the one permission that hands out permissions, and it deliberately
+    // does NOT include reading knowledge.
+    adminHint:
+      "issue and revoke credentials — grants no access to knowledge itself",
     restrictLegend: "(optional)",
     recordType: "record type",
     anyPlaceholder: "any",
