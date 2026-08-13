@@ -167,11 +167,18 @@ async function meaningEdges(
   port: StoragePort,
   id: string,
   ns: string | null,
-): Promise<{ superseded: boolean; conflictsWith: string[] }> {
+): Promise<{
+  superseded: boolean;
+  conflictsWith: string[];
+  author?: string;
+}> {
   const edges = (await port.neighbors(id)).filter(
     (r) => normalizeNs(r.ns) === ns,
   );
   return {
+    // The real author, for the citation. Free here: this read already has every edge, and asking for it
+    // separately would be a second round trip for a field the first one returned.
+    author: edges.find((r) => r.type === "authored_by" && r.from === id)?.to,
     superseded: edges.some((r) => r.type === "supersedes" && r.to === id),
     // Symmetric, so the pair is one claim recorded from whichever end — both directions count.
     conflictsWith: [
@@ -292,9 +299,34 @@ async function vectorHits(
     .map((e) => ({ ...e, embedding: undefined }));
 }
 
-/** `[{type}:{id}@v{version}] {actor}, {occurred_at}` — the audit citation format. */
-export function citation(e: Entity): string {
-  return `${pointer(e)} ${e.provenance.actor}, ${e.provenance.occurred_at}`;
+/**
+ * `[{type}:{id}@v{version}] {actor}, {occurred_at}` — the audit citation format.
+ *
+ * With `author` (the `authored_by` edge's target) it becomes
+ * `[…] {author} (confirmed by {promoter}), {occurred_at}` — and ONLY when the two differ, so the
+ * single-user local path renders exactly as before.
+ *
+ * The plain form names whoever wrote the version being pointed at, which for a verified record is
+ * whoever PROMOTED it: `verify` appends a version whose provenance is the promotion. That is correct
+ * about the version and wrong about the knowledge. Measured: a decision authored under Alex's person id
+ * and verified by the reviewer was served inside Alex's persona citing `yoke:system`, so an agent
+ * quoting yoke names the wrong person. `docs/SPEC.md:682` states the rule this broke —
+ * "authorship comes off the `authored_by` edge, never `provenance.actor` … an authors list built from
+ * it ranks reviewers, calls them authors". `overview` obeys it and says so in its own output; the
+ * citation did not.
+ *
+ * Both, rather than swapping one for the other. The promoter is not noise — it is who vouched for this,
+ * which is the other half of what makes a citation auditable — and dropping it to fix attribution would
+ * trade one missing fact for another. It is invisible on a single-user database because there the two
+ * ARE the same actor, which is exactly why this went unnoticed.
+ */
+export function citation(e: Entity, author?: string): string {
+  const promoter = e.provenance.actor;
+  const who =
+    author && author !== promoter
+      ? `${author} (confirmed by ${promoter})`
+      : promoter;
+  return `${pointer(e)} ${who}, ${e.provenance.occurred_at}`;
 }
 
 /**
@@ -573,7 +605,7 @@ export async function inject(
   let supersededCount = 0;
   const limited: InjectItem[] = [];
   for (const item of capped) {
-    const { superseded, conflictsWith } = await meaningEdges(
+    const { superseded, conflictsWith, author } = await meaningEdges(
       port,
       item.entity.id,
       ns,
@@ -582,7 +614,13 @@ export async function inject(
       supersededCount++;
       continue;
     }
-    limited.push(conflictsWith.length > 0 ? { ...item, conflictsWith } : item);
+    limited.push({
+      ...item,
+      // Rebuilt now that the author is known. Without it `citation` names the promoter alone, which on a
+      // verified record is whoever approved the knowledge rather than whoever wrote it.
+      citation: citation(item.entity, author),
+      ...(conflictsWith.length > 0 ? { conflictsWith } : {}),
+    });
   }
   // How many the caller's limit dropped, out of what was retrieved. On the unscoped path this counts
   // within the over-fetched window rather than the whole corpus: `search` is a top-k, so a number

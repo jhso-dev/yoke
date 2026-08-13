@@ -450,6 +450,17 @@ and the trail is per-client local sqlite rather than knowledge, so it is not tra
   stale/deprecated are **always excluded** regardless of options (strict on injection —
   we don't inject a decay signal. Viewing stale is the job of review/CLI)
 - Returns: a list of entities, each with its provenance (an auditable citation format)
+- **The citation names the author, and the confirmer when they differ.**
+  `[type:id@vN] author (confirmed by promoter), occurred_at` — collapsing to
+  `[type:id@vN] actor, occurred_at` when one actor did both, which is every single-user install.
+  `verify` appends a version whose provenance IS the promotion, so the plain form named whoever
+  approved the knowledge rather than whoever wrote it; the author comes off the `authored_by` edge,
+  as the overview clause below already required. Both are kept: who vouched for a record is the
+  other half of what makes a citation auditable.
+- **An injected item carries what it contradicts.** `conflicts_with` marks both sides and withholds
+  neither (contradictions are surfaced, never auto-resolved). A record with an incoming `supersedes`
+  edge is withheld and counted under that reason instead — a supersession is settled, and the
+  replacement answers on its own merits.
 
 ### Hybrid retrieval (v5.3 — the vector half of "falls back to FTS")
 

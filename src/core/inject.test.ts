@@ -92,7 +92,17 @@ describe("inject", () => {
     expect(items).toEqual([]);
   });
 
-  it("produces the exact citation format for one verified item", async () => {
+  it("names the author and the person who confirmed it, when they differ", async () => {
+    // This asserted `alice` alone — the PROMOTER, because `verify` appends a version whose provenance is
+    // the promotion. The fixture's author is `yoke:system`, so the citation named someone who never
+    // wrote the record. SPEC:682 states the rule ("authorship comes off the `authored_by` edge, never
+    // `provenance.actor` … an authors list built from it ranks reviewers, calls them authors"), and
+    // `overview` obeys it while the citation did not. Measured on the real shape: a decision authored
+    // under a person's id and verified by a reviewer was served inside that person's persona citing
+    // `yoke:system`, so an agent quoting yoke named the wrong person.
+    //
+    // Both, rather than swapping one for the other — who vouched for this is the other half of what
+    // makes a citation auditable.
     const id = await addFact("citable");
     await verify(port, [id], "alice", "2026-07-13T00:00:00Z");
     const { items } = await inject(
@@ -103,7 +113,24 @@ describe("inject", () => {
     );
     expect(items).toHaveLength(1);
     expect(items[0].citation).toBe(
-      `[fact:${id}@v2] alice, 2026-07-13T00:00:00Z`,
+      `[fact:${id}@v2] yoke:system (confirmed by alice), 2026-07-13T00:00:00Z`,
+    );
+  });
+
+  it("stays the plain format when the author confirmed their own record", async () => {
+    // The single-user local path, which is every ungated install: one actor, so there is nothing to
+    // distinguish and the citation reads exactly as it always has. This is also why the defect above
+    // went unnoticed — it is invisible until a second person exists.
+    const id = await addFact("self-confirmed");
+    await verify(port, [id], "yoke:system", "2026-07-13T00:00:00Z");
+    const { items } = await inject(
+      port,
+      ont,
+      "self-confirmed",
+      "2026-07-13T00:00:00Z",
+    );
+    expect(items[0].citation).toBe(
+      `[fact:${id}@v2] yoke:system, 2026-07-13T00:00:00Z`,
     );
   });
 });
