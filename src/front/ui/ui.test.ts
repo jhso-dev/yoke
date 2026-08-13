@@ -636,6 +636,10 @@ describe("ui API", () => {
       decisionBId,
     ]);
     expect(withDrafts.items[0].effectiveStatus).toBe("draft");
+    // The contradiction travels with the row. This screen's own claim is that it shows what an agent
+    // receives; the agent receives the marker, and without it two records that flatly disagree render as
+    // two ordinary rows — which is what the conflicts screen one page over was already doing.
+    expect(withDrafts.items[0].conflictsWith).toEqual([decisionAId]);
 
     // A preview is a read of knowledge, so it leaves a trail — under its own action name, so it
     // never gets mistaken for what an agent was told.

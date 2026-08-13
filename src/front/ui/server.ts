@@ -830,7 +830,16 @@ export function createUiHandler(
         items: await (async () => {
           const es = items.map((it) => it.entity);
           await prefetch(es);
-          return Promise.all(es.map(asR));
+          const rows = await Promise.all(es.map(asR));
+          // The contradiction marker travels with the row. This screen's own claim is that it shows what
+          // an agent receives, and the agent receives it — without this the preview would render two
+          // records that disagree as two identical-looking rows, which is what the conflicts screen was
+          // already doing one page over.
+          return rows.map((r, i) =>
+            items[i].conflictsWith
+              ? { ...r, conflictsWith: items[i].conflictsWith }
+              : r,
+          );
         })(),
       });
       return;

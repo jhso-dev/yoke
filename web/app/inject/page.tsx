@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Alert } from "@/components/ui/alert";
@@ -16,6 +17,7 @@ import { Panel, PanelHead } from "../../components/Panel";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import { isoFromLocalInput, localTime } from "../../lib/time";
+import type { InjectedKnowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -201,7 +203,36 @@ function InjectBody() {
                 {t.inject.withheld(result.data.withheld, items.length)}
               </Alert>
             )}
-            <KnowledgeTable rows={items} empty={t.inject.empty} paginate />
+            <KnowledgeTable
+              rows={items}
+              empty={t.inject.empty}
+              paginate
+              // A disputed row has to LOOK disputed. The conflicts screen one page over already listed
+              // these pairs; this screen claims to show what an agent receives, and the agent now
+              // receives the marker — without it two records that flatly disagree render as two
+              // ordinary rows. A link rather than the id, per the rule that a person never reads a ULID.
+              trailing={{
+                head: t.inject.disputedHead,
+                cell: (r) => {
+                  const others =
+                    (r as InjectedKnowledge).conflictsWith ?? undefined;
+                  if (!others) return null;
+                  return (
+                    <span className="flex flex-wrap gap-2">
+                      {others.map((id) => (
+                        <Link
+                          key={id}
+                          href={`/entity/?id=${encodeURIComponent(id)}`}
+                          title={id}
+                        >
+                          {t.inject.disputedBy}
+                        </Link>
+                      ))}
+                    </span>
+                  );
+                },
+              }}
+            />
           </Panel>
         </>
       )}

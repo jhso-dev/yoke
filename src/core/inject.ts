@@ -13,6 +13,21 @@ export interface InjectItem {
   entity: Entity;
   effectiveStatus: Status;
   citation: string;
+  /**
+   * Ids of verified records this one is recorded as contradicting (`conflicts_with`), if any.
+   *
+   * MARKED, not withheld, because that is what the policy says: "contradictions are surfaced, never
+   * auto-resolved … deciding the winner is not the database's job" (README mechanism 4). Dropping either
+   * side would be the database deciding; dropping both would delete the disagreement, which is itself
+   * knowledge. So both travel and both say so.
+   *
+   * The store already knew. `yoke conflicts` printed the pair; injection — the product's core value —
+   * never mentioned it, so six queries on the demo corpus handed an agent both sides of a live
+   * disagreement as two equal facts: two deploy-freeze windows, three different Critical-patch SLAs, two
+   * refund limits, two mutually exclusive definitions of MAU. Absent on a record with nothing to
+   * declare, so a reader can tell "not disputed" from "we did not look".
+   */
+  conflictsWith?: string[];
 }
 
 /** What a multi-hop anchor walk actually did (SPEC "Multi-hop"). Numbers only — front adapters turn
@@ -50,6 +65,19 @@ export interface WithheldStats {
   deprecated: number;
   /** Matched, but names something knowledge is attached TO. Never injectable as knowledge. */
   structural: number;
+  /**
+   * Matched and verified, but something recorded as superseding it exists.
+   *
+   * Withheld rather than marked, unlike a conflict, because the two states mean different things. A
+   * conflict is an open disagreement nobody has settled; a supersession is settled — someone recorded
+   * that this was replaced. Serving it is serving a decision that was reversed.
+   *
+   * `supersedes` had no lifecycle meaning at all: the only code in the product that understood it was
+   * `checkPersonaSources`, so an exported persona listed both halves of a reversal as live guiding
+   * principles with identical timestamps, and the product's OWN checker then labelled that export
+   * "superseded" and exited 1 while offering a re-export that reproduces it byte for byte.
+   */
+  superseded: number;
 }
 
 export interface InjectResult {
@@ -113,6 +141,49 @@ export const BRIEFING_LIMIT = 50;
  * measured returning short pages, not on the strength of this comment.
  */
 const STALE_HEADROOM = 3;
+
+/**
+ * The two relations that change what a record MEANS to a reader, read in one hop.
+ *
+ * Both were invisible to injection: `grep conflicts_with src/core/inject.ts` found nothing, and
+ * `supersedes` was understood by exactly one function in the product (`checkPersonaSources`). The
+ * consequences are recorded on `InjectItem.conflictsWith` and `WithheldStats.superseded`.
+ *
+ * One `neighbors(id)` per record, unfiltered, then split in memory — two typed calls would double the
+ * round trips for the same answer. Namespace-filtered here for the reason `identitySet` and
+ * `downstreamOf` are: `neighbors` takes no `ns`, so an edge filed by one tenant would otherwise mark or
+ * withhold another tenant's record.
+ *
+ * Direction matters and only one way round is right. `A supersedes B` means A replaced B, so B carries
+ * the INCOMING edge and B is the record that is no longer current. Reading it the other way would
+ * withhold every replacement and serve everything it replaced.
+ *
+ * ceiling: one relation read per record handed over — the cap, not the retrieval window, so a page of
+ * ten costs ten and a fifty-record briefing costs fifty. Sub-millisecond on sqlite; fifty sequential
+ * round trips on a remote backend, which is the shape docs/SCALE.md profiled on the graph route. The way
+ * out is a batch `neighborsOf(ids)` on the port; add that before raising any limit that multiplies this.
+ */
+async function meaningEdges(
+  port: StoragePort,
+  id: string,
+  ns: string | null,
+): Promise<{ superseded: boolean; conflictsWith: string[] }> {
+  const edges = (await port.neighbors(id)).filter(
+    (r) => normalizeNs(r.ns) === ns,
+  );
+  return {
+    superseded: edges.some((r) => r.type === "supersedes" && r.to === id),
+    // Symmetric, so the pair is one claim recorded from whichever end — both directions count.
+    conflictsWith: [
+      ...new Set(
+        edges
+          .filter((r) => r.type === "conflicts_with")
+          .map((r) => (r.from === id ? r.to : r.from))
+          .filter((other) => other !== id),
+      ),
+    ].sort(),
+  };
+}
 const candidateQuery = (opts?: {
   includeDraft?: boolean;
   limit?: number;
@@ -490,8 +561,29 @@ export async function inject(
   // BOTH paths cap here now, after filtering — that is the fix. `search` is asked for a superset and
   // core cuts to what the caller wanted once only injectable records remain, so `limit` finally means
   // "up to N records you can use" rather than "N candidates, then however many survive".
-  const limited =
-    opts?.limit === undefined ? items : items.slice(0, opts.limit);
+  const capped = opts?.limit === undefined ? items : items.slice(0, opts.limit);
+  // Supersession and contradiction, applied to the page rather than to the window — the cost is one
+  // relation read per record actually handed over (see `meaningEdges`). Superseded records drop out and
+  // are counted; contradicted ones travel carrying what they contradict.
+  //
+  // A page can come back short of `limit` because of this, which `omitted` already reports honestly. It
+  // is not backfilled from further down the ranking: doing so would mean reading relations for the whole
+  // window to find replacements, and a short page a reader can see beats a full one assembled by a
+  // second pass they cannot.
+  let supersededCount = 0;
+  const limited: InjectItem[] = [];
+  for (const item of capped) {
+    const { superseded, conflictsWith } = await meaningEdges(
+      port,
+      item.entity.id,
+      ns,
+    );
+    if (superseded) {
+      supersededCount++;
+      continue;
+    }
+    limited.push(conflictsWith.length > 0 ? { ...item, conflictsWith } : item);
+  }
   // How many the caller's limit dropped, out of what was retrieved. On the unscoped path this counts
   // within the over-fetched window rather than the whole corpus: `search` is a top-k, so a number
   // for "everything that matched" is not knowable without materializing it, which is the thing that
@@ -533,6 +625,7 @@ export async function inject(
     askedForRoster,
     limited,
     opts?.asOf,
+    supersededCount,
   );
   return {
     items: limited,
@@ -559,6 +652,7 @@ async function countWithheld(
   askedForRoster: boolean,
   injected: InjectItem[],
   asOf?: string,
+  superseded = 0,
 ): Promise<WithheldStats | undefined> {
   // What was handed over is not withheld. Only matters now that this runs alongside a non-empty
   // answer: the anchor path passes the very candidates the items were built from, so without this
@@ -574,6 +668,9 @@ async function countWithheld(
     stale: 0,
     deprecated: 0,
     structural: 0,
+    // Counted by the caller, which is the only place that knows: supersession is decided on the page it
+    // is about to hand over, not on the retrieval window this function classifies.
+    superseded,
   };
   for (const found of candidates) {
     if (handed.has(found.id)) continue;
@@ -593,6 +690,11 @@ async function countWithheld(
     else if (status === "stale") stats.stale++;
     else if (status === "deprecated") stats.deprecated++;
   }
-  const total = stats.draft + stats.stale + stats.deprecated + stats.structural;
+  const total =
+    stats.draft +
+    stats.stale +
+    stats.deprecated +
+    stats.structural +
+    stats.superseded;
   return total > 0 ? stats : undefined;
 }

@@ -27,6 +27,17 @@ export interface Knowledge {
   citation: string;
 }
 
+/**
+ * An injected row, which may carry what it contradicts.
+ *
+ * Present only when the record has a live `conflicts_with` edge, so absent means "not disputed" rather
+ * than "not checked". Both sides are always injected — the policy is that contradictions are surfaced
+ * and never auto-resolved, so the screen's job is to say so, not to pick.
+ */
+export interface InjectedKnowledge extends Knowledge {
+  conflictsWith?: string[];
+}
+
 /** A relation row: a Knowledge row plus its endpoints. */
 export interface Edge extends Knowledge {
   from: string;
@@ -141,8 +152,11 @@ export interface InjectPreview {
     stale: number;
     deprecated: number;
     structural: number;
+    /** Verified, but something recorded as replacing it exists. Settled, unlike a conflict — so the
+     * record is withheld rather than marked, and the replacement answers on its own merits. */
+    superseded: number;
   } | null;
-  items: Knowledge[];
+  items: InjectedKnowledge[];
 }
 
 /** GET /api/review?stale=1. Verified records past their type's TTL.

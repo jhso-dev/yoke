@@ -1179,8 +1179,15 @@ async function cmdInject(
       at: ts,
       ns,
     });
+    // The contradiction marker rides the line, not a footnote: `yoke conflicts` already printed these
+    // pairs while injection — the thing an agent actually reads — said nothing, so six queries on the demo
+    // corpus handed over both sides of a live disagreement as two equal facts.
     const lines = items.map(
-      (it) => `${it.citation}  ${summarize(it.entity, ontology)}`,
+      (it) =>
+        `${it.citation}  ${summarize(it.entity, ontology)}` +
+        (it.conflictsWith
+          ? `\n  ! contradicted by ${it.conflictsWith.join(" ")} — both are recorded, neither is settled`
+          : ""),
     );
     // Never a silent slice. --json keeps the raw items array (contract unchanged), so the count goes
     // in the human output only; a script wanting everything raises --limit.
@@ -1905,11 +1912,11 @@ async function cmdToken(
     // The parser that decides what a scope MEANS is the right thing to ask what one IS.
     const bad = scopes.filter((raw) => parseScope(raw) === null);
     if (bad.length > 0 || scopes.length === 0) {
-      console.error(
-        (scopes.length === 0
+      const why =
+        scopes.length === 0
           ? "--scopes is empty: a credential with no scope can do nothing"
-          : `not a scope: ${bad.join(", ")}`) + `\n${TOKEN_CREATE_USAGE}`,
-      );
+          : `not a scope: ${bad.join(", ")}`;
+      console.error(`${why}\n${TOKEN_CREATE_USAGE}`);
       return 1;
     }
     return withStore(v, env, async (store) => {

@@ -203,12 +203,17 @@ export function describeWithheld(w: WithheldStats): string {
   if (w.draft > 0) parts.push(`${w.draft} awaiting review`);
   if (w.stale > 0) parts.push(`${w.stale} past its freshness window`);
   if (w.deprecated > 0) parts.push(`${w.deprecated} retired`);
+  // Names the remedy, because unlike the others there is nothing to do: the replacement is already in
+  // the corpus and answers on its own merits. A reader told only "withheld" would go looking for a
+  // record to re-confirm.
+  if (w.superseded > 0)
+    parts.push(`${w.superseded} replaced by newer knowledge`);
   // Named at length because this is the reason a reader acts wrongly on: verifying it changes nothing.
   if (w.structural > 0)
     parts.push(
       `${w.structural} naming something knowledge is attached to (never injectable as knowledge)`,
     );
-  const total = w.draft + w.stale + w.deprecated + w.structural;
+  const total = w.draft + w.stale + w.deprecated + w.structural + w.superseded;
   return `${total} match(es) withheld: ${parts.join(", ")}`;
 }
 

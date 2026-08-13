@@ -314,7 +314,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         );
       const blocks = items.map(
         (it) =>
-          `${it.citation} [${it.effectiveStatus}]\n${JSON.stringify(it.entity.attributes)}`,
+          `${it.citation} [${it.effectiveStatus}]` +
+          // An agent handed two contradicting records as two equal facts answers with whichever it read
+          // first and cites it. The instruction is the mechanism here, as it is for the truncation
+          // notice: the model has to be told what to DO with the disagreement, not handed a field.
+          (it.conflictsWith
+            ? `\n[CONTRADICTED by ${it.conflictsWith.join(", ")} — both are recorded and nobody has ` +
+              `settled which is right. Do not present this as established; say the org's records ` +
+              `disagree and cite both.]`
+            : "") +
+          `\n${JSON.stringify(it.entity.attributes)}`,
       );
       // The same reasons on a NON-empty answer, phrased as the instruction an agent needs. This is the
       // case that produces a confident wrong answer: the model receives a full page, has no way to know

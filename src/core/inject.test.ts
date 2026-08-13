@@ -908,6 +908,7 @@ describe("an empty injection says why it is empty", () => {
       stale: 0,
       deprecated: 0,
       structural: 0,
+      superseded: 0,
     });
   });
 
@@ -948,6 +949,7 @@ describe("an empty injection says why it is empty", () => {
       stale: 0,
       deprecated: 0,
       structural: 1,
+      superseded: 0,
     });
   });
 
@@ -1028,5 +1030,112 @@ describe("as-of withheld reasons are about the version that existed then", () =>
     expect(res.items).toEqual([]);
     expect(res.withheld?.draft).toBe(1);
     expect(res.withheld?.deprecated).toBe(0);
+  });
+});
+
+// The store knew both of these and injection asked neither. `grep conflicts_with src/core/inject.ts`
+// found nothing, and `supersedes` was understood by exactly one function in the product
+// (checkPersonaSources) — so a persona exported both halves of a reversal as live guiding principles,
+// and six queries on the demo corpus handed an agent both sides of a live disagreement as equal facts.
+describe("injection knows what a record contradicts and what replaced it", () => {
+  /** Two verified facts, and the edge between them. */
+  async function pair(
+    aText: string,
+    bText: string,
+    relType: string,
+  ): Promise<{ a: string; b: string }> {
+    const a = await addFact(aText);
+    const b = await addFact(bText);
+    await verify(port, [a, b], "admin", now);
+    await commit(
+      port,
+      ont,
+      { type: relType, attributes: {}, from: a, to: b },
+      prov,
+      now,
+    );
+    return { a, b };
+  }
+
+  it("marks both sides of a contradiction and withholds neither", async () => {
+    // "Contradictions are surfaced, never auto-resolved" — dropping a side would be the database
+    // deciding the winner, and dropping both would delete the disagreement.
+    const { a, b } = await pair(
+      "the gateway rejects retries within 2s",
+      "the gateway accepts retries immediately",
+      "conflicts_with",
+    );
+    const res = await inject(port, ont, "gateway retries", now);
+    expect(res.items).toHaveLength(2);
+    for (const item of res.items) {
+      const other = item.entity.id === a ? b : a;
+      expect(item.conflictsWith).toEqual([other]);
+    }
+    expect(res.withheld).toBeUndefined();
+  });
+
+  it("marks a contradiction recorded from either end, since the relation is symmetric", async () => {
+    const { a, b } = await pair(
+      "freeze on friday",
+      "freeze on thursday",
+      "conflicts_with",
+    );
+    // Filed a -> b; b must still learn about it.
+    const res = await inject(port, ont, "freeze", now);
+    const forB = res.items.find((i) => i.entity.id === b);
+    expect(forB?.conflictsWith).toEqual([a]);
+  });
+
+  it("is absent on a record with nothing to declare", async () => {
+    // "Not disputed" and "we did not look" have to read differently.
+    const f = await addFact("the pool drains at midnight");
+    await verify(port, [f], "admin", now);
+    const res = await inject(port, ont, "pool", now);
+    expect(res.items[0].conflictsWith).toBeUndefined();
+  });
+
+  it("withholds a superseded record and says which reason it was", async () => {
+    // `a supersedes b`, so b is the one no longer current — the direction is the whole correctness of
+    // this: read the other way round it would withhold every replacement and serve what they replaced.
+    const { a } = await pair(
+      "internal calls use HTTP/JSON with an OpenAPI contract",
+      "internal calls use gRPC",
+      "supersedes",
+    );
+    const res = await inject(port, ont, "internal calls", now);
+    expect(res.items.map((i) => i.entity.id)).toEqual([a]);
+    expect(res.withheld?.superseded).toBe(1);
+    expect(res.withheld?.stale).toBe(0);
+  });
+
+  it("does not withhold the record that supersedes", async () => {
+    const { a } = await pair(
+      "the new limit is 300 rpm",
+      "the limit is 1000 rpm",
+      "supersedes",
+    );
+    const res = await inject(port, ont, "rpm limit", now);
+    expect(res.items.map((i) => i.entity.id)).toContain(a);
+  });
+
+  it("does not let an edge in another namespace mark or withhold a record", async () => {
+    // `neighbors` takes no ns, which is why this filter lives in core — the same hole identitySet and
+    // downstreamOf each had to close.
+    const mine = await addFact("the retry budget is three attempts");
+    const theirs = await addFact("the retry budget is one attempt");
+    await verify(port, [mine, theirs], "admin", now);
+    await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: theirs, to: mine },
+      prov,
+      now,
+      { ns: "other-tenant" },
+    );
+    const res = await inject(port, ont, "retry budget", now);
+    expect(res.items.map((i) => i.entity.id).sort()).toEqual(
+      [mine, theirs].sort(),
+    );
+    expect(res.withheld).toBeUndefined();
   });
 });

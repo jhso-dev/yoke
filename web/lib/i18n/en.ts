@@ -392,6 +392,11 @@ export const en = {
       `Showing ${shown} of ${total}. An agent receives the same results and a note to ask a more specific question for the rest. Raise the limit to preview more.`,
     empty:
       "No verified knowledge matches this query, so nothing will be sent to the agent",
+    // The column and the link that say a row is contested. Named as a state ("disputed") rather than an
+    // action, because there is nothing to click to fix it — settling a contradiction is a human judgment
+    // the database deliberately does not make.
+    disputedHead: "disputed",
+    disputedBy: "contradicted by",
     // The empty state above claims nothing matches. When something DID match and was held back, saying
     // so is the difference between "we know nothing about this" and "this is waiting for review".
     withheld: (
@@ -400,6 +405,7 @@ export const en = {
         stale: number;
         deprecated: number;
         structural: number;
+        superseded: number;
       },
       // How many records ARE being sent. The lead-in turns on it: with a full table on screen the
       // reader's mistake is not "we know nothing" but "this is all we know".
@@ -413,6 +419,7 @@ export const en = {
         w.draft && `${w.draft} awaiting review`,
         w.stale && `${w.stale} past its freshness window`,
         w.deprecated && `${w.deprecated} retired`,
+        w.superseded && `${w.superseded} replaced by newer knowledge`,
         w.structural &&
           `${w.structural} naming something knowledge is attached to, which is never injected as knowledge`,
       ]
