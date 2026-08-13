@@ -1996,5 +1996,17 @@ function isMain(): boolean {
 if (isMain()) {
   // Before runCli, so `env = process.env` already carries the file's values.
   loadDotEnv();
-  runCli(process.argv.slice(2)).then((code) => process.exit(code));
+  runCli(process.argv.slice(2)).then((code) => {
+    // `process.exitCode`, never `process.exit()`. When stdout is a PIPE node buffers writes and
+    // flushes them asynchronously; `process.exit()` tears the process down and discards whatever is
+    // still in that buffer. Measured on a 518-record corpus: `yoke list --json > file` wrote 444,706
+    // bytes of valid JSON, and the same command through `| jq` received exactly 65,536 — one pipe
+    // buffer — with exit 0 and no error. Every scripted reader of `--json`, and every agent shelling
+    // out to one, silently got a prefix of the corpus and no way to know. A redirect to a file is
+    // synchronous, which is why this hid.
+    //
+    // Setting the code lets node exit on its own once the streams have drained, so the exit status is
+    // unchanged and the output is complete.
+    process.exitCode = code;
+  });
 }

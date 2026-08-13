@@ -605,7 +605,12 @@ export async function runMcp(
     process.stderr.write(
       `not initialized: ${db}\nrun 'yoke init --db ${db}' first\n`,
     );
-    process.exit(1);
+    // exitCode + return, not `process.exit()`: an MCP server's stderr is a pipe the client owns, and
+    // `process.exit()` discards whatever node has buffered for it. The one message that tells the
+    // operator why the server would not start is the message most likely to be thrown away — see the
+    // measurement in the CLI's entry point.
+    process.exitCode = 1;
+    return;
   }
   const ns = resolveNs(undefined, env);
   // Default working-context scope (v4.0): YOKE_SCOPE, an explicit entity id or collaboration key resolved
