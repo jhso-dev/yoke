@@ -30,7 +30,12 @@ import { overview } from "../../core/aggregate.js";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
-import { BRIEFING_LIMIT, inject, WALK_BUDGET } from "../../core/inject.js";
+import {
+  BRIEFING_LIMIT,
+  inject,
+  pointer,
+  WALK_BUDGET,
+} from "../../core/inject.js";
 import {
   deprecate,
   downstreamOf,
@@ -55,6 +60,7 @@ import {
   describeWithheld,
   injectDetail,
   injectShape,
+  makeActorNames,
   rankByConsumption,
   retirementOf,
   shownStatus,
@@ -843,9 +849,19 @@ async function cmdList(
       emit(v, "nothing to list", p);
       return 0;
     }
-    const lines = p.items.map(
-      (e) =>
-        `${e.id}  ${e.type}  ${shownStatus(e, ontology, listedAt)}  ${summarize(e, ontology)}  ${e.provenance.actor}`,
+    // Names, not ids, in the column a person reads to know whose record this is. The web tier has
+    // resolved these since v2.5; the CLI printed the raw actor, so a corpus whose authors are person
+    // records — what `--actor <person-id>` and every seeded corpus produce — was a wall of ULIDs.
+    // The id stays reachable through `get` and the citation, which is where an id belongs.
+    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    await prefetch(p.items);
+    const lines = await Promise.all(
+      p.items.map(
+        async (e) =>
+          `${e.id}  ${e.type}  ${shownStatus(e, ontology, listedAt)}  ${summarize(e, ontology)}  ${
+            (await nameOf(e.provenance.actor)) ?? e.provenance.actor
+          }`,
+      ),
     );
     if (p.next) lines.push(`-- more: yoke list --after ${p.next}`);
     emit(v, lines.join("\n"), p);
@@ -975,9 +991,17 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
         items,
         consumptionCounts(store.listAudit({ ns })),
       );
-      const lines = ranked.map(
-        (e) =>
-          `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${e.provenance.actor}  injected ${e.injections}x  last confirmed ${e.last_confirmed}`,
+      // This queue exists to name a person to go and ask, so an unresolved id is the column doing the
+      // opposite of its job.
+      const { nameOf, prefetch } = makeActorNames(store, ontology);
+      await prefetch(ranked);
+      const lines = await Promise.all(
+        ranked.map(
+          async (e) =>
+            `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${
+              (await nameOf(e.provenance.actor)) ?? e.provenance.actor
+            }  injected ${e.injections}x  last confirmed ${e.last_confirmed}`,
+        ),
       );
       // The scan is bounded, so say what it covered — "3 stale" alone reads as "3 stale in the whole
       // corpus", which is a claim this walk did not make.
@@ -999,9 +1023,15 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
       emit(v, "no drafts", []);
       return 0;
     }
-    const lines = drafts.map(
-      (e) =>
-        `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${e.provenance.actor}  ${e.provenance.occurred_at}`,
+    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    await prefetch(drafts);
+    const lines = await Promise.all(
+      drafts.map(
+        async (e) =>
+          `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${
+            (await nameOf(e.provenance.actor)) ?? e.provenance.actor
+          }  ${e.provenance.occurred_at}`,
+      ),
     );
     emit(v, lines.join("\n"), drafts);
     return 0;
@@ -1182,12 +1212,28 @@ async function cmdInject(
     // The contradiction marker rides the line, not a footnote: `yoke conflicts` already printed these
     // pairs while injection — the thing an agent actually reads — said nothing, so six queries on the demo
     // corpus handed over both sides of a live disagreement as two equal facts.
-    const lines = items.map(
-      (it) =>
-        `${it.citation}  ${summarize(it.entity, ontology)}` +
-        (it.conflictsWith
-          ? `\n  ! contradicted by ${it.conflictsWith.join(" ")} — both are recorded, neither is settled`
-          : ""),
+    // Assembled from `pointer` rather than printed from `it.citation`, so the people in it can be named.
+    // `pointer` exists for exactly this split: the id half is the audit pointer and stays an id, and who
+    // said it is rendered for a reader. `--json` still carries core's citation string verbatim, so the
+    // machine contract is untouched — this is the human line only.
+    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    await prefetch(items.map((it) => it.entity));
+    const who = async (it: (typeof items)[number]): Promise<string> => {
+      const promoter = it.entity.provenance.actor;
+      const authorId = it.author ?? promoter;
+      const author = (await nameOf(authorId)) ?? authorId;
+      if (authorId === promoter) return author;
+      const confirmer = (await nameOf(promoter)) ?? promoter;
+      return `${author} (confirmed by ${confirmer})`;
+    };
+    const lines = await Promise.all(
+      items.map(
+        async (it) =>
+          `${pointer(it.entity)} ${await who(it)}, ${it.entity.provenance.occurred_at}  ${summarize(it.entity, ontology)}` +
+          (it.conflictsWith
+            ? `\n  ! contradicted by ${it.conflictsWith.join(" ")} — both are recorded, neither is settled`
+            : ""),
+      ),
     );
     // Never a silent slice. --json keeps the raw items array (contract unchanged), so the count goes
     // in the human output only; a script wanting everything raises --limit.
@@ -1261,8 +1307,20 @@ async function cmdHistory(
     // `audit` did not, so the answer to "why is this deprecated" was reachable only through
     // `audit --json`. The question the flag exists to answer is asked here.
     const retired = retirementOf(store, id, resolveNs(v.ns, env));
+    // A version's actor is who wrote THAT version — the author on v1, the promoter on a verify. Both are
+    // people and both were printed as ids, on the one screen whose job is "who changed what, when".
+    // Resolved in one batch, then read synchronously so the row builder below stays a plain map.
+    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    await prefetch(versions);
+    const names = new Map(
+      await Promise.all(
+        [...new Set(versions.map((e) => e.provenance.actor))].map(
+          async (a) => [a, await nameOf(a)] as const,
+        ),
+      ),
+    );
     const lines = versions.map((e) => {
-      const base = `v${e.version}  ${e.status}  ${e.provenance.actor}  ${e.last_confirmed}  ${summarize(e, ontology)}`;
+      const base = `v${e.version}  ${e.status}  ${names.get(e.provenance.actor) ?? e.provenance.actor}  ${e.last_confirmed}  ${summarize(e, ontology)}`;
       return e.status === "deprecated" && retired?.reason
         ? `${base}\n    reason: ${retired.reason}`
         : base;

@@ -35,6 +35,7 @@ import { readEntities } from "../../ports/storage.js";
 import {
   consumptionCounts,
   injectDetail,
+  makeActorNames,
   rankByConsumption,
   retirementOf,
   summarize,
@@ -102,61 +103,6 @@ function defaultWebRoot(): string | null {
     }
   }
   return cachedWebRoot;
-}
-
-/** A person's display name: the `name` attribute by convention, else the first string attribute.
- * The seed ontology declares `person` with no required attrs, so this is a convention, not a schema
- * guarantee — hence the fallback and the `undefined` when there is nothing readable. */
-function personName(e: Entity, ontology: TypeDef[]): string | undefined {
-  const named = e.attributes.name;
-  if (typeof named === "string" && named) return named;
-  return summarize(e, ontology) || undefined;
-}
-
-/**
- * actor id → display name, memoized for one request.
- *
- * `provenance.actor` is "a person entity id or agent identifier" (core/types.ts), so half the time
- * it is a ULID that means nothing to a reader. Resolution lives HERE, in the front tier, and never
- * in `citation()`: the citation is the audit pointer and an id is what makes it one — names are not
- * unique and they change, so a renamed person must not rewrite history.
- *
- * A profile DID eventually say these reads matter (v5.5). `prefetch` resolves a whole response's
- * actors in one batch read, because the memo only helps when authors repeat and in a real corpus they
- * do not: an anchored graph at depth 3 spent **1,595 of its 1,715** port calls here, one per distinct
- * author, and the traversal it was blamed on accounted for 117.
- */
-function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
-  const seen = new Map<string, string | undefined>();
-  const remember = (e: Entity) =>
-    seen.set(e.id, e.type === "person" ? personName(e, ontology) : undefined);
-  /** Resolve every actor these rows name, in one read. Ids that resolve to nothing — or to something
-   * that is not a person — are memoized as "no name", which is what the point read would conclude. */
-  const prefetch = async (
-    rows: Array<{ provenance: { actor: string } }>,
-  ): Promise<void> => {
-    const missing = [...new Set(rows.map((r) => r.provenance.actor))].filter(
-      (id) => !seen.has(id),
-    );
-    if (missing.length === 0) return;
-    for (const id of missing) seen.set(id, undefined);
-    for (const e of await readEntities(store, missing)) remember(e);
-  };
-  const nameOf = async (actorId: string): Promise<string | undefined> => {
-    if (!seen.has(actorId)) {
-      // EVERY actor is looked up, including ids containing a colon. A colon looks like a machine
-      // actor ('yoke:system', 'connector:github-pr'), but a person's id is whatever created it and
-      // `scripts/seed-dummy-it-company.mjs` — this repo's own corpus generator — mints
-      // `person:platform-manager`, so skipping those would render every seeded author as a slug on
-      // the exact surface that exists to keep ids away from readers. The real guard is the type check
-      // in `remember`. Cost: one memoized point read per distinct machine actor per request.
-      const e = await store.getEntity(actorId);
-      if (e) remember(e);
-      else seen.set(actorId, undefined);
-    }
-    return seen.get(actorId);
-  };
-  return { nameOf, prefetch };
 }
 
 /** The audit-visible knowledge row shape shared by every screen (citation everywhere).

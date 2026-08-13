@@ -1805,3 +1805,94 @@ describe("backup does not destroy what it writes over", () => {
     expect(await runCli(["backup", newDb(), "--db", source])).toBe(0);
   });
 });
+
+// The web tier has resolved actor ids to names since v2.5. The CLI printed the raw actor on `list`,
+// `review`, `review --stale`, `history` and the injected citation — so a corpus whose authors are person
+// records, which is what `--actor <person-id>` and every seeded corpus produce, was a wall of ULIDs on
+// exactly the commands a person reads for meaning.
+describe("the CLI names people instead of printing their ids", () => {
+  /** A person, and a fact authored under that person's id. */
+  async function authored(
+    db: string,
+  ): Promise<{ person: string; fact: string }> {
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "person",
+        "--attr",
+        "name=Alice Kim",
+        "--json",
+        "--db",
+        db,
+      ]),
+    ).toBe(0);
+    const person = JSON.parse(logs.at(-1) as string).id as string;
+    expect(await runCli(["verify", person, "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--attr",
+        "statement=the retry budget is three attempts",
+        "--actor",
+        person,
+        "--json",
+        "--db",
+        db,
+      ]),
+    ).toBe(0);
+    const fact = JSON.parse(logs.at(-1) as string).id as string;
+    return { person, fact };
+  }
+
+  it.each([
+    ["list", (_p: string, _f: string) => ["list"]],
+    ["review", (_p: string, _f: string) => ["review"]],
+    ["history", (_p: string, f: string) => ["history", f]],
+  ])("resolves the author in %s", async (_name, argv) => {
+    const db = newDb();
+    const { person, fact } = await authored(db);
+    logs.length = 0;
+    expect(await runCli([...argv(person, fact), "--db", db])).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("Alice Kim");
+    expect(out).not.toContain(`  ${person}`);
+  });
+
+  it("names the author and the confirmer in an injected citation", async () => {
+    const db = newDb();
+    const { person, fact } = await authored(db);
+    // A different person promotes it — the case where the two names differ.
+    expect(await runCli(["verify", fact, "--actor", "bob", "--db", db])).toBe(
+      0,
+    );
+    logs.length = 0;
+    expect(await runCli(["inject", "retry budget", "--db", db])).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("Alice Kim (confirmed by bob)");
+    // The pointer keeps the record's id — that is what makes a citation auditable — but not the actor's.
+    expect(out).toContain(`[fact:${fact}@v2]`);
+    expect(out).not.toContain(person);
+  });
+
+  it("leaves --json carrying core's citation string, ids and all", async () => {
+    const db = newDb();
+    const { person, fact } = await authored(db);
+    expect(await runCli(["verify", fact, "--actor", "bob", "--db", db])).toBe(
+      0,
+    );
+    logs.length = 0;
+    expect(await runCli(["inject", "retry budget", "--json", "--db", db])).toBe(
+      0,
+    );
+    const items = JSON.parse(logs.at(-1) as string) as Array<{
+      citation: string;
+      author?: string;
+    }>;
+    // Machine output is a contract: names are not unique and they change, so a script resolving people
+    // must get the id.
+    expect(items[0].citation).toContain(person);
+    expect(items[0].author).toBe(person);
+  });
+});

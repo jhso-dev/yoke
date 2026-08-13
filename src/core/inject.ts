@@ -28,6 +28,15 @@ export interface InjectItem {
    * declare, so a reader can tell "not disputed" from "we did not look".
    */
   conflictsWith?: string[];
+  /**
+   * Who actually wrote this, off the `authored_by` edge — absent when the record has no such edge.
+   *
+   * Exposed as well as folded into `citation` because a front tier has to RESOLVE it: the id is what
+   * makes a citation an audit pointer, and the name is what makes a line readable, so the two coexist
+   * (the web has always sent both). Without this a surface wanting the name would have to parse it back
+   * out of the citation string.
+   */
+  author?: string;
 }
 
 /** What a multi-hop anchor walk actually did (SPEC "Multi-hop"). Numbers only — front adapters turn
@@ -619,6 +628,7 @@ export async function inject(
       // Rebuilt now that the author is known. Without it `citation` names the promoter alone, which on a
       // verified record is whoever approved the knowledge rather than whoever wrote it.
       citation: citation(item.entity, author),
+      ...(author ? { author } : {}),
       ...(conflictsWith.length > 0 ? { conflictsWith } : {}),
     });
   }
