@@ -1593,4 +1593,93 @@ describe("a near-miss command gets the correction", () => {
     expect(await runCli(["frobnicate"], {})).toBe(1);
     expect(errs.join("\n")).toContain("getting started");
   });
+
+  it("suggests the intended option, the way it suggests a command", async () => {
+    expect(await runCli(["inject", "x", "--dept", "2"], {})).toBe(1);
+    expect(errs.join("\n")).toContain("did you mean '--depth'");
+  });
+});
+
+// Every one of these answered a question that had not been asked, at exit 0. The words the CLI could
+// not use were dropped, the numbers it could not parse became NaN, and NaN compares false against
+// everything — so the answer changed rather than the command failing.
+describe("an argument the CLI cannot use is refused, not dropped", () => {
+  it("refuses the words a query would have silently lost", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    // `yoke inject cache sessions` searched for "cache" alone, returned a record the full phrase
+    // excludes, and wrote "cache" into the audit trail as the question that had been asked.
+    expect(await runCli(["inject", "cache", "sessions", "--db", db])).toBe(1);
+    expect(errs.join("\n")).toContain('unexpected argument: "sessions"');
+    expect(errs.join("\n")).toContain("quote a phrase");
+    // The quoted form is what the reader meant, and it still works.
+    expect(await runCli(["inject", "cache sessions", "--db", db])).toBe(0);
+  });
+
+  it.each([
+    ["search", ["search", "cache", "sessions"]],
+    ["get", ["get", "some-id", "extra"]],
+    ["history", ["history", "some-id", "extra"]],
+    ["ontology list", ["ontology", "list", "extra"]],
+  ])("refuses an extra argument to %s", async (_name, argv) => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await runCli([...argv, "--db", db])).toBe(1);
+    expect(errs.join("\n")).toContain("unexpected argument");
+  });
+
+  it.each([
+    ["--limit abc", ["list", "--limit", "abc"], "whole number"],
+    ["--limit 0", ["list", "--limit", "0"], "at least 1"],
+    ["--version abc", ["get", "x", "--version", "abc"], "whole number"],
+    ["--as-of yesterday", ["inject", "q", "--as-of", "yesterday"], "ISO 8601"],
+    ["--as-of empty", ["inject", "q", "--as-of", ""], "ISO 8601"],
+    [
+      "--as-of impossible",
+      ["inject", "q", "--as-of", "2026-13-45T99:99:99Z"],
+      "ISO 8601",
+    ],
+  ])("refuses %s", async (_name, argv, expected) => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await runCli([...argv, "--db", db])).toBe(1);
+    expect(errs.join("\n")).toContain(expected);
+  });
+
+  // `--depth` needs an anchor, so this one reaches the number check only with a scope to walk from.
+  it("refuses a --depth that is not a number", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "inject",
+        "q",
+        "--scope",
+        "yoke:system",
+        "--depth",
+        "abc",
+        "--db",
+        db,
+      ]),
+    ).toBe(1);
+    expect(errs.join("\n")).toContain("whole number");
+  });
+
+  it("does not claim a record is missing when only the version is", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    // yoke:system is seeded, so this id exists — "not found" would be a false claim about the corpus,
+    // and the reader who believes it stops looking.
+    expect(
+      await runCli(["get", "yoke:system", "--version", "99", "--db", db]),
+    ).toBe(1);
+    expect(errs.join("\n")).toContain("has no version 99");
+    expect(errs.join("\n")).not.toContain("not found");
+    // An id that really is absent still says so.
+    errs.length = 0;
+    expect(
+      await runCli(["get", "01NOSUCHRECORD", "--version", "2", "--db", db]),
+    ).toBe(1);
+    expect(errs.join("\n")).toContain("not found");
+  });
 });

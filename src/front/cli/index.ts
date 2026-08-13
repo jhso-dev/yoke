@@ -163,6 +163,83 @@ const resolveDb = (v: Values, env: Env): string =>
 const resolveActor = (v: Values, env: Env): string =>
   v.actor ?? env.YOKE_ACTOR ?? "yoke:system";
 
+/**
+ * A caller error, as distinct from a failure. Thrown by the argument readers below and caught once at
+ * the dispatcher, which prints the message and exits 1.
+ *
+ * Named so that one catch can tell "you typed something I cannot act on" from "something broke",
+ * because the two deserve different sentences and only one of them is the reader's to fix.
+ */
+class UsageError extends Error {}
+
+/**
+ * A numeric flag, or a refusal naming what was wrong with it.
+ *
+ * Every numeric flag was `Number(v.x)`, which answers a DIFFERENT question rather than declining the
+ * one asked. Measured: `--limit abc` reached sqlite and surfaced as "datatype mismatch"; `--limit 0`
+ * crashed in the pager with "Cannot read properties of undefined"; `--version abc` and `--version 99`
+ * both printed "not found: <id>" for a record that exists, which is a lie about the corpus rather than
+ * a complaint about the argument; `--depth abc` silently walked zero hops and returned "no results"
+ * where `--depth 2` had an answer. NaN compares false against everything, so an unparseable number
+ * does not fail — it quietly changes the answer.
+ *
+ * `0x10` parsing as 16 while `3.7` errors is the same objection: a limit is a count, and a count is
+ * written in digits.
+ */
+function intFlag(
+  raw: string | undefined,
+  name: string,
+  min = 1,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!/^\d+$/.test(raw.trim()) || raw.trim() === "")
+    throw new UsageError(`--${name} must be a whole number (got "${raw}")`);
+  const n = Number(raw);
+  if (n < min)
+    throw new UsageError(`--${name} must be at least ${min} (got ${n})`);
+  return n;
+}
+
+/**
+ * A timestamp flag, or a refusal.
+ *
+ * `--as-of yesterday`, `--as-of not-a-date`, `--as-of ""` and `--as-of 2026-13-45T99:99:99Z` were all
+ * accepted with exit 0. Downstream, `Date.parse` yields NaN and every comparison against it is false,
+ * so `versionAsOf` keeps the latest version while `isFresh` reports everything expired: the answer is
+ * a plausible-looking history of a moment that does not exist. A question about the past is the one
+ * question whose answer a reader cannot sanity-check, so the instant has to be real before it is used.
+ */
+function instantFlag(
+  raw: string | undefined,
+  name: string,
+): string | undefined {
+  if (raw === undefined) return undefined;
+  if (Number.isNaN(Date.parse(raw)))
+    throw new UsageError(
+      `--${name} must be an ISO 8601 instant, e.g. 2026-08-13T00:00:00Z (got "${raw}")`,
+    );
+  return raw;
+}
+
+/**
+ * Refuse the arguments a command cannot use, naming them.
+ *
+ * `yoke inject cache sessions` — the natural way to type it — answered the query "cache", returned a
+ * record about invoices that the full phrase excludes, and wrote "cache" into the audit trail as the
+ * question that had been asked. `search`, `get`, `history`, `backup` and `ontology list` all dropped
+ * extra words the same way. An argument the CLI cannot honour is not a detail to swallow: the reader
+ * believes they asked something they did not, and the trail agrees with them.
+ */
+function noExtra(positionals: string[], keep: number, usage: string): void {
+  if (positionals.length > keep)
+    throw new UsageError(
+      `unexpected argument: ${positionals
+        .slice(keep)
+        .map((p) => `"${p}"`)
+        .join(" ")}` + `\nquote a phrase to pass it as one value\n${usage}`,
+    );
+}
+
 /** --attr k=v list → attributes. A repeated key becomes a string[]. */
 function parseAttrs(attrs: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -443,6 +520,12 @@ async function cmdAdd(
   env: Env,
 ): Promise<number> {
   const type = positionals[0];
+  noExtra(
+    positionals,
+    1,
+    "usage: yoke add <type> [--actor id] [--attr k=v ...] [--scope entity-id]\n" +
+      "  values go in --attr, not after the type",
+  );
   if (!type) {
     console.error(
       "usage: yoke add <type> [--actor id] [--attr k=v ...] [--scope entity-id]",
@@ -512,6 +595,11 @@ async function cmdLink(
   env: Env,
 ): Promise<number> {
   const [from, type, to] = positionals;
+  noExtra(
+    positionals,
+    3,
+    "usage: yoke link <from-id> <relation> <to-id> [--actor id] [--attr k=v ...]",
+  );
   if (!from || !type || !to) {
     console.error(
       "usage: yoke link <from-id> <relation> <to-id> [--actor id] [--attr k=v ...]\n" +
@@ -553,17 +641,20 @@ async function cmdLink(
   });
 }
 
+const GET_USAGE = "usage: yoke get <id> [--version n] [--relations]";
+
 async function cmdGet(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const id = positionals[0];
+  noExtra(positionals, 1, GET_USAGE);
   if (!id) {
-    console.error("usage: yoke get <id> [--version n] [--relations]");
+    console.error(GET_USAGE);
     return 1;
   }
-  const version = v.version === undefined ? undefined : Number(v.version);
+  const version = intFlag(v.version, "version");
   const actor = resolveActor(v, env);
   const getNs = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
@@ -587,6 +678,20 @@ async function cmdGet(
           rel,
         );
         return 0;
+      }
+      // "not found" is a claim about the corpus, and with `--version` it was usually false: `get <id>
+      // --version 99` printed it for a record that exists at v1 and v2. The reader takes the sentence at
+      // its word and stops looking. Ask again without the pin before answering — an id that does not
+      // resolve and a version that does not exist are different answers.
+      if (version !== undefined) {
+        const latest =
+          (await store.getEntity(id)) ?? (await store.getRelation?.(id));
+        if (latest) {
+          console.error(
+            `${id} has no version ${version} — the latest is ${latest.version} (omit --version for it)`,
+          );
+          return 1;
+        }
       }
       console.error(`not found: ${id}`);
       return 1;
@@ -666,7 +771,7 @@ async function cmdList(
       type: v.type,
       status: v.status,
       after: v.after,
-      limit: v.limit === undefined ? undefined : Number(v.limit),
+      limit: intFlag(v.limit, "limit"),
     });
     if (p.items.length === 0) {
       emit(v, "nothing to list", p);
@@ -702,7 +807,7 @@ async function cmdGraph(
     return 0;
   }
   const ns = resolveNs(v.ns, env);
-  const limit = v.limit === undefined ? 300 : Number(v.limit);
+  const limit = intFlag(v.limit, "limit") ?? 300;
   return withStore(v, env, async (store) => {
     const [nodes, edges] = await Promise.all([
       store.listEntities({ ns, limit }),
@@ -726,19 +831,22 @@ async function cmdGraph(
   });
 }
 
+const SEARCH_USAGE =
+  "usage: yoke search <query> [--type t] [--status s] [--limit n]\n" +
+  '  quote a phrase: yoke search "retry budget"';
+
 async function cmdSearch(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const query = positionals[0];
+  noExtra(positionals, 1, SEARCH_USAGE);
   if (!query) {
-    console.error(
-      "usage: yoke search <query> [--type t] [--status s] [--limit n]",
-    );
+    console.error(SEARCH_USAGE);
     return 1;
   }
-  const limit = v.limit === undefined ? undefined : Number(v.limit);
+  const limit = intFlag(v.limit, "limit");
   const ns = resolveNs(v.ns, env);
   const actor = resolveActor(v, env);
   return withStore(v, env, async (store) => {
@@ -773,7 +881,7 @@ async function cmdSearch(
 
 async function cmdReview(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
-  const limit = v.limit === undefined ? undefined : Number(v.limit);
+  const limit = intFlag(v.limit, "limit");
   return withStore(v, env, async (store) => {
     const ontology = store.loadOntology(ns);
     // --stale is the OTHER queue: verified records past their type's TTL. SPEC has said since v1 that
@@ -918,22 +1026,26 @@ async function cmdDeprecate(
   });
 }
 
+const INJECT_USAGE =
+  "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]\n" +
+  '  quote a phrase: yoke inject "retry budget"\n' +
+  "       yoke inject --scope <id>            briefing of that working context\n" +
+  "       yoke inject --scope <id> --depth 2  and what that context's context knows\n" +
+  "       yoke inject <query> --as-of <ts>    what this would have injected then";
+
 async function cmdInject(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const query = positionals[0] ?? "";
+  noExtra(positionals, 1, INJECT_USAGE);
+  const asOf = instantFlag(v["as-of"], "as-of");
   // `--scope <id>` with no query is a briefing of that working context — the MCP tool and the web
   // route have always allowed it, and the CLI's require-a-query guard silently made the one front
   // adapter a human uses unable to reproduce what an agent receives (the CLI-achievable rule).
   if (!query && v.scope === undefined) {
-    console.error(
-      "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]\n" +
-        "       yoke inject --scope <id>            briefing of that working context\n" +
-        "       yoke inject --scope <id> --depth 2  and what that context's context knows\n" +
-        "       yoke inject <query> --as-of <ts>    what this would have injected then",
-    );
+    console.error(INJECT_USAGE);
     return 1;
   }
   // `--depth` only means anything with an anchor to walk from, and core ignores it otherwise — so
@@ -944,7 +1056,7 @@ async function cmdInject(
     console.error("--depth walks from an anchor: pass --scope <id> as well");
     return 1;
   }
-  const limit = v.limit === undefined ? undefined : Number(v.limit);
+  const limit = intFlag(v.limit, "limit");
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
@@ -975,8 +1087,8 @@ async function cmdInject(
         // reproduce each other's results (WEB-UI's CLI-achievable rule).
         scope: v.scope,
         // Relation hops the anchor walk takes (SPEC "Multi-hop"). 1 = the v4.0 behaviour.
-        depth: v.depth === undefined ? undefined : Number(v.depth),
-        asOf: v["as-of"],
+        depth: intFlag(v.depth, "depth"),
+        asOf,
         // Hybrid retrieval (SPEC "Hybrid retrieval"): the same env-configured embedder the gate uses,
         // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
         embedder: makeFetchEmbedder(env),
@@ -988,7 +1100,7 @@ async function cmdInject(
       action: "inject",
       detail: injectDetail(
         items.map((it) => it.entity.id),
-        { query, scope: v.scope, asOf: v["as-of"] },
+        { query, scope: v.scope, asOf },
       ),
       at: ts,
       ns,
@@ -1039,14 +1151,17 @@ async function cmdInject(
 }
 
 // history (PLAN 8.4): the append-only version rows ARE the change audit — this just exposes them.
+const HISTORY_USAGE = "usage: yoke history <id>";
+
 async function cmdHistory(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const id = positionals[0];
+  noExtra(positionals, 1, HISTORY_USAGE);
   if (!id) {
-    console.error("usage: yoke history <id>");
+    console.error(HISTORY_USAGE);
     return 1;
   }
   return withStore(v, env, async (store) => {
@@ -1084,11 +1199,11 @@ async function cmdAudit(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     const events = store.listAudit({
-      since: v.since,
+      since: instantFlag(v.since, "since"),
       // The same flag `export` uses, here as the closed end of a window. Both bounds inclusive.
-      until: v.until,
+      until: instantFlag(v.until, "until"),
       ns,
-      limit: v.limit === undefined ? undefined : Number(v.limit),
+      limit: intFlag(v.limit, "limit"),
     });
     if (v.shape) return emitShapes(v, events);
     const lines = events.map(
@@ -1144,7 +1259,7 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
-    const top = v.limit === undefined ? undefined : Number(v.limit);
+    const top = intFlag(v.limit, "limit");
     const ts = now();
     const o = await overview(store, ontology, ts, { ns, top });
     // Same audit row the MCP tool writes: a hub line carries a record's own text, and SPEC's audit
@@ -1240,6 +1355,7 @@ async function cmdRenameType(
   env: Env,
 ): Promise<number> {
   const [from, to] = positionals;
+  noExtra(positionals, 2, "usage: yoke rename-type <from> <to>");
   if (!from || !to) {
     console.error(
       "usage: yoke rename-type <from> <to>\n" +
@@ -1289,7 +1405,7 @@ async function cmdRenameType(
 // author rather than whoever runs the backfill. Idempotent: a second run creates nothing.
 async function cmdBackfill(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
-  const limit = v.limit === undefined ? undefined : Number(v.limit);
+  const limit = intFlag(v.limit, "limit");
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
@@ -1335,12 +1451,17 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
   });
 }
 
+const ONTOLOGY_USAGE = "usage: yoke ontology <list|add-type <json-file>>";
+
 async function cmdOntology(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const [sub, file] = positionals;
+  // Per subcommand: `list` takes none, `add-type` takes one. A single allowance of 2 let
+  // `ontology list extra` through, which is the same silent drop this guard exists to stop.
+  noExtra(positionals, sub === "list" ? 1 : 2, ONTOLOGY_USAGE);
   const ns = resolveNs(v.ns, env);
   if (sub === "list") {
     return withStore(v, env, async (store) => {
@@ -1385,7 +1506,7 @@ async function cmdOntology(
       return 0;
     });
   }
-  console.error("usage: yoke ontology <list|add-type <json-file>>");
+  console.error(ONTOLOGY_USAGE);
   return 1;
 }
 
@@ -1639,7 +1760,7 @@ async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
 
 // ui (PLAN 9.x): the governance workbench. Server keeps the process alive until SIGINT.
 async function cmdUi(v: Values, env: Env): Promise<number> {
-  const port = v.port === undefined ? 4800 : Number(v.port);
+  const port = intFlag(v.port, "port", 0) ?? 4800;
   const server = await runUi(
     resolveDb(v, env),
     port,
@@ -1656,7 +1777,7 @@ async function cmdUi(v: Values, env: Env): Promise<number> {
 
 // serve (PLAN-V2 10.2): UI + JSON API + remote MCP on one port. Auth (10.3/10.4) is opt-in.
 async function cmdServe(v: Values, env: Env): Promise<number> {
-  const port = v.port === undefined ? 4800 : Number(v.port);
+  const port = intFlag(v.port, "port", 0) ?? 4800;
   const server = await runServe(resolveDb(v, env), port, env, {
     auth: v.auth,
     ns: resolveNs(v.ns, env),
@@ -1732,14 +1853,19 @@ async function cmdToken(
 }
 
 // backup (PLAN-V2 11.1): online WAL-safe snapshot to a fresh file.
+const BACKUP_USAGE =
+  "usage: yoke backup <dest.db>\n" +
+  "  --out belongs to 'yoke export'; backup takes the destination as its argument";
+
 async function cmdBackup(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const dest = positionals[0];
+  noExtra(positionals, 1, BACKUP_USAGE);
   if (!dest) {
-    console.error("usage: yoke backup <dest.db>");
+    console.error(BACKUP_USAGE);
     return 1;
   }
   const db = resolveDb(v, env);
@@ -1759,6 +1885,7 @@ async function cmdRestore(
   env: Env,
 ): Promise<number> {
   const src = positionals[0];
+  noExtra(positionals, 1, "usage: yoke restore <src.db> [--force]");
   if (!src) {
     console.error("usage: yoke restore <src.db> [--force]");
     return 1;
@@ -1824,10 +1951,13 @@ async function cmdExport(v: Values, env: Env): Promise<number> {
     console.error("usage: yoke export --until <iso-ts> --out <new.db>");
     return 1;
   }
+  // Checked before the copy, not inside the report of it: an unparseable instant compares false
+  // against every row, so `exportUntil("yesterday")` writes a file and calls it a point in time.
+  const until = instantFlag(v.until, "until") as string;
   return withStore(v, env, async (store) => {
-    await store.exportUntil(v.until as string, v.out as string);
-    emit(v, `exported state as of ${v.until} -> ${v.out}`, {
-      until: v.until,
+    await store.exportUntil(until, v.out as string);
+    emit(v, `exported state as of ${until} -> ${v.out}`, {
+      until,
       out: v.out,
     });
     return 0;
@@ -1853,7 +1983,34 @@ export async function runCli(
       strict: true,
     }) as { values: Values; positionals: string[] };
   } catch (e) {
-    console.error((e as Error).message);
+    // node's own parser messages, translated into this tool's voice where they are unhelpful. Two are
+    // worth the lines: a negative number reads as "Option '--limit' argument is ambiguous", which names
+    // no fix; and an unknown flag reads as a paragraph about `--` that suggests passing the typo as a
+    // positional argument. `--dept` for `--depth` deserves the same near-miss correction a mistyped
+    // COMMAND already gets.
+    const msg = (e as Error).message;
+    const flag = /'(--[\w-]+)'/.exec(msg)?.[1];
+    const bare = flag?.replace(/^--/, "");
+    if (/ambiguous/i.test(msg) && flag) {
+      console.error(
+        `${flag} looks like it was given a negative value. Counts are positive; ` +
+          `write ${flag} <n>, and use '${flag}=-1' only if you really mean a literal "-1".`,
+      );
+      return 1;
+    }
+    if (/[Uu]nknown option/.test(msg) && bare) {
+      const near = Object.keys(OPTIONS).filter(
+        (o) => editDistance(o, bare) <= (bare.length <= 4 ? 1 : 2),
+      );
+      console.error(
+        `unknown option: ${flag}` +
+          (near.length > 0
+            ? ` — did you mean ${near.map((o) => `'--${o}'`).join(" or ")}?`
+            : `\nrun 'yoke help' for the options every command takes`),
+      );
+      return 1;
+    }
+    console.error(msg);
     return 1;
   }
   const { values, positionals } = parsed;
@@ -1945,7 +2102,26 @@ export async function runCli(
         return 1;
     }
   } catch (e) {
-    console.error((e as Error).message);
+    // A caller error is already a sentence addressed to the reader — print it and nothing else.
+    if (e instanceof UsageError) {
+      console.error((e as Error).message);
+      return 1;
+    }
+    // Everything else reaching here is a failure, and the bare message is usually the storage engine's:
+    // "datatype mismatch", "database disk image is malformed", "file is not a database", "NOT NULL
+    // constraint failed: ontology_types.name". None of them names the file it happened to or what to do
+    // next, in a tool whose own style is "not initialized: <path> — run 'yoke init' first". Naming the
+    // database is the one piece of context this layer always has, and the corruption case gets the
+    // command that exists for it.
+    const msg = (e as Error).message;
+    const db = resolveDb(values, env);
+    const corrupt =
+      /malformed|not a database|file is encrypted|disk image/i.test(msg);
+    console.error(
+      corrupt
+        ? `${db}: ${msg}\nthis file is not a readable yoke database — restore a backup with 'yoke restore <backup.db> --force'`
+        : `${command ?? "yoke"} failed on ${db}: ${msg}`,
+    );
     return 1;
   }
 }
