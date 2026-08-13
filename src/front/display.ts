@@ -8,6 +8,7 @@
 
 import type { WithheldStats } from "../core/inject.js";
 import type { TypeDef } from "../core/ontology.js";
+import type { YokeStore } from "./store.js";
 
 /** Keys that are bookkeeping, never the knowledge. A connector puts external_id first. */
 const NOT_CONTENT = new Set([
@@ -183,4 +184,29 @@ export function describeWithheld(w: WithheldStats): string {
     );
   const total = w.draft + w.stale + w.deprecated + w.structural;
   return `${total} match(es) withheld: ${parts.join(", ")}`;
+}
+
+/**
+ * The governance act that retired a record, read back from the trail: who, when, and why if anyone
+ * said. The LAST deprecate naming this id wins — a record can be retired, re-verified and retired
+ * again, and the current status is explained by the most recent act, not the first.
+ *
+ * `ceiling:` scans the namespace's audit rows rather than querying by id, because the trail is a log
+ * with no index on the records a row mentions. It is bounded by the deprecate rows in one namespace,
+ * which is the count of governance acts rather than of knowledge — add an index when a corpus has
+ * enough retirements for this to be felt.
+ */
+export function retirementOf(
+  store: YokeStore,
+  id: string,
+  ns: string | null,
+): { actor: string; at: string; reason?: string } | undefined {
+  const rows = store.listAudit({ ns });
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i];
+    if (r.action !== "deprecate") continue;
+    if (!r.detail.split(" ").includes(id)) continue;
+    return { actor: r.actor, at: r.at, ...(r.note ? { reason: r.note } : {}) };
+  }
+  return undefined;
 }

@@ -56,6 +56,7 @@ import {
   injectDetail,
   injectShape,
   rankByConsumption,
+  retirementOf,
   summarize,
 } from "../display.js";
 import { runMcp } from "../mcp/index.js";
@@ -556,8 +557,15 @@ async function cmdGet(
       at: now(),
       ns: getNs,
     });
+    // A retired record raises exactly one question, and the answer is on the audit row (see history).
+    const retired =
+      e.status === "deprecated" ? retirementOf(store, e.id, getNs) : undefined;
+    const head =
+      retired?.reason !== undefined
+        ? `${formatEntity(e)}\n  retired: ${retired.reason}`
+        : formatEntity(e);
     if (!v.relations) {
-      emit(v, formatEntity(e), e);
+      emit(v, head, retired ? { ...e, retired } : e);
       return 0;
     }
     // Relations are reachable from no other command — the entity-detail screen needs them, so the
@@ -575,11 +583,8 @@ async function cmdGet(
     );
     emit(
       v,
-      [
-        formatEntity(e),
-        lines.length ? lines.join("\n") : "  (no relations)",
-      ].join("\n"),
-      { ...e, relations: edges },
+      [head, lines.length ? lines.join("\n") : "  (no relations)"].join("\n"),
+      { ...e, relations: edges, ...(retired ? { retired } : {}) },
     );
     return 0;
   });
@@ -996,11 +1001,23 @@ async function cmdHistory(
       console.error(`not found: ${id}`);
       return 1;
     }
-    const lines = versions.map(
-      (e) =>
-        `v${e.version}  ${e.status}  ${e.provenance.actor}  ${e.last_confirmed}  ${summarize(e, ontology)}`,
+    // The retirement reason belongs on the version that IS the retirement. `deprecate --reason` has
+    // stored it since it was added, on the audit row rather than the record (a governance act's
+    // property, not knowledge content) — and the web read it back while `get`, `history` and the text
+    // `audit` did not, so the answer to "why is this deprecated" was reachable only through
+    // `audit --json`. The question the flag exists to answer is asked here.
+    const retired = retirementOf(store, id, resolveNs(v.ns, env));
+    const lines = versions.map((e) => {
+      const base = `v${e.version}  ${e.status}  ${e.provenance.actor}  ${e.last_confirmed}  ${summarize(e, ontology)}`;
+      return e.status === "deprecated" && retired?.reason
+        ? `${base}\n    reason: ${retired.reason}`
+        : base;
+    });
+    emit(
+      v,
+      lines.join("\n"),
+      retired?.reason ? { versions, retired: { ...retired } } : versions,
     );
-    emit(v, lines.join("\n"), versions);
     return 0;
   });
 }
@@ -1270,9 +1287,20 @@ async function cmdOntology(
   if (sub === "list") {
     return withStore(v, env, async (store) => {
       const defs = store.loadOntology(ns);
-      const lines = defs.map(
-        (d) => `${d.name}  ${d.kind}  ttl=${d.ttl_days ?? "∞"}`,
-      );
+      // The attributes, not just the type names. Every journey through this CLI failed its first `add`
+      // and learned the shape of the type from the rejections: `ontology list` printed the name, the
+      // kind and the TTL, and the schema it was holding was reachable only through `--json`. The one
+      // screen whose job is "what can I record" left out what a record needs.
+      const lines = defs.map((d) => {
+        const attrs = Object.entries(d.attrs);
+        const req = attrs.filter(([, a]) => a.required).map(([k]) => k);
+        const opt = attrs.filter(([, a]) => !a.required).map(([k]) => k);
+        return (
+          `${d.name}  ${d.kind}  ttl=${d.ttl_days ?? "∞"}` +
+          (req.length ? `  requires: ${req.join(", ")}` : "") +
+          (opt.length ? `  optional: ${opt.join(", ")}` : "")
+        );
+      });
       emit(v, lines.join("\n"), defs);
       return 0;
     });

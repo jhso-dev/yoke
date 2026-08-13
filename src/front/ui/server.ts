@@ -36,6 +36,7 @@ import {
   consumptionCounts,
   injectDetail,
   rankByConsumption,
+  retirementOf,
   summarize,
   ULID,
 } from "../display.js";
@@ -307,31 +308,6 @@ function sendJson(res: ServerResponse, code: number, data: unknown): void {
 /** 256 KiB — a bulk verify of thousands of ULIDs still fits, and an unbounded stream cannot pin
  * memory. ceiling: one cap for the one POST shape we accept; make it per-route if that changes. */
 const MAX_BODY = 256 * 1024;
-
-/**
- * The governance act that retired a record, read back from the trail: who, when, and why if anyone
- * said. The LAST deprecate naming this id wins — a record can be retired, re-verified and retired
- * again, and the current status is explained by the most recent act, not the first.
- *
- * `ceiling:` scans the namespace's audit rows rather than querying by id, because the trail is a log
- * with no index on the records a row mentions. It is bounded by the deprecate rows in one namespace,
- * which is the count of governance acts rather than of knowledge — add an index when a corpus has
- * enough retirements for this to be felt.
- */
-function retirementOf(
-  store: YokeStore,
-  id: string,
-  ns: string | null,
-): { actor: string; at: string; reason?: string } | undefined {
-  const rows = store.listAudit({ ns });
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const r = rows[i];
-    if (r.action !== "deprecate") continue;
-    if (!r.detail.split(" ").includes(id)) continue;
-    return { actor: r.actor, at: r.at, ...(r.note ? { reason: r.note } : {}) };
-  }
-  return undefined;
-}
 
 /** How many of an audit event's referenced records get resolved to a readable summary. A bulk verify
  * can name thousands of ids; resolving all of them would turn one audit page into thousands of point
