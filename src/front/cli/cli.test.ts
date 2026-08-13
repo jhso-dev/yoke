@@ -1582,6 +1582,92 @@ describe("loadDotEnv", () => {
 
 // A mistyped command used to answer with the whole help screen — every miss in a usability pass was
 // one edit away, and 25 lines of overview buries the correction in the noise it caused.
+// One record, four commands, two answers. `inject` withheld it, `review --stale` listed it and
+// `overview` counted it stale, while `get` and `list` — the two commands a person actually uses to
+// check whether their knowledge is live — printed "verified".
+describe("the CLI shows the status injection uses", () => {
+  /** A verified fact confirmed long enough ago to be past the seeded 180-day `fact` TTL. */
+  async function agedFact(db: string): Promise<string> {
+    const port = new SqliteStorage(db);
+    await port.init();
+    const long_ago = "2025-01-01T00:00:00Z";
+    const { entity } = await commit(
+      port,
+      seedOntology(),
+      {
+        type: "fact",
+        attributes: { statement: "the pool drains at midnight" },
+      },
+      { actor: "tester", origin: "test", occurred_at: long_ago },
+      long_ago,
+    );
+    await verify(port, [entity.id], "tester", long_ago);
+    port.close();
+    return entity.id;
+  }
+
+  it.each([
+    "get",
+    "list",
+    "search",
+  ])("reports it as stale in %s", async (cmd) => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const id = await agedFact(db);
+    const argv =
+      cmd === "get"
+        ? ["get", id]
+        : cmd === "list"
+          ? ["list"]
+          : ["search", "pool"];
+    expect(await runCli([...argv, "--db", db])).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("stale");
+    // The stored column still says verified, so a surface printing it says the wrong thing.
+    expect(out).not.toMatch(/\bfact\s+verified\b/);
+  });
+
+  it("still reports a draft as a draft", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli(["add", "fact", "--attr", "statement=fresh", "--db", db]),
+    ).toBe(0);
+    expect(await runCli(["list", "--db", db])).toBe(0);
+    expect(logs.join("\n")).toContain("draft");
+  });
+});
+
+// A filter that cannot match is the same defect as an argument that is dropped: "nothing to list" is
+// indistinguishable from an empty corpus, and the reader concludes the corpus is empty.
+describe("a filter value that cannot match is refused", () => {
+  it("points --status stale at the command that answers it", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    // `stale` is computed at read time and pushed down to SQL, so no stored row can carry it.
+    expect(await runCli(["list", "--status", "stale", "--db", db])).toBe(1);
+    expect(errs.join("\n")).toContain("review --stale");
+  });
+
+  it.each([
+    ["bogus", "must be one of"],
+    ["DRAFT", "must be one of"],
+  ])("refuses --status %s", async (value, expected) => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await runCli(["list", "--status", value, "--db", db])).toBe(1);
+    expect(errs.join("\n")).toContain(expected);
+  });
+
+  it("lists the declared types when --type is not one of them", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await runCli(["list", "--type", "nosuchtype", "--db", db])).toBe(1);
+    expect(errs.join("\n")).toContain("unknown type: nosuchtype");
+    expect(errs.join("\n")).toContain("fact");
+  });
+});
+
 describe("a near-miss command gets the correction", () => {
   it("suggests the intended command", async () => {
     expect(await runCli(["inejct", "anything"], {})).toBe(1);

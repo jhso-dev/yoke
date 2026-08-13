@@ -7,8 +7,34 @@
 // knowledge — so every web screen showed the defect the CLI had already fixed. One copy, one fix.
 
 import type { WithheldStats } from "../core/inject.js";
+import { effectiveStatus } from "../core/lifecycle.js";
 import type { TypeDef } from "../core/ontology.js";
+import type { Entity, Relation, Status } from "../core/types.js";
 import type { YokeStore } from "./store.js";
+
+/**
+ * The status to SHOW for a record: the stored one, unless the type's TTL has expired it.
+ *
+ * `stale` is computed at read time and never stored (core/lifecycle), so a surface that prints the
+ * stored column tells the reader "verified" about a record injection refuses to serve. Reproduced on
+ * one record across four commands: `yoke get` and `yoke list` said verified, `yoke review --stale`
+ * listed it as aged out, `yoke overview` counted it stale, and `yoke inject` withheld it. A person
+ * checking whether their knowledge is live reads `get` and concludes it is.
+ *
+ * The web tier has always done this (`row()` in ui/server.ts, whose comment describes exactly this
+ * hazard). It was fixed there and nowhere else — the same one-copy argument this file was created for.
+ *
+ * Relations pass through: nothing filters on an edge's status, and no relation type declares a TTL, so
+ * computing freshness for one would invent a distinction the rest of the product does not make
+ * (`ceiling:` in core/lifecycle on relation promotion).
+ */
+export function shownStatus(
+  e: Entity | Relation,
+  ontology: TypeDef[],
+  now: string,
+): Status {
+  return "from" in e ? e.status : effectiveStatus(e, ontology, now);
+}
 
 /** Keys that are bookkeeping, never the knowledge. A connector puts external_id first. */
 const NOT_CONTENT = new Set([

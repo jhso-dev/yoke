@@ -57,6 +57,7 @@ import {
   injectShape,
   rankByConsumption,
   retirementOf,
+  shownStatus,
   summarize,
 } from "../display.js";
 import { runMcp } from "../mcp/index.js";
@@ -240,6 +241,54 @@ function noExtra(positionals: string[], keep: number, usage: string): void {
     );
 }
 
+/** The four stored values of `status`. `stale` is NOT among them — see `statusFilter`. */
+const STORED_STATUSES = ["draft", "verified", "deprecated"] as const;
+
+/**
+ * A `--status` filter, or a refusal that names why the value cannot match.
+ *
+ * `list --status stale` answered "nothing to list" on a database whose own `overview` reported 132
+ * stale records, because `stale` is computed at read time and never stored — the filter is pushed down
+ * to SQL, where no row can carry it. Silence is the worst possible answer to the obvious way of asking
+ * "what has expired": it reads as "none have", which is the opposite of the truth. `--status bogus` and
+ * `--status DRAFT` were equally silent, and equally indistinguishable from an empty corpus.
+ *
+ * The stale case gets the command that does answer it. The others get the values that exist.
+ */
+function statusFilter(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "stale")
+    throw new UsageError(
+      "stale is computed at read time, not stored, so no filter can match it — " +
+        "'yoke review --stale' is the queue of verified records past their TTL",
+    );
+  if (!STORED_STATUSES.includes(raw as (typeof STORED_STATUSES)[number]))
+    throw new UsageError(
+      `--status must be one of ${STORED_STATUSES.join(", ")} (got "${raw}")`,
+    );
+  return raw;
+}
+
+/**
+ * A `--type` filter, or a refusal listing the types that exist.
+ *
+ * Same defect as `--status`: an unregistered name answered "nothing to list", so a typo and an empty
+ * corpus produced identical output. The ontology is right there and knows every valid name.
+ */
+function typeFilter(
+  raw: string | undefined,
+  ontology: TypeDef[],
+): string | undefined {
+  if (raw === undefined) return undefined;
+  if (!ontology.some((t) => t.name === raw))
+    throw new UsageError(
+      `unknown type: ${raw}\ndeclared types: ${ontology
+        .map((t) => t.name)
+        .join(", ")}`,
+    );
+  return raw;
+}
+
 /** --attr k=v list → attributes. A repeated key becomes a string[]. */
 function parseAttrs(attrs: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -264,8 +313,15 @@ function emit(v: Values, human: string, data: unknown): void {
   console.log(v.json ? JSON.stringify(data) : human);
 }
 
-function formatEntity(e: Entity | Relation): string {
-  return `${e.id}  ${e.type}  ${e.status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
+function formatEntity(
+  e: Entity | Relation,
+  ontology?: TypeDef[],
+  at?: string,
+): string {
+  // With the ontology, the column is what injection would decide; without it, the stored value. The two
+  // callers that omit it print a record they have just committed, and a fresh commit is a draft.
+  const status = ontology && at ? shownStatus(e, ontology, at) : e.status;
+  return `${e.id}  ${e.type}  ${status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
 }
 
 /**
@@ -700,20 +756,22 @@ async function cmdGet(
     // `GET /api/entity/:id`. The rule is per front ADAPTER: if only the browser wrote this row,
     // "who read this record" would be unanswerable for every read done the normal way, which is
     // exactly how `verify` drifted before v5.0.
+    const readAt = now();
     store.logAudit({
       actor,
       action: "read",
       detail: e.id,
-      at: now(),
+      at: readAt,
       ns: getNs,
     });
+    const ontology = store.loadOntology(getNs);
     // A retired record raises exactly one question, and the answer is on the audit row (see history).
     const retired =
       e.status === "deprecated" ? retirementOf(store, e.id, getNs) : undefined;
     const head =
       retired?.reason !== undefined
-        ? `${formatEntity(e)}\n  retired: ${retired.reason}`
-        : formatEntity(e);
+        ? `${formatEntity(e, ontology, readAt)}\n  retired: ${retired.reason}`
+        : formatEntity(e, ontology, readAt);
     if (!v.relations) {
       emit(v, head, retired ? { ...e, retired } : e);
       return 0;
@@ -764,12 +822,13 @@ async function cmdList(
     return 0;
   }
   const ns = resolveNs(v.ns, env);
+  const listedAt = now();
   return withStore(v, env, async (store) => {
     const ontology = store.loadOntology(ns);
     const p = await store.listEntities({
       ns,
-      type: v.type,
-      status: v.status,
+      type: typeFilter(v.type, ontology),
+      status: statusFilter(v.status),
       after: v.after,
       limit: intFlag(v.limit, "limit"),
     });
@@ -779,7 +838,7 @@ async function cmdList(
     }
     const lines = p.items.map(
       (e) =>
-        `${e.id}  ${e.type}  ${e.status}  ${summarize(e, ontology)}  ${e.provenance.actor}`,
+        `${e.id}  ${e.type}  ${shownStatus(e, ontology, listedAt)}  ${summarize(e, ontology)}  ${e.provenance.actor}`,
     );
     if (p.next) lines.push(`-- more: yoke list --after ${p.next}`);
     emit(v, lines.join("\n"), p);
@@ -849,13 +908,15 @@ async function cmdSearch(
   const limit = intFlag(v.limit, "limit");
   const ns = resolveNs(v.ns, env);
   const actor = resolveActor(v, env);
+  const searchedAt = now();
   return withStore(v, env, async (store) => {
+    const ontology = store.loadOntology(ns);
     const results = await store.search({
       text: query,
-      type: v.type,
+      type: typeFilter(v.type, ontology),
       // `--status` exists so this command and `/api/search` can express the same query. Without it
       // the browser could ask a question the CLI could not, which is the parity rule broken.
-      status: v.status,
+      status: statusFilter(v.status),
       limit,
       ns,
     });
@@ -872,7 +933,9 @@ async function cmdSearch(
     // like a command that did nothing. --json is unchanged (an empty array is already unambiguous).
     emit(
       v,
-      results.length ? results.map(formatEntity).join("\n") : "no results",
+      results.length
+        ? results.map((e) => formatEntity(e, ontology, searchedAt)).join("\n")
+        : "no results",
       results,
     );
     return 0;
@@ -892,7 +955,7 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
         store,
         ontology,
         now(),
-        { ns, type: v.type, limit, after: v.after },
+        { ns, type: typeFilter(v.type, ontology), limit, after: v.after },
       );
       if (items.length === 0) {
         emit(v, `no stale records (scanned ${scanned} verified)`, []);
@@ -919,7 +982,11 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
       return 0;
     }
     const drafts = (
-      await store.listEntities({ status: "draft", ns, type: v.type })
+      await store.listEntities({
+        status: "draft",
+        ns,
+        type: typeFilter(v.type, ontology),
+      })
     ).items;
     if (drafts.length === 0) {
       emit(v, "no drafts", []);
