@@ -25,7 +25,11 @@ import {
 } from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { personaQuery } from "../../core/persona.js";
+import {
+  NotAPerson,
+  type PersonaResult,
+  personaQuery,
+} from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
 import {
@@ -1037,9 +1041,20 @@ export function createUiHandler(
       if (denied(res, "read")) return;
       const id = decodeURIComponent(path.slice("/api/persona/".length));
       const ts = now();
-      const result = await personaQuery(store, store.loadOntology(ns), id, ts, {
-        ns,
-      });
+      // Core refuses an anchor that is not a person, so the screen cannot render a persona about a
+      // fact: 404 rather than an empty document, which is what an id typed into the URL used to give.
+      let result: PersonaResult;
+      try {
+        result = await personaQuery(store, store.loadOntology(ns), id, ts, {
+          ns,
+        });
+      } catch (e) {
+        if (e instanceof NotAPerson) {
+          sendJson(res, 404, { error: e.message });
+          return;
+        }
+        throw e;
+      }
       // A persona read IS an injection — same knowledge, same citations — so it leaves the same
       // trail as its MCP twin. ENTERPRISE.md's audit target is "who got what knowledge injected",
       // and a read path that answers with attributes but writes no row makes that claim false.

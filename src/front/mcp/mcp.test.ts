@@ -164,7 +164,9 @@ describe("yoke MCP server", () => {
       arguments: { person: "nobody" },
     });
     expect(missing.isError).toBe(true);
-    expect(text(missing)).toContain("person not found");
+    // The refusal comes from core now, which distinguishes "no such record" from "that record is not
+    // a person" — the second is what let a fact id produce a persona about nobody.
+    expect(text(missing)).toContain("not found");
     await s.close();
   });
 

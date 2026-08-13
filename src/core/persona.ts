@@ -23,6 +23,22 @@ export interface PersonaResult {
   facts: Entity[];
 }
 
+/** Thrown when the anchor is not someone a persona can be about. */
+export class NotAPerson extends Error {}
+
+/**
+ * The entity type a persona can be anchored on.
+ *
+ * Hardcoded, like `decision` in the conflict heuristic and `authored_by` in the authorship mirror: a
+ * persona is inherently about a person, so the type is part of the mechanism rather than a
+ * configuration of it.
+ *
+ * ceiling: a tenant whose people are some other type (`employee`, `colleague`) cannot anchor a
+ * persona. Lifting that means a `TypeDef` marker, the same extension point `membership` and
+ * `structural` are — not a second string compared here.
+ */
+const PERSON_TYPE = "person";
+
 /**
  * The persona entry point: an injection anchored on a person, read strictly.
  * authored_by means "entity authored by person" → from:entity → to:person, so the person's dir:'in'
@@ -39,6 +55,20 @@ export async function personaQuery(
   now: string,
   opts?: { query?: string; ns?: string | null },
 ): Promise<PersonaResult> {
+  // The anchor has to be a person. `persona <fact-id>` used to succeed: zero sources, a SKILL.md
+  // headed "Persona grounded in 01KZWW1T…'s recorded judgments", and `--check` on it reporting "0
+  // sources, all current" — a green light on a document about nobody. An anchor that is knowledge
+  // rather than someone cannot have authored anything, so an empty result is guaranteed and reporting
+  // it as a persona is the lie.
+  //
+  // Enforced here rather than per surface: the CLI checked the id EXISTS (a fact id passes that) and
+  // MCP and the web checked nothing.
+  const anchor = await port.getEntity(personId);
+  if (!anchor) throw new NotAPerson(`not found: ${personId}`);
+  if (anchor.type !== PERSON_TYPE)
+    throw new NotAPerson(
+      `a persona is anchored on a ${PERSON_TYPE}, and ${personId} is a ${anchor.type}`,
+    );
   // One person can hold several records (`same_as`, v5.6), and a persona built from one of them is
   // half of that person's judgment presented as all of it. Anchor on each and union.
   //

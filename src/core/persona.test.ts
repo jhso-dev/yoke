@@ -10,6 +10,7 @@ import { deprecate, verify } from "./lifecycle.js";
 import { seedOntology } from "./ontology.js";
 import {
   checkPersonaSources,
+  NotAPerson,
   parsePersonaSources,
   personaQuery,
   renderPersonaSkill,
@@ -66,6 +67,7 @@ async function add(
 
 describe("personaQuery", () => {
   it("collects verified knowledge the person authored and splits decision vs fact", async () => {
+    await node("alex");
     const d = await add(
       "decision",
       { conclusion: "use SQLite", rationale: "zero-config" },
@@ -97,6 +99,8 @@ describe("personaQuery", () => {
   });
 
   it("keeps the original author's knowledge when someone else verifies it", async () => {
+    await node("alex");
+    await node("admin");
     const d = await add(
       "decision",
       { conclusion: "use FTS prefix", rationale: "korean suffix" },
@@ -165,6 +169,7 @@ describe("personaQuery", () => {
   });
 
   it("filters the person's own records by query, without pulling org-wide matches in", async () => {
+    await node("alex");
     const mine = await add(
       "fact",
       { statement: "we cache with redis" },
@@ -185,6 +190,7 @@ describe("personaQuery", () => {
   });
 
   it("excludes drafts (unverified)", async () => {
+    await node("alex");
     await add("decision", { conclusion: "x", rationale: "y" }, "alex");
     const res = await personaQuery(port, ont, "alex", now);
     expect(res.decisions).toEqual([]);
@@ -192,6 +198,7 @@ describe("personaQuery", () => {
   });
 
   it("excludes verified-but-stale (TTL exceeded)", async () => {
+    await node("alex");
     const f = await add("fact", { statement: "aging" }, "alex"); // fact TTL = 180 days
     await verify(port, [f], "alex", now);
     const res = await personaQuery(port, ont, "alex", "2027-06-01T00:00:00Z");
@@ -533,6 +540,47 @@ describe("checkPersonaSources", () => {
     // Same id, default ns: present in storage, absent from this reader's world.
     expect((await checkPersonaSources(port, ont, [src], now))[0].verdict).toBe(
       "missing",
+    );
+  });
+});
+
+// `persona <fact-id>` used to succeed: zero sources, a SKILL.md headed "Persona grounded in
+// 01KZWW1T…'s recorded judgments", and `--check` on it reporting "0 sources, all current". A green
+// light on a document about nobody. The CLI checked the id existed, which a fact id does; MCP and the
+// web checked nothing.
+describe("the anchor has to be a person", () => {
+  it("refuses an id that is knowledge rather than someone", async () => {
+    const f = await add("fact", { statement: "not a person" }, "admin");
+    await verify(port, [f], "admin", now);
+    await expect(personaQuery(port, ont, f, now)).rejects.toBeInstanceOf(
+      NotAPerson,
+    );
+    await expect(personaQuery(port, ont, f, now)).rejects.toThrow(/is a fact/);
+  });
+
+  it("refuses a collaboration, which is a briefing anchor and not a persona one", async () => {
+    const ws = await add("collaboration", { title: "PAY-42" }, "admin");
+    await expect(personaQuery(port, ont, ws, now)).rejects.toThrow(
+      /is a collaboration/,
+    );
+  });
+
+  it("refuses an id that is not a record at all", async () => {
+    await expect(
+      personaQuery(port, ont, "01ZZZZZZZZZZZZZZZZZZZZZZZZ", now),
+    ).rejects.toThrow(/not found/);
+  });
+
+  it("still answers for a person", async () => {
+    await node("ada");
+    const d = await add(
+      "decision",
+      { conclusion: "use SQLite", rationale: "zero-config" },
+      "ada",
+    );
+    await verify(port, [d], "admin", now);
+    expect((await personaQuery(port, ont, "ada", now)).decisions).toHaveLength(
+      1,
     );
   });
 });

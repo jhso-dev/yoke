@@ -42,6 +42,8 @@ import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import { seedOntology, type TypeDef } from "../../core/ontology.js";
 import {
   checkPersonaSources,
+  NotAPerson,
+  type PersonaResult,
   parsePersonaSources,
   personaQuery,
   renderPersonaSkill,
@@ -1370,12 +1372,22 @@ async function cmdPersona(
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
     const person = await store.getEntity(id);
-    if (!person) {
-      console.error(`not found: ${id}`);
-      return 1;
-    }
     const ts = now();
-    const result = await personaQuery(store, ontology, id, ts, { ns });
+    // The anchor check lives in core (a fact id passed the existence check this used to do alone), so
+    // both refusals — not found, and not a person — arrive as one exception.
+    let result: PersonaResult;
+    try {
+      result = await personaQuery(store, ontology, id, ts, { ns });
+    } catch (e) {
+      if (e instanceof NotAPerson) {
+        console.error(
+          `${e.message} — 'yoke list --type person' lists the anchors`,
+        );
+        return 1;
+      }
+      throw e;
+    }
+    if (!person) return 1;
     const md = renderPersonaSkill(person, result, ts);
     // fs lives only in the CLI tier (core produces only a string).
     const outDir = join(v.out ?? ".", `persona-${safeName(id)}`);

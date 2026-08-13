@@ -27,6 +27,8 @@ let decisionAId: string;
 let decisionBId: string;
 let personId: string;
 let byPersonId: string;
+let personaAnchorId: string;
+let personaFactId: string;
 let collaborationId: string;
 let scopedFactId: string;
 let termId: string;
@@ -101,6 +103,31 @@ beforeAll(async () => {
     now,
   );
   byPersonId = byPerson.entity.id;
+
+  // A person whose knowledge is VERIFIED, for the persona route. Kept separate from Bora on purpose:
+  // verify appends a version whose actor is the verifier, so promoting Bora's fact would break the
+  // actor-name test that asserts on it (its own comment says so). And separate from `tester`, which
+  // has to stay a bare actor string with no person record for the same test's second half.
+  const anchor = await commit(
+    store,
+    ont,
+    { type: "person", attributes: { name: "Chae" } },
+    prov,
+    now,
+  );
+  personaAnchorId = anchor.entity.id;
+  const byAnchor = await commit(
+    store,
+    ont,
+    {
+      type: "fact",
+      attributes: { statement: "deploys are frozen on fridays" },
+    },
+    { actor: personaAnchorId, origin: "cli", occurred_at: now },
+    now,
+  );
+  personaFactId = byAnchor.entity.id;
+  await verify(store, [personaFactId], "tester", now);
 
   // A collaboration with one fact attached to it. The scope-anchored inject route had no test at all —
   // v4.0's shared working context reached the web tier as an untested query parameter.
@@ -396,19 +423,22 @@ describe("ui API", () => {
   });
 
   it("persona returns decisions/facts with citations", async () => {
-    const result = await get(`/api/persona/${encodeURIComponent("tester")}`);
+    // Anchored on a person RECORD, not on the bare actor string `tester`: a persona is about a person,
+    // and core refuses an anchor that is not one — a fact id used to produce a document about nobody.
+    const result = await get(
+      `/api/persona/${encodeURIComponent(personaAnchorId)}`,
+    );
     expect(Array.isArray(result.decisions)).toBe(true);
     expect(Array.isArray(result.facts)).toBe(true);
-    // The fact was verified above → it is now part of tester's persona, with a citation.
     const all = [...result.decisions, ...result.facts];
-    const f = all.find((e) => e.id === factId);
-    expect(f?.citation).toContain(factId);
+    const f = all.find((e) => e.id === personaFactId);
+    expect(f?.citation).toContain(personaFactId);
     // ...and the read is audited, like its MCP twin: a path that answers with knowledge but leaves
     // no trail would make the "who got what injected" audit claim false for the browser.
     const audit = store.listAudit();
     const entry = audit.find((a) => a.action === "persona");
     expect(entry?.actor).toBe("reviewer");
-    expect(entry?.detail).toContain(factId);
+    expect(entry?.detail).toContain(personaFactId);
   });
 
   it("GET / says the bundle is missing, with the command that fixes it", async () => {

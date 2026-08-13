@@ -21,7 +21,11 @@ import {
 } from "../../core/inject.js";
 import { resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { personaQuery } from "../../core/persona.js";
+import {
+  NotAPerson,
+  type PersonaResult,
+  personaQuery,
+} from "../../core/persona.js";
 import type { Entity, EntityInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
 import { describeWithheld, injectDetail } from "../display.js";
@@ -506,19 +510,20 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     },
     async ({ person, query }) => {
       if (!authorize("read")) return forbidden();
-      if (!(await store.getEntity(person)))
-        return err(`person not found: ${person}`);
       const ts = now();
-      const { decisions, facts } = await personaQuery(
-        store,
-        ontology,
-        person,
-        ts,
-        {
+      // Both refusals come from core now: an id that is not a record, and an id that is a record but
+      // not a person (a fact id used to produce a SKILL.md about nobody, with zero sources).
+      let persona: PersonaResult;
+      try {
+        persona = await personaQuery(store, ontology, person, ts, {
           query,
           ns,
-        },
-      );
+        });
+      } catch (e) {
+        if (e instanceof NotAPerson) return err(e.message);
+        throw e;
+      }
+      const { decisions, facts } = persona;
       // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.
       const injected = [...decisions, ...facts];
       store.logAudit?.({
