@@ -304,12 +304,16 @@ describe("renderPersonaSkill", () => {
       attributes: {
         conclusion: "use SQLite",
         rationale: "zero-config single file keeps the CLI simple",
+        // What lost is half the judgment, and the export used to drop it.
+        rejected_alternatives: ["postgres", "duckdb"],
       },
       last_confirmed: "2026-07-12T00:00:00Z",
+      // A promoted record: `provenance.actor` is the VERIFIER, which is why the Source line below must
+      // not print it — the document is Alex's judgment, and this field says yoke:system.
       provenance: {
-        actor: "alex",
-        origin: "cli",
-        occurred_at: "2026-07-01T00:00:00Z",
+        actor: "yoke:system",
+        origin: "lifecycle",
+        occurred_at: "2026-07-11T00:00:00Z",
       },
     };
     const fact: Entity = {
@@ -349,11 +353,12 @@ describe("renderPersonaSkill", () => {
 
       ### use SQLite
       - Rationale: zero-config single file keeps the CLI simple
-      - Source: [decision:01DECISION@v2] alex, 2026-07-01T00:00:00Z
+      - Rejected: postgres, duckdb
+      - Source: [decision:01DECISION@v2] recorded by Alex, last confirmed 2026-07-12T00:00:00Z
 
       ## Knowledge
 
-      - team ships on Fridays — [fact:01FACT@v1] alex, 2026-07-02T00:00:00Z
+      - team ships on Fridays — [fact:01FACT@v1] recorded by Alex, last confirmed 2026-07-12T00:00:00Z
 
       ## Instructions
 

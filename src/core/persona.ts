@@ -12,7 +12,7 @@
 
 import { readEntities, type StoragePort } from "../ports/storage.js";
 import { identitySet } from "./identity.js";
-import { citation, inject } from "./inject.js";
+import { inject, pointer } from "./inject.js";
 import { effectiveStatus } from "./lifecycle.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
@@ -176,7 +176,20 @@ export function renderPersonaSkill(
     for (const d of decisions) {
       out.push(`### ${String(d.attributes.conclusion)}`);
       out.push(`- Rationale: ${String(d.attributes.rationale)}`);
-      out.push(`- Source: ${citation(d)}`);
+      // What was NOT chosen is the half of a judgment that transfers. "Use SQLite" is a fact about a
+      // codebase; "Postgres was on the table and lost" is how this person decides — and the ontology
+      // has carried it since v1 (`decision` declares rejected_alternatives, VISION calls it the raw
+      // material for a persona) while the export dropped it on the floor.
+      const rejected = d.attributes.rejected_alternatives;
+      if (Array.isArray(rejected) && rejected.length > 0)
+        out.push(`- Rejected: ${rejected.map(String).join(", ")}`);
+      // `pointer`, not `citation`: a citation carries `provenance.actor`, and on a promoted record that
+      // is whoever VERIFIED it. Every Source line in a document titled "Ada persona" read
+      // "yoke:system" — the one name the document must not put there. Authorship is the anchor of this
+      // walk (authored_by, dir 'in'), so the author is known without a lookup.
+      out.push(
+        `- Source: ${pointer(d)} recorded by ${name}, last confirmed ${d.last_confirmed}`,
+      );
       out.push("");
     }
 
@@ -185,7 +198,9 @@ export function renderPersonaSkill(
   if (facts.length === 0) out.push("(none)");
   else
     for (const f of facts)
-      out.push(`- ${firstString(f.attributes)} — ${citation(f)}`);
+      out.push(
+        `- ${firstString(f.attributes)} — ${pointer(f)} recorded by ${name}, last confirmed ${f.last_confirmed}`,
+      );
   out.push("");
 
   out.push("## Instructions");

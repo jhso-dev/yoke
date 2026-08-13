@@ -222,7 +222,19 @@ async function vectorHits(
 
 /** `[{type}:{id}@v{version}] {actor}, {occurred_at}` — the audit citation format. */
 export function citation(e: Entity): string {
-  return `[${e.type}:${e.id}@v${e.version}] ${e.provenance.actor}, ${e.provenance.occurred_at}`;
+  return `${pointer(e)} ${e.provenance.actor}, ${e.provenance.occurred_at}`;
+}
+
+/**
+ * The pointer half of a citation: which record, which version, and nothing about who.
+ *
+ * Split out because one reader needs the pointer without the actor. `provenance.actor` on a promoted
+ * row is whoever PROMOTED it (verify appends a version with `origin: 'lifecycle'`), which is the right
+ * thing for an audit pointer and the wrong thing inside a document that claims to be one person's
+ * judgment — see `renderPersonaSkill`. One format string, two readings of it.
+ */
+export function pointer(e: Entity): string {
+  return `[${e.type}:${e.id}@v${e.version}]`;
 }
 
 /**
