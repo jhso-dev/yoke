@@ -1579,3 +1579,18 @@ describe("loadDotEnv", () => {
     expect(loadDotEnv(dir)).toBe(false);
   });
 });
+
+// A mistyped command used to answer with the whole help screen — every miss in a usability pass was
+// one edit away, and 25 lines of overview buries the correction in the noise it caused.
+describe("a near-miss command gets the correction", () => {
+  it("suggests the intended command", async () => {
+    expect(await runCli(["inejct", "anything"], {})).toBe(1);
+    expect(errs.join("\n")).toContain("did you mean 'inject'");
+    expect(errs.join("\n")).not.toContain("getting started");
+  });
+
+  it("falls back to the full usage when nothing is close", async () => {
+    expect(await runCli(["frobnicate"], {})).toBe(1);
+    expect(errs.join("\n")).toContain("getting started");
+  });
+});

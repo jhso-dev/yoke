@@ -227,6 +227,54 @@ function storeLabel(v: Values, env: Env): string {
 }
 
 /** Compact grouped usage — one source for --help, no-args, and unknown-command. */
+/** Every dispatchable command name, for the did-you-mean below. */
+const COMMANDS = [
+  "init",
+  "link",
+  "add",
+  "get",
+  "list",
+  "graph",
+  "search",
+  "review",
+  "verify",
+  "deprecate",
+  "inject",
+  "history",
+  "conflicts",
+  "overview",
+  "ontology",
+  "persona",
+  "connect",
+  "backfill",
+  "rename-type",
+  "audit",
+  "backup",
+  "restore",
+  "export",
+  "mcp",
+  "ui",
+  "serve",
+  "token",
+  "help",
+];
+
+/** Levenshtein distance, iterative two-row. Small enough not to be worth a dependency. */
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++)
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
 function usage(): string {
   return `yoke — knowledge your AI can trust
 
@@ -440,8 +488,10 @@ async function cmdAdd(
       // "no similar knowledge" and "nobody looked" are different facts (SPEC gate stage 3).
       else if (duplicateDetection === "skipped")
         lines.push(
-          "no duplicate check ran: no embedding provider configured. " +
-            "Set YOKE_EMBED_URL and YOKE_EMBED_MODEL (see README), then: yoke backfill --embeddings",
+          // No "(see README)": a notice printed by a CLI has to be actionable from the CLI, and this one
+          // is the only line in a first session that sends the reader out of the terminal.
+          "no duplicate check ran: set YOKE_EMBED_URL and YOKE_EMBED_MODEL " +
+            "(any OpenAI-compatible /embeddings endpoint), then: yoke backfill --embeddings",
         );
       // --json emits the entity as-is (preserving the existing contract). Both notices are human text only.
       emit(v, lines.join("\n"), entity);
@@ -715,7 +765,13 @@ async function cmdSearch(
       at: now(),
       ns,
     });
-    emit(v, results.map(formatEntity).join("\n"), results);
+    // `inject` says "no results"; this printed a blank line, so a search that found nothing looked
+    // like a command that did nothing. --json is unchanged (an empty array is already unambiguous).
+    emit(
+      v,
+      results.length ? results.map(formatEntity).join("\n") : "no results",
+      results,
+    );
     return 0;
   });
 }
@@ -1871,7 +1927,19 @@ export async function runCli(
         await runMcp(resolveDb(values, env), env, resolveShards(values, env));
         return 0;
       default:
-        console.error(`unknown command: ${command}\n\n${usage()}`);
+        // A near miss gets the correction instead of 25 lines of overview. Every mistyped command in a
+        // usability pass was one edit away (`inejct`, `ad`, `lst`), and a full help dump for a
+        // transposition buries the answer in the noise it caused.
+        {
+          const near = COMMANDS.filter(
+            (c) => editDistance(c, command) <= (command.length <= 4 ? 1 : 2),
+          );
+          console.error(
+            near.length > 0
+              ? `unknown command: ${command} — did you mean ${near.map((c) => `'${c}'`).join(" or ")}?`
+              : `unknown command: ${command}\n\n${usage()}`,
+          );
+        }
         return 1;
     }
   } catch (e) {
