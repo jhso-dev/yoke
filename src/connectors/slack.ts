@@ -3,8 +3,7 @@
 // no decision-marker NLP — humans promote what matters via review/verify (the governance model).
 // external_id = slack:<channel>:<ts> (stable message address; a permalink needs an extra API call).
 
-import type { EntityInput } from "../core/types.js";
-import type { Connector } from "./types.js";
+import type { Connector, SourceItem } from "./types.js";
 
 interface SlackMessage {
   ts: string;
@@ -58,9 +57,21 @@ export function makeSlackConnector(opts: {
     }
   }
 
-  function toItem(
-    m: SlackMessage,
-  ): (EntityInput & { externalId: string }) | null {
+  /**
+   * Slack `ts` ("1785900010.000200") → ISO 8601, or undefined if it is not the number Slack documents.
+   *
+   * The fraction is Slack's 6-digit disambiguator, finer than a millisecond, so it does not survive into an
+   * ISO instant. That is not a loss worth solving: the value is read by a TTL measured in days and by a
+   * human reading a date, and the message's identity is carried by `external_id`, which keeps the `ts`
+   * verbatim.
+   */
+  function slackTsToIso(ts: string): string | undefined {
+    const seconds = Number.parseFloat(ts);
+    if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
+    return new Date(seconds * 1000).toISOString();
+  }
+
+  function toItem(m: SlackMessage): SourceItem | null {
     // Skip system events (channel_join, bot_message, etc.) — seen live: join
     // notices carry text and were landing in the review queue as noise.
     if (m.subtype) return null;
@@ -74,6 +85,10 @@ export function makeSlackConnector(opts: {
         external_id: externalId,
       },
       externalId,
+      // Slack's `ts` is unix seconds with a microsecond fraction, and it was already in hand here — it
+      // builds the key on the line above. Dropping it made the TTL count from the import instead of from
+      // when the message was posted, so an imported archive never went stale.
+      occurredAt: slackTsToIso(m.ts),
     };
   }
 

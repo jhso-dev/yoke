@@ -108,7 +108,7 @@ export async function ingest(
   let skipped = 0;
   const rejected: string[] = [];
   for await (const item of connector.pull(since)) {
-    const { externalId, ...input } = item;
+    const { externalId, occurredAt, ...input } = item;
     // Per item, not per run. One review comment with an empty body threw `CommitRejected` out of this
     // loop: three earlier comments were already committed and stayed, the NEXT pull page was never
     // fetched, and no `added/skipped` line was ever printed — the caller saw one stderr line and exit 1
@@ -131,8 +131,16 @@ export async function ingest(
           ...input,
           attributes,
         },
-        { actor, origin: `connector:${connector.name}`, occurred_at: now },
-        now,
+        // `occurred_at` is when the SOURCE says it happened; `now` stays the ingestion clock. The two
+        // were the same value, so the TTL counted from the import and an archive never aged.
+        {
+          actor,
+          origin: `connector:${connector.name}`,
+          occurred_at: occurredAt ?? now,
+        },
+        // `last_confirmed` too, since that is what freshness is measured from: a message from last year
+        // confirmed as of today is a claim nobody made.
+        occurredAt ?? now,
         // The embedder was never passed, so gate stages 3 and 4 could not run on this path even when
         // one was configured — the BULK path was the only one with duplicate and contradiction detection
         // permanently off, while the hand path at least says "no duplicate check ran". Measured: 67 notes

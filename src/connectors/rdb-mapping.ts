@@ -37,6 +37,15 @@ export interface MappingSpec {
   idColumn: string;
   columns: Record<string, string>;
   relations?: RelationSpec[];
+  /**
+   * Column holding when the row's fact became true (`updated_at`, `decided_on`, …). Optional.
+   *
+   * Without it the import clock is used, so the type's TTL counts from the sync rather than from the
+   * source — a mapped table never goes stale and never reaches `review --stale`, whatever its rows
+   * actually say. The capture connectors had the same defect; this is the read-mapping's version of the
+   * fix, and it is opt-in because only the operator knows which column means "when this was true".
+   */
+  occurredAtColumn?: string;
 }
 
 /** query is injected so the connector is driver-agnostic (Postgres via rdb-pg, sqlite in tests/CLI). */
@@ -98,11 +107,24 @@ export async function ingestMapped(
   let errors = 0;
   const idByExtId = new Map<string, string>();
 
-  const prov = (table: string): Provenance => ({
+  /** `at` is the row's own instant when the mapping names a column for it, else the import clock. */
+  const prov = (table: string, at?: string): Provenance => ({
     actor: "rdb",
     origin: `rdb:${table}`,
-    occurred_at: now,
+    occurred_at: at ?? now,
   });
+
+  /** A source column's value as an ISO instant, or undefined when it is not one. */
+  const rowInstant = (row: Record<string, unknown>, col?: string) => {
+    if (!col) return undefined;
+    const raw = row[col];
+    if (raw instanceof Date) return raw.toISOString();
+    if (typeof raw === "number" || typeof raw === "string") {
+      const ms = Date.parse(String(raw));
+      if (Number.isFinite(ms)) return new Date(ms).toISOString();
+    }
+    return undefined;
+  };
 
   // Query each table once; reused by both passes.
   // ceiling: `SELECT *` over an operator-supplied table name. The mapping file is trusted operator
@@ -153,17 +175,19 @@ export async function ingestMapped(
         continue;
       }
       try {
+        const at = rowInstant(row, spec.occurredAtColumn);
         const { entity } = await commit(
           port,
           ontology,
           { type: spec.entityType, attributes },
-          prov(spec.table),
-          now,
+          prov(spec.table, at),
+          // Freshness is measured from `last_confirmed`, so the row's own instant has to reach it too.
+          at ?? now,
           existing
             ? { existingId: existing.id, ns, embedder }
             : { ns, embedder },
         );
-        await verify(port, [entity.id], "rdb", now, ns);
+        await verify(port, [entity.id], "rdb", at ?? now, ns);
         idByExtId.set(extId, entity.id);
         if (existing) updated++;
         else added++;

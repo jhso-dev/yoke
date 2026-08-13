@@ -128,7 +128,7 @@ describe("slack connector", () => {
 
   it("retries on 429 honoring Retry-After (seen live: replies rate limit)", async () => {
     let calls = 0;
-    const rateLimitedOnce = (async (url: string | URL) => {
+    const rateLimitedOnce = (async (_url: string | URL) => {
       calls += 1;
       if (calls === 1) {
         return {
@@ -170,5 +170,58 @@ describe("slack connector", () => {
     const drafts = (await port.listEntities({ status: "draft" })).items;
     expect(drafts).toHaveLength(3);
     expect(drafts.every((e) => e.type === "fact")).toBe(true);
+  });
+});
+
+// Every connector stamped the import time, so the type's TTL counted from the sync: an imported archive
+// never went stale, never reached `review --stale`, and was injected as current knowledge indefinitely.
+// The Slack `ts` was already in hand at the line that builds the external id.
+describe("an imported message ages from when it was posted", () => {
+  /** A one-message channel, so the assertion is about that message's own instant. */
+  const oneMessage = (ts: string, text: string): typeof fetch =>
+    (async (url: string | URL) => {
+      const u = String(url);
+      const body = u.includes("conversations.history")
+        ? { ok: true, messages: [{ ts, text, user: "U1" }] }
+        : { ok: true, messages: [] };
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => body,
+      } as Response;
+    }) as unknown as typeof fetch;
+
+  it("records the source instant, not the import clock", async () => {
+    // 1785900010.000200 = 2026-08-05T03:20:10Z. The fraction is Slack's 6-digit disambiguator, finer
+    // than a millisecond, so it does not survive into an ISO instant — the second is what matters for a
+    // TTL measured in days.
+    const connector = makeSlackConnector({
+      channel: "C1",
+      token: "t",
+      fetchImpl: oneMessage("1785900010.000200", "archived knowledge"),
+    });
+    const importedAt = "2026-08-13T00:00:00Z";
+    await ingest(port, ont, connector, "alice", importedAt);
+    const [rec] = await port.search({ text: "archived knowledge" });
+    expect(rec.provenance.occurred_at).toBe("2026-08-05T03:20:10.000Z");
+    // `last_confirmed` too: freshness is measured from it, so leaving it at the import clock keeps the
+    // record fresh however old the message is.
+    expect(rec.last_confirmed).toBe("2026-08-05T03:20:10.000Z");
+    expect(rec.last_confirmed).not.toBe(importedAt);
+  });
+
+  it("falls back to the import clock when the source instant is unusable", async () => {
+    // Absent or unparseable means "the source does not say", and an ingestion timestamp is at least
+    // honest about being one.
+    const connector = makeSlackConnector({
+      channel: "C1",
+      token: "t",
+      fetchImpl: oneMessage("not-a-ts", "undated knowledge"),
+    });
+    const importedAt = "2026-08-13T00:00:00Z";
+    await ingest(port, ont, connector, "alice", importedAt);
+    const [rec] = await port.search({ text: "undated knowledge" });
+    expect(rec.last_confirmed).toBe(importedAt);
   });
 });
