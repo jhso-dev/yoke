@@ -44,7 +44,12 @@ import {
   verify,
 } from "../../core/lifecycle.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
-import { seedOntology, type TypeDef } from "../../core/ontology.js";
+import {
+  kindChangeRefusal,
+  seedOntology,
+  type TypeDef,
+  validateTypeDef,
+} from "../../core/ontology.js";
 import {
   checkPersonaSources,
   NotAPerson,
@@ -1635,11 +1640,42 @@ async function cmdOntology(
       console.error(`cannot read type def: ${(e as Error).message}`);
       return 1;
     }
+    // `attrs` may be omitted in the file — a type with no attributes is legitimate (the seed's `term`
+    // and `resource` both are) — so it is defaulted before validation rather than demanded by it.
+    const withAttrs = { ...(def as TypeDef), attrs: def.attrs ?? {} };
+    const bad = validateTypeDef(withAttrs);
+    if (bad) {
+      console.error(`not a valid type definition: ${bad}`);
+      return 1;
+    }
+    def = withAttrs;
     return withStore(v, env, async (store) => {
       // No initialized-ontology requirement here: add-type IS how a fresh
       // (e.g. shard tenant) ontology gets seeded — requiring one is a chicken-and-egg.
       // An existing name means a new version = a migration (same append-only model as entities).
       // ns targets a tenant ontology (overlaid on the shared base); omitted = shared.
+      //
+      // A kind flip on a POPULATED type is refused here rather than in core, because counting rows is
+      // the store's job: `{"name":"fact","kind":"relation"}` was accepted, after which stored facts kept
+      // being injected as entities while `add fact` was refused as a relation needing from/to.
+      const prior = store
+        .loadOntology(ns)
+        .find((t) => t.name === (def as TypeDef).name);
+      if (prior) {
+        const rows = (
+          await store.listEntities({ ns, type: prior.name, limit: 1 })
+        ).items.length;
+        const refusal = kindChangeRefusal(
+          prior.name,
+          prior.kind,
+          (def as TypeDef).kind,
+          rows,
+        );
+        if (refusal) {
+          console.error(refusal);
+          return 1;
+        }
+      }
       await store.saveOntology([def], ns);
       emit(v, `saved type: ${def.name}`, def);
       return 0;

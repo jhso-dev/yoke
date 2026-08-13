@@ -24,7 +24,11 @@ import {
   verify,
 } from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
-import type { TypeDef } from "../../core/ontology.js";
+import {
+  kindChangeRefusal,
+  type TypeDef,
+  validateTypeDef,
+} from "../../core/ontology.js";
 import {
   NotAPerson,
   type PersonaResult,
@@ -1248,23 +1252,34 @@ export function createUiHandler(
     if (method === "POST" && path === "/api/ontology") {
       if (denied(res, "verify")) return;
       const def = (await readBody(req)).def;
-      if (
-        !def ||
-        typeof def !== "object" ||
-        typeof (def as TypeDef).name !== "string" ||
-        !(def as TypeDef).name ||
-        ((def as TypeDef).kind !== "entity" &&
-          (def as TypeDef).kind !== "relation")
-      ) {
-        sendJson(res, 400, {
-          error: 'def must be { name, kind: "entity"|"relation", attrs }',
-        });
-        return;
-      }
       // attrs defaulted, not overridden: a type with no attributes is legitimate (the seed's `term`
       // and `resource` both are), and the CLI's JSON-file path allows omitting the key.
-      const incoming = def as TypeDef;
+      const incoming = (def ?? {}) as TypeDef;
       const typeDef: TypeDef = { ...incoming, attrs: incoming.attrs ?? {} };
+      // The same validator the CLI uses. Name and kind were the whole check here, so `ttl_days: "soon"`
+      // returned 201 and then withheld every record of that type from injection forever — see
+      // `validateTypeDef` for the list this route was accepting.
+      const bad = validateTypeDef(typeDef);
+      if (bad) {
+        sendJson(res, 400, { error: bad });
+        return;
+      }
+      const prior = store.loadOntology(ns).find((t) => t.name === typeDef.name);
+      if (prior) {
+        const rows = (
+          await store.listEntities({ ns, type: prior.name, limit: 1 })
+        ).items.length;
+        const refusal = kindChangeRefusal(
+          prior.name,
+          prior.kind,
+          typeDef.kind,
+          rows,
+        );
+        if (refusal) {
+          sendJson(res, 409, { error: refusal });
+          return;
+        }
+      }
       await store.saveOntology([typeDef], ns);
       sendJson(res, 201, typeDef);
       return;

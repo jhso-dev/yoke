@@ -92,6 +92,111 @@ function matchesType(spec: AttrSpec["type"], value: unknown): boolean {
   }
 }
 
+const ATTR_TYPES: ReadonlyArray<AttrSpec["type"]> = [
+  "string",
+  "number",
+  "boolean",
+  "string[]",
+];
+
+/**
+ * Validate a type DEFINITION before it is stored. Returns a reason, or null when it is well formed.
+ *
+ * `add-type` is the one write that does not pass the commit gate — it changes the rules the gate applies
+ * — and it validated `name` and `kind` and nothing else. Everything below was accepted:
+ *
+ *   {"name":"junk"}                          → saved. `ontology list` then throws
+ *                                              "Cannot convert undefined or null to object" for EVERY
+ *                                              type in the database, and `yoke add junk` throws the
+ *                                              same. There is no `remove-type`, so the database cannot
+ *                                              be repaired from the CLI at all.
+ *   {"kind":"wormhole"}                      → saved. Neither entity nor relation; `add` accepts it.
+ *   {"attrs":"nope"}                         → saved. `Object.entries("nope")` yields the string's
+ *                                              indices, so the type renders four attributes named
+ *                                              0, 1, 2, 3.
+ *   {"ttl_days":"soon"} / {"ttl_days":-30}    → saved. `last_confirmed + "soon" * DAY_MS` is NaN, so
+ *                                              `isFresh` is permanently false: a human-verified record
+ *                                              is withheld from injection FOREVER and every surface
+ *                                              says only "past its freshness window".
+ *   {"attrs":{"x":{"type":"datetime"}}}       → saved. No value can ever satisfy it.
+ *   {"name":"fact","kind":"relation"}         → saved, flipping a populated entity type into a relation.
+ *
+ * The `ttl_days` cases are the ones that cost knowledge rather than crashing: they are silent, permanent,
+ * and indistinguishable from a TTL that has genuinely elapsed.
+ *
+ * A kind flip on a type that already has rows is refused by the callers, which are the ones that can
+ * count them — this function judges the definition alone.
+ */
+export function validateTypeDef(def: unknown): string | null {
+  if (typeof def !== "object" || def === null || Array.isArray(def))
+    return "a type definition must be a JSON object";
+  const d = def as Record<string, unknown>;
+  if (typeof d.name !== "string" || d.name.trim() === "")
+    return "name must be a non-empty string";
+  if (d.kind !== "entity" && d.kind !== "relation")
+    return `kind must be "entity" or "relation" (got ${JSON.stringify(d.kind)})`;
+  if (typeof d.attrs !== "object" || d.attrs === null || Array.isArray(d.attrs))
+    return "attrs must be an object of attribute name → { type, required? }";
+  for (const [key, spec] of Object.entries(
+    d.attrs as Record<string, unknown>,
+  )) {
+    if (key.trim() === "") return "an attribute name cannot be empty";
+    if (typeof spec !== "object" || spec === null || Array.isArray(spec))
+      return `attribute ${key} must be { type, required? }`;
+    const s = spec as Record<string, unknown>;
+    if (!ATTR_TYPES.includes(s.type as AttrSpec["type"]))
+      return `attribute ${key}: type must be one of ${ATTR_TYPES.join(", ")} (got ${JSON.stringify(s.type)})`;
+    if (s.required !== undefined && typeof s.required !== "boolean")
+      return `attribute ${key}: required must be true or false`;
+  }
+  if (d.ttl_days !== undefined) {
+    if (
+      typeof d.ttl_days !== "number" ||
+      !Number.isFinite(d.ttl_days) ||
+      d.ttl_days < 0 ||
+      !Number.isInteger(d.ttl_days)
+    )
+      return `ttl_days must be a whole number of days, 0 or more (got ${JSON.stringify(d.ttl_days)}) — omit it for no expiry`;
+  }
+  for (const flag of ["membership", "structural", "symmetric"] as const)
+    if (d[flag] !== undefined && typeof d[flag] !== "boolean")
+      return `${flag} must be true or false`;
+  // Relation-only and entity-only flags, so a definition cannot claim behaviour its kind never reads.
+  if (d.kind === "entity" && (d.membership || d.symmetric))
+    return "membership and symmetric describe relation types, not entity types";
+  if (d.kind === "relation" && d.structural)
+    return "structural describes entity types, not relation types";
+  return null;
+}
+
+/**
+ * May `name`'s kind be changed from `prior` to `next`? Returns a reason, or null.
+ *
+ * A kind flip rewrites what the gate demands of a type that already has meaning. `{"name":"fact",
+ * "kind":"relation"}` was accepted: stored facts kept being injected as entities while `yoke add fact`
+ * started being refused as a relation needing `from` and `to`, and there is no `remove-type` to undo it.
+ *
+ * `rows` is passed in because counting them belongs to the store, not here.
+ *
+ * Seeded types are refused whatever their row count: they are part of the v1 contract every surface and
+ * every test is written against, and an empty `fact` table today is not permission to redefine `fact`.
+ * A type the caller declared themselves and has not used yet is theirs to correct — which matters
+ * because without `remove-type` a refusal there would trap them with an unusable declaration.
+ */
+export function kindChangeRefusal(
+  name: string,
+  prior: "entity" | "relation",
+  next: "entity" | "relation",
+  rows: number,
+): string | null {
+  if (prior === next) return null;
+  if (seedOntology().some((t) => t.name === name))
+    return `${name} is one of the seeded types and every surface is written against it being a ${prior} — declare a new type instead of redefining this one`;
+  if (rows > 0)
+    return `${name} is already declared as ${prior} and has records — changing its kind would leave them unreadable`;
+  return null;
+}
+
 export function validateInput(
   ontology: TypeDef[],
   input: EntityInput | RelationInput,
