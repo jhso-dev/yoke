@@ -294,8 +294,19 @@ describe("downstreamOf", () => {
     const dependent = await addFact("rests on both");
     await derive(dependent, a);
     await derive(dependent, b);
-    // A hand-filed self-edge reaches storage like any other relation (the front tier refuses to make one).
-    await derive(a, a);
+    // Written straight through the port: the gate refuses a self-edge now, and a row from before that
+    // guard is what this check exists for.
+    await port.putRelation({
+      id: "self-derive",
+      type: "derived_from",
+      from: a,
+      to: a,
+      attributes: {},
+      status: "verified",
+      version: 1,
+      last_confirmed: now,
+      provenance: prov,
+    });
 
     expect((await downstreamOf(port, [a, b])).map((e) => e.id)).toEqual([
       dependent,
@@ -421,5 +432,30 @@ describe("a governance act stays inside the caller's namespace", () => {
     ).rejects.toThrow(/unknown entity/);
     const [done] = await verify(port, [shared], "admin", now);
     expect(done.status).toBe("verified");
+  });
+});
+
+describe("retiring what is already retired records nothing", () => {
+  it("does not append a second identical deprecated version", async () => {
+    // `deprecate X` twice wrote v3 and v4, identical but for the clock — and `history` then showed two
+    // retirements of one record, which also made the reason ambiguous since `retirementOf` takes the LAST
+    // deprecate row and both versions rendered it.
+    const f = await addFact("we deploy on fridays");
+    await verify(port, [f], "admin", now);
+    const [first] = await deprecate(port, [f], "admin", now);
+    expect(first.version).toBe(3);
+    const [again] = await deprecate(port, [f], "admin", "2026-07-13T00:00:00Z");
+    expect(again.version).toBe(3);
+    expect((await port.getEntity(f))?.version).toBe(3);
+  });
+
+  it("still re-confirms an already-verified record, because that is what re-confirmation is", async () => {
+    // Deliberately not deduplicated: moving `last_confirmed` is the entire content of a re-confirmation,
+    // and it is the act the stale queue asks for on a record whose stored status is already `verified`.
+    const f = await addFact("the gateway retries twice");
+    await verify(port, [f], "admin", now);
+    const [again] = await verify(port, [f], "admin", "2026-07-14T00:00:00Z");
+    expect(again.version).toBe(3);
+    expect(again.last_confirmed).toBe("2026-07-14T00:00:00Z");
   });
 });

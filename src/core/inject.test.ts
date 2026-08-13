@@ -217,7 +217,20 @@ describe("inject scoped (v4.0)", () => {
 
   it("never returns the scope entity itself (self-loop is skipped)", async () => {
     const s = await scene();
-    await link(s.ws, s.ws); // self relation
+    // Written straight through the port, because the gate refuses a self-edge now — and a row from before
+    // that guard is exactly what this reader-side check is for. Defence in depth: the writer stops new
+    // ones, the reader survives old ones.
+    await port.putRelation({
+      id: "self-edge",
+      type: "relates_to",
+      from: s.ws,
+      to: s.ws,
+      attributes: {},
+      status: "verified",
+      version: 1,
+      last_confirmed: now,
+      provenance: prov,
+    });
     const { items } = await inject(port, ont, "", now, { scope: s.ws });
     expect(items.map((i) => i.entity.id)).not.toContain(s.ws);
   });

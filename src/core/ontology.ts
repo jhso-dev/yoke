@@ -74,7 +74,12 @@ export type TypeDef = {
  * `false` and `0` are values and stay values.
  */
 function isAbsent(value: unknown): boolean {
-  if (value === undefined || value === null || value === "") return true;
+  if (value === undefined || value === null) return true;
+  // Trimmed, not just empty. `--attr statement=""` was already refused; `--attr statement="   "` was
+  // accepted and produced a record whose knowledge is three spaces — it rendered as a blank cell in the
+  // review queue, a blank link text, an `aria-label` of "Select " and nothing, and an unlabelled node in
+  // the graph. Whitespace is not a value a reader can use, which is what `required` means.
+  if (typeof value === "string" && value.trim() === "") return true;
   return Array.isArray(value) && value.length === 0;
 }
 

@@ -1898,3 +1898,57 @@ describe("the CLI names people instead of printing their ids", () => {
     expect(items[0].author).toBe(person);
   });
 });
+
+// Asking for help executed the command. `--help` was honoured only when there was NO command, so
+// `yoke <cmd> --help` fell through — and the convention that would have saved it ("run it with missing
+// arguments to see its usage") does not fire for a command with no required arguments.
+describe("--help never runs the command", () => {
+  it.each([
+    "review",
+    "audit",
+    "overview",
+    "conflicts",
+    "backfill",
+  ])("prints usage for %s instead of running it", async (cmd) => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    logs.length = 0;
+    expect(await runCli([cmd, "--help", "--db", db])).toBe(0);
+    expect(logs.join("\n")).toContain(`usage: yoke ${cmd}`);
+  });
+
+  it("does not write when asked for backfill's usage", async () => {
+    // The one that mutated: `backfill --help` re-derived authorship edges and printed "scanned N
+    // entities, added M authorship edges".
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli(["add", "fact", "--attr", "statement=x", "--db", db]),
+    ).toBe(0);
+    logs.length = 0;
+    expect(await runCli(["backfill", "--help", "--db", db])).toBe(0);
+    expect(logs.join("\n")).not.toContain("scanned");
+    // The audit trail is the check that matters: a write would be in it.
+    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    const trail = JSON.parse(logs.at(-1) as string) as Array<{
+      action: string;
+    }>;
+    expect(trail.some((e) => e.action === "backfill")).toBe(false);
+  });
+
+  it("documents the flags that were reachable from nowhere", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    logs.length = 0;
+    expect(await runCli(["review", "--help", "--db", db])).toBe(0);
+    expect(logs.join("\n")).toContain("--stale");
+    logs.length = 0;
+    expect(await runCli(["audit", "--help", "--db", db])).toBe(0);
+    expect(logs.join("\n")).toContain("--shape");
+  });
+
+  it("falls back to the overview for a command with no entry", async () => {
+    expect(await runCli(["nosuchcommand", "--help"], {})).toBe(0);
+    expect(logs.join("\n")).toContain("getting started");
+  });
+});

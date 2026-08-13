@@ -72,6 +72,19 @@ async function transition(
   const out: Entity[] = [];
   for (const id of distinct) {
     const prev = found.get(id) as Entity;
+    // Retiring what is already retired records nothing. `deprecate X` twice wrote v3 and v4, identical
+    // but for the clock, and `history` then showed two retirements of one record — which also made the
+    // reason ambiguous, since `retirementOf` takes the LAST deprecate row and both versions rendered it.
+    //
+    // Deliberately NOT applied to `verify`. Re-verifying looks like the same no-op and is not: moving
+    // `last_confirmed` is the whole content of a re-confirmation, which is exactly the act the stale
+    // queue asks for, and its stored status is already `verified`. Whether a blanket `verify` over fresh
+    // records SHOULD refresh them is a governance question about who is allowed to say "still true", not
+    // a bug in this branch — and answering it here would break the stale queue's own workflow.
+    if (prev.status === status && status === "deprecated") {
+      out.push(prev);
+      continue;
+    }
     const next: Entity = {
       ...prev,
       status,

@@ -506,3 +506,72 @@ describe("authorship edge", () => {
     ).toBe(0);
   });
 });
+
+// One space defeated two of the five trust mechanisms.
+describe("whitespace is not a value", () => {
+  it("refuses a required attribute that is only spaces", async () => {
+    // `--attr statement=""` was already refused; `--attr statement="   "` produced a record whose
+    // knowledge is three spaces — a blank cell in the review queue, blank link text, an aria-label of
+    // "Select " and nothing, and an unlabelled node in the graph. `required` means a value a reader can
+    // use.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "   " } },
+        prov,
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "ontology" });
+  });
+
+  it("refuses an actor that is only spaces", async () => {
+    // Mechanism 1 is "nothing enters without a source". `--actor ""` was refused and `--actor "   "`
+    // was accepted: the record entered, `graph` drew an authored_by edge to an id no record carries, and
+    // the citation rendered as `[fact:…@v1]    , <ts>`.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "real knowledge" } },
+        { actor: "   ", origin: "cli", occurred_at: now },
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "provenance" });
+  });
+});
+
+// `lifecycle.ts` already assumed "the front tier refuses to file a self-edge". Nothing did, and every
+// relation type this ontology declares says something that cannot be true of one record.
+describe("a record cannot relate to itself", () => {
+  it.each([
+    "supersedes",
+    "conflicts_with",
+    "same_as",
+    "derived_from",
+    "relates_to",
+  ])("refuses %s pointing at its own subject", async (type) => {
+    await nodes("a");
+    await expect(
+      commit(
+        port,
+        ont,
+        { type, attributes: {}, from: "a", to: "a" },
+        prov,
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "ontology" });
+  });
+
+  it("still allows an edge between two different records", async () => {
+    await nodes("a", "b");
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: "a", to: "b" },
+      prov,
+      now,
+    );
+    expect(entity.id).toBeTruthy();
+  });
+});

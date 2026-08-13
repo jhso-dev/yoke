@@ -2281,6 +2281,50 @@ async function cmdExport(v: Values, env: Env): Promise<number> {
   });
 }
 
+/**
+ * `yoke <command> --help`. Five commands take no required argument, so the "run it with missing
+ * arguments" convention never fired for them and their flags were documented nowhere a reader looks —
+ * while `--help` itself fell through and RAN them (`backfill --help` wrote).
+ *
+ * Anything absent here falls back to the top-level usage, which is a worse answer than a specific one and
+ * a much better one than executing the command.
+ */
+const COMMAND_USAGE: Record<string, string> = {
+  get: GET_USAGE,
+  list: LIST_USAGE,
+  graph: GRAPH_USAGE,
+  search: SEARCH_USAGE,
+  inject: INJECT_USAGE,
+  history: HISTORY_USAGE,
+  ontology: ONTOLOGY_USAGE,
+  backup: BACKUP_USAGE,
+  review:
+    "usage: yoke review [--stale] [--type t] [--limit n] [--after cursor]\n" +
+    "  no flags   drafts awaiting review\n" +
+    "  --stale    verified records past their type's TTL, most-injected first",
+  audit:
+    "usage: yoke audit [--since ts] [--until ts] [--limit n] [--shape]\n" +
+    "  --shape    workload composition: anchored / briefing / plain injections",
+  overview: "usage: yoke overview [--limit n]",
+  conflicts: "usage: yoke conflicts",
+  backfill:
+    "usage: yoke backfill [--embeddings] [--rebuild] [--limit n] [--after cursor]\n" +
+    "  no flags       re-derive missing authorship edges\n" +
+    "  --embeddings   embed records that have no vector\n" +
+    "  --rebuild      re-embed records that already have one",
+  verify: "usage: yoke verify <id...> [--all-drafts] [--actor a]",
+  deprecate:
+    'usage: yoke deprecate <id...> [--actor a] [--reason "why it was retired"]',
+  add: "usage: yoke add <type> [--actor id] [--attr k=v ...] [--scope entity-id]",
+  link: "usage: yoke link <from-id> <relation> <to-id> [--actor id] [--attr k=v ...]",
+  persona:
+    "usage: yoke persona <person-id> [--out dir]\n       yoke persona --check <SKILL.md>",
+  restore: "usage: yoke restore <src.db> [--force]",
+  export: "usage: yoke export --until <iso-ts> --out <new.db>",
+  "rename-type": "usage: yoke rename-type <from> <to>",
+  token: "usage: yoke token <create|list|revoke> ...",
+};
+
 export async function runCli(
   argv: string[],
   env: Env = process.env,
@@ -2336,12 +2380,21 @@ export async function runCli(
   // print the overview either way, so `yoke list --help` answered a different question than the one
   // asked — and for a command with no required arguments the "run it with missing args" convention
   // never fires, leaving `--type` and `--status` documented nowhere a reader would look.
-  if (
-    command === "help" ||
-    command === undefined ||
-    (values.help && !command)
-  ) {
+  if (command === "help" || command === undefined) {
     console.log(usage());
+    return 0;
+  }
+  // `--help` never reaches a command. It used to be honoured only when there was NO command, so
+  // `yoke <cmd> --help` fell through to the command itself — and the convention that saves it ("run it
+  // with missing arguments to see its usage") does not fire for a command with no required arguments.
+  // Measured: `review --help` printed the review queue, `audit --help` dumped the audit trail,
+  // `overview --help` and `conflicts --help` ran, and `backfill --help` performed a WRITE. Asking for
+  // help executed the command, which for one of them mutated the database.
+  //
+  // Those five are also why the table below exists: their flags (`review --stale`, `audit --since`,
+  // `overview --limit`, `backfill --embeddings`) were documented at no point a reader would look.
+  if (values.help) {
+    console.log(COMMAND_USAGE[command] ?? usage());
     return 0;
   }
   try {

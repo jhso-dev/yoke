@@ -89,14 +89,12 @@ interface CommitOpts {
 
 /** Whether actor/origin/occurred_at are all non-empty strings. */
 function provenanceOk(p: Provenance): boolean {
-  return (
-    typeof p.actor === "string" &&
-    p.actor.length > 0 &&
-    typeof p.origin === "string" &&
-    p.origin.length > 0 &&
-    typeof p.occurred_at === "string" &&
-    p.occurred_at.length > 0
-  );
+  // Trimmed. `--actor ""` was refused and `--actor "   "` was accepted, so mechanism 1 ("nothing enters
+  // without a source") was defeated by one space: the record entered, `graph` drew an `authored_by` edge
+  // to an id no record carries, and the citation rendered as `[fact:…@v1]    , <ts>` — an author-less
+  // claim with an author-shaped hole where the name goes.
+  const ok = (v: unknown) => typeof v === "string" && v.trim().length > 0;
+  return ok(p.actor) && ok(p.origin) && ok(p.occurred_at);
 }
 
 /** Cosine similarity. Handles unnormalized vectors too (provider-independent scale). */
@@ -196,6 +194,20 @@ export async function commit(
     // in another, which is dead data rather than a leak — every read path filters `ns` itself
     // (`neighbors` takes none, which is why `identitySet` and `downstreamOf` filter on the relation).
     // Tightening this to same-namespace needs the port to scope relations, not the gate to guess.
+    // A record is not related to itself, and every relation type this ontology declares says something
+    // that cannot be true of one thing: `A supersedes A`, `A conflicts_with A`, `A same_as A`, `A
+    // derived_from A`. All were accepted, and `lifecycle.ts:121` already assumes "the front tier refuses
+    // to file a self-edge" — nothing did. `conflicts_with` on itself made `yoke conflicts` print a record
+    // disagreeing with itself, and after this commit's supersession filter a self-supersedes would
+    // withhold a record on its own authority.
+    //
+    // The gate, not the front tier, because that assumption was made about a guard that has to hold for
+    // every caller — `link`, the browser, MCP and the connectors.
+    if (rel.from === rel.to)
+      throw new CommitRejected(
+        "ontology",
+        `a record cannot ${rel.type} itself: ${rel.from}`,
+      );
     if (!opts?.derived) {
       const ends = await readEntities(port, [rel.from, rel.to]);
       for (const end of [rel.from, rel.to])
