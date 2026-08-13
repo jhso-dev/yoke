@@ -58,6 +58,47 @@ class YokeMemoryProvider(MemoryProvider):
         # Per-user cache of the whole verified store (YOKE_BENCH_FULL_STORE). The store is frozen
         # once answering starts, and 42 extra `yoke list` subprocesses would say nothing new.
         self._store_cache: dict[str | None, list[dict]] = {}
+        # Per-user cache of the relation graph (YOKE_BENCH_CHAINS): nodes by id + supersedes
+        # adjacency, from one `yoke graph --json` per user. Same freeze argument as above.
+        self._graph_cache: dict[str | None, tuple[dict, dict, dict]] = {}
+
+    def _graph(self, user_id: str | None) -> tuple[dict, dict, dict]:
+        """(nodes by id, newer_of, older_of) — supersedes edges only, from `yoke graph`.
+
+        `from -supersedes-> to` is filed newer→older (the connector's rankOf exists to keep it
+        that way), so newer_of[to] lists the records that replaced it, older_of[from] what it
+        replaced.
+        """
+        if user_id not in self._graph_cache:
+            raw = self._run(["graph", "--json", "--limit", "2000"], ns=user_id)
+            g = json.loads(raw) if raw.strip() else {}
+            nodes = {n["id"]: n for n in g.get("nodes", []) if n.get("type") != "person"}
+            newer_of: dict[str, list[str]] = {}
+            older_of: dict[str, list[str]] = {}
+            for e in g.get("edges", []):
+                if e.get("type") != "supersedes":
+                    continue
+                frm, to = e.get("from"), e.get("to")
+                if frm in nodes and to in nodes:
+                    newer_of.setdefault(to, []).append(frm)
+                    older_of.setdefault(frm, []).append(to)
+            self._graph_cache[user_id] = (nodes, newer_of, older_of)
+        return self._graph_cache[user_id]
+
+    @staticmethod
+    def _with_chain_lines(doc: Document, newer_of, older_of, summary) -> Document:
+        """State the chain in content — the one channel the ordering experiment left standing."""
+        lines = [f"later superseded by: {summary(n)}" for n in newer_of.get(doc.id, [])]
+        lines += [f"supersedes (replaces): {summary(o)}" for o in older_of.get(doc.id, [])]
+        if not lines:
+            return doc
+        return Document(
+            id=doc.id,
+            content=doc.content + "\n" + "\n".join(lines),
+            user_id=doc.user_id,
+            timestamp=doc.timestamp,
+            context=doc.context,
+        )
 
     # ── lifecycle ────────────────────────────────────────────────────────────
 
@@ -235,5 +276,51 @@ class YokeMemoryProvider(MemoryProvider):
             docs += [
                 _doc(e) for e in self._store_cache[user_id] if e.get("id") not in have
             ]
+
+        # EXPERIMENT, off by default (YOKE_BENCH_CHAINS=1): expand each hit with its supersedes
+        # chain. track_full_preference_evolution asks "trace how this changed", and the chain IS
+        # that answer — but the unscoped inject path never walks relations, so a `yoke relate`d
+        # edge is invisible to it. Two rules learned the hard way this session:
+        #   - order is stated in CONTENT ("later superseded by: …"), never by reordering the list
+        #     (measured net loss), and hits keep their head positions;
+        #   - only `supersedes` is walked. relates_to would re-balloon context toward the
+        #     full-store arm, which measured -6.
+        # This is provider-side on purpose: it is the cheap measurement docs/RESEARCH.md asks for
+        # before graph expansion is built into inject itself.
+        if os.environ.get("YOKE_BENCH_CHAINS") == "1":
+            nodes, newer_of, older_of = self._graph(user_id)
+
+            def _summary(eid: str) -> str:
+                a = (nodes.get(eid) or {}).get("attributes", {})
+                text = a.get("conclusion") or a.get("statement") or a.get("title") or ""
+                return str(text)[:120]
+
+            def _chain(eid: str) -> list[str]:
+                seen, todo = set(), [eid]
+                while todo:
+                    cur = todo.pop()
+                    if cur in seen:
+                        continue
+                    seen.add(cur)
+                    todo += newer_of.get(cur, []) + older_of.get(cur, [])
+                return sorted(seen)
+
+            expanded: list[Document] = []
+            present = {d.id for d in docs}
+            for d in docs:
+                members = [m for m in _chain(d.id) if m != d.id] if (
+                    d.id in newer_of or d.id in older_of
+                ) else []
+                expanded.append(self._with_chain_lines(d, newer_of, older_of, _summary))
+                for m in members:
+                    if m in present or m not in nodes:
+                        continue
+                    present.add(m)
+                    expanded.append(
+                        self._with_chain_lines(
+                            _doc(nodes[m]), newer_of, older_of, _summary
+                        )
+                    )
+            docs = expanded
 
         return docs, {"count": len(docs)}

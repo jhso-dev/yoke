@@ -229,6 +229,48 @@ c = collections.Counter(q["user_id"] for q in qs)
 print(",".join(u for u, _ in c.most_common(5)), sum(n for _, n in c.most_common(5)), "queries")
 ```
 
+### More context is not more correct — measured twice
+
+Injecting the WHOLE verified store (~3k tokens, still under bm25's 5,120) scored 22/42 against the
+28/42 baseline. The evidence records were IN the context and the answering model still missed them:
+`suggest_new_ideas` stayed 0/2 with the needed preference present but buried at position ~40, and
+`recall_user_shared_facts` collapsed 6 → 2. With a small answering model, precision of the head is
+the whole game — do not pay for recall with tail noise.
+
+### The hybrid fusion weight is a per-corpus decision, and this corpus splits
+
+`YOKE_KEYWORD_WEIGHT` (core default 0.1, swept on yoke's own gold set): u1 wants the vector half
+(FTS 11 → hybrid 13 at either weight), u2 wants the keyword half (FTS 17, w0.1 12, w1.0 15 —
+`recall_user_shared_facts` 6/1/3). Both totals land on 28/42. Per-user weights would be overfitting
+to n=42; a swept weight must be validated on users the sweep never saw.
+
+### The lift is a property of the answering model, measured three ways
+
+Same stores, same retrieval, same 42 questions — only the answerer changes:
+
+| answerer | floor | yoke | lift |
+|---|---|---|---|
+| gemma-4-e4b | 20/42 | 28/42 | **×1.40** |
+| gemma-4-26b-a4b-qat | 21/42 | 21/42 | ×1.00 |
+| ornith-1.0-35b-mlx | 19/42 | 24/42 | ×1.26 |
+
+Two things this table proves. The floor is flat (~50%) across a 9× parameter range — these are
+user-specific preferences, so no amount of world knowledge answers them without the memory. And a
+bigger reader is not a better one: the 26b MoE (4B active) scores the same WITH yoke's context as
+without it (answers parse fine — it genuinely ignores the memory), and the 35b reasoner uses the
+context but worse than the 4B dense model does. Any headline lift must name its answering model;
+comparing lifts across papers without that is comparing readers, not memories.
+
+### `yoke relate`: the 26b stalls, the fast model finds no supersedes
+
+`google/gemma-4-26b-a4b-qat` never returned on a relate group (two 300s timeouts on a ~1KB prompt;
+the endpoint answered a trivial call in 0.9s at the same moment — a reasoning stall, not a network
+event; the request sets no max_tokens). `gemma-4-e4b` completes the run but files nearly everything
+as `relates_to`: u1 got 2 supersedes edges, u2 got 0, so chain expansion over supersedes had
+nothing to expand. Also: relate prints NOTHING on success until the final summary — a silent
+20-minute run is healthy, check the relations table before killing it (a kill mid-run is safe:
+commits are per-group and the gate refuses duplicates on resume).
+
 ## Running
 
 ```bash
