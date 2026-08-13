@@ -78,6 +78,13 @@ export interface YokeStore extends StoragePort {
   listTokens(): TokenInfo[];
   backupTo(dest: string): Promise<void>;
   exportUntil(ts: string, destPath: string): Promise<void>;
+  /**
+   * Whether the underlying file's pages are readable — `"ok"`, or the engine's complaint.
+   *
+   * Optional, because it is a physical-storage question and a remote backend has no single file to ask
+   * about. A caller that gets `undefined` has learned nothing and must not treat that as a failure.
+   */
+  integrityCheck?(): string;
 }
 
 export interface ShardMember {

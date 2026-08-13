@@ -1769,3 +1769,39 @@ describe("an argument the CLI cannot use is refused, not dropped", () => {
     expect(errs.join("\n")).toContain("not found");
   });
 });
+
+// `backup` performed the destruction `restore` refuses. A command named for protecting data was
+// overwriting another database with no confirmation and no way back, and reported success.
+describe("backup does not destroy what it writes over", () => {
+  it("refuses an existing destination, and --force takes it", async () => {
+    const source = newDb();
+    const victim = newDb();
+    expect(await runCli(["init", "--db", source])).toBe(0);
+    expect(await runCli(["init", "--db", victim])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--attr",
+        "statement=the victim's only copy",
+        "--db",
+        victim,
+      ]),
+    ).toBe(0);
+
+    expect(await runCli(["backup", victim, "--db", source])).toBe(1);
+    expect(errs.join("\n")).toContain("refusing to overwrite existing file");
+    // Still there: the refusal is the whole point.
+    expect(await runCli(["search", "victim", "--db", victim])).toBe(0);
+    expect(logs.join("\n")).toContain("the victim's only copy");
+
+    // The same guard restore has, with the same escape hatch.
+    expect(await runCli(["backup", victim, "--force", "--db", source])).toBe(0);
+  });
+
+  it("writes a new destination without a flag", async () => {
+    const source = newDb();
+    expect(await runCli(["init", "--db", source])).toBe(0);
+    expect(await runCli(["backup", newDb(), "--db", source])).toBe(0);
+  });
+});

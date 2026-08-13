@@ -787,6 +787,21 @@ export class SqliteStorage implements StoragePort {
     await this.db.backup(dest);
   }
 
+  /**
+   * `"ok"`, or what sqlite says is wrong with this file.
+   *
+   * `quick_check`, not `integrity_check`: it verifies page structure and skips the full index
+   * cross-check, which is the part whose cost scales with the database. What it catches is the class that
+   * matters to a caller about to copy the file — pages that cannot be read correctly at all.
+   *
+   * Nothing calls this on a read path. A corrupt database currently answers `list` and `overview` with a
+   * confident short census (measured: 228 records where there were 251, exit 0), and the fix for that is
+   * a `yoke doctor` that says so, not a check on every query.
+   */
+  integrityCheck(): string {
+    return this.db.pragma("quick_check", { simple: true }) as string;
+  }
+
   /** PITR-lite (11.1): reconstruct DB state as of `ts` into a fresh file. History is append-only, so
    * we copy every entity/relation/ontology/audit row created at or before ts and rebuild FTS from the
    * surviving latest versions. Embeddings/vec are NOT carried over (search falls back to FTS on the
