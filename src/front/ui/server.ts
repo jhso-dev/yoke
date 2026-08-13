@@ -757,7 +757,7 @@ export function createUiHandler(
         ? intParam(url, "limit", BRIEFING_LIMIT, 500)
         : undefined;
       const briefing = scope !== undefined && !query;
-      const { items, omitted, walk } = await inject(
+      const { items, omitted, walk, withheld } = await inject(
         store,
         store.loadOntology(ns),
         query,
@@ -799,6 +799,10 @@ export function createUiHandler(
         // Present only when the walk went deeper than one hop — same shape core hands the MCP tool,
         // so the preview can state what a depth-2 answer walked (`{ depth, nodes, truncated }`).
         walk: walk ?? null,
+        // Why an empty preview is empty. The preview's claim is that it shows what an agent receives,
+        // and an agent now receives the reason too — without this the screen would be the one surface
+        // still rendering a bare "no results" for knowledge that is merely awaiting review.
+        withheld: withheld ?? null,
         items: await (async () => {
           const es = items.map((it) => it.entity);
           await prefetch(es);

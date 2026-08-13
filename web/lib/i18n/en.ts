@@ -392,6 +392,23 @@ export const en = {
       `Showing ${shown} of ${total}. An agent receives the same results and a note to ask a more specific question for the rest. Raise the limit to preview more.`,
     empty:
       "No verified knowledge matches this query, so nothing will be sent to the agent",
+    // The empty state above claims nothing matches. When something DID match and was held back, saying
+    // so is the difference between "we know nothing about this" and "this is waiting for review".
+    withheld: (w: {
+      draft: number;
+      stale: number;
+      deprecated: number;
+      structural: number;
+    }) =>
+      `Nothing will be sent, but this query did match records: ${[
+        w.draft && `${w.draft} awaiting review`,
+        w.stale && `${w.stale} past its freshness window`,
+        w.deprecated && `${w.deprecated} retired`,
+        w.structural &&
+          `${w.structural} naming something knowledge is attached to, which is never injected as knowledge`,
+      ]
+        .filter(Boolean)
+        .join(", ")}.`,
     // As-of. Labelled as a question about the past rather than as a filter, because that is what it
     // answers, and banner-flagged whenever it is on: a historical result that looked like a current
     // one would be worse than not offering this at all.

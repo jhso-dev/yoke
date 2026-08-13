@@ -6,6 +6,7 @@
 // not — connector-ingested rows summarised as their idempotency key ("rdb:table:1") instead of their
 // knowledge — so every web screen showed the defect the CLI had already fixed. One copy, one fix.
 
+import type { WithheldStats } from "../core/inject.js";
 import type { TypeDef } from "../core/ontology.js";
 
 /** Keys that are bookkeeping, never the knowledge. A connector puts external_id first. */
@@ -160,4 +161,26 @@ export function rankByConsumption<T extends { id: string }>(
     .map((e, i) => ({ e, i, injections: counts.get(e.id) ?? 0 }))
     .sort((a, b) => b.injections - a.injections || a.i - b.i)
     .map(({ e, injections }) => ({ ...e, injections }));
+}
+
+/**
+ * An empty injection, said in words: what matched, and why none of it could be handed over.
+ *
+ * Adapter-neutral on purpose — no command names. Three surfaces phrased this differently (the CLI
+ * explained drafts and nothing else, MCP said "no verified knowledge found for: <query>", the web
+ * said nothing), and the reason a reader needs is the same on all three. A surface with one next
+ * action worth naming appends it; the clause itself travels unchanged.
+ */
+export function describeWithheld(w: WithheldStats): string {
+  const parts: string[] = [];
+  if (w.draft > 0) parts.push(`${w.draft} awaiting review`);
+  if (w.stale > 0) parts.push(`${w.stale} past its freshness window`);
+  if (w.deprecated > 0) parts.push(`${w.deprecated} retired`);
+  // Named at length because this is the reason a reader acts wrongly on: verifying it changes nothing.
+  if (w.structural > 0)
+    parts.push(
+      `${w.structural} naming something knowledge is attached to (never injectable as knowledge)`,
+    );
+  const total = w.draft + w.stale + w.deprecated + w.structural;
+  return `${total} match(es) withheld: ${parts.join(", ")}`;
 }

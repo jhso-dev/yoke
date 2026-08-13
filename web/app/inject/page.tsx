@@ -193,6 +193,12 @@ function InjectBody() {
                 )}
               </Alert>
             )}
+            {/* Empty, but not because the corpus is silent — name what was held back and why. */}
+            {items.length === 0 && result.data?.withheld && (
+              <Alert variant="warn">
+                {t.inject.withheld(result.data.withheld)}
+              </Alert>
+            )}
             <KnowledgeTable rows={items} empty={t.inject.empty} paginate />
           </Panel>
         </>

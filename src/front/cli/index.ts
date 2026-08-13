@@ -50,6 +50,7 @@ import {
 import type { Entity, Relation } from "../../core/types.js";
 import {
   consumptionCounts,
+  describeWithheld,
   injectDetail,
   injectShape,
   rankByConsumption,
@@ -830,20 +831,26 @@ async function cmdInject(
     // Same default as the MCP tool and the web route: an anchored briefing is capped, a query is not.
     // Without it, `yoke inject --scope <collaboration>` dumps every record ever attached to that work.
     const briefing = v.scope !== undefined && !query;
-    const { items, omitted, walk } = await inject(store, ontology, query, ts, {
-      includeDraft: v["include-draft"],
-      limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
-      ns,
-      // The MCP tool has always passed a scope; the CLI never did, so the two front ends could not
-      // reproduce each other's results (WEB-UI's CLI-achievable rule).
-      scope: v.scope,
-      // Relation hops the anchor walk takes (SPEC "Multi-hop"). 1 = the v4.0 behaviour.
-      depth: v.depth === undefined ? undefined : Number(v.depth),
-      asOf: v["as-of"],
-      // Hybrid retrieval (SPEC "Hybrid retrieval"): the same env-configured embedder the gate uses,
-      // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
-      embedder: makeFetchEmbedder(env),
-    });
+    const { items, omitted, walk, withheld } = await inject(
+      store,
+      ontology,
+      query,
+      ts,
+      {
+        includeDraft: v["include-draft"],
+        limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
+        ns,
+        // The MCP tool has always passed a scope; the CLI never did, so the two front ends could not
+        // reproduce each other's results (WEB-UI's CLI-achievable rule).
+        scope: v.scope,
+        // Relation hops the anchor walk takes (SPEC "Multi-hop"). 1 = the v4.0 behaviour.
+        depth: v.depth === undefined ? undefined : Number(v.depth),
+        asOf: v["as-of"],
+        // Hybrid retrieval (SPEC "Hybrid retrieval"): the same env-configured embedder the gate uses,
+        // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
+        embedder: makeFetchEmbedder(env),
+      },
+    );
     // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core stays pure.
     store.logAudit({
       actor: resolveActor(v, env),
@@ -874,15 +881,20 @@ async function cmdInject(
             ? `; the walk hit its ${WALK_BUDGET}-node budget, so the outermost hop is incomplete`
             : ""),
       );
-    // Draft-invisibility fix: zero verified hits, but drafts match → say so, don't imply the
-    // knowledge simply isn't there. --json output stays the raw items array (contract unchanged).
-    let human = items.length ? lines.join("\n") : "no results";
-    if (items.length === 0 && !v.json) {
-      const drafts = await store.search({ text: query, status: "draft", ns });
-      if (drafts.length > 0) {
-        human = `no verified knowledge (${drafts.length} draft match(es) withheld — review with 'yoke review')`;
-      }
-    }
+    // Zero hits: say why, don't imply the knowledge simply isn't there. The counts and the reasons come
+    // from core (`withheld`), so the terminal, `--json` and the MCP tool now explain the same emptiness
+    // — the draft-only version of this lived here and the two agent-facing paths never got it.
+    // The one next action this surface can name. Losing it would be a regression: it is the sentence
+    // that taught readers the gate exists ("review with 'yoke review'").
+    const emptyReason = withheld
+      ? `no verified knowledge — ${describeWithheld(withheld)}` +
+        (withheld.draft > 0 ? " — review with 'yoke review'" : "")
+      : "no results";
+    const human = items.length ? lines.join("\n") : emptyReason;
+    // Under --json stdout stays the raw items array (contract unchanged, and a shape that alternates
+    // between array and object is worse than a silent one). The reason goes to stderr, where a script
+    // ignores it and the person debugging the script reads it.
+    if (v.json && withheld) console.error(emptyReason);
     emit(v, human, items);
     return 0;
   });

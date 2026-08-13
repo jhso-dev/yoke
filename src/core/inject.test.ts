@@ -894,3 +894,76 @@ describe("hybrid retrieval: the vector half of the Embedder contract", () => {
     ).rejects.toThrow(/dimension changed.*backfill --embeddings --rebuild/s);
   });
 });
+
+// An empty answer used to be one word for four situations. The three surfaces then each guessed:
+// the CLI explained drafts only, the MCP tool said "no verified knowledge found", the web said
+// nothing. Core now says which, so all three say the same thing.
+describe("an empty injection says why it is empty", () => {
+  it("names drafts awaiting review", async () => {
+    await addFact("the pool drains at midnight");
+    const res = await inject(port, ont, "pool", now);
+    expect(res.items).toEqual([]);
+    expect(res.withheld).toEqual({
+      draft: 1,
+      stale: 0,
+      deprecated: 0,
+      structural: 0,
+    });
+  });
+
+  it("names a retired record, which the draft-only version could not", async () => {
+    const f = await addFact("we deploy on fridays");
+    await verify(port, [f], "admin", now);
+    await deprecate(port, [f], "admin", now);
+    const res = await inject(port, ont, "fridays", now);
+    expect(res.items).toEqual([]);
+    expect(res.withheld?.deprecated).toBe(1);
+    expect(res.withheld?.draft).toBe(0);
+  });
+
+  it("names a stale record rather than implying it was never recorded", async () => {
+    const f = await addFact("the gateway retries twice");
+    await verify(port, [f], "admin", now);
+    // fact TTL = 180 days.
+    const res = await inject(port, ont, "gateway", "2027-06-01T00:00:00Z");
+    expect(res.items).toEqual([]);
+    expect(res.withheld?.stale).toBe(1);
+  });
+
+  // The reason that misdirects worst: a verified person matching the query is withheld by TYPE, so a
+  // reader told "draft withheld" verifies it and the answer does not improve.
+  it("distinguishes a structural match from one awaiting review", async () => {
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Mina" } },
+      prov,
+      now,
+    );
+    await verify(port, [entity.id], "admin", now);
+    const res = await inject(port, ont, "Mina", now);
+    expect(res.items).toEqual([]);
+    expect(res.withheld).toEqual({
+      draft: 0,
+      stale: 0,
+      deprecated: 0,
+      structural: 1,
+    });
+  });
+
+  it("is absent when the query matched nothing at all — a different answer", async () => {
+    const f = await addFact("the pool drains at midnight");
+    await verify(port, [f], "admin", now);
+    const res = await inject(port, ont, "kubernetes", now);
+    expect(res.items).toEqual([]);
+    expect(res.withheld).toBeUndefined();
+  });
+
+  it("is absent when records were actually injected", async () => {
+    const f = await addFact("the pool drains at midnight");
+    await verify(port, [f], "admin", now);
+    const res = await inject(port, ont, "pool", now);
+    expect(res.items).toHaveLength(1);
+    expect(res.withheld).toBeUndefined();
+  });
+});

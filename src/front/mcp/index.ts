@@ -24,7 +24,7 @@ import type { TypeDef } from "../../core/ontology.js";
 import { personaQuery } from "../../core/persona.js";
 import type { Entity, EntityInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
-import { injectDetail } from "../display.js";
+import { describeWithheld, injectDetail } from "../display.js";
 import { openStore } from "../store.js";
 
 const ORIGIN = "mcp";
@@ -263,7 +263,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // returned all 300 in full, ~15k tokens, because someone pinned a scope. Default it, and let an
       // explicit limit override. Only the briefing — a query is already narrowed by its own terms.
       const briefing = anchor !== undefined && !query;
-      const { items, omitted, walk } = await inject(
+      const { items, omitted, walk, withheld } = await inject(
         store,
         ontology,
         query,
@@ -293,8 +293,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         at: ts,
         ns,
       });
+      // An agent that reads "no verified knowledge" as "there is none" answers from nothing and says
+      // so confidently. Knowledge awaiting review, retired, or of a type that is not injectable are
+      // three different situations and none of them is absence — so the reason travels, phrased by the
+      // same helper the CLI and the web use.
       if (items.length === 0)
-        return ok(`no verified knowledge found for: ${query}`);
+        return ok(
+          withheld
+            ? `no verified knowledge for: ${query} — ${describeWithheld(withheld)}`
+            : `no verified knowledge found for: ${query}`,
+        );
       const blocks = items.map(
         (it) =>
           `${it.citation} [${it.effectiveStatus}]\n${JSON.stringify(it.entity.attributes)}`,

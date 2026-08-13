@@ -27,11 +27,39 @@ export interface WalkStats {
   truncated: boolean;
 }
 
+/**
+ * Why an empty answer is empty (counts only — front adapters turn them into words, the same division
+ * of labour `omitted` and `WalkStats` already have).
+ *
+ * An empty injection is the one result a reader cannot interpret: knowledge that is absent, knowledge
+ * that is waiting for review, and knowledge that was retired all read as "no results", and the reader
+ * has no way to tell which. The CLI had half of this — a second search for drafts, human output only,
+ * so `--json` and the MCP tool (the paths an AGENT reads) got the bare "no results" while the terminal
+ * got the explanation. Three surfaces, three phrasings, one of them right.
+ *
+ * `structural` is the reason that misdirects worst if left unsaid: a verified `person` matching the
+ * query is withheld by type, so a reader told "draft withheld" verifies it and the answer gets no
+ * better — the record was never injectable knowledge (see the structural note below).
+ */
+export interface WithheldStats {
+  /** Matched, but still awaiting review. Reachable with `includeDraft`, or by verifying. */
+  draft: number;
+  /** Matched and verified, but past its type's TTL. Reachable by re-confirming. */
+  stale: number;
+  /** Matched, but retired. Not reachable — the retirement is the answer. */
+  deprecated: number;
+  /** Matched, but names something knowledge is attached TO. Never injectable as knowledge. */
+  structural: number;
+}
+
 export interface InjectResult {
   items: InjectItem[];
   omitted: number;
   /** Present only when the walk went deeper than one hop. */
   walk?: WalkStats;
+  /** Present only when `items` is empty AND something matched that could not be injected. Absent
+   * means the query matched nothing at all, which is a different answer and reads as one. */
+  withheld?: WithheldStats;
 }
 
 /**
@@ -455,9 +483,69 @@ export async function inject(
   // within the over-fetched window rather than the whole corpus: `search` is a top-k, so a number
   // for "everything that matched" is not knowable without materializing it, which is the thing that
   // crashed. Under-reporting a truncation the reader can see is better than a guess they cannot.
+  // Nothing to hand over: say why, once, here. The diagnostic costs a retrieval, so it is paid only
+  // on the empty answer — the one case where the reader cannot tell an absence from a filter.
+  //
+  // The query path has to re-ask because `candidateQuery` pushes `status` DOWN: a withheld draft never
+  // reached this function to be counted. The anchor path already holds every status (the walk filters
+  // none), so it reuses the candidates it has.
+  const withheld =
+    limited.length === 0
+      ? await countWithheld(
+          port,
+          ontology,
+          scope
+            ? candidates
+            : await port.search({ text: query, ns, limit: opts?.limit }),
+          readAt,
+          askedForRoster,
+        )
+      : undefined;
   return {
     items: limited,
     omitted: items.length - limited.length,
     ...(walk ? { walk } : {}),
+    ...(withheld ? { withheld } : {}),
   };
+}
+
+/**
+ * Classify what matched but did not pass, by the reason it did not.
+ *
+ * One reason per record, structural first: a structural record is withheld by TYPE whatever its
+ * status, so counting it as "draft" would name a fix (verify it) that cannot work.
+ *
+ * Returns undefined when nothing was withheld, which is what lets a caller distinguish "the query
+ * matched nothing" from "the query matched only knowledge you cannot have".
+ */
+async function countWithheld(
+  port: StoragePort,
+  ontology: TypeDef[],
+  candidates: Entity[],
+  readAt: string,
+  askedForRoster: boolean,
+): Promise<WithheldStats | undefined> {
+  const structuralTypes = new Set(
+    ontology
+      .filter((t) => t.kind === "entity" && t.structural)
+      .map((t) => t.name),
+  );
+  const stats: WithheldStats = {
+    draft: 0,
+    stale: 0,
+    deprecated: 0,
+    structural: 0,
+  };
+  for (const found of candidates) {
+    if (!askedForRoster && structuralTypes.has(found.type)) {
+      stats.structural++;
+      continue;
+    }
+    const status = effectiveStatus(found, ontology, readAt);
+    if (status === "draft") stats.draft++;
+    else if (status === "stale") stats.stale++;
+    else if (status === "deprecated") stats.deprecated++;
+  }
+  const total = stats.draft + stats.stale + stats.deprecated + stats.structural;
+  return total > 0 ? stats : undefined;
 }

@@ -75,7 +75,10 @@ describe("yoke MCP server", () => {
       name: "yoke_inject",
       arguments: { query: "sqlitembed" },
     });
-    expect(text(def)).toContain("no verified knowledge found");
+    // ...and the tool says WHY: an agent that reads "no verified knowledge" as "there is none"
+    // answers from nothing and says so confidently. Same clause the CLI and the web print.
+    expect(text(def)).toContain("no verified knowledge");
+    expect(text(def)).toContain("1 awaiting review");
 
     // with includeDraft it does show (status label + attributes)
     const withDraft = await b.client.callTool({

@@ -134,6 +134,14 @@ export interface InjectPreview {
   omitted: number;
   /** What a multi-hop walk did — non-null only when depth > 1 was requested and walked. */
   walk: { depth: number; nodes: number; truncated: boolean } | null;
+  /** Why an empty preview is empty — non-null only when nothing could be injected AND something
+   * matched. Null means the query matched nothing at all, which is a different answer. */
+  withheld: {
+    draft: number;
+    stale: number;
+    deprecated: number;
+    structural: number;
+  } | null;
   items: Knowledge[];
 }
 
