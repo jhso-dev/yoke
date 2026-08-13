@@ -1719,7 +1719,7 @@ async function runIngest(
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
-    const { added, skipped, rejected } = await ingest(
+    const { added, updated, skipped, rejected } = await ingest(
       store,
       ontology,
       connector,
@@ -1731,7 +1731,13 @@ async function runIngest(
       // are not weaker on the bulk path than on `yoke add`.
       makeFetchEmbedder(env),
     );
-    const lines = [`added ${added}, skipped ${skipped}`];
+    // `updated` is its own count: a re-ingest that re-versions a corrected paragraph did nothing visible
+    // before, because a changed item was reported as `skipped`.
+    const lines = [
+      `added ${added}` +
+        (updated > 0 ? `, updated ${updated}` : "") +
+        `, skipped ${skipped}`,
+    ];
     // Named, and a non-zero exit. A refused source item used to abort the whole run with one stderr line
     // and no counts; silently counting it would be the other failure — "added 24" reads as complete.
     if (rejected)
@@ -1743,6 +1749,7 @@ async function runIngest(
     // was refused" from "this version does not report refusals".
     emit(v, lines.join("\n"), {
       added,
+      updated,
       skipped,
       ...(rejected ? { rejected } : {}),
     });
