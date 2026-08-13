@@ -333,6 +333,7 @@ describe("renderPersonaSkill", () => {
       person,
       { decisions: [decision], facts: [fact] },
       "2026-07-12T12:00:00Z",
+      ont,
     );
     expect(md).toMatchInlineSnapshot(`
       "---
@@ -347,7 +348,7 @@ describe("renderPersonaSkill", () => {
 
       ## Guiding principles
 
-      - zero-config single file keeps the CLI simple
+      - use SQLite [decision:01DECISION@v2]
 
       ## Decision record
 
@@ -397,6 +398,7 @@ describe("parsePersonaSources", () => {
       person,
       await personaQuery(port, ont, "alex", now),
       now,
+      ont,
     );
 
     const header = parsePersonaSources(md);
@@ -587,5 +589,103 @@ describe("the anchor has to be a person", () => {
     expect((await personaQuery(port, ont, "ada", now)).decisions).toHaveLength(
       1,
     );
+  });
+});
+
+// The renderer was the blind spot the retrieval eval could not see: `eval:persona` asserts over
+// `personaQuery`'s entity list and never calls `renderPersonaSkill`, so "0% leak / 100% recall" was true
+// about selection while every fact and term in the exported document had its content stripped off.
+describe("an exported record says what it actually says", () => {
+  /** A person to anchor on, plus whatever knowledge the case needs. */
+  async function anchored(): Promise<Entity> {
+    await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Aisha" } },
+      prov("aisha"),
+      now,
+      { existingId: "aisha" },
+    );
+    await verify(port, ["aisha"], "admin", now);
+    return (await port.getEntity("aisha")) as Entity;
+  }
+
+  it("renders a fact's statement, not just its title", async () => {
+    // `firstString` took the first string in INSERTION order, and `fact` declares `{title, statement}` —
+    // so this exported as "Ledger write throughput — [fact:…]" beside an instruction saying "if it is not
+    // in the records above, answer 'no record'". The skill named the topic and withheld the answer.
+    const person = await anchored();
+    const id = await add(
+      "fact",
+      {
+        title: "Ledger write throughput",
+        statement: "4,200 appends/sec at p99 write latency 18ms",
+      },
+      "aisha",
+    );
+    await verify(port, [id], "admin", now);
+    const md = renderPersonaSkill(
+      person,
+      await personaQuery(port, ont, "aisha", now),
+      now,
+      ont,
+    );
+    expect(md).toContain("Ledger write throughput");
+    expect(md).toContain("4,200 appends/sec at p99 write latency 18ms");
+  });
+
+  it("renders the same type identically whichever attribute was written first", async () => {
+    // Attribute insertion order is caller-controlled, so two records of one type rendered differently
+    // depending on how they happened to be committed. Declared order is the ontology's opinion.
+    const person = await anchored();
+    const a = await add(
+      "fact",
+      {
+        title: "Feature flag store",
+        statement: "reads fall back to the last good snapshot",
+      },
+      "aisha",
+    );
+    const b = await add(
+      "fact",
+      { statement: "writes go through the same gate", title: "Flag writes" },
+      "aisha",
+    );
+    await verify(port, [a, b], "admin", now);
+    const md = renderPersonaSkill(
+      person,
+      await personaQuery(port, ont, "aisha", now),
+      now,
+      ont,
+    );
+    // Title first in both, because that is the order `fact` declares.
+    expect(md).toContain(
+      "Feature flag store — reads fall back to the last good snapshot",
+    );
+    expect(md).toContain("Flag writes — writes go through the same gate");
+  });
+
+  it("keeps a connector's undeclared attribute but not its bookkeeping", async () => {
+    const person = await anchored();
+    const id = await add(
+      "fact",
+      {
+        statement: "the freeze moved to Thursday",
+        external_id: "slack:C1:1700.001",
+        note: "said in the platform channel",
+      },
+      "aisha",
+    );
+    await verify(port, [id], "admin", now);
+    const md = renderPersonaSkill(
+      person,
+      await personaQuery(port, ont, "aisha", now),
+      now,
+      ont,
+    );
+    expect(md).toContain("the freeze moved to Thursday");
+    expect(md).toContain("said in the platform channel");
+    // The idempotency key is not something the record says.
+    expect(md).not.toContain("slack:C1:1700.001");
   });
 });

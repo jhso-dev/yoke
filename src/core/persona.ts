@@ -120,12 +120,46 @@ export function safeName(id: string): string {
   return id.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
 
-/** The first string value in attributes (for a knowledge summary). Empty string if none. */
-function firstString(attrs: Record<string, unknown>): string {
-  for (const v of Object.values(attrs)) {
-    if (typeof v === "string") return v;
+/** Attribute keys that are bookkeeping rather than knowledge — the same set `summarize` excludes. */
+const NOT_CONTENT = new Set([
+  "external_id",
+  "author",
+  "topic",
+  "key",
+  "status",
+]);
+
+/**
+ * Everything a record actually says, in the order its type declares it.
+ *
+ * It used to be `firstString`: the first string value in INSERTION order, which is caller-controlled. A
+ * `fact` declares `{title, statement}`, so every fact and term exported as its headline with the content
+ * stripped off — "Ledger write throughput — [fact:…]" beside an instruction reading "if it is not in the
+ * records above, answer 'no record'". The skill named the topic and withheld the answer, which is the
+ * shape that invites a hallucinated number in its place. Two records of the same type in one export
+ * rendered differently depending on which attribute happened to be written first.
+ *
+ * Declared order, for the reason `summarize` uses it: what a type declares FIRST is what it wants read,
+ * and it is the ontology's opinion rather than the writer's. Undeclared strings follow, because a
+ * connector's extra field is still something the record says.
+ */
+function knowledgeText(e: Entity, ontology: TypeDef[]): string {
+  const def = ontology.find((t) => t.name === e.type);
+  const parts: string[] = [];
+  const taken = new Set<string>();
+  for (const key of Object.keys(def?.attrs ?? {})) {
+    const v = e.attributes[key];
+    if (typeof v === "string" && v) {
+      parts.push(v);
+      taken.add(key);
+    }
   }
-  return "";
+  for (const [key, v] of Object.entries(e.attributes)) {
+    if (taken.has(key) || NOT_CONTENT.has(key)) continue;
+    if (typeof v === "string" && v) parts.push(v);
+  }
+  // " — " between them: a title and its statement read as one line, and nothing is dropped.
+  return parts.join(" — ");
 }
 
 /**
@@ -136,6 +170,7 @@ export function renderPersonaSkill(
   person: Entity,
   result: PersonaResult,
   now: string,
+  ontology: TypeDef[],
 ): string {
   const { decisions, facts } = result;
   const name =
@@ -162,11 +197,19 @@ export function renderPersonaSkill(
   );
   out.push("");
 
+  // The conclusion, not the rationale. This section was every decision's `rationale` verbatim — the same
+  // prose the Decision record below repeats in full, about 30% of a 13.9KB export — with no conclusion,
+  // no citation and no date on any line. So the section a model leans on hardest was the one the file's
+  // own rule ("do not answer without a citation") could not be followed from, and an abandoned decision's
+  // reasoning read there as a live conviction.
+  //
+  // A principle is what someone concluded; the reasoning belongs with the record it belongs to.
   out.push("## Guiding principles");
   out.push("");
   if (decisions.length === 0) out.push("(no recorded decisions)");
   else
-    for (const d of decisions) out.push(`- ${String(d.attributes.rationale)}`);
+    for (const d of decisions)
+      out.push(`- ${String(d.attributes.conclusion)} ${pointer(d)}`);
   out.push("");
 
   out.push("## Decision record");
@@ -199,7 +242,7 @@ export function renderPersonaSkill(
   else
     for (const f of facts)
       out.push(
-        `- ${firstString(f.attributes)} — ${pointer(f)} recorded by ${name}, last confirmed ${f.last_confirmed}`,
+        `- ${knowledgeText(f, ontology)} — ${pointer(f)} recorded by ${name}, last confirmed ${f.last_confirmed}`,
       );
   out.push("");
 

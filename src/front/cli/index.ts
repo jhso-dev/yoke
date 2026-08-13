@@ -1899,7 +1899,7 @@ async function cmdPersona(
       throw e;
     }
     if (!person) return 1;
-    const md = renderPersonaSkill(person, result, ts);
+    const md = renderPersonaSkill(person, result, ts, ontology);
     // fs lives only in the CLI tier (core produces only a string).
     const outDir = join(v.out ?? ".", `persona-${safeName(id)}`);
     mkdirSync(outDir, { recursive: true });
