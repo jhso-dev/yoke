@@ -1719,7 +1719,7 @@ async function runIngest(
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
-    const { added, skipped } = await ingest(
+    const { added, skipped, rejected } = await ingest(
       store,
       ontology,
       connector,
@@ -1727,9 +1727,26 @@ async function runIngest(
       now(),
       instantFlag(v.since, "since"),
       ns,
+      // The same embedder every other write path gets, so the gate's duplicate and contradiction stages
+      // are not weaker on the bulk path than on `yoke add`.
+      makeFetchEmbedder(env),
     );
-    emit(v, `added ${added}, skipped ${skipped}`, { added, skipped });
-    return 0;
+    const lines = [`added ${added}, skipped ${skipped}`];
+    // Named, and a non-zero exit. A refused source item used to abort the whole run with one stderr line
+    // and no counts; silently counting it would be the other failure — "added 24" reads as complete.
+    if (rejected)
+      lines.push(
+        `${rejected.length} could not be recorded:`,
+        ...rejected.map((r) => `  ${r}`),
+      );
+    // Absent rather than empty in --json, for the same reason `withheld` is: a caller can tell "nothing
+    // was refused" from "this version does not report refusals".
+    emit(v, lines.join("\n"), {
+      added,
+      skipped,
+      ...(rejected ? { rejected } : {}),
+    });
+    return rejected ? 1 : 0;
   });
 }
 
@@ -1817,19 +1834,24 @@ async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
     return await withStore(v, env, async (store) => {
       const ontology = requireOntology(store, ns, v, env);
       if (!ontology) return 1;
-      const { added, updated, skipped } = await ingestMapped(
+      const { added, updated, skipped, errors } = await ingestMapped(
         store,
         ontology,
         connector,
         now(),
         ns,
+        makeFetchEmbedder(env),
       );
-      emit(v, `mapped ${added} added, ${updated} updated, ${skipped} skipped`, {
-        added,
-        updated,
-        skipped,
-      });
-      return 0;
+      // `errors` was computed and thrown away, in the summary and in --json both, so a scheduled sync
+      // in which EVERY row failed was indistinguishable from a no-op success: "mapped 0 added, 0 updated,
+      // 0 skipped", exit 0. The count and the exit code are the only things a cron job can read.
+      emit(
+        v,
+        `mapped ${added} added, ${updated} updated, ${skipped} skipped` +
+          (errors > 0 ? `, ${errors} failed (see the messages above)` : ""),
+        { added, updated, skipped, errors },
+      );
+      return errors > 0 ? 1 : 0;
     });
   } finally {
     closeSrc();

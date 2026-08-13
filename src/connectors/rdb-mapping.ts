@@ -17,6 +17,7 @@
 // (`rdb:<table>:<pk>`), which is also the idempotency key.
 
 import { CommitRejected, commit } from "../core/commit.js";
+import type { Embedder } from "../core/embedding.js";
 import { verify } from "../core/lifecycle.js";
 import type { TypeDef } from "../core/ontology.js";
 import type { Entity, Provenance } from "../core/types.js";
@@ -89,6 +90,7 @@ export async function ingestMapped(
   connector: RdbMappingConnector,
   now: string,
   ns?: string | null,
+  embedder?: Embedder,
 ): Promise<MappedResult> {
   let added = 0;
   let updated = 0;
@@ -115,7 +117,30 @@ export async function ingestMapped(
 
   // Pass 1 — entities. Build the external_id → yoke id map for pass 2.
   for (const { spec, rows } of tables) {
+    // The primary key column, checked ONCE against the first row rather than per row. A typo'd
+    // `idColumn` is a mapping-file mistake, not a data one: every row yields the same
+    // `rdb:employees:undefined`, and because this path re-versions on a key match, four different people
+    // became one entity's version chain with the last row winning — reported as "1 added, 3 updated",
+    // exit 0, and `history` on the survivor read as one person renamed three times. Refusing the spec
+    // names the fix; refusing row by row would bury it in five identical errors.
+    if (rows.length > 0 && !(spec.idColumn in rows[0])) {
+      console.error(
+        `rdb: ${spec.table} has no column "${spec.idColumn}" — ` +
+          `mapped columns are ${Object.keys(rows[0]).join(", ")}. Nothing from this table was imported.`,
+      );
+      errors++;
+      continue;
+    }
     for (const row of rows) {
+      // A NULL primary key in an actual row. Same consequence, different cause, so it is skipped rather
+      // than aborting the table.
+      if (row[spec.idColumn] === null || row[spec.idColumn] === undefined) {
+        console.error(
+          `rdb: skipped a ${spec.table} row whose ${spec.idColumn} is null — it cannot be identified`,
+        );
+        errors++;
+        continue;
+      }
       const extId = externalId(spec.table, row[spec.idColumn]);
       const attributes: Record<string, unknown> = { external_id: extId };
       for (const [col, attr] of Object.entries(spec.columns)) {
@@ -134,7 +159,9 @@ export async function ingestMapped(
           { type: spec.entityType, attributes },
           prov(spec.table),
           now,
-          existing ? { existingId: existing.id, ns } : { ns },
+          existing
+            ? { existingId: existing.id, ns, embedder }
+            : { ns, embedder },
         );
         await verify(port, [entity.id], "rdb", now, ns);
         idByExtId.set(extId, entity.id);
