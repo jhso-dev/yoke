@@ -894,6 +894,7 @@ describe("runCli", () => {
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toEqual({
       added: 2,
+      updated: 0,
       skipped: 0,
     });
     // re-run skips (external_id idempotency)
@@ -902,6 +903,7 @@ describe("runCli", () => {
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toEqual({
       added: 0,
+      updated: 0,
       skipped: 2,
     });
 

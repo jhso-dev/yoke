@@ -48,7 +48,7 @@ export class NotAPerson extends Error {}
  * persona. Lifting that means a `TypeDef` marker, the same extension point `membership` and
  * `structural` are — not a second string compared here.
  */
-const PERSON_TYPE = "person";
+export const PERSON_TYPE = "person";
 
 /**
  * The persona entry point: an injection anchored on a person, read strictly.

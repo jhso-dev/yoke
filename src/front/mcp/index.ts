@@ -23,10 +23,11 @@ import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import {
   NotAPerson,
+  PERSON_TYPE,
   type PersonaResult,
   personaQuery,
 } from "../../core/persona.js";
-import type { Entity, EntityInput } from "../../core/types.js";
+import type { Entity, EntityInput, RelationInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
 import { describeWithheld, injectDetail } from "../display.js";
 import { openStore } from "../store.js";
@@ -125,7 +126,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   const resolveActor = (actor?: string) => actor ?? defaultActor;
 
   async function doCommit(
-    input: EntityInput,
+    input: EntityInput | RelationInput,
     actor?: string,
     scope?: string,
     derivedFrom?: string[],
@@ -143,7 +144,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // threw after the entity was durable, so an agent heard "rejected" about a record that exists
       // and retried (see `attachTo` in core/commit.ts).
       const linkTo = effectiveScope(scope);
-      const { entity, duplicates } = await commit(
+      const { entity, duplicates, duplicateDetection } = await commit(
         store,
         ontology,
         input,
@@ -196,6 +197,15 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           status: entity.status,
           // Similar-knowledge candidates — no auto-merge. Included in the result for the agent to judge.
           duplicates: duplicates.map((d) => ({ id: d.id, type: d.type })),
+          // WHY the list is empty. `[]` reads as "checked, nothing similar", and with no embedder
+          // configured nothing was checked at all — the CLI has said so since the gate started reporting
+          // it ("no duplicate check ran: set YOKE_EMBED_URL …") and MCP dropped the field. It matters
+          // twice over: conflict detection consumes the same candidates, so on a keyless install an agent
+          // recording a contradiction is told nothing about either.
+          duplicate_check:
+            duplicateDetection === "skipped"
+              ? "not run — this deployment has no embedding provider configured, so nothing was compared and no contradiction could be detected"
+              : "compared against similar records",
           // How many derivation edges were actually filed. Reported rather than assumed: on a DB that
           // never migrated the type this is 0 while the commit succeeded, and an agent told nothing
           // would believe it had recorded a basis that is not there.
@@ -365,13 +375,35 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     "yoke_commit",
     {
       description:
-        "Ingest a new piece of knowledge (a fact, term, etc.) into the knowledge DB. It enters in the " +
-        "draft state and only becomes eligible for injection after a human verifies it. Rejected if the " +
-        "type is not in the ontology or a required attribute is missing. To record a decision, use yoke_record_decision.",
+        "Ingest a new piece of knowledge into the knowledge DB — an entity (a fact, term, resource) or a " +
+        "RELATION between two records (supersedes, conflicts_with, relates_to, derived_from). It enters in " +
+        "the draft state and only becomes eligible for injection after a human verifies it. Rejected if the " +
+        "type is not in the ontology or a required attribute is missing; the rejection lists the types that " +
+        "are. To record a decision, use yoke_record_decision.\n" +
+        'A relation is knowledge in its own right: "this decision replaced that one" and "these two ' +
+        'records disagree" are things only you may know after reading both, and injection reads both — a ' +
+        "superseded record stops being served, and contradicting ones are served marked as disputed.",
       inputSchema: {
         type: z
           .string()
-          .describe("Entity type registered in the ontology (e.g. fact, term)"),
+          .describe(
+            "Type registered in the ontology — an entity type (fact, term, …) or a relation type " +
+              "(supersedes, conflicts_with, relates_to, …)",
+          ),
+        from: z
+          .string()
+          .optional()
+          .describe(
+            "Relation types only: the id of the record the edge starts at. For supersedes this is the " +
+              "REPLACEMENT — `from supersedes to` means `from` replaced `to`",
+          ),
+        to: z
+          .string()
+          .optional()
+          .describe(
+            "Relation types only: the id of the record the edge points at. Both ids must be records " +
+              "that exist",
+          ),
         attributes: z
           .record(z.string(), z.unknown())
           .describe("Attributes validated against the per-type schema"),
@@ -392,8 +424,18 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .describe(DERIVED_FROM_DESC),
       },
     },
-    ({ type, attributes, actor, scope, derived_from }) =>
-      doCommit({ type, attributes }, actor, scope, derived_from),
+    ({ type, attributes, actor, scope, derived_from, from, to }) =>
+      // `from`/`to` were absent from this schema, so a relation attempt was answered "supersedes is a
+      // relation type: it needs a from and a to" — about arguments the caller HAD passed and the schema
+      // had silently dropped. An agent reading that message retries it forever.
+      doCommit(
+        from !== undefined && to !== undefined
+          ? { type, attributes, from, to }
+          : { type, attributes },
+        actor,
+        scope,
+        derived_from,
+      ),
   );
 
   server.registerTool(
@@ -544,8 +586,22 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           ns,
         });
       } catch (e) {
-        if (e instanceof NotAPerson) return err(e.message);
-        throw e;
+        if (!(e instanceof NotAPerson)) throw e;
+        // The CLI's hint has no MCP equivalent, and the only route to a person id here was
+        // `yoke_overview`'s author list — which counts VERIFIED knowledge, so on a corpus with a review
+        // backlog (the normal state, since everything an agent records is a draft) it is empty. That made
+        // this a dead end unless the agent already held a ULID. The people are one read away.
+        const people = (
+          await store.listEntities({ type: PERSON_TYPE, ns, limit: 20 })
+        ).items
+          .map((p) => `${p.id} (${String(p.attributes.name ?? "unnamed")})`)
+          .join(", ");
+        return err(
+          `${e.message}\n` +
+            (people
+              ? `people on record: ${people}`
+              : "no person records exist in this namespace yet"),
+        );
       }
       const { decisions, facts } = persona;
       // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.

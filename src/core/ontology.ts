@@ -268,7 +268,25 @@ export function validateInput(
   input: EntityInput | RelationInput,
 ): { ok: true } | { ok: false; reason: string } {
   const def = ontology.find((t) => t.name === input.type);
-  if (!def) return { ok: false, reason: `unknown type: ${input.type}` };
+  // The valid names travel with the refusal. `yoke ontology list` answers this for a person, but an agent
+  // over MCP has no equivalent — the commit tool's own description says "rejected if the type is not in
+  // the ontology" and named no way to read it, so a typo'd type left the agent guessing. The ontology is
+  // the argument to this function; withholding it was a choice, not a limitation. Split by kind because a
+  // relation is not a substitute for an entity.
+  if (!def) {
+    const names = (kind: TypeDef["kind"]) =>
+      ontology
+        .filter((t) => t.kind === kind)
+        .map((t) => t.name)
+        .join(", ") || "(none)";
+    return {
+      ok: false,
+      reason:
+        `unknown type: ${input.type}\n` +
+        `entity types: ${names("entity")}\n` +
+        `relation types: ${names("relation")}`,
+    };
+  }
 
   // A kind mismatch is reported as itself. Without this the checks below answered a question nobody
   // asked: recording an entity type as a relation ("<person> decision <id>") reached the attribute

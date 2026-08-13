@@ -615,3 +615,86 @@ describe("yoke_commit / yoke_record_decision derived_from", () => {
     expect(await downstream(out.id)).toEqual([]);
   });
 });
+
+// MCP is the real product path (invariant 3) and the CLI is a thin human adapter, so MCP being the
+// weaker surface is a defect rather than a CLI bonus. These four were measured with a real client.
+describe("what the agent-facing surface would not tell an agent", () => {
+  it("records a relation, instead of demanding arguments its schema dropped", async () => {
+    // `from`/`to` were absent from the commit schema, so a relation attempt was answered "supersedes is
+    // a relation type: it needs a from and a to" — about arguments the caller HAD passed and the schema
+    // had silently discarded. An agent reading that retries it forever. Relations matter more now that
+    // injection reads them: a superseded record stops being served and contradicting ones are marked.
+    const s = await openSession();
+    const idOf = async (statement: string) =>
+      JSON.parse(
+        text(
+          await s.client.callTool({
+            name: "yoke_commit",
+            arguments: { type: "fact", attributes: { statement } },
+          }),
+        ),
+      ).id as string;
+    const older = await idOf("internal calls use gRPC");
+    const newer = await idOf("internal calls use HTTP/JSON with OpenAPI");
+    const res = await s.client.callTool({
+      name: "yoke_commit",
+      arguments: {
+        type: "supersedes",
+        attributes: {},
+        from: newer,
+        to: older,
+      },
+    });
+    expect(res.isError).toBeFalsy();
+    expect(JSON.parse(text(res)).id).toBeTruthy();
+    await s.close();
+  });
+
+  it("lists the valid types when the one asked for is not among them", async () => {
+    // The commit tool's own description says "rejected if the type is not in the ontology" and named no
+    // way to read the ontology, so a typo left the agent guessing. `yoke ontology list` answers this for
+    // a person; MCP had no equivalent.
+    const s = await openSession();
+    const res = await s.client.callTool({
+      name: "yoke_commit",
+      arguments: { type: "factt", attributes: { statement: "x" } },
+    });
+    expect(res.isError).toBeTruthy();
+    expect(text(res)).toContain("entity types:");
+    expect(text(res)).toContain("fact");
+    expect(text(res)).toContain("relation types:");
+    expect(text(res)).toContain("supersedes");
+    await s.close();
+  });
+
+  it("says whether the duplicate check actually ran", async () => {
+    // `duplicates: []` reads as "checked, nothing similar". With no embedder configured nothing was
+    // compared at all — and conflict detection consumes the same candidates, so an agent recording a
+    // contradiction was told nothing about either. The CLI has said so since the gate started reporting it.
+    const s = await openSession();
+    const res = await s.client.callTool({
+      name: "yoke_commit",
+      arguments: {
+        type: "fact",
+        attributes: { statement: "the freeze moved to Thursday" },
+      },
+    });
+    expect(JSON.parse(text(res)).duplicate_check).toMatch(/not run/);
+    await s.close();
+  });
+
+  it("names the people on record when a persona anchor does not resolve", async () => {
+    // The only route to a person id was `yoke_overview`'s author list, which counts VERIFIED knowledge —
+    // so on a corpus with a review backlog, which is the normal state since everything an agent records is
+    // a draft, it is empty. A dead end unless the agent already held a ULID.
+    const s = await openSession();
+    const res = await s.client.callTool({
+      name: "yoke_persona",
+      arguments: { person: "Alex" },
+    });
+    expect(res.isError).toBeTruthy();
+    expect(text(res)).toContain("not found: Alex");
+    expect(text(res)).toMatch(/people on record|no person records/);
+    await s.close();
+  });
+});
