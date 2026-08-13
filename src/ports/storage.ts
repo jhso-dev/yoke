@@ -165,6 +165,21 @@ export interface StoragePort {
   getEntities?(ids: string[]): Promise<Entity[]>;
 
   putRelation(r: Relation): Promise<void>;
+
+  /**
+   * Optional capability — one relation by id (latest version, or a given one). null if absent.
+   *
+   * `link` returns the id of the edge it stored, and until this existed that id resolved to nothing:
+   * `get` answered "not found" for a row the same command had just reported, and `verify` answered
+   * "cannot transition unknown entity" — three commands disagreeing about whether a relation exists.
+   * A relation is knowledge in its own right (CLAUDE.md terminology), and an id a tool hands back has
+   * to name something.
+   *
+   * Optional in the shape `similar` and `putEmbedding` are: an adapter without it is conformant and
+   * callers feature-detect, so a backend that cannot address an edge by id is slower to read rather
+   * than broken. `neighbors` remains the only way in for adapters that skip it.
+   */
+  getRelation?(id: string, version?: number): Promise<Relation | null>;
   /** Relations connected to id. Both directions when dir is omitted; filter type with relType. */
   neighbors(
     id: string,

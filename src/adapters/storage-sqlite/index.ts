@@ -348,6 +348,21 @@ export class SqliteStorage implements StoragePort {
     return orderByIds(rows.map(rowToEntity), ids);
   }
 
+  /** One edge by id — the read that makes `link`'s returned id resolvable (see the port). */
+  async getRelation(id: string, version?: number): Promise<Relation | null> {
+    const row =
+      version === undefined
+        ? this.db
+            .prepare(
+              `SELECT * FROM relations WHERE id = ? ORDER BY version DESC LIMIT 1`,
+            )
+            .get(id)
+        : this.db
+            .prepare(`SELECT * FROM relations WHERE id = ? AND version = ?`)
+            .get(id, version);
+    return row ? rowToRelation(row as RelationRow) : null;
+  }
+
   async putRelation(r: Relation): Promise<void> {
     this.db
       .prepare(

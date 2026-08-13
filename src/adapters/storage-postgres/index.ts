@@ -353,6 +353,23 @@ export class PostgresStorage implements StoragePort {
     );
   }
 
+  /** One edge by id — parity with sqlite's, so `get <relation-id>` behaves the same on both. */
+  async getRelation(id: string, version?: number): Promise<Relation | null> {
+    const rows =
+      version === undefined
+        ? await this.q<RelationRow>(
+            `SELECT ${RELATION_COLS} FROM ${this.t("relations")}
+              WHERE id = $1 ORDER BY version DESC LIMIT 1`,
+            [id],
+          )
+        : await this.q<RelationRow>(
+            `SELECT ${RELATION_COLS} FROM ${this.t("relations")}
+              WHERE id = $1 AND version = $2`,
+            [id, version],
+          );
+    return rows[0] ? toRelation(rows[0]) : null;
+  }
+
   async putRelation(r: Relation): Promise<void> {
     // One statement: relations are not searchable (there is no FTS index over edges on any backend),
     // so there is no derived index to reconcile.

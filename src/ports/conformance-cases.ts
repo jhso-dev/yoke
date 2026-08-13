@@ -522,6 +522,31 @@ export const conformanceCases: ConformanceCase[] = [
     },
   },
   {
+    // (9c-bis) getRelation: optional capability, and the contract is `getEntity`'s one index over.
+    // Added because `link` returns an id that resolved to nothing: `get` said "not found" and
+    // `verify` said "cannot transition unknown entity" for a row the store held.
+    name: "getRelation reads one edge by id, latest or pinned (optional capability)",
+    async run(port) {
+      if (!port.getRelation) return;
+      const from = makeEntity();
+      const to = makeEntity();
+      await port.putEntity(from);
+      await port.putEntity(to);
+      const r = makeRelation(from.id, to.id, { type: "getR1" });
+      await port.putRelation(r);
+      await port.putRelation({ ...r, version: 2, status: "verified" });
+
+      const latest = await port.getRelation(r.id);
+      eq(latest?.version, 2, "no version → the latest one");
+      eq(latest?.from, from.id);
+      eq(latest?.to, to.id);
+      eq((await port.getRelation(r.id, 1))?.status, r.status, "pinned version");
+      eq(await port.getRelation("no-such-edge"), null, "absent → null");
+      // An entity id is not an edge id: the two id spaces are separate reads.
+      eq(await port.getRelation(from.id), null, "an entity id is not an edge");
+    },
+  },
+  {
     // (9d) relations: latest version only, filtered by relation type.
     name: "listRelations returns latest versions only, filtered by type",
     async run(port) {

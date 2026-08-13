@@ -442,6 +442,29 @@ export class OpenSearchStorage implements StoragePort {
     return hit ? this.toEntity(hit._source) : null;
   }
 
+  /** One edge by id — parity with the other adapters, so `get <relation-id>` resolves everywhere. */
+  async getRelation(id: string, version?: number): Promise<Relation | null> {
+    await this.ready(this.idx(RELATIONS));
+    if (version !== undefined) {
+      const res = await this.req<{ _source?: RelationDoc; found?: boolean }>(
+        "GET",
+        `/${this.idx(RELATIONS)}/_doc/${encodeURIComponent(`${id}#${version}`)}`,
+      );
+      return res._source ? this.toRelation(res._source) : null;
+    }
+    const res = await this.req<SearchResponse<RelationDoc>>(
+      "POST",
+      `/${this.idx(RELATIONS)}/_search`,
+      {
+        size: 1,
+        query: { bool: { filter: [{ term: { id } }] } },
+        sort: [{ version: "desc" }],
+      },
+    );
+    const hit = res.hits.hits[0];
+    return hit ? this.toRelation(hit._source) : null;
+  }
+
   /** Batch point read (v5.5) — one search instead of one per id. The stored `latest` flag is what
    * makes it a single call: without it the query would have to sort per id, which a `terms` filter
    * cannot do. `size` is exactly the number asked for, since `latest` leaves one doc per id. */

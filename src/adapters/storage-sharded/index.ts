@@ -167,6 +167,14 @@ export class ShardedStorage implements YokeStore {
     return results.find((e) => e !== null) ?? null;
   }
 
+  /** Point read, fanned out like `getEntity`: ids are globally unique, so the first hit is the answer. */
+  async getRelation(id: string, version?: number): Promise<Relation | null> {
+    const results = await Promise.all(
+      this.members.map((m) => m.store.getRelation?.(id, version) ?? null),
+    );
+    return results.find((r) => r != null) ?? null;
+  }
+
   async neighbors(
     id: string,
     relType?: string,

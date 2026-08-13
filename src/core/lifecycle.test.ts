@@ -313,3 +313,28 @@ describe("downstreamOf", () => {
     ).toEqual([dependent]);
   });
 });
+
+// `link` prints an id and the word `draft`, so the next thing tried is `verify <that id>`. The answer
+// was "cannot transition unknown entity" — the store denying a row it was holding.
+describe("an edge id is refused as an edge, not as a stranger", () => {
+  it("names the relation and why promotion does not apply", async () => {
+    const a = await addFact("one end");
+    const b = await addFact("the other end");
+    const { entity: edge } = await commit(
+      port,
+      ont,
+      { type: "relates_to", attributes: {}, from: a, to: b },
+      prov,
+      now,
+    );
+    await expect(verify(port, [edge.id], "admin", now)).rejects.toThrow(
+      /is a relation, and relations are not promoted/,
+    );
+  });
+
+  it("still says unknown for an id that is neither", async () => {
+    await expect(
+      verify(port, ["01ZZZZZZZZZZZZZZZZZZZZZZZZ"], "admin", now),
+    ).rejects.toThrow(/unknown entity/);
+  });
+});

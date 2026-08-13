@@ -170,8 +170,9 @@ export async function ingestMapped(
         // Idempotent: skip if this exact edge already exists (commit has no dedup for relations).
         const existingEdges = await port.neighbors(fromId, rel.relType, "out");
         if (existingEdges.some((r) => r.to === toId)) continue;
-        // Relations can't be promoted (no getRelation in the port → verify can't read them), so they
-        // pass the gate as drafts. Only mapped entities are the read-mapping's verified surface.
+        // Relations pass the gate as drafts and stay there: `getRelation` makes an edge readable by
+        // id, but promotion still means nothing for one (no read filters on an edge's status — see the
+        // ceiling in lifecycle.ts). Only mapped entities are the read-mapping's verified surface.
         try {
           await commit(
             port,

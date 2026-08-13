@@ -37,8 +37,22 @@ async function transition(
   // `verify([known, "nope"])` throw with `known` already promoted, which is a half-applied governance
   // action nobody asked for.
   for (const id of distinct)
-    if (!found.has(id))
+    if (!found.has(id)) {
+      // An edge id gets its own refusal. `link` prints `draft` next to the id it returns, so the next
+      // thing a reader tries is `verify <that id>` — and "cannot transition unknown entity" says the
+      // store has never heard of a row it is holding. Name what it is and why the action does not
+      // apply, rather than denying it exists.
+      //
+      // ceiling: relations are not promotable, and a `draft` edge is not weaker than a `verified` one
+      // — no read filters on an edge's status, so an unverified relation routes a briefing exactly as
+      // a verified one does. Making promotion mean something for edges is a KNOWLEDGE-POLICY decision
+      // (should an unverified edge route injection at all?), not a missing branch here.
+      if (await port.getRelation?.(id))
+        throw new Error(
+          `${id} is a relation, and relations are not promoted: no read filters on an edge's status, so this would change nothing`,
+        );
       throw new Error(`cannot transition unknown entity: ${id}`);
+    }
   const out: Entity[] = [];
   for (const id of distinct) {
     const prev = found.get(id) as Entity;

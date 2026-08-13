@@ -523,6 +523,25 @@ async function cmdGet(
   return withStore(v, env, async (store) => {
     const e = await store.getEntity(id, version);
     if (!e) {
+      // An id `link` handed back is an edge id, and until the port could read one this said "not
+      // found" for a row the same command had just reported storing. A relation is knowledge in its
+      // own right, so it answers a read like everything else.
+      const rel = await store.getRelation?.(id, version);
+      if (rel) {
+        store.logAudit({
+          actor,
+          action: "read",
+          detail: rel.id,
+          at: now(),
+          ns: getNs,
+        });
+        emit(
+          v,
+          `${formatEntity(rel)}\n  ${rel.from} -${rel.type}-> ${rel.to}`,
+          rel,
+        );
+        return 0;
+      }
       console.error(`not found: ${id}`);
       return 1;
     }

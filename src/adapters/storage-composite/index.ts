@@ -91,7 +91,16 @@ class CompositeStorage implements YokeStore {
       const impl = remote.getEntities.bind(remote);
       this.getEntities = (ids) => impl(ids);
     }
+    // Conditional like the three above, and for the sharper reason: declaring the capability while the
+    // remote lacks it would answer "not found" for an edge that exists, which is the bug this method
+    // was added to fix.
+    if (typeof remote.getRelation === "function") {
+      const impl = remote.getRelation.bind(remote);
+      this.getRelation = (id, version) => impl(id, version);
+    }
   }
+
+  getRelation?: StoragePort["getRelation"];
 
   async init(): Promise<void> {
     await Promise.all([this.remote.init(), this.local.init()]);
