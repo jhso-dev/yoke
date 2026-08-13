@@ -45,6 +45,24 @@ export type TypeDef = {
    * `initiative` marks that type and gets the behaviour with no core change.
    */
   structural?: boolean;
+  /**
+   * Relation types only: this edge means the same thing read either way, so `from` and `to` carry no
+   * claim — only the order someone happened to type.
+   *
+   * It exists because direction was being asked for where there is no answer. The link control put a
+   * direction toggle on every relation, so recording "these two are related" made the reader choose
+   * between two identical facts — and the choice was not free: A→B and B→A are one claim stored as two
+   * rows, which is the duplicate the gate is supposed to prevent. With this declared, either
+   * direction finds the other and the second commit is a no-op, and the control stops asking.
+   *
+   * `same_as` is the proof this was always a property of the model rather than a new idea:
+   * `identitySet` has always walked it with no direction, because "the same person" cannot have one.
+   *
+   * Storage is NOT rewritten — the row keeps the direction it was recorded with, because provenance
+   * is a record of what happened. What changes is that a second row is no longer created, and that
+   * nothing asks a reader to pick.
+   */
+  symmetric?: boolean;
 };
 
 /** Whether the actual value matches AttrSpec.type. */
@@ -171,9 +189,9 @@ export function seedOntology(): TypeDef[] {
       structural: true,
     },
     { name: "authored_by", kind: "relation", attrs: {} },
-    { name: "relates_to", kind: "relation", attrs: {} },
+    { name: "relates_to", kind: "relation", attrs: {}, symmetric: true },
     { name: "supersedes", kind: "relation", attrs: {} },
-    { name: "conflicts_with", kind: "relation", attrs: {} },
+    { name: "conflicts_with", kind: "relation", attrs: {}, symmetric: true },
     // Links a person to a collaboration they participate in (v4.0). Membership, not knowledge: the
     // roster belongs on the collaboration screen, not in the briefing an agent is handed.
     { name: "works_on", kind: "relation", attrs: {}, membership: true },
@@ -184,7 +202,13 @@ export function seedOntology(): TypeDef[] {
     // `membership: true` for the same reason `works_on` carries it, and it is the flag's behaviour
     // rather than its name that applies: this edge is not knowledge. Without it, a briefing anchored on
     // a person would hand an agent the person's OTHER record as a finding.
-    { name: "same_as", kind: "relation", attrs: {}, membership: true },
+    {
+      name: "same_as",
+      kind: "relation",
+      attrs: {},
+      membership: true,
+      symmetric: true,
+    },
     // What a record rests on (v5.8). Deliberately NOT `membership`, unlike the two above: the evidence
     // under a decision is knowledge, so an anchored briefing SHOULD reach it. persona is unaffected —
     // it passes `scopeRel: 'authored_by'`, so it never traverses this and cannot present a fact the

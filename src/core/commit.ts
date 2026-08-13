@@ -44,6 +44,10 @@ export interface CommitResult {
    * Without a vector (no embedder, embedding failed, or similar unsupported), treating every
    * candidate as a duplicate yields too many false positives, so detection is skipped. */
   duplicateDetection: "embedding" | "skipped";
+  /** True when this commit found the record already there and stored nothing. Only relations reach
+   * this today (see the identity note in `commit`), and a caller that says "linked" either way is
+   * telling someone they did something they did not. */
+  existed?: boolean;
 }
 
 interface CommitOpts {
@@ -144,7 +148,39 @@ export async function commit(
   };
 
   if (isRelation) {
-    const relation: Relation = { ...(input as RelationInput), ...governed };
+    const rel = input as RelationInput;
+    // A relation's identity is (type, from, to) in a namespace — nothing else distinguishes one edge
+    // from the same edge. Without this, pressing Link twice stored two rows with different ids, the
+    // same actor and the same instant: the entity screen listed the link three times, the graph drew
+    // three arrows over each other, and a collaboration counted one attached record as three.
+    //
+    // ceiling: dedup ignores `attributes`, because no seeded relation type declares any. A relation
+    // that carried them would need the versioning entities get through `existingId`, and there is no
+    // way to name an existing edge today — declare that before giving a relation attributes.
+    // A symmetric relation means the same thing read either way (see `symmetric` in the ontology), so
+    // the edge already exists whichever end it was recorded from — otherwise "A relates_to B" and "B
+    // relates_to A" are one claim in two rows, which is the duplicate this check exists to stop.
+    const symmetric =
+      ontology.find((d) => d.kind === "relation" && d.name === rel.type)
+        ?.symmetric === true;
+    const already = (
+      await port.neighbors(rel.from, rel.type, symmetric ? undefined : "out")
+    ).find(
+      (r) =>
+        (r.ns ?? null) === ns &&
+        (symmetric
+          ? (r.from === rel.from && r.to === rel.to) ||
+            (r.from === rel.to && r.to === rel.from)
+          : r.from === rel.from && r.to === rel.to),
+    );
+    if (already)
+      return {
+        entity: already,
+        duplicates: [],
+        duplicateDetection: "skipped",
+        existed: true,
+      };
+    const relation: Relation = { ...rel, ...governed };
     await port.putRelation(relation);
     return { entity: relation, duplicates: [], duplicateDetection: "skipped" };
   }

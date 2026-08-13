@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -15,6 +16,7 @@ import {
 import { Actor } from "../../components/Actor";
 import { AttributeValue } from "../../components/AttributeValue";
 import { Citation } from "../../components/Citation";
+import { DeprecateButton } from "../../components/DeprecateButton";
 import { DirectionIcon } from "../../components/DirectionIcon";
 import { Downstream } from "../../components/Downstream";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -27,6 +29,7 @@ import { api } from "../../lib/api";
 import { recordLabel, shortId } from "../../lib/citation";
 import { copyText } from "../../lib/clipboard";
 import { useT } from "../../lib/i18n";
+import { localTime } from "../../lib/time";
 import { isMissing, type Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
@@ -125,6 +128,16 @@ function EntityBody() {
         </Button>
       </p>
       <ErrorBanner error={actionError} />
+      {/* The question a retired record raises, answered on the record itself. It comes from the
+          governance act rather than the row, so a record retired twice shows the reason for the
+          retirement it is currently in. */}
+      {d.retirement && (
+        <Alert variant="warn">
+          {t.retire.retiredBy(d.retirement.actor, localTime(d.retirement.at))}
+          {" — "}
+          {d.retirement.reason ?? t.retire.noReason}
+        </Alert>
+      )}
 
       <div className="controls">
         <Button
@@ -137,14 +150,15 @@ function EntityBody() {
             ? t.common.reconfirm
             : t.common.verify}
         </Button>
-        <Button
-          type="button"
-          variant="destructive"
+        <DeprecateButton
+          ids={[id]}
           disabled={busy || d.entity.effectiveStatus === "deprecated"}
-          onClick={() => act("deprecate")}
-        >
-          {t.common.deprecate}
-        </Button>
+          label={t.common.deprecate}
+          onDone={(down) => {
+            setDownstream(down);
+            detail.reload();
+          }}
+        />
         <Button asChild variant="outline">
           <Link href={`/graph/?scope=${encodeURIComponent(d.entity.id)}`}>
             {t.common.openInGraph}

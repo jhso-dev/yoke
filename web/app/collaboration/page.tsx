@@ -113,11 +113,19 @@ function AddMember({
           setBusy(true);
           setError(null);
           try {
-            await api.link({ from: picked.id, type: "works_on", to });
+            const { existed } = await api.link({
+              from: picked.id,
+              type: "works_on",
+              to,
+            });
             // This was the quietest write in the app: every other action on this screen announces,
             // and a link whose only trace is a table that redraws leaves the reader guessing whether
             // the click landed at all.
-            announce(t.collaboration.memberAdded(recordLabel(picked)));
+            announce(
+              existed
+                ? t.collaboration.alreadyOnThisWork(recordLabel(picked))
+                : t.collaboration.memberAdded(recordLabel(picked)),
+            );
             setWho("");
             onLinked();
           } catch (e) {

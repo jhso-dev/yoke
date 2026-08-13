@@ -211,6 +211,13 @@ const post = (p: string, body: unknown) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   }).then((r) => r.json());
+/** Raw response, for the routes whose STATUS is the contract. */
+const postRaw2 = (p: string, body: unknown) =>
+  fetch(base + p, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 const del = (p: string) =>
   fetch(base + p, { method: "DELETE" }).then(async (r) => ({
     status: r.status,
@@ -1495,6 +1502,39 @@ describe("creating from the browser says whether anything was compared", () => {
     ]);
   });
 
+  // A relation's identity is (type, from, to), so the route must not report a creation it did not do.
+  it("links once: a repeat answers 200 with existed, and stores no second edge", async () => {
+    const a = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "the queue is at-least-once" },
+    });
+    const b = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "consumers must be idempotent" },
+    });
+    const first = await postRaw2("/api/link", {
+      type: "relates_to",
+      from: b.id,
+      to: a.id,
+    });
+    expect(first.status).toBe(201);
+    expect((await first.json()).existed).toBe(false);
+
+    const again = await postRaw2("/api/link", {
+      type: "relates_to",
+      from: b.id,
+      to: a.id,
+    });
+    expect(again.status).toBe(200);
+    expect((await again.json()).existed).toBe(true);
+
+    const detail = await get(`/api/entity/${b.id}`);
+    const edges = [...detail.relations.in, ...detail.relations.out].filter(
+      (e: { type: string }) => e.type === "relates_to",
+    );
+    expect(edges).toHaveLength(1);
+  });
+
   it("still refuses a shape no attribute can hold", async () => {
     const res = await fetch(`${base}/api/entity`, {
       method: "POST",
@@ -1506,6 +1546,58 @@ describe("creating from the browser says whether anything was compared", () => {
     });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/must be a string, number/);
+  });
+});
+
+// A deprecated record raised exactly one question — why — and could not answer it: the status was on
+// the record and the reason nowhere.
+describe("a retired record says why", () => {
+  it("carries the reason from the act to the record's own detail", async () => {
+    const doomed = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "the settlement batch runs at 02:00" },
+    });
+    await post("/api/verify", { ids: [doomed.id] });
+    await post("/api/deprecate", {
+      ids: [doomed.id],
+      reason: "moved to 03:10 — superseded by the reframed record",
+    });
+
+    const detail = await get(`/api/entity/${doomed.id}`);
+    expect(detail.entity.effectiveStatus).toBe("deprecated");
+    expect(detail.retirement.reason).toBe(
+      "moved to 03:10 — superseded by the reframed record",
+    );
+    expect(detail.retirement.actor).toBeTruthy();
+    expect(detail.retirement.at).toBeTruthy();
+  });
+
+  it("says who and when even with no reason, and nothing at all while it stands", async () => {
+    const quiet = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "the webhook retries three times" },
+    });
+    const standing = await get(`/api/entity/${quiet.id}`);
+    // A record nobody retired must not carry a retirement — absence is the answer.
+    expect(standing.retirement).toBeUndefined();
+
+    await post("/api/deprecate", { ids: [quiet.id] });
+    const after = await get(`/api/entity/${quiet.id}`);
+    expect(after.retirement.actor).toBeTruthy();
+    // Absent, never an empty string: "nobody wrote one" and "the reason was blank" are different.
+    expect(after.retirement.reason).toBeUndefined();
+  });
+
+  it("explains the retirement it is currently in, not the first one", async () => {
+    const twice = await post("/api/entity", {
+      type: "fact",
+      attributes: { statement: "the ledger closes on Friday" },
+    });
+    await post("/api/deprecate", { ids: [twice.id], reason: "first reason" });
+    await post("/api/verify", { ids: [twice.id] });
+    await post("/api/deprecate", { ids: [twice.id], reason: "second reason" });
+    const detail = await get(`/api/entity/${twice.id}`);
+    expect(detail.retirement.reason).toBe("second reason");
   });
 });
 

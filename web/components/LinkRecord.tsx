@@ -13,6 +13,7 @@ import {
 import { api } from "../lib/api";
 import { recordLabel } from "../lib/citation";
 import { useT } from "../lib/i18n";
+import { announce } from "../lib/toast";
 import type { Knowledge, TypeDef } from "../lib/types";
 import { DirectionIcon } from "./DirectionIcon";
 import { ErrorBanner } from "./ErrorBanner";
@@ -20,15 +21,33 @@ import { ErrorBanner } from "./ErrorBanner";
 /**
  * `yoke link` for one record: pick a relation type, a direction, and the other end.
  *
- * Direction is a control rather than an assumption because a general link cannot assume one — the
+ * Direction is a control rather than an assumption for the relations where it is a CLAIM — the
  * collaboration screen fixes it (works_on only ever points person → collaboration) precisely because
- * it knows which relation it is recording. Here the caller does not, so the arrow is shown and
- * chosen: `supersedes` recorded backwards silently reverses which record the ontology considers
- * current.
+ * it knows which relation it is recording; here the caller does not, and `supersedes` recorded
+ * backwards silently reverses which record the ontology considers current.
+ *
+ * But it is only shown for those. A relation the ontology marks `symmetric` means the same thing read
+ * either way, so asking would be asking a question with no answer — and not a free one: the two
+ * answers used to produce two rows for one claim. Core now treats either way round as one edge, and
+ * this control stops offering the choice.
  *
  * The other end is typed, not picked from a list: a namespace can hold more records than a select
  * should ever contain, and pasting an id is what the graph and every table already hand you. The
  * gate rejects an id that does not resolve, so there is nothing to validate here.
+ *
+ * Two things this control deliberately refuses to guess:
+ *
+ * The relation type has NO default. It used to default to the first declared relation, which in the
+ * seed is `authored_by` — so pasting an id and pressing Link recorded "this record was written by
+ * that one". Recording a relation is a claim, and the one thing a picker must not do is pick for
+ * you.
+ *
+ * And `authored_by` is not offered at all. The gate creates it from `provenance.actor` on every
+ * commit, so a hand-made one is almost always a mistake — and it is the edge a persona walks, so a
+ * wrong one puts records into someone's judgment that they never wrote. `yoke link X authored_by Y`
+ * stays available for the deliberate case (and `yoke backfill` for the bulk one), which is the
+ * pattern this product uses everywhere: the screen offers what a reader should reach for, the CLI
+ * keeps what an operator sometimes needs.
  */
 export function LinkRecord({
   ontology,
@@ -40,9 +59,12 @@ export function LinkRecord({
   onLinked: () => void;
 }) {
   const tr = useT();
-  const relations = ontology.filter((d) => d.kind === "relation");
-  const [type, setType] = useState(relations[0]?.name ?? "");
+  const relations = ontology.filter(
+    (d) => d.kind === "relation" && d.name !== "authored_by",
+  );
+  const [type, setType] = useState("");
   const [outgoing, setOutgoing] = useState(true);
+  const symmetric = relations.find((r) => r.name === type)?.symmetric === true;
   const [other, setOther] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -53,11 +75,17 @@ export function LinkRecord({
     setError(null);
     try {
       const id = other.trim();
-      await api.link({
-        from: outgoing ? record.id : id,
+      // A relation's identity is (type, from, to), so linking the same pair again stores nothing.
+      // Saying so beats a silent success that looks identical to having added something.
+      // A symmetric relation is recorded from this record outwards, always. The stored direction is
+      // arbitrary by definition, and picking one keeps the rows consistent for anyone reading them.
+      const forward = symmetric || outgoing;
+      const { existed } = await api.link({
+        from: forward ? record.id : id,
         type,
-        to: outgoing ? id : record.id,
+        to: forward ? id : record.id,
       });
+      announce(existed ? tr.entity.alreadyLinked : tr.entity.linked);
       setOther("");
       onLinked();
     } catch (e) {
@@ -73,18 +101,23 @@ export function LinkRecord({
       <span className="text-muted-foreground text-sm">
         {recordLabel(record)}
       </span>
-      <Button
-        type="button"
-        variant="secondary"
-        onClick={() => setOutgoing((v) => !v)}
-        title={tr.entity.swapDirection}
-        aria-label={outgoing ? tr.entity.pointsAt : tr.entity.isPointedAt}
-      >
-        <DirectionIcon direction={outgoing ? "right" : "left"} />
-      </Button>
+      {symmetric ? (
+        // Not a control: the icon says the edge reads both ways, which is what `symmetric` means.
+        <DirectionIcon direction="both" label={tr.entity.bothWays} />
+      ) : (
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => setOutgoing((v) => !v)}
+          title={tr.entity.swapDirection}
+          aria-label={outgoing ? tr.entity.pointsAt : tr.entity.isPointedAt}
+        >
+          <DirectionIcon direction={outgoing ? "right" : "left"} />
+        </Button>
+      )}
       <Select value={type} onValueChange={setType}>
         <SelectTrigger aria-label={tr.common.relation} className="w-48">
-          <SelectValue />
+          <SelectValue placeholder={tr.entity.pickRelation} />
         </SelectTrigger>
         <SelectContent>
           {relations.map((r) => (

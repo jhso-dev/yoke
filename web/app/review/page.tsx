@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Actor } from "../../components/Actor";
+import { DeprecateButton } from "../../components/DeprecateButton";
 import { Downstream } from "../../components/Downstream";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
@@ -65,8 +66,6 @@ function ReviewBody() {
     try {
       const ids = [...chosen];
       if (kind === "verify") await api.verify(ids);
-      // Retiring names what rested on the batch (v5.8) — the queue is where governance happens, so it
-      // is the last place that should drop the answer `yoke deprecate` gives.
       else setDownstream((await api.deprecate(ids)).downstream);
       setChosen(new Set());
       // Both queues: verifying a draft can only remove it from drafts, but re-confirming a stale
@@ -176,14 +175,19 @@ function ReviewBody() {
               : t.common.verify}{" "}
           {chosen.size || ""}
         </Button>
-        <Button
-          type="button"
-          variant="destructive"
+        {/* Retiring names what rested on the batch (v5.8) and now asks why — the queue is where
+            governance happens, so it is the last place that should drop either half. */}
+        <DeprecateButton
+          ids={[...chosen]}
           disabled={busy || chosen.size === 0}
-          onClick={() => act("deprecate")}
-        >
-          {busy ? t.common.deprecating : t.common.deprecate} {chosen.size || ""}
-        </Button>
+          label={`${t.common.deprecate} ${chosen.size || ""}`.trim()}
+          onDone={(down) => {
+            setDownstream(down);
+            setChosen(new Set());
+            drafts.reload();
+            stale.reload();
+          }}
+        />
         <span className="muted">
           {tab === "drafts"
             ? t.review.draftCount(rows.length)

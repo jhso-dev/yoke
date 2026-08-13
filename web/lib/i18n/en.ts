@@ -175,6 +175,24 @@ export const en = {
       unknown: "unrecognized status",
     },
   },
+  retire: {
+    /** The dialog's own sentence: it names who the reason is for, which is the argument for writing
+     * one. Optional on purpose — retiring is reversible, and a required field teaches people to type
+     * "x". */
+    why: (n: number) =>
+      n === 1
+        ? "Say why, for whoever finds this record later and sees only that it was retired."
+        : `Say why, for whoever finds these ${n} records later and sees only that they were retired.`,
+    reason: "reason",
+    optional: "(optional)",
+    placeholder:
+      "superseded by the reframed version · was a test fixture · no longer true since …",
+    kept: "The record is kept and stops being injected.",
+    /** Shown on the retired record itself. */
+    retiredBy: (actor: string, when: string) =>
+      `Retired by ${actor} on ${when}`,
+    noReason: "No reason was recorded.",
+  },
   review: {
     heading: "Review queue",
     lede: "Review drafts that have not been verified. They are not injected into an agent until a person promotes them.",
@@ -243,6 +261,12 @@ export const en = {
     pointsAt: "points at the other record",
     isPointedAt: "is pointed at",
     copyId: "click to copy",
+    pickRelation: "pick a relation",
+    /** A symmetric relation has no direction to choose. */
+    bothWays: "reads the same either way",
+    linked: "Linked.",
+    /** A relation is identified by (type, from, to), so the same pair again stores nothing. */
+    alreadyLinked: "These were already linked — nothing new was recorded.",
   },
   collaboration: {
     heading: "Collaborations",
@@ -267,6 +291,8 @@ export const en = {
     briefingEmptyLinked: (n: number) =>
       `No VERIFIED knowledge yet, so an agent receives nothing — the ${n} linked record(s) below are draft or stale.`,
     memberAdded: (name: string) => `Added ${name} to this collaboration.`,
+    alreadyOnThisWork: (name: string) =>
+      `${name} was already on this work — nothing new was recorded.`,
     noPeople: "No people are recorded yet, so there is nobody to add.",
     peopleCapped: (n: number) =>
       `Only the first ${n} people are offered here. Link anyone else from their own record.`,

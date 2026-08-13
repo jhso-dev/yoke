@@ -760,7 +760,7 @@ endpoint shares it at `POST /mcp`.
 | `POST /api/verify` | `verify` | verify | yes |
 | `POST /api/deprecate` | `deprecate` + `downstreamOf` | verify | yes |
 | `POST /api/entity` | `commit({type, attributes})` (+ a `relates_to` commit when `scope` is given) | write (typed) | no — the v1 row records it |
-| `POST /api/link` | `commit({type, attributes, from, to})` | write (typed) | no — same |
+| `POST /api/link` | `commit({type, attributes, from, to})` | write (typed) | no — same. **200 with `existed: true`** when that edge is already recorded, 201 when it is new |
 | `POST /api/backfill` | `backfillAuthorship`, or `backfillEmbeddings` with `{embeddings:true, rebuild?}` | write | no — the edges it creates record it, and a vector is not knowledge |
 | `POST /api/ontology` | `saveOntology([def], ns)` | **verify** | no |
 | `POST /api/rename-type` | `renameType(from, to, ns)` | **verify** | **yes** (`rename_type`) |
@@ -770,6 +770,30 @@ endpoint shares it at `POST /mcp`.
 
 Rules that hold for every route:
 
+- **Retiring records WHY, when someone says.** `deprecate` carries an optional reason, and it is
+  stored on the audit row rather than on the record: verify and deprecate change status, never
+  knowledge content. `GET /api/entity/:id` returns `retirement {actor, at, reason?}` for a record whose
+  read-time status is `deprecated`, resolved from the LAST deprecate naming it — a record can be
+  retired, re-verified and retired again, and what explains the current status is the most recent act.
+  Absent `reason` means nobody wrote one, never an empty one. `yoke deprecate --reason "…"` is the CLI
+  half. Optional rather than required because retiring is reversible, and a required field on a
+  recoverable act teaches people to type "x".
+- **A symmetric relation has no direction to record.** A relation type the ontology marks
+  `symmetric: true` (seeded: `relates_to`, `conflicts_with`, `same_as`) means the same thing read
+  either way, so `from`/`to` carry only the order someone typed. The identity check above therefore
+  matches either way round, and the link control offers no direction — asking would be a question with
+  no answer, and not a free one: the two answers used to store one claim as two rows. `same_as` shows
+  this was always a property of the model rather than a new idea — `identitySet` has always walked it
+  with no direction, because "the same person" cannot have one. Storage is not rewritten: the row keeps
+  the direction it was recorded with, because provenance records what happened.
+- **A relation is identified by `(type, from, to)` in a namespace.** Committing one that already
+  exists stores nothing and returns the existing edge with `existed: true` — the same pair linked
+  twice is one edge, not two facts. Nothing else distinguishes an edge from itself: relations carry
+  no `existingId`, so without this a second Link stored a second row with a different id, the same
+  actor and the same instant, and a collaboration counted one attached record as three. Type,
+  direction and namespace all still separate edges — for `supersedes` the direction IS the claim.
+  `ceiling:` the check ignores `attributes`, because no seeded relation type declares any; giving a
+  relation attributes needs a way to name an existing edge first.
 - **Creation goes through the gate, never around it.** `POST /api/entity` and `POST /api/link` call
   `commit()` like every other adapter, so a record made in a browser is validated against the
   ontology, enters as `draft`, and needs the same human `verify`. It carries

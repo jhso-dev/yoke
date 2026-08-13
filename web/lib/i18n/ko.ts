@@ -169,6 +169,19 @@ export const ko: typeof en = {
       unknown: "알 수 없는 상태",
     },
   },
+  retire: {
+    why: (n: number) =>
+      n === 1
+        ? "나중에 이 레코드를 발견한 사람은 '폐기됨'만 봅니다. 이유를 남겨주세요."
+        : `나중에 이 레코드 ${n}건을 발견한 사람은 '폐기됨'만 봅니다. 이유를 남겨주세요.`,
+    reason: "이유",
+    optional: "(선택)",
+    placeholder:
+      "재프레이밍한 버전으로 대체 · 테스트 픽스처였음 · … 이후로는 사실이 아님",
+    kept: "레코드는 보존되며 주입에서만 제외됩니다.",
+    retiredBy: (actor: string, when: string) => `${actor}이(가) ${when}에 폐기`,
+    noReason: "기록된 이유가 없습니다.",
+  },
   review: {
     heading: "리뷰 대기열",
     lede: "아직 검증하지 않은 draft를 확인합니다. 사람이 승격하기 전까지 에이전트에는 주입되지 않습니다.",
@@ -229,6 +242,10 @@ export const ko: typeof en = {
     pointsAt: "상대 레코드를 가리킴",
     isPointedAt: "상대가 이 레코드를 가리킴",
     copyId: "클릭하면 복사",
+    pickRelation: "관계 고르기",
+    bothWays: "양방향으로 같은 뜻",
+    linked: "연결했습니다.",
+    alreadyLinked: "이미 연결돼 있어 새로 기록하지 않았습니다.",
   },
   collaboration: {
     heading: "협업",
@@ -254,6 +271,8 @@ export const ko: typeof en = {
     briefingEmptyLinked: (n: number) =>
       `verified 지식이 없어 에이전트는 아무것도 받지 못합니다 — 아래 연결된 레코드 ${n}건은 draft이거나 오래되었습니다.`,
     memberAdded: (name: string) => `${name}을(를) 이 협업에 추가했습니다.`,
+    alreadyOnThisWork: (name: string) =>
+      `${name}은(는) 이미 이 협업에 있어 새로 기록하지 않았습니다.`,
     noPeople: "기록된 사람이 없어 추가할 대상이 없습니다.",
     peopleCapped: (n: number) =>
       `여기에는 앞의 ${n}명만 표시됩니다. 나머지는 각자의 레코드에서 연결하세요.`,

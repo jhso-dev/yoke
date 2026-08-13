@@ -144,13 +144,15 @@ export const api = {
   /** Retiring knowledge also answers what rests on it (`derived_from`, v5.8) — the same two halves
    * `yoke deprecate` prints, since retiring a record is not a repair unless the records built on it can
    * be found. `downstream` is `[]` when nothing declared a basis, never absent. */
-  deprecate: (ids: string[]) =>
+  deprecate: (ids: string[], reason?: string) =>
     request<{ deprecated: Knowledge[]; downstream: Knowledge[] }>(
       "/api/deprecate",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ids }),
+        // The reason rides on the governance act, not on the record: it is read back on the retired
+        // record's own screen, which is where the question gets asked.
+        body: JSON.stringify({ ids, ...(reason?.trim() ? { reason } : {}) }),
       },
     ),
   /** Create a record. It enters as a draft like any other — the gate does not care which adapter
@@ -172,14 +174,16 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(p),
     }),
-  /** Record a relation. `yoke link` in the browser; direction is the caller's to get right. */
+  /** Record a relation. `yoke link` in the browser; direction is the caller's to get right.
+   * `existed` is true when that edge was already recorded and nothing was stored — a relation's
+   * identity is (type, from, to), so a second link of the same pair is a no-op. */
   link: (p: {
     from: string;
     type: string;
     to: string;
     attributes?: Record<string, string | string[]>;
   }) =>
-    request<Edge>("/api/link", {
+    request<Edge & { existed: boolean }>("/api/link", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(p),
