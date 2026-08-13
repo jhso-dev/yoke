@@ -453,7 +453,7 @@ async function cmdAdd(
 }
 
 // link — the creation path for relations. `yoke add <relation>` cannot work: a relation needs
-// endpoints and `add` has nowhere to put them, so it fails with "relation requires non-empty from".
+// endpoints and `add` has nowhere to put them, so it fails with "<type> is a relation type".
 // That left `relates_to` reachable only through `add --scope`, and `works_on`/`supersedes` reachable
 // not at all — a collaboration whose roster could never be recorded. Reads as a sentence on purpose:
 // `yoke link <person> works_on <collaboration>`.

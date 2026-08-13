@@ -65,6 +65,19 @@ export type TypeDef = {
   symmetric?: boolean;
 };
 
+/**
+ * Whether a required attribute has no value.
+ *
+ * `""` and `[]` are absent, not present-and-empty: required means a value a reader can use, and an
+ * empty string satisfied nothing while passing the check — `--attr statement=""` committed a fact
+ * whose knowledge was the empty string, one keystroke away from the rejection it had just been given.
+ * `false` and `0` are values and stay values.
+ */
+function isAbsent(value: unknown): boolean {
+  if (value === undefined || value === null || value === "") return true;
+  return Array.isArray(value) && value.length === 0;
+}
+
 /** Whether the actual value matches AttrSpec.type. */
 function matchesType(spec: AttrSpec["type"], value: unknown): boolean {
   switch (spec) {
@@ -86,25 +99,52 @@ export function validateInput(
   const def = ontology.find((t) => t.name === input.type);
   if (!def) return { ok: false, reason: `unknown type: ${input.type}` };
 
+  // A kind mismatch is reported as itself. Without this the checks below answered a question nobody
+  // asked: recording an entity type as a relation ("<person> decision <id>") reached the attribute
+  // loop and came back "missing required attribute: conclusion", so the fix it named — supply a
+  // conclusion — could not work, and the caller retried a wrong command with more arguments. An
+  // entity type used as a relation is not an under-specified relation, it is the wrong type.
   const isRelation = "from" in input;
-  if (def.kind === "relation" || isRelation) {
+  if (def.kind === "relation" && !isRelation)
+    return {
+      ok: false,
+      reason: `${input.type} is a relation type: it needs a from and a to`,
+    };
+  if (def.kind === "entity" && isRelation)
+    return {
+      ok: false,
+      reason: `${input.type} is an entity type: it cannot be recorded as a relation`,
+    };
+  if (isRelation) {
     const r = input as RelationInput;
     if (!r.from)
       return { ok: false, reason: "relation requires non-empty from" };
     if (!r.to) return { ok: false, reason: "relation requires non-empty to" };
   }
 
+  // Every failure in one pass, in declared order. One-at-a-time reporting made the required set
+  // discoverable only by committing repeatedly: a `decision` took three rejections to file, and each
+  // one named a single attribute, so the caller learned the shape of the type from its refusals.
+  // Missing is reported before wrong-type because an absent attribute is the commoner mistake and
+  // reporting both at once would bury it.
+  const missing: string[] = [];
+  const wrongType: string[] = [];
   for (const [key, spec] of Object.entries(def.attrs)) {
     const value = input.attributes[key];
-    if (value === undefined || value === null) {
-      if (spec.required)
-        return { ok: false, reason: `missing required attribute: ${key}` };
+    if (isAbsent(value)) {
+      if (spec.required) missing.push(key);
       continue;
     }
-    if (!matchesType(spec.type, value)) {
-      return { ok: false, reason: `attribute ${key} must be ${spec.type}` };
-    }
+    if (!matchesType(spec.type, value))
+      wrongType.push(`${key} must be ${spec.type}`);
   }
+  if (missing.length > 0)
+    return {
+      ok: false,
+      reason: `missing required attribute${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`,
+    };
+  if (wrongType.length > 0)
+    return { ok: false, reason: `attribute ${wrongType.join("; ")}` };
   return { ok: true };
 }
 
