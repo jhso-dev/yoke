@@ -190,7 +190,29 @@ export class SqliteStorage implements StoragePort {
   async init(): Promise<void> {
     this.db.pragma("journal_mode = WAL");
     sqliteVec.load(this.db);
+    // Columns FIRST, then the schema. The order is the whole point and it was the other way round.
+    //
+    // SCHEMA declares indexes over `ns` (`idx_entities_ns_type_id` and four more, added v5.0). On a
+    // database created before PLAN-V2 10.1 that column does not exist yet, so `exec(SCHEMA)` threw
+    // "no such column: ns" — before reaching the ALTER TABLE loop that adds it. The migration was
+    // correct and unreachable: every command died on a bare sqlite error, and `yoke init`, the one
+    // repair the code comment promises, died at the same line. `restore` then reported exit 0 for a
+    // file that could not be opened. Git dates the regression precisely: the ns migration landed
+    // 2026-07-13, the ns indexes joined SCHEMA on 2026-08-03.
+    //
+    // Safe in both directions because every statement is conditional. On a fresh database the ALTERs
+    // throw "no such table" and are ignored, then SCHEMA creates the tables with `ns` already in them;
+    // on a current one they throw "duplicate column" and SCHEMA is idempotent.
+    //
+    // ceiling: no `PRAGMA user_version` marker — every migration here is idempotent and self-detecting,
+    // so nothing needs one yet. Set it before adding a migration that is not (a backfill, a data
+    // rewrite), because those cannot be run twice and cannot ask the schema whether they already have.
+    this.migrateColumns();
     this.db.exec(SCHEMA);
+  }
+
+  /** Additive column migrations, each conditional so it runs on any vintage of database. */
+  private migrateColumns(): void {
     // Migration for DBs created before PLAN-V2 10.1: add the nullable ns column. Fresh DBs already
     // have it (in SCHEMA), so ADD COLUMN throws "duplicate column" — caught and ignored. NULL default
     // means every pre-existing row belongs to the default shared namespace (backward compatible).

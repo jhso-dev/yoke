@@ -571,3 +571,83 @@ describe("durability (PLAN-V2 11.1)", () => {
     copy.close();
   });
 });
+
+// A pre-10.1 database on the current binary. Every command died on a bare "no such column: ns", and
+// `yoke init` — the one repair the migration's own comment promises — died at the same line, because
+// SCHEMA declares indexes over `ns` and ran BEFORE the ALTER TABLE that adds it. `restore` then
+// reported exit 0 for a file that could not be opened. Git dates it: the ns migration landed
+// 2026-07-13, the ns indexes joined SCHEMA on 2026-08-03.
+describe("opening a database from before the ns migration", () => {
+  /** A current database with the 10.1+ columns and indexes stripped back off. */
+  function pre101(): string {
+    const path = join(dir, `old-${Math.random().toString(36).slice(2)}.sqlite`);
+    const db = new Database(path);
+    db.exec(`
+      CREATE TABLE entities (
+        id TEXT NOT NULL, version INTEGER NOT NULL, type TEXT NOT NULL,
+        status TEXT NOT NULL, attributes TEXT NOT NULL, provenance TEXT NOT NULL,
+        last_confirmed TEXT NOT NULL, PRIMARY KEY (id, version));
+      CREATE TABLE relations (
+        id TEXT NOT NULL, version INTEGER NOT NULL, type TEXT NOT NULL,
+        from_id TEXT NOT NULL, to_id TEXT NOT NULL, attributes TEXT NOT NULL,
+        provenance TEXT NOT NULL, status TEXT NOT NULL, last_confirmed TEXT NOT NULL,
+        PRIMARY KEY (id, version));
+      CREATE TABLE ontology_types (
+        name TEXT NOT NULL, version INTEGER NOT NULL, def TEXT NOT NULL,
+        PRIMARY KEY (name, version));
+      CREATE TABLE audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL,
+        action TEXT NOT NULL, detail TEXT NOT NULL, at TEXT NOT NULL);
+      INSERT INTO entities VALUES
+        ('01OLDRECORD0000000000000A', 1, 'fact', 'verified',
+         '{"statement":"knowledge from before the migration"}',
+         '{"actor":"admin","origin":"cli","occurred_at":"2026-01-01T00:00:00Z"}',
+         '2026-01-01T00:00:00Z');
+    `);
+    db.close();
+    return path;
+  }
+
+  it("migrates it instead of dying on the column its own indexes need", async () => {
+    const path = pre101();
+    const store = new SqliteStorage(path);
+    // This threw "no such column: ns" before the reorder — from `exec(SCHEMA)`, never reaching the
+    // ALTER TABLE loop below it.
+    await store.init();
+    const cols = (store as unknown as { db: Database.Database }).db.pragma(
+      "table_info(entities)",
+    ) as Array<{ name: string }>;
+    expect(cols.map((c) => c.name)).toContain("ns");
+    // And the indexes SCHEMA could not create now exist.
+    const idx = (store as unknown as { db: Database.Database }).db
+      .prepare(
+        `SELECT count(*) AS n FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%ns%'`,
+      )
+      .get() as { n: number };
+    expect(idx.n).toBeGreaterThan(0);
+    store.close();
+  });
+
+  it("keeps the knowledge that was already in it", async () => {
+    const path = pre101();
+    const store = new SqliteStorage(path);
+    await store.init();
+    const e = await store.getEntity("01OLDRECORD0000000000000A");
+    expect(e?.attributes.statement).toBe("knowledge from before the migration");
+    // A row that predates namespaces belongs to the default one — that is what the nullable column means.
+    expect(e?.ns ?? null).toBeNull();
+    store.close();
+  });
+
+  it("is idempotent, so a second open is not a second migration", async () => {
+    const path = pre101();
+    for (const _ of [1, 2]) {
+      const store = new SqliteStorage(path);
+      await store.init();
+      expect(
+        (await store.getEntity("01OLDRECORD0000000000000A"))?.version,
+      ).toBe(1);
+      store.close();
+    }
+  });
+});
