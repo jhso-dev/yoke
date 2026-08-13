@@ -7,7 +7,7 @@
 // provenance is reachable by graph traversal — see the comment at that stage.
 
 import { ulid } from "ulid";
-import type { StoragePort } from "../ports/storage.js";
+import { readEntities, type StoragePort } from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
 import { serializeText } from "./embedding.js";
 import { normalizeNs } from "./namespace.js";
@@ -58,6 +58,16 @@ interface CommitOpts {
   embedder?: Embedder;
   /** Tenant namespace (PLAN-V2 10.1). The gate assigns it to the stored row; default = shared ns. */
   ns?: string | null;
+  /**
+   * This relation is the gate's own bookkeeping, not a claim a caller made — skip endpoint validation.
+   *
+   * Set by the two derived edges (`conflicts_with` at stage 4, `authored_by` at 4b) and by
+   * `backfillAuthorship`. They are exempt because `provenance.actor` is "a person entity id OR an
+   * agent identifier" (SPEC), so an `authored_by` target is routinely a handle no entity carries —
+   * minting a person per unrecognised handle is the junk-drawer the connectors already refuse. A
+   * derived edge must never be the reason the caller's own commit fails.
+   */
+  derived?: boolean;
 }
 
 /** Whether actor/origin/occurred_at are all non-empty strings. */
@@ -149,6 +159,24 @@ export async function commit(
 
   if (isRelation) {
     const rel = input as RelationInput;
+    // Both endpoints have to be records. Non-empty was the whole check, so a typo in the last
+    // argument stored an edge to nothing: `link <person> works_on 01ZZZ…` returned an id and exit 0,
+    // the graph drew the arrow, and the id it pointed at was never a record. An edge is a claim about
+    // two things — filing one about a thing that does not exist is not knowledge.
+    //
+    // ceiling: existence, not namespace agreement. An edge filed in one namespace may name a record
+    // in another, which is dead data rather than a leak — every read path filters `ns` itself
+    // (`neighbors` takes none, which is why `identitySet` and `downstreamOf` filter on the relation).
+    // Tightening this to same-namespace needs the port to scope relations, not the gate to guess.
+    if (!opts?.derived) {
+      const ends = await readEntities(port, [rel.from, rel.to]);
+      for (const end of [rel.from, rel.to])
+        if (!ends.some((e) => e.id === end))
+          throw new CommitRejected(
+            "ontology",
+            `relation endpoint is not a record: ${end}`,
+          );
+    }
     // A relation's identity is (type, from, to) in a namespace — nothing else distinguishes one edge
     // from the same edge. Without this, pressing Link twice stored two rows with different ids, the
     // same actor and the same instant: the entity screen listed the link three times, the graph drew
@@ -206,7 +234,7 @@ export async function commit(
         { type: "conflicts_with", attributes: {}, from: entity.id, to: dup.id },
         prov,
         now,
-        { ns },
+        { ns, derived: true },
       );
       conflicts.push(rel.entity as Relation);
     }
@@ -238,7 +266,7 @@ export async function commit(
         },
         prov,
         now,
-        { ns },
+        { ns, derived: true },
       );
   }
 

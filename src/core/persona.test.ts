@@ -29,6 +29,26 @@ function prov(actor: string) {
   return { actor, origin: "cli", occurred_at: now };
 }
 
+/**
+ * A person record for an id these tests hand-file an edge to — the gate rejects an edge to an id that
+ * is not a record. Only the HAND-FILED edges need this: the authorship the gate mirrors itself is
+ * exempt, which is what keeps `--actor <handle>` working when no person record carries that handle.
+ *
+ * Idempotent, because the same id appears in several links per test.
+ */
+async function node(id: string) {
+  if (await port.getEntity(id)) return;
+  await port.putEntity({
+    id,
+    type: "person",
+    attributes: { name: id },
+    status: "verified",
+    version: 1,
+    last_confirmed: now,
+    provenance: prov("admin"),
+  });
+}
+
 async function add(
   type: string,
   attributes: Record<string, unknown>,
@@ -61,6 +81,7 @@ describe("personaQuery", () => {
 
   it("collects via a hand-written authored_by relation (connector-ingested knowledge)", async () => {
     const f = await add("fact", { statement: "connector fact" }, "connector");
+    await node("alex");
     // authored_by: from=entity → to=person (the entity was authored by the person).
     await commit(
       port,
@@ -183,6 +204,8 @@ describe("personaQuery", () => {
   describe("same_as: one person, several records", () => {
     /** alias --same_as--> canonical, filed through the gate like any other claim. */
     async function link(from: string, to: string) {
+      await node(from);
+      await node(to);
       await commit(
         port,
         ont,

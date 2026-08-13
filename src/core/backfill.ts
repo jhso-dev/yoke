@@ -47,7 +47,7 @@ export async function backfillAuthorship(
         { type: "authored_by", attributes: {}, from: id, to: prov.actor },
         prov,
         now,
-        { ns },
+        { ns, derived: true },
       );
       linked.add(prov.actor);
       created++;

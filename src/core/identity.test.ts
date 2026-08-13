@@ -20,8 +20,28 @@ beforeEach(async () => {
   await port.init();
 });
 
+/**
+ * A person record for each endpoint — the gate rejects an edge to an id that is not a record.
+ * Idempotent, because these ids are linked into chains and re-putting (id, version) conflicts.
+ */
+async function node(id: string, ns?: string) {
+  if (await port.getEntity(id)) return;
+  await port.putEntity({
+    id,
+    type: "person",
+    attributes: { name: id },
+    status: "verified",
+    version: 1,
+    last_confirmed: now,
+    provenance: prov,
+    ...(ns ? { ns } : {}),
+  });
+}
+
 /** alias --same_as--> canonical, through the ordinary gate: the link is knowledge, not config. */
 async function link(from: string, to: string, ns?: string) {
+  await node(from, ns);
+  await node(to, ns);
   await commit(
     port,
     ont,

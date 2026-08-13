@@ -38,6 +38,26 @@ beforeEach(async () => {
   await port.init();
 });
 
+/**
+ * Endpoints for the relation cases: the gate rejects an edge to an id that is not a record.
+ *
+ * Stored straight through the port rather than committed, because a commit also mirrors its own
+ * authorship — an extra `authored_by` out-edge per endpoint, which the edge counts below would then
+ * be counting.
+ */
+async function nodes(...ids: string[]): Promise<void> {
+  for (const id of ids)
+    await port.putEntity({
+      id,
+      type: "fact",
+      attributes: { statement: id },
+      status: "verified",
+      version: 1,
+      last_confirmed: now,
+      provenance: prov,
+    });
+}
+
 describe("commit gate", () => {
   it("rejects unregistered ontology type", async () => {
     await expect(
@@ -119,6 +139,7 @@ describe("commit gate", () => {
   });
 
   it("commits a relation via putRelation", async () => {
+    await nodes("a", "b");
     const { entity } = await commit(
       port,
       ont,
@@ -137,6 +158,7 @@ describe("commit gate", () => {
   // three times, the graph drew three arrows over each other, and a collaboration counted one
   // attached record as three.
   it("commits the same edge once, and says it was already there", async () => {
+    await nodes("x", "y");
     const input = {
       type: "relates_to" as const,
       attributes: {},
@@ -156,6 +178,7 @@ describe("commit gate", () => {
   // Direction is not a claim for a symmetric relation, so recording it the other way round is not a
   // second fact. Without this, the link control's direction toggle turned one claim into two rows.
   it("treats a symmetric relation as one edge whichever way it was recorded", async () => {
+    await nodes("m", "n");
     await commit(
       port,
       ont,
@@ -177,6 +200,7 @@ describe("commit gate", () => {
   });
 
   it("still treats a DIRECTIONAL relation's two ways round as two edges", async () => {
+    await nodes("new", "old");
     // `supersedes` is the counter-case: which record supersedes which is the whole content.
     await commit(
       port,
@@ -197,6 +221,7 @@ describe("commit gate", () => {
   });
 
   it("keeps edges that differ in type, in direction, or in namespace", async () => {
+    await nodes("p", "q");
     const base = { attributes: {}, from: "p", to: "q" };
     await commit(port, ont, { ...base, type: "relates_to" }, prov, now);
     // A different type between the same two records is a different claim.
