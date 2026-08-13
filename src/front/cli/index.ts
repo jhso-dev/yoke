@@ -588,7 +588,26 @@ async function cmdGet(
 // list / graph — the CLI half of the browse and graph screens. WEB-UI's rule is that every action
 // the web tier performs stays achievable here, so these exist for parity, and --json emits the same
 // shape the endpoints do (byte-for-byte, so parity is checkable and not just claimed).
-async function cmdList(v: Values, env: Env): Promise<number> {
+const LIST_USAGE =
+  "usage: yoke list [--type t] [--status s] [--limit n] [--after cursor]\n" +
+  "  a whole-namespace listing; to search by words use 'yoke search <query>'";
+
+async function cmdList(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  // A word here used to be dropped in silence: `yoke list cache` returned the entire namespace, which
+  // reads as a filter that matched everything. `--bogus-flag` was already refused, so the same
+  // argument was strict as a flag and ignored as a positional.
+  if (positionals.length > 0) {
+    console.error(`list takes no arguments\n${LIST_USAGE}`);
+    return 1;
+  }
+  if (v.help) {
+    console.log(LIST_USAGE);
+    return 0;
+  }
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     const ontology = store.loadOntology(ns);
@@ -613,7 +632,25 @@ async function cmdList(v: Values, env: Env): Promise<number> {
   });
 }
 
-async function cmdGraph(v: Values, env: Env): Promise<number> {
+const GRAPH_USAGE =
+  "usage: yoke graph [--limit n]\n" +
+  "  the whole namespace; for one record's neighbourhood use 'yoke get <id> --relations'";
+
+async function cmdGraph(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  // `graph <id>` and `graph --scope <id>` both returned the whole graph, byte for byte, with no
+  // notice — an anchored view that silently answers about everything is worse than not offering one.
+  if (positionals.length > 0 || v.scope !== undefined) {
+    console.error(`graph is not anchored\n${GRAPH_USAGE}`);
+    return 1;
+  }
+  if (v.help) {
+    console.log(GRAPH_USAGE);
+    return 0;
+  }
   const ns = resolveNs(v.ns, env);
   const limit = v.limit === undefined ? 300 : Number(v.limit);
   return withStore(v, env, async (store) => {
@@ -843,11 +880,28 @@ async function cmdInject(
     );
     return 1;
   }
+  // `--depth` only means anything with an anchor to walk from, and core ignores it otherwise — so
+  // `inject cache --depth 99` returned byte-for-byte what `inject cache` did, and nothing said the
+  // number had been dropped. A flag that silently does nothing is a wrong answer to a question the
+  // caller thought they asked.
+  if (v.depth !== undefined && v.scope === undefined) {
+    console.error("--depth walks from an anchor: pass --scope <id> as well");
+    return 1;
+  }
   const limit = v.limit === undefined ? undefined : Number(v.limit);
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
+    // An anchor that is not a record cannot be prioritized, and the empty answer that follows looks
+    // exactly like a corpus with nothing in it. The scope is the caller's own id — telling them it did
+    // not resolve costs one point read.
+    if (v.scope !== undefined && !(await store.getEntity(v.scope))) {
+      console.error(
+        `--scope is not a record: ${v.scope} — 'yoke list' shows what can be anchored on`,
+      );
+      return 1;
+    }
     const ts = now();
     // Same default as the MCP tool and the web route: an anchored briefing is capped, a query is not.
     // Without it, `yoke inject --scope <collaboration>` dumps every record ever attached to that work.
@@ -1718,7 +1772,15 @@ export async function runCli(
   }
   const { values, positionals } = parsed;
   const [command, ...rest] = positionals;
-  if (values.help || command === "help" || command === undefined) {
+  // `--help` with no command is the overview; WITH a command it is that command's usage. It used to
+  // print the overview either way, so `yoke list --help` answered a different question than the one
+  // asked — and for a command with no required arguments the "run it with missing args" convention
+  // never fires, leaving `--type` and `--status` documented nowhere a reader would look.
+  if (
+    command === "help" ||
+    command === undefined ||
+    (values.help && !command)
+  ) {
     console.log(usage());
     return 0;
   }
@@ -1733,9 +1795,9 @@ export async function runCli(
       case "get":
         return await cmdGet(rest, values, env);
       case "list":
-        return await cmdList(values, env);
+        return await cmdList(rest, values, env);
       case "graph":
-        return await cmdGraph(values, env);
+        return await cmdGraph(rest, values, env);
       case "search":
         return await cmdSearch(rest, values, env);
       case "review":
