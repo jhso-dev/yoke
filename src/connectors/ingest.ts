@@ -17,8 +17,15 @@ import type { Connector } from "./types.js";
  * word "github" and materializing a thousand of them to find the one row already known by name.
  * Measured at 1M entities: 292 ms and 1,000 rows per ingested item, against 34 ms and 0.
  */
-async function exists(port: StoragePort, externalId: string): Promise<boolean> {
-  const hits = await port.search({ text: externalId, terms: "all" });
+async function exists(
+  port: StoragePort,
+  externalId: string,
+  ns?: string | null,
+): Promise<boolean> {
+  // Scoped to the tenant, because the answer is per tenant: two namespaces may legitimately hold the
+  // same source item, and a probe that searched everywhere would report one tenant's copy as the other's
+  // and skip the import.
+  const hits = await port.search({ text: externalId, terms: "all", ns });
   return hits.some((e) => e.attributes.external_id === externalId);
 }
 
@@ -33,12 +40,13 @@ export async function ingest(
   actor: string,
   now: string,
   since?: string,
+  ns?: string | null,
 ): Promise<{ added: number; skipped: number }> {
   let added = 0;
   let skipped = 0;
   for await (const item of connector.pull(since)) {
     const { externalId, ...input } = item;
-    if (await exists(port, externalId)) {
+    if (await exists(port, externalId, ns)) {
       skipped++;
       continue;
     }
@@ -52,6 +60,7 @@ export async function ingest(
       },
       { actor, origin: `connector:${connector.name}`, occurred_at: now },
       now,
+      { ns },
     );
     added++;
   }

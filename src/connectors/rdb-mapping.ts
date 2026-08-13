@@ -64,8 +64,11 @@ const externalId = (table: string, pk: unknown): string =>
 async function findByExternalId(
   port: StoragePort,
   extId: string,
+  ns?: string | null,
 ): Promise<Entity | null> {
-  const hits = await port.search({ text: extId });
+  // Tenant-scoped, like ingest.ts's probe: two namespaces may map the same source table, and an
+  // unscoped lookup would treat one tenant's row as the other's and re-version it.
+  const hits = await port.search({ text: extId, ns });
   return hits.find((e) => e.attributes.external_id === extId) ?? null;
 }
 
@@ -85,6 +88,7 @@ export async function ingestMapped(
   ontology: TypeDef[],
   connector: RdbMappingConnector,
   now: string,
+  ns?: string | null,
 ): Promise<MappedResult> {
   let added = 0;
   let updated = 0;
@@ -117,7 +121,7 @@ export async function ingestMapped(
       for (const [col, attr] of Object.entries(spec.columns)) {
         attributes[attr] = row[col];
       }
-      const existing = await findByExternalId(port, extId);
+      const existing = await findByExternalId(port, extId, ns);
       if (existing && unchanged(existing, attributes)) {
         idByExtId.set(extId, existing.id);
         skipped++;
@@ -130,9 +134,9 @@ export async function ingestMapped(
           { type: spec.entityType, attributes },
           prov(spec.table),
           now,
-          existing ? { existingId: existing.id } : undefined,
+          existing ? { existingId: existing.id, ns } : { ns },
         );
-        await verify(port, [entity.id], "rdb", now);
+        await verify(port, [entity.id], "rdb", now, ns);
         idByExtId.set(extId, entity.id);
         if (existing) updated++;
         else added++;
@@ -160,7 +164,7 @@ export async function ingestMapped(
         const targetExt = externalId(rel.fkTable ?? spec.table, fkVal);
         const toId =
           idByExtId.get(targetExt) ??
-          (await findByExternalId(port, targetExt))?.id;
+          (await findByExternalId(port, targetExt, ns))?.id;
         if (!toId) {
           console.error(
             `rdb: skip relation ${rel.relType} from ${externalId(spec.table, row[spec.idColumn])}: target ${targetExt} not found`,
@@ -180,6 +184,7 @@ export async function ingestMapped(
             { type: rel.relType, attributes: {}, from: fromId, to: toId },
             prov(spec.table),
             now,
+            { ns },
           );
         } catch (e) {
           if (e instanceof CommitRejected) {

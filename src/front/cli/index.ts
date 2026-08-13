@@ -1591,8 +1591,14 @@ async function runIngest(
   env: Env,
 ): Promise<number> {
   const actor = resolveActor(v, env);
+  // `--ns` was parsed and then dropped on this whole path: `yoke --ns tenantx connect notes <dir>`
+  // reported "added 2" and put both records in the SHARED namespace, where a `--ns tenantx` search
+  // could not find them. The namespace is the tenant isolation unit (ENTERPRISE.md) and this is the
+  // bulk entry point, so it was the largest way to file knowledge in the wrong tenant. `requireOntology`
+  // took `undefined` too, so a tenant schema was not being consulted either.
+  const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const ontology = requireOntology(store, undefined, v, env);
+    const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
     const { added, skipped } = await ingest(
       store,
@@ -1600,7 +1606,8 @@ async function runIngest(
       connector,
       actor,
       now(),
-      v.since,
+      instantFlag(v.since, "since"),
+      ns,
     );
     emit(v, `added ${added}, skipped ${skipped}`, { added, skipped });
     return 0;
@@ -1687,14 +1694,16 @@ async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
 
   const connector = makeRdbMappingConnector({ query, mapping });
   try {
+    const ns = resolveNs(v.ns, env);
     return await withStore(v, env, async (store) => {
-      const ontology = requireOntology(store, undefined, v, env);
+      const ontology = requireOntology(store, ns, v, env);
       if (!ontology) return 1;
       const { added, updated, skipped } = await ingestMapped(
         store,
         ontology,
         connector,
         now(),
+        ns,
       );
       emit(v, `mapped ${added} added, ${updated} updated, ${skipped} skipped`, {
         added,
@@ -1987,7 +1996,31 @@ async function cmdBackup(
     return 1;
   }
   const db = resolveDb(v, env);
+  // The same guard `restore` has, for the same destruction. A command called "backup" was performing an
+  // unconfirmed, unrecoverable overwrite: `yoke --db a.db backup ./b.db` replaced every record in b.db
+  // and printed success, while `yoke --db b.db restore ./a.db` — the identical outcome — refused without
+  // `--force`. Measured on a database whose only copy of its knowledge was the file being written over.
+  //
+  // Named with the destination and the flag, because the ordinary case is a typo'd path rather than a
+  // change of mind.
+  if (existsSync(dest) && !v.force) {
+    console.error(
+      `refusing to overwrite existing file: ${dest} (use --force to replace it)`,
+    );
+    return 1;
+  }
   return withStore(v, env, async (store) => {
+    // A backup of a damaged database is not a backup. It copied without complaint, and the result passed
+    // `restore`'s validation — so the one command an operator runs to protect themselves propagated the
+    // corruption and told them they were safe.
+    const check = store.integrityCheck?.();
+    if (check !== undefined && check !== "ok") {
+      console.error(
+        `${db} is damaged and was not backed up: ${check}\n` +
+          "a copy of a damaged database is not a backup — recover this file first",
+      );
+      return 1;
+    }
     await store.backupTo(dest);
     emit(v, `backed up ${db} -> ${dest}`, { db, dest });
     return 0;
@@ -2025,6 +2058,24 @@ async function cmdRestore(
   try {
     const s = new Database(src, { readonly: true });
     try {
+      // Structure first. The two checks below read `ontology_types` and one `entities` row, and on a
+      // damaged file those pages are usually intact — so a corrupt backup passed validation, was copied
+      // over a healthy database, and reported success. Measured: a file whose `integrity_check` reported
+      // "Offset 63351 out of range" restored with exit 0 and destroyed a 251-record database.
+      //
+      // `quick_check` rather than `integrity_check`: it verifies page structure without the full index
+      // cross-check, which is the part that costs O(database) on a large file. What it catches is the
+      // class that matters here — a file that cannot be read correctly at all.
+      const check = (
+        s.pragma("quick_check", { simple: true }) as string
+      ).toLowerCase();
+      if (check !== "ok") {
+        console.error(
+          `${src} is damaged and was not restored: ${check}\n` +
+            "restoring it would destroy the database it was meant to repair",
+        );
+        return 1;
+      }
       const { n } = s
         .prepare("SELECT COUNT(*) AS n FROM ontology_types")
         .get() as { n: number };
