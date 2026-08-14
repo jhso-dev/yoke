@@ -8,6 +8,7 @@
 
 import type { WithheldStats } from "../core/inject.js";
 import { effectiveStatus } from "../core/lifecycle.js";
+import { normalizeNs } from "../core/namespace.js";
 import {
   kindChangeRefusal,
   renameRefusal,
@@ -69,10 +70,24 @@ export function personName(e: Entity, ontology: TypeDef[]): string | undefined {
  * do not: an anchored graph at depth 3 spent **1,595 of its 1,715** port calls here, one per distinct
  * author, and the traversal it was blamed on accounted for 117.
  */
-export function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
+export function makeActorNames(
+  store: YokeStore,
+  ontology: TypeDef[],
+  ns?: string | null,
+) {
   const seen = new Map<string, string | undefined>();
+  // getEntity is id-based and global (it takes no ns), so an actor id from ANOTHER namespace would
+  // resolve to its person name and leak across the tenant boundary. Mirror ui/server's `side()`/audit
+  // `resolve()`, which gate on `normalizeNs(e.ns) === normalizeNs(ns)`: keep the name only when the
+  // resolved entity belongs to the request ns (ns null/undefined = the default namespace on both sides).
+  const wantNs = normalizeNs(ns);
   const remember = (e: Entity) =>
-    seen.set(e.id, e.type === "person" ? personName(e, ontology) : undefined);
+    seen.set(
+      e.id,
+      e.type === "person" && normalizeNs(e.ns) === wantNs
+        ? personName(e, ontology)
+        : undefined,
+    );
   /** Resolve every actor these rows name, in one read. Ids that resolve to nothing — or to something
    * that is not a person — are memoized as "no name", which is what the point read would conclude. */
   const prefetch = async (

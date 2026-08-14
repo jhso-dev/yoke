@@ -28,7 +28,7 @@ import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
 import { overview } from "../../core/aggregate.js";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
-import { CommitRejected, commit } from "../../core/commit.js";
+import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
@@ -50,6 +50,7 @@ import {
   validateTypeDef,
 } from "../../core/ontology.js";
 import {
+  checkPersonaAnchor,
   checkPersonaSources,
   NotAPerson,
   type PersonaResult,
@@ -178,6 +179,12 @@ const resolveDb = (v: Values, env: Env): string =>
 const resolveActor = (v: Values, env: Env): string =>
   v.actor ?? env.YOKE_ACTOR ?? "yoke:system";
 
+/** The `--db`/`--ns` the user actually passed, echoed back so a copy-paste hint reads the SAME store.
+ * A paging hint that dropped these ("yoke list --after <id>") sent the next page to the default
+ * ./yoke.db instead of the db the user was reading. */
+const passthroughFlags = (v: Values): string =>
+  (v.db ? ` --db ${v.db}` : "") + (v.ns ? ` --ns ${v.ns}` : "");
+
 /**
  * A caller error, as distinct from a failure. Thrown by the argument readers below and caught once at
  * the dispatcher, which prints the message and exits 1.
@@ -238,12 +245,17 @@ function instantFlag(
   name: string,
 ): string | undefined {
   if (raw === undefined) return undefined;
-  const ms = Date.parse(raw);
-  if (Number.isNaN(ms))
+  // Delegate to the core parser — the ONE strict ISO-8601 instant reader. `Date.parse` alone accepted
+  // `2026-02-30` (→ Mar 2), `"2026-08-14 00:00:00"` (timezone-dependent) and `"0"` (→ 1999), so a
+  // typo'd `--until` silently wrote an EMPTY disaster-recovery db at exit 0. `parseInstant` rejects all
+  // three and returns the canonical UTC string; its Error is rethrown as a UsageError naming the flag.
+  try {
+    return parseInstant(raw);
+  } catch {
     throw new UsageError(
       `--${name} must be an ISO 8601 instant, e.g. 2026-08-13T00:00:00Z (got "${raw}")`,
     );
-  return new Date(ms).toISOString();
+  }
 }
 
 /**
@@ -494,11 +506,31 @@ function requireOntology(
 }
 
 // Open the resolved store (ShardedStorage under --shards, else SqliteStorage), run fn, always close.
+//
+// `create` is the opt-out for the two commands that bootstrap a store from nothing — `init` and
+// `ontology add-type` (which seeds a fresh tenant ontology). For everything else a read or write on a
+// store that was never `yoke init`ed must REFUSE, and must not bring the file into existence doing it:
+// `openStore` opens a better-sqlite3 Database, which creates the path, so the guard runs BEFORE it.
+// `list`/`review`/`graph`/`conflicts`/`audit`/`search`/`ontology list` used to open the file, print
+// "nothing" and exit 0 — leaving a stray db behind for a typo'd `--db`. This matches the exact refusal
+// `requireOntology` already prints for `add`/`inject`/`overview`. Only the local single-file path is
+// judged by file existence; a sharded or remote store initializes elsewhere and is left as before.
 async function withStore<T>(
   v: Values,
   env: Env,
   fn: (s: YokeStore) => Promise<T>,
+  opts?: { create?: boolean },
 ): Promise<T> {
+  const remote = env.YOKE_OPENSEARCH_URL ?? env.YOKE_POSTGRES_URL;
+  if (
+    !opts?.create &&
+    !resolveShards(v, env) &&
+    !remote &&
+    !existsSync(resolveDb(v, env))
+  )
+    throw new UsageError(
+      `not initialized: ${storeLabel(v, env)} — run 'yoke init' first`,
+    );
   const store = await openStore(
     { db: resolveDb(v, env), shards: resolveShards(v, env) },
     env,
@@ -566,54 +598,60 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
   // Decorate only on an interactive stdout (never under --json), so non-TTY and
   // machine output stay byte-identical to the plain path.
   const deco = decorated() && !v.json;
-  return withStore(v, env, async (store) => {
-    // Idempotent re-run: if yoke:system already exists, do not re-seed.
-    if (await store.getEntity("yoke:system")) {
+  return withStore(
+    v,
+    env,
+    async (store) => {
+      // Idempotent re-run: if yoke:system already exists, do not re-seed.
+      if (await store.getEntity("yoke:system")) {
+        if (deco) {
+          const b = banner();
+          if (b) console.log(`\n${b}\n`);
+        }
+        emit(v, `already initialized: ${store_}`, {
+          db,
+          store: store_,
+          seeded: false,
+        });
+        return 0;
+      }
+      const ontology = seedOntology();
+      await store.saveOntology(ontology);
+      // Seed the yoke:system person — no gate bypass (putEntity). Use commit with a well-known id.
+      // A nonexistent id creates version 1, so it passes the gate normally (bootstrap).
+      const ts = now();
+      await commit(
+        store,
+        ontology,
+        { type: "person", attributes: { name: "system" } },
+        { actor: "yoke:system", origin: "cli", occurred_at: ts },
+        ts,
+        { existingId: "yoke:system" },
+      );
+      // Leaving the system person as a draft would keep it in the review queue forever — promote right after seeding.
+      await verify(store, ["yoke:system"], "yoke:system", ts);
       if (deco) {
         const b = banner();
         if (b) console.log(`\n${b}\n`);
+        const entityTypes = ontology.filter((d) => d.kind === "entity").length;
+        const relTypes = ontology.filter((d) => d.kind === "relation").length;
+        console.log(log.ok(`database created: ${db}`));
+        console.log(
+          log.ok(
+            `ontology seeded: ${entityTypes} entity types, ${relTypes} relation types`,
+          ),
+        );
+        console.log(log.ok("system actor ready"));
+        console.log(getStartedBlock());
+        await suggestOllamaIfIdle(env);
+      } else {
+        emit(v, `initialized: ${store_}`, { db, store: store_, seeded: true });
       }
-      emit(v, `already initialized: ${store_}`, {
-        db,
-        store: store_,
-        seeded: false,
-      });
       return 0;
-    }
-    const ontology = seedOntology();
-    await store.saveOntology(ontology);
-    // Seed the yoke:system person — no gate bypass (putEntity). Use commit with a well-known id.
-    // A nonexistent id creates version 1, so it passes the gate normally (bootstrap).
-    const ts = now();
-    await commit(
-      store,
-      ontology,
-      { type: "person", attributes: { name: "system" } },
-      { actor: "yoke:system", origin: "cli", occurred_at: ts },
-      ts,
-      { existingId: "yoke:system" },
-    );
-    // Leaving the system person as a draft would keep it in the review queue forever — promote right after seeding.
-    await verify(store, ["yoke:system"], "yoke:system", ts);
-    if (deco) {
-      const b = banner();
-      if (b) console.log(`\n${b}\n`);
-      const entityTypes = ontology.filter((d) => d.kind === "entity").length;
-      const relTypes = ontology.filter((d) => d.kind === "relation").length;
-      console.log(log.ok(`database created: ${db}`));
-      console.log(
-        log.ok(
-          `ontology seeded: ${entityTypes} entity types, ${relTypes} relation types`,
-        ),
-      );
-      console.log(log.ok("system actor ready"));
-      console.log(getStartedBlock());
-      await suggestOllamaIfIdle(env);
-    } else {
-      emit(v, `initialized: ${store_}`, { db, store: store_, seeded: true });
-    }
-    return 0;
-  });
+      // `init` is one of the two commands that legitimately bring a fresh db into existence.
+    },
+    { create: true },
+  );
 }
 
 async function cmdAdd(
@@ -679,10 +717,16 @@ async function cmdAdd(
       // script got exit 1 next to a perfectly normal-looking entity object — a failure signal with no
       // machine-readable reason, on the one output built for machines. The duplicate notices stay
       // human-only (contract unchanged on the success path).
+      // `duplicateDetection` rides the --json object because SPEC requires every adapter that can
+      // create a record to surface "skipped" — MCP `yoke_commit` does (as `duplicate_check`), and this
+      // is the CLI's create path. Without it a scripted reader could not tell "checked, nothing similar"
+      // from "no embedder configured, so nothing was compared".
       emit(
         v,
         lines.join("\n"),
-        unrecorded ? { ...entity, unrecorded } : entity,
+        unrecorded
+          ? { ...entity, duplicateDetection, unrecorded }
+          : { ...entity, duplicateDetection },
       );
       return unrecorded ? 1 : 0;
     } catch (e) {
@@ -905,7 +949,7 @@ async function cmdList(
     // resolved these since v2.5; the CLI printed the raw actor, so a corpus whose authors are person
     // records — what `--actor <person-id>` and every seeded corpus produce — was a wall of ULIDs.
     // The id stays reachable through `get` and the citation, which is where an id belongs.
-    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
     await prefetch(p.items);
     const lines = await Promise.all(
       p.items.map(
@@ -915,7 +959,8 @@ async function cmdList(
           }`,
       ),
     );
-    if (p.next) lines.push(`-- more: yoke list --after ${p.next}`);
+    if (p.next)
+      lines.push(`-- more: yoke list${passthroughFlags(v)} --after ${p.next}`);
     emit(v, lines.join("\n"), p);
     return 0;
   });
@@ -1047,7 +1092,7 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
       );
       // This queue exists to name a person to go and ask, so an unresolved id is the column doing the
       // opposite of its job.
-      const { nameOf, prefetch } = makeActorNames(store, ontology);
+      const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
       await prefetch(ranked);
       const lines = await Promise.all(
         ranked.map(
@@ -1078,7 +1123,7 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
       emit(v, "no drafts", []);
       return 0;
     }
-    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
     await prefetch(drafts);
     const lines = await Promise.all(
       drafts.map(
@@ -1273,7 +1318,7 @@ async function cmdInject(
     // `pointer` exists for exactly this split: the id half is the audit pointer and stays an id, and who
     // said it is rendered for a reader. `--json` still carries core's citation string verbatim, so the
     // machine contract is untouched — this is the human line only.
-    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
     await prefetch(items.map((it) => it.entity));
     const who = async (it: (typeof items)[number]): Promise<string> => {
       const promoter = it.entity.provenance.actor;
@@ -1368,7 +1413,11 @@ async function cmdHistory(
     // A version's actor is who wrote THAT version — the author on v1, the promoter on a verify. Both are
     // people and both were printed as ids, on the one screen whose job is "who changed what, when".
     // Resolved in one batch, then read synchronously so the row builder below stays a plain map.
-    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    const { nameOf, prefetch } = makeActorNames(
+      store,
+      ontology,
+      resolveNs(v.ns, env),
+    );
     await prefetch(versions);
     const names = new Map(
       await Promise.all(
@@ -1576,14 +1625,16 @@ async function cmdRenameType(
     }
     const rows = await store.renameType(from, to, ns);
     if (rows === 0) {
-      // Not an error: nothing carried that name, so the database is already where the caller wants
-      // it. Saying so beats an exit code that reads like a failure.
+      // renameType counts the ontology declaration in `rows` (see SqliteStorage.renameType — "2
+      // versions + 1 declaration"), so `rows === 0` means the source exists in NEITHER the records NOR
+      // the declaration: a typo, not a completed migration. Exit 1 so a migration script checking $?
+      // stops instead of proceeding as though the rename happened.
       emit(v, `no rows carried type "${from}" — nothing to rename`, {
         from,
         to,
         rows: 0,
       });
-      return 0;
+      return 1;
     }
     // The one mutation the append-only version history cannot record, because it rewrites those
     // very rows (see SqliteStorage.renameType). This row is the only trace it leaves.
@@ -1716,26 +1767,33 @@ async function cmdOntology(
       return 1;
     }
     def = withAttrs;
-    return withStore(v, env, async (store) => {
-      // No initialized-ontology requirement here: add-type IS how a fresh
-      // (e.g. shard tenant) ontology gets seeded — requiring one is a chicken-and-egg.
-      // An existing name means a new version = a migration (same append-only model as entities).
-      // ns targets a tenant ontology (overlaid on the shared base); omitted = shared.
-      //
-      // A kind flip on a POPULATED type is refused, and the evidence is gathered in the one shared
-      // place (`refuseKindChange`) rather than here: `{"name":"fact","kind":"relation"}` was accepted,
-      // after which stored facts kept being injected as entities while `add fact` was refused as a
-      // relation needing from/to — and the per-caller count that replaced it looked only at entities,
-      // so the flip WITH stored rows to lose was the one it could not see.
-      const refusal = await refuseKindChange(store, def as TypeDef, ns);
-      if (refusal) {
-        console.error(refusal);
-        return 1;
-      }
-      await store.saveOntology([def], ns);
-      emit(v, `saved type: ${def.name}`, def);
-      return 0;
-    });
+    return withStore(
+      v,
+      env,
+      async (store) => {
+        // No initialized-ontology requirement here: add-type IS how a fresh
+        // (e.g. shard tenant) ontology gets seeded — requiring one is a chicken-and-egg.
+        // An existing name means a new version = a migration (same append-only model as entities).
+        // ns targets a tenant ontology (overlaid on the shared base); omitted = shared.
+        //
+        // A kind flip on a POPULATED type is refused, and the evidence is gathered in the one shared
+        // place (`refuseKindChange`) rather than here: `{"name":"fact","kind":"relation"}` was accepted,
+        // after which stored facts kept being injected as entities while `add fact` was refused as a
+        // relation needing from/to — and the per-caller count that replaced it looked only at entities,
+        // so the flip WITH stored rows to lose was the one it could not see.
+        const refusal = await refuseKindChange(store, def as TypeDef, ns);
+        if (refusal) {
+          console.error(refusal);
+          return 1;
+        }
+        await store.saveOntology([def], ns);
+        emit(v, `saved type: ${def.name}`, def);
+        return 0;
+        // add-type is the other bootstrap path: it IS how a fresh (e.g. shard tenant) ontology gets
+        // seeded, so it must be allowed to create the store — see the comment above.
+      },
+      { create: true },
+    );
   }
   console.error(ONTOLOGY_USAGE);
   return 1;
@@ -2013,6 +2071,31 @@ async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
       lines.push(
         `unreadable  ${header.unparsed.join(", ")} — hand-edited header?`,
       );
+    // The ANCHOR, not only the sources. `--check` reads the source list, and the anchor person is not
+    // among it — so a SKILL.md whose person was `deprecate`d AFTER export audited green ("all current")
+    // on a document about someone the org has retired. Gate on the anchor's current status too.
+    //
+    // `header.anchor` is `safeName(person.id)` (see PersonaHeader.anchor), which is lossless for the
+    // ids in use (ULIDs) but mangles a punctuated id — `yoke:system` becomes `yoke-system`, which
+    // resolves to nothing. So "missing" is ambiguous (a lossily-encoded anchor vs a truly absent one)
+    // and is NOT treated as a failure; the governance defect this gate exists to catch — a retired or
+    // non-person anchor — only arises from an anchor that DID resolve, so those are the fatal verdicts.
+    // Null anchor = a hand-edited file with no `name: persona-<id>` line (already covered by `unparsed`).
+    let anchorBad = 0;
+    let anchorVerdict: string | null = null;
+    if (header.anchor) {
+      anchorVerdict = await checkPersonaAnchor(
+        store,
+        ontology,
+        header.anchor,
+        now(),
+        { ns },
+      );
+      if (anchorVerdict === "retired" || anchorVerdict === "not-a-person") {
+        anchorBad = 1;
+        lines.push(`anchor      ${header.anchor} — ${anchorVerdict}`);
+      }
+    }
     // Counted against what the header DECLARED, not against what parsed. A file whose header says
     // three and whose list holds one was reported "1 of 1 sources moved — all current" on the two it
     // no longer names: the summary measured itself, so the sources most likely to be gone were the
@@ -2027,11 +2110,11 @@ async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
       lines.push(
         `unlisted    ${absent} source(s) the header counts are not in the list — hand-edited header?`,
       );
-    const bad = moved.length + header.unparsed.length + absent;
+    const bad = moved.length + header.unparsed.length + absent + anchorBad;
     lines.push(
       bad === 0
         ? `${total} sources, all current`
-        : `${bad} of ${total} sources moved or unreadable — re-export with: yoke persona <person> --out <dir>`,
+        : `${bad} of ${total} sources${anchorBad ? " (and the anchor)" : ""} moved or unreadable — re-export with: yoke persona <person> --out <dir>`,
     );
     emit(v, lines.join("\n"), {
       file,
@@ -2042,6 +2125,11 @@ async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
       declared: total,
       unlisted: absent,
       moved: moved.length,
+      // The anchor verdict a CI gate needs alongside the sources: the retired-anchor case is invisible
+      // in `sources` because the anchor is not one of them.
+      anchor: header.anchor
+        ? { id: header.anchor, verdict: anchorVerdict }
+        : null,
     });
     // Unparsed tokens are a failure too: a source that cannot be read is not a source that is fine.
     return bad > 0 ? 1 : 0;
