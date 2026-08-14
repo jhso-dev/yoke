@@ -88,28 +88,35 @@ async function transition(
       throw new Error(`cannot transition unknown entity: ${id}`);
     }
   const out: Entity[] = [];
+  // The transition's job is to change STATUS, never content: it layers the status/version/last_confirmed/
+  // provenance delta on top of whatever body is current. `buildNext(base)` builds that new version from a
+  // given base — used first on the pre-race `prev`, then on the re-read latest inside the retry, so a
+  // concurrent correction to the body survives instead of being resurrected by the stale `prev`.
+  const buildNext = (base: Entity): Entity => ({
+    ...base,
+    status,
+    version: base.version + 1,
+    last_confirmed: now,
+    provenance: { actor, origin: "lifecycle", occurred_at: now },
+  });
+  // Retiring what is already retired records nothing. `deprecate X` twice wrote v3 and v4, identical but
+  // for the clock, and `history` then showed two retirements of one record — which also made the reason
+  // ambiguous, since `retirementOf` takes the LAST deprecate row and both versions rendered it.
+  //
+  // Deliberately NOT applied to `verify`. Re-verifying looks like the same no-op and is not: moving
+  // `last_confirmed` is the whole content of a re-confirmation, which is exactly the act the stale queue
+  // asks for, and its stored status is already `verified`. Whether a blanket `verify` over fresh records
+  // SHOULD refresh them is a governance question about who is allowed to say "still true", not a bug in
+  // this branch — and answering it here would break the stale queue's own workflow.
+  const alreadyRetired = (e: Entity | null | undefined): e is Entity =>
+    !!e && e.status === status && status === "deprecated";
   for (const id of distinct) {
     const prev = found.get(id) as Entity;
-    // Retiring what is already retired records nothing. `deprecate X` twice wrote v3 and v4, identical
-    // but for the clock, and `history` then showed two retirements of one record — which also made the
-    // reason ambiguous, since `retirementOf` takes the LAST deprecate row and both versions rendered it.
-    //
-    // Deliberately NOT applied to `verify`. Re-verifying looks like the same no-op and is not: moving
-    // `last_confirmed` is the whole content of a re-confirmation, which is exactly the act the stale
-    // queue asks for, and its stored status is already `verified`. Whether a blanket `verify` over fresh
-    // records SHOULD refresh them is a governance question about who is allowed to say "still true", not
-    // a bug in this branch — and answering it here would break the stale queue's own workflow.
-    if (prev.status === status && status === "deprecated") {
+    if (alreadyRetired(prev)) {
       out.push(prev);
       continue;
     }
-    let next: Entity = {
-      ...prev,
-      status,
-      version: prev.version + 1,
-      last_confirmed: now,
-      provenance: { actor, origin: "lifecycle", occurred_at: now },
-    };
+    let next = buildNext(prev);
     // C2: a concurrent re-version of this id makes `prev.version + 1` collide, and the raw throw used
     // to land HERE — mid-loop, with earlier ids already promoted — so the caller heard "whole batch
     // failed" about a batch that was half-applied (the exact state the two-loop design above claims to
@@ -122,8 +129,16 @@ async function transition(
       } catch (e) {
         if (!(e instanceof ConflictError) || attempt >= MAX_VERSION_RETRIES)
           throw e;
+        // The winner of the race may have changed the BODY (so `next` must rebuild on the latest content,
+        // not carry the stale `prev` forward and stamp it verified — B1) or may itself have RETIRED the
+        // record (so the no-op guard must be re-evaluated against the head, not only the pre-race read —
+        // B2). Re-read once, then decide against the latest.
         const latest = await port.getEntity(next.id);
-        next = { ...next, version: (latest?.version ?? next.version) + 1 };
+        if (alreadyRetired(latest)) {
+          next = latest; // record nothing new; return the head the winner already wrote.
+          break;
+        }
+        next = buildNext(latest ?? next);
       }
     }
     out.push(next);

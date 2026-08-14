@@ -236,23 +236,27 @@ export class SqliteStorage implements StoragePort {
   }
 
   /**
-   * C6/F2 migration: map every existing FTS row to its rowid, so deletes stop scanning (see the
-   * fts_docid schema note). Self-detecting and idempotent, the repo convention (see the ns migration):
-   * a database that predates fts_docid has FTS rows but an empty map, so this backfills it ONCE; every
-   * later open finds the map non-empty and does nothing, and a fresh database has no FTS rows so it is
-   * a no-op.
+   * C6/F2 migration: map every currently-UNMAPPED FTS row to its rowid, so deletes stop scanning (see
+   * the fts_docid schema note). Reconciles per-id on every open, not once: the old "any row in the map
+   * → return" guard skipped a MIXED database forever — one where some `entities_fts` rows are mapped and
+   * some are not (mixed-vintage writes: a rollback, a shared file, two installs). An unmapped id then
+   * reaches `reindexFts`'s else-branch, which inserts a SECOND fts row without deleting the first, so the
+   * old text stays searchable as a ghost and every hit doubles. Mapping the id here first forces the
+   * delete-by-rowid path, leaving exactly one fts row per id.
    *
-   * `OR IGNORE`, not a bare INSERT, because init() runs concurrently across processes (invariant 4:
-   * `yoke mcp` + `yoke ui` + CLI on one file). One process can commit a record — mapping its id in
-   * fts_docid — between this migration's empty-map guard and its backfill SELECT, so the backfill
-   * would otherwise collide on that id's primary key. IGNORE skips the already-mapped row; the rowid it
-   * would have written is identical (reindexFts wrote the same one), so the two stay consistent.
+   * Cheap: only unmapped rows do work. `WHERE NOT EXISTS ... fts_docid` uses the map's primary key, so
+   * an already-reconciled database inserts nothing and a fresh one has no fts rows at all — a no-op.
+   *
+   * `OR IGNORE` on top of the filter, because init() runs concurrently across processes (invariant 4:
+   * `yoke mcp` + `yoke ui` + CLI on one file). One process can map an id between this SELECT and its
+   * INSERT; IGNORE skips it, and the rowid it would have written is identical (reindexFts wrote the same
+   * one), so the two stay consistent.
    */
   private migrateFtsDocids(): void {
-    const mapped = this.db.prepare(`SELECT 1 FROM fts_docid LIMIT 1`).get();
-    if (mapped) return;
     this.db.exec(
-      `INSERT OR IGNORE INTO fts_docid (id, docid) SELECT id, rowid FROM entities_fts`,
+      `INSERT OR IGNORE INTO fts_docid (id, docid)
+       SELECT f.id, f.rowid FROM entities_fts f
+       WHERE NOT EXISTS (SELECT 1 FROM fts_docid d WHERE d.id = f.id)`,
     );
   }
 
