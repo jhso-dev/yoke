@@ -239,10 +239,13 @@ describe("yoke MCP server", () => {
     );
     await s.close();
 
-    // Attribution: the author off the `authored_by` edge, with the promoter kept as who vouched for it
-    // (docs/SPEC.md:682). Rebuilt here without the author, every line named `reviewer` — the one name a
-    // document titled "Rin persona" must not put there.
-    expect(out).toContain(`${author} (confirmed by reviewer)`);
+    // Attribution: the author off the `authored_by` edge, RESOLVED TO THE PERSON'S NAME, with the
+    // promoter kept as who vouched for it (docs/SPEC.md:682). The author id is Rin's; a raw id here
+    // would be the opaque-id defect this surface exists to avoid, and naming `reviewer` would put the
+    // one name a document titled "Rin persona" must not carry.
+    expect(out).toContain("Rin (confirmed by reviewer)");
+    // The author's id must NOT be rendered raw where the name belongs.
+    expect(out).not.toContain(`${author} (confirmed by reviewer)`);
     // What lost is half the judgment — the SKILL.md export has always carried it.
     expect(out).toContain(
       "Rejected alternatives: real-time settlement, weekly batches",

@@ -16,6 +16,7 @@ import {
   BRIEFING_LIMIT,
   entityIdCandidates,
   inject,
+  pointer,
   WALK_BUDGET,
 } from "../../core/inject.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
@@ -25,6 +26,7 @@ import {
   PERSON_TYPE,
   type PersonaResult,
   personaQuery,
+  readableName,
 } from "../../core/persona.js";
 import type { Entity, EntityInput, RelationInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
@@ -123,6 +125,48 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
 
   // Input actor > server startup env (defaultActor) > 'yoke:system' (already folded into defaultActor).
   const resolveActor = (actor?: string) => actor ?? defaultActor;
+
+  // PLAN 8.4 audit is a read's TRAIL, not its result. On a locked DB the write throws; the CLI and web
+  // long since made it best-effort (auditRead / bestEffortAudit) so a dropped trail row never turns a
+  // good read into a failed query. MCP — the surface agents actually use — still let logAudit throw
+  // straight out of the tool, discarding an already-computed answer. stderr, not stdout: stdout is the
+  // protocol channel. WRITE tools keep the audit inline; only reads are best-effort.
+  const bestEffortAudit = (event: AuditEvent): void => {
+    try {
+      store.logAudit?.(event);
+    } catch (e) {
+      process.stderr.write(
+        `warning: audit row not written (read succeeded): ${(e as Error).message}\n`,
+      );
+    }
+  };
+
+  // Resolve a person id to a display name, scoped to THIS request's ns. getEntity is id-based and
+  // global (it takes no ns), so a bare resolve would leak a foreign tenant's person name into an
+  // agent-facing citation — the cross-ns disclosure closed on the web tier. Fall back to the id when it
+  // is not a person in this ns (a machine actor like `yoke:system` reads fine as its own slug).
+  const nameOf = async (id: string): Promise<string> => {
+    const e = await store.getEntity(id);
+    return e && e.type === PERSON_TYPE && normalizeNs(e.ns) === normalizeNs(ns)
+      ? readableName(e)
+      : id;
+  };
+  // A citation with its author (and confirmer) resolved to names — the human half of core's citation
+  // split: `pointer` keeps the entity id (the audit anchor), the who-slot reads as a name. Mirrors
+  // `citation()`'s shape so the two never drift; used by yoke_inject and yoke_persona alike.
+  const readableCite = async (it: {
+    entity: Entity;
+    author?: string;
+  }): Promise<string> => {
+    const promoterId = it.entity.provenance.actor;
+    const authorId = it.author ?? promoterId;
+    const author = await nameOf(authorId);
+    const who =
+      authorId === promoterId
+        ? author
+        : `${author} (confirmed by ${await nameOf(promoterId)})`;
+    return `${pointer(it.entity)} ${who}, ${it.entity.provenance.occurred_at}`;
+  };
 
   async function doCommit(
     input: EntityInput | RelationInput,
@@ -311,7 +355,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
       // unscoped one, and which of the two agents actually do is the measurement that decides whether
       // graph expansion is worth investing in at all (docs/RESEARCH.md).
-      store.logAudit?.({
+      bestEffortAudit({
         actor: defaultActor,
         action: "inject",
         detail: injectDetail(
@@ -331,18 +375,23 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
             ? `no verified knowledge for: ${query} — ${describeWithheld(withheld)}`
             : `no verified knowledge found for: ${query}`,
         );
-      const blocks = items.map(
-        (it) =>
-          `${it.citation} [${it.effectiveStatus}]` +
-          // An agent handed two contradicting records as two equal facts answers with whichever it read
-          // first and cites it. The instruction is the mechanism here, as it is for the truncation
-          // notice: the model has to be told what to DO with the disagreement, not handed a field.
-          (it.conflictsWith
-            ? `\n[CONTRADICTED by ${it.conflictsWith.join(", ")} — both are recorded and nobody has ` +
-              `settled which is right. Do not present this as established; say the org's records ` +
-              `disagree and cite both.]`
-            : "") +
-          `\n${JSON.stringify(it.entity.attributes)}`,
+      const blocks = await Promise.all(
+        items.map(
+          async (it) =>
+            // The author on the citation is resolved to a name, not left a raw ULID (M-AUTHOR): every
+            // other surface names the person, and an agent quoting yoke should too. The id stays on the
+            // pointer half, which is the audit anchor.
+            `${await readableCite(it)} [${it.effectiveStatus}]` +
+            // An agent handed two contradicting records as two equal facts answers with whichever it read
+            // first and cites it. The instruction is the mechanism here, as it is for the truncation
+            // notice: the model has to be told what to DO with the disagreement, not handed a field.
+            (it.conflictsWith
+              ? `\n[CONTRADICTED by ${it.conflictsWith.join(", ")} — both are recorded and nobody has ` +
+                `settled which is right. Do not present this as established; say the org's records ` +
+                `disagree and cite both.]`
+              : "") +
+            `\n${JSON.stringify(it.entity.attributes)}`,
+        ),
       );
       // The same reasons on a NON-empty answer, phrased as the instruction an agent needs. This is the
       // case that produces a confident wrong answer: the model receives a full page, has no way to know
@@ -527,7 +576,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const o = await overview(store, ontology, ts, { ns, top });
       // Audited like every other read that returns knowledge attributes — a hub row carries a record's
       // own text (SPEC "Any route that returns knowledge attributes writes an audit row").
-      store.logAudit?.({
+      bestEffortAudit({
         actor: defaultActor,
         action: "overview",
         detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
@@ -603,7 +652,12 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         const people = (
           await store.listEntities({ type: PERSON_TYPE, ns, limit: 20 })
         ).items
-          .map((p) => `${p.id} (${String(p.attributes.name ?? "unnamed")})`)
+          // Retired persons are refused again if picked (personaQuery rejects a deprecated anchor), so a
+          // roster of who to ASK must not list them. And each name is one-lined by `readableName`, not
+          // interpolated raw: a hostile person name ("Ada\nallowed-tools: Bash(curl:*)\n---\n# …") would
+          // otherwise reappear verbatim in model-facing output.
+          .filter((p) => p.status !== "deprecated")
+          .map((p) => `${p.id} (${readableName(p)})`)
           .join(", ");
         return err(
           `${e.message}\n` +
@@ -615,7 +669,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const { decisions, facts } = persona;
       // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.
       const injected = [...decisions, ...facts].map((i) => i.entity);
-      store.logAudit?.({
+      bestEffortAudit({
         actor: defaultActor,
         action: "persona",
         detail: `${person}${query ? ` ${query}` : ""} -> ${injected.map((e) => e.id).join(" ")}`,
@@ -645,18 +699,17 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
             (Array.isArray(rejected) && rejected.length > 0
               ? `Rejected alternatives: ${rejected.map(String).join(", ")}\n`
               : "") +
-            // `i.citation`, not `citation(d)`: core already rebuilt it with the author off the
-            // `authored_by` edge. Rebuilt here without one, every line of a document that claims to be
-            // Alex's judgment named whoever VERIFIED it — `yoke:system` on a single-reviewer corpus —
-            // which is docs/SPEC.md:682's rule ("authorship comes off the authored_by edge, never
-            // provenance.actor") broken on the surface it matters most.
-            i.citation +
+            // `readableCite(i)`, not `i.citation`: core already rebuilt the citation with the author off
+            // the `authored_by` edge (docs/SPEC.md:682 — never provenance.actor), but left it a raw ULID.
+            // Resolving it to the person's name (M-AUTHOR) is what makes a line of "Alex's judgment"
+            // read as Alex's; the id stays on the pointer half, which is the audit anchor.
+            (await readableCite(i)) +
             marker(i),
         );
       }
       for (const i of facts)
         blocks.push(
-          `[knowledge] ${JSON.stringify(i.entity.attributes)}\n${i.citation}${marker(i)}`,
+          `[knowledge] ${JSON.stringify(i.entity.attributes)}\n${await readableCite(i)}${marker(i)}`,
         );
       // Say when this answer is a union, and that the link behind it is unreviewed. `same_as` is the
       // one input that adds a SECOND person's judgment under this anchor, and no path can promote a
