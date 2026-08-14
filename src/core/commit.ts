@@ -87,14 +87,60 @@ interface CommitOpts {
   attachTo?: string;
 }
 
-/** Whether actor/origin/occurred_at are all non-empty strings. */
+/** Whether actor/origin are non-empty strings and occurred_at is a real instant. */
 function provenanceOk(p: Provenance): boolean {
   // Trimmed. `--actor ""` was refused and `--actor "   "` was accepted, so mechanism 1 ("nothing enters
   // without a source") was defeated by one space: the record entered, `graph` drew an `authored_by` edge
   // to an id no record carries, and the citation rendered as `[fact:…@v1]    , <ts>` — an author-less
   // claim with an author-shaped hole where the name goes.
   const ok = (v: unknown) => typeof v === "string" && v.trim().length > 0;
-  return ok(p.actor) && ok(p.origin) && ok(p.occurred_at);
+  return ok(p.actor) && ok(p.origin) && isInstant(p.occurred_at);
+}
+
+/**
+ * A string naming a real moment, in ISO 8601. Non-empty was the whole check for `occurred_at`.
+ *
+ * The SHAPE is checked as well as the parse, because `Date.parse` on anything that is not ISO 8601 is
+ * implementation-defined by the spec — V8 reads `08/14/2026` as a date and another engine may read it
+ * as another one or not at all. For a store whose whole job is to say when something was true, an input
+ * that means different instants on different runtimes is worse than one that is rejected. Every writer
+ * in this product emits `toISOString()`; this refuses what only V8 would have understood.
+ */
+const ISO_8601 =
+  /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+function isInstant(v: unknown): v is string {
+  return (
+    typeof v === "string" &&
+    ISO_8601.test(v.trim()) &&
+    !Number.isNaN(Date.parse(v))
+  );
+}
+
+/**
+ * The write half of "every instant crosses one boundary" — the read halves are `instantFlag` (CLI) and
+ * `instantParam` (web).
+ *
+ * `occurred_at` was checked for being a non-empty STRING, so the gate accepted `"yesterday"` and
+ * `"08/14/2026"` and stored them as the moment a claim was made. Downstream every comparison against
+ * them is `Date.parse` → NaN → false, which does not fail loudly: `versionAsOf` treats such a version
+ * as older than every instant, `isFresh` reports it expired forever, and `julianday` yields NULL so the
+ * row vanishes from a bounded audit read and from a PITR copy. A timestamp that cannot be compared is
+ * not provenance.
+ *
+ * Normalized to UTC as well as validated, for the reason the read boundaries are: a VALID instant in
+ * offset notation (`2026-08-14T09:00:00+09:00`) sorts by `localeCompare` nowhere near the same moment
+ * written as `Z`, and the briefing order, `newestFirst` on the web, and the FTS-independent tiebreaks
+ * all collate rather than parse. Front tiers normalize today, which is precisely why this never showed:
+ * a gate is a trust boundary, and what stops a third-party connector or a library caller is the check
+ * here, not the convention there.
+ *
+ * The instant is unchanged — only its spelling — so "provenance is a record of what happened" holds.
+ */
+function normalizeProvenance(p: Provenance): Provenance {
+  return {
+    ...p,
+    occurred_at: new Date(Date.parse(p.occurred_at)).toISOString(),
+  };
 }
 
 /** Cosine similarity. Handles unnormalized vectors too (provider-independent scale). */
@@ -120,8 +166,8 @@ export async function commit(
   port: StoragePort,
   ontology: TypeDef[],
   input: EntityInput | RelationInput,
-  prov: Provenance,
-  now: string,
+  rawProv: Provenance,
+  rawNow: string,
   opts?: CommitOpts,
 ): Promise<CommitResult> {
   // (1) Ontology validation.
@@ -129,11 +175,21 @@ export async function commit(
   if (!v.ok) throw new CommitRejected("ontology", v.reason);
 
   // (2) Validate required provenance fields.
-  if (!provenanceOk(prov))
+  if (!provenanceOk(rawProv))
     throw new CommitRejected(
       "provenance",
-      "provenance requires non-empty actor, origin, occurred_at",
+      "provenance requires non-empty actor and origin, and an occurred_at that is a real instant (ISO 8601)",
     );
+  // `last_confirmed` is a timestamp the same comparisons read, so it crosses the same boundary.
+  // `ingest` passes the SOURCE's clock here (an archive must age from when it happened), which is the
+  // path a connector's spelling reaches this field by.
+  if (!isInstant(rawNow))
+    throw new CommitRejected(
+      "provenance",
+      `last_confirmed must be a real instant (ISO 8601), got ${JSON.stringify(rawNow)}`,
+    );
+  const prov = normalizeProvenance(rawProv);
+  const now = new Date(Date.parse(rawNow)).toISOString();
 
   const existingId = opts?.existingId;
   const isRelation = "from" in input;

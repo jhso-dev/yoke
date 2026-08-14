@@ -23,10 +23,21 @@ async function transition(
   port: StoragePort,
   ids: string[],
   actor: string,
-  now: string,
+  rawNow: string,
   status: Status,
   ns?: string | null,
 ): Promise<Entity[]> {
+  // The SECOND write path into storage, and it stamps both `last_confirmed` and a fresh `provenance`.
+  // The gate normalizes its instants (commit.ts `normalizeProvenance`); a promotion that did not would
+  // reintroduce mixed spellings into the same rows the gate had just canonicalized, and every
+  // collating read — the briefing sort, `newestFirst`, the SQL windows — would disagree about which
+  // record is newest. Rejecting garbage here rather than storing an uncomparable stamp, for the reason
+  // the gate does: `Date.parse` → NaN never fails loudly, it just answers wrongly.
+  if (Number.isNaN(Date.parse(rawNow)))
+    throw new Error(
+      `cannot record a transition at ${JSON.stringify(rawNow)}: not an ISO 8601 instant`,
+    );
+  const now = new Date(Date.parse(rawNow)).toISOString();
   const wantNs = normalizeNs(ns);
   const found = new Map(
     (await readEntities(port, ids))

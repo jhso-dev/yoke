@@ -222,6 +222,6 @@ describe("an imported message ages from when it was posted", () => {
     const importedAt = "2026-08-13T00:00:00Z";
     await ingest(port, ont, connector, "alice", importedAt);
     const [rec] = await port.search({ text: "undated knowledge" });
-    expect(rec.last_confirmed).toBe(importedAt);
+    expect(rec.last_confirmed).toBe(new Date(importedAt).toISOString());
   });
 });

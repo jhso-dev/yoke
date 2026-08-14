@@ -24,11 +24,7 @@ import {
   verify,
 } from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
-import {
-  kindChangeRefusal,
-  type TypeDef,
-  validateTypeDef,
-} from "../../core/ontology.js";
+import { type TypeDef, validateTypeDef } from "../../core/ontology.js";
 import {
   NotAPerson,
   type PersonaResult,
@@ -41,6 +37,7 @@ import {
   injectDetail,
   makeActorNames,
   rankByConsumption,
+  refuseKindChange,
   refuseRename,
   retirementOf,
   summarize,
@@ -1283,21 +1280,12 @@ export function createUiHandler(
         sendJson(res, 400, { error: bad });
         return;
       }
-      const prior = store.loadOntology(ns).find((t) => t.name === typeDef.name);
-      if (prior) {
-        const rows = (
-          await store.listEntities({ ns, type: prior.name, limit: 1 })
-        ).items.length;
-        const refusal = kindChangeRefusal(
-          prior.name,
-          prior.kind,
-          typeDef.kind,
-          rows,
-        );
-        if (refusal) {
-          sendJson(res, 409, { error: refusal });
-          return;
-        }
+      // Same call as the CLI, not the same logic re-typed — see `refuseKindChange`, whose per-caller
+      // predecessor counted only entities and so never fired for a relation type being flipped.
+      const kindRefusal = await refuseKindChange(store, typeDef, ns);
+      if (kindRefusal) {
+        sendJson(res, 409, { error: kindRefusal });
+        return;
       }
       await store.saveOntology([typeDef], ns);
       sendJson(res, 201, typeDef);

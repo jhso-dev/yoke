@@ -49,11 +49,11 @@ describe("lifecycle", () => {
 
     expect(v.status).toBe("verified");
     expect(v.version).toBe(2);
-    expect(v.last_confirmed).toBe(later);
+    expect(v.last_confirmed).toBe(new Date(later).toISOString());
     expect(v.provenance).toEqual({
       actor: "alice",
       origin: "lifecycle",
-      occurred_at: later,
+      occurred_at: new Date(later).toISOString(),
     });
     // History preserved: v1, which was a draft, is still queryable.
     const v1 = await port.getEntity(id, 1);
@@ -456,6 +456,6 @@ describe("retiring what is already retired records nothing", () => {
     await verify(port, [f], "admin", now);
     const [again] = await verify(port, [f], "admin", "2026-07-14T00:00:00Z");
     expect(again.version).toBe(3);
-    expect(again.last_confirmed).toBe("2026-07-14T00:00:00Z");
+    expect(again.last_confirmed).toBe("2026-07-14T00:00:00.000Z");
   });
 });

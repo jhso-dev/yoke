@@ -155,6 +155,60 @@ describe("commit gate", () => {
     ).rejects.toMatchObject({ reason: "provenance" });
   });
 
+  it.each([
+    "yesterday",
+    "08/14/2026",
+    "   ",
+    "2026-13-45T99:99:99Z",
+  ])("rejects occurred_at %j, which names no moment", async (occurred_at) => {
+    // Non-empty STRING was the whole check, so all four were stored as the instant a claim was made.
+    // Nothing downstream then fails loudly: every comparison is `Date.parse` → NaN → false, so
+    // `versionAsOf` treats the version as older than every instant, `isFresh` reports it expired
+    // forever, and `julianday` yields NULL so the row vanishes from a bounded audit read and from a
+    // PITR copy. A timestamp that cannot be compared is not provenance.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "stamped with nonsense" } },
+        { ...prov, occurred_at },
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "provenance" });
+  });
+
+  it("refuses a last_confirmed that names no moment", async () => {
+    // The other timestamp the gate assigns, and `ingest` routes the SOURCE's clock through it.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "confirmed whenever" } },
+        prov,
+        "soon",
+      ),
+    ).rejects.toMatchObject({ reason: "provenance" });
+  });
+
+  it("stores one spelling of an instant, whatever spelling arrived", async () => {
+    // A VALID instant in offset notation is the half that validation alone would let through, and it
+    // collates nowhere near the same moment written as `Z` — which is what the briefing order,
+    // `newestFirst` on the web, and the SQL windows all do. Front tiers normalize today; a gate is a
+    // trust boundary, and what stops a third-party connector is the check here, not the convention
+    // there. The instant is unchanged — only its spelling.
+    const at = "2026-08-14T09:00:00+09:00";
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "offset spelling" } },
+      { ...prov, occurred_at: at },
+      at,
+    );
+    expect(entity.provenance.occurred_at).toBe("2026-08-14T00:00:00.000Z");
+    expect(entity.last_confirmed).toBe("2026-08-14T00:00:00.000Z");
+    expect(Date.parse(entity.provenance.occurred_at)).toBe(Date.parse(at));
+  });
+
   it("assigns draft, version=1, last_confirmed=now, empty duplicates", async () => {
     const { entity, duplicates } = await commit(
       port,
@@ -165,7 +219,7 @@ describe("commit gate", () => {
     );
     expect(entity.status).toBe("draft");
     expect(entity.version).toBe(1);
-    expect(entity.last_confirmed).toBe(now);
+    expect(entity.last_confirmed).toBe(new Date(now).toISOString());
     expect(entity.id).toBeTruthy();
     expect(duplicates).toEqual([]);
     expect(await port.getEntity(entity.id)).toEqual(entity);
@@ -190,7 +244,7 @@ describe("commit gate", () => {
     );
     expect(second.entity.id).toBe(first.entity.id);
     expect(second.entity.version).toBe(2);
-    expect(second.entity.last_confirmed).toBe(later);
+    expect(second.entity.last_confirmed).toBe(new Date(later).toISOString());
     // History preserved: the past version is still queryable.
     const v1 = await port.getEntity(first.entity.id, 1);
     expect(v1?.version).toBe(1);

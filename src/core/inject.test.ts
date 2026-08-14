@@ -113,7 +113,7 @@ describe("inject", () => {
     );
     expect(items).toHaveLength(1);
     expect(items[0].citation).toBe(
-      `[fact:${id}@v2] yoke:system (confirmed by alice), 2026-07-13T00:00:00Z`,
+      `[fact:${id}@v2] yoke:system (confirmed by alice), 2026-07-13T00:00:00.000Z`,
     );
   });
 
@@ -130,7 +130,7 @@ describe("inject", () => {
       "2026-07-13T00:00:00Z",
     );
     expect(items[0].citation).toBe(
-      `[fact:${id}@v2] yoke:system, 2026-07-13T00:00:00Z`,
+      `[fact:${id}@v2] yoke:system, 2026-07-13T00:00:00.000Z`,
     );
   });
 });

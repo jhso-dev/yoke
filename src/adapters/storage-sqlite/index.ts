@@ -719,6 +719,13 @@ export class SqliteStorage implements StoragePort {
     // and `Z` sorts AFTER `.`, so a string compare misses rows in the bound's own second even when
     // both sides are UTC. Measured with an offset bound: `--since <now as +09:00>` answered
     // "no audit events" for a window that had them.
+    //
+    // ceiling: wrapping the column kills the range scan on `idx_audit_ns_at` (declared above for
+    // exactly this filter), so a bounded read now scans the namespace's rows and parses each one.
+    // Correct beats fast on the trail, and the ns equality still uses the index's leading column — but
+    // audit_log is the one table that only grows. The way out is a stored epoch column maintained on
+    // write and indexed, which lets the bound be compared as a number; do that before a corpus makes
+    // this felt, not a smarter string compare.
     const sinceClause =
       q.since === undefined ? "" : " AND julianday(at) >= julianday(@since)";
     const untilClause =

@@ -2077,3 +2077,43 @@ describe("rename-type sees both tables it is about to rewrite", () => {
     expect(items.map((i) => i.entity.id).sort()).toEqual([a, b].sort());
   });
 });
+
+describe("a kind flip sees the table its records are actually in", () => {
+  // `kindChangeRefusal`'s two callers both counted with `listEntities`. A type being flipped from
+  // `relation` to `entity` has its records in the RELATIONS table by definition, so the count was zero
+  // exactly when it mattered. Reproduced before the fix: with an edge filed under `cites`, redeclaring
+  // `cites` as an entity type printed "saved type: cites", after which the stored edge contradicts the
+  // declaration and `yoke link … cites …` is refused as "an entity type".
+  it("refuses turning a populated relation type into an entity type", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const declare = (kind: string) => {
+      const file = join(dir, `cites-${kind}.json`);
+      writeFileSync(file, JSON.stringify({ name: "cites", kind, attrs: {} }));
+      return runCli(["ontology", "add-type", file, "--db", db]);
+    };
+    expect(await declare("relation")).toBe(0);
+
+    const ids: string[] = [];
+    for (const s of ["eta stands", "theta stands"]) {
+      expect(
+        await runCli([
+          "add",
+          "fact",
+          "--db",
+          db,
+          "--attr",
+          `statement=${s}`,
+          "--json",
+        ]),
+      ).toBe(0);
+      ids.push(JSON.parse(logs.at(-1) as string).id as string);
+    }
+    expect(await runCli(["link", ids[0], "cites", ids[1], "--db", db])).toBe(0);
+
+    expect(await declare("entity")).toBe(1);
+    expect(errs.join("\n")).toMatch(/has records/);
+    // Still a relation, so the edge and its declaration still agree.
+    expect(await runCli(["link", ids[1], "cites", ids[0], "--db", db])).toBe(0);
+  });
+});

@@ -8,7 +8,11 @@
 
 import type { WithheldStats } from "../core/inject.js";
 import { effectiveStatus } from "../core/lifecycle.js";
-import { renameRefusal, type TypeDef } from "../core/ontology.js";
+import {
+  kindChangeRefusal,
+  renameRefusal,
+  type TypeDef,
+} from "../core/ontology.js";
 import type { Entity, Relation, Status } from "../core/types.js";
 import { readEntities } from "../ports/storage.js";
 import type { YokeStore } from "./store.js";
@@ -289,6 +293,35 @@ export function describeWithheld(w: WithheldStats): string {
  * which is the count of governance acts rather than of knowledge — add an index when a corpus has
  * enough retirements for this to be felt.
  */
+/**
+ * The kind-change guard, assembled against the store ONCE — `refuseRename`'s sibling, and it had the
+ * sibling defect.
+ *
+ * `kindChangeRefusal` judges a `rows` count its callers compute, and both computed it with
+ * `listEntities` alone. A type being flipped from `relation` to `entity` has its records in the
+ * RELATIONS table by definition, so the count was zero exactly when it mattered and the refusal never
+ * fired for the direction that has stored rows to lose. Reproduced: with an edge filed under `cites`,
+ * redeclaring `cites` as an entity type printed "saved type: cites", after which the stored edge
+ * contradicts the declaration and `yoke link … cites …` is refused as "an entity type: it cannot be
+ * recorded as a relation" — the records the refusal exists to protect, stranded.
+ *
+ * Returns null when there is nothing declared under that name yet, which is the ordinary case.
+ */
+export async function refuseKindChange(
+  store: YokeStore,
+  next: TypeDef,
+  ns: string | null,
+): Promise<string | null> {
+  const prior = store.loadOntology(ns).find((t) => t.name === next.name);
+  if (!prior) return null;
+  const rows =
+    (await store.listEntities({ ns, type: prior.name, limit: 1 })).items
+      .length +
+    (await store.listRelations({ ns, type: prior.name, limit: 1 })).items
+      .length;
+  return kindChangeRefusal(prior.name, prior.kind, next.kind, rows);
+}
+
 /**
  * The rename guard, assembled against the store ONCE, for every surface that renames.
  *
