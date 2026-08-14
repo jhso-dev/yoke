@@ -287,6 +287,34 @@ nothing to expand. Also: relate prints NOTHING on success until the final summar
 20-minute run is healthy, check the relations table before killing it (a kill mid-run is safe:
 commits are per-group and the gate refuses duplicates on resume).
 
+### Against the other memory systems in this harness (the comparison that holds)
+
+A lift ratio against a number from someone else's rig cannot be checked. The providers already in
+this harness can: same corpus, same 42 questions, same answering model (`gemma-4-e4b`), one variable.
+
+| provider | injected context | correct | correct per 1k tokens |
+|---|---|---|---|
+| `vanilla` (no memory) | 0 | 20/42 (47.6%) | — |
+| **`yoke`** | **1,191 tok** | 28/42 (66.7%) | **23.5** |
+| `bm25` | 5,123 tok | 26/42 (61.9%) | 5.1 |
+| `qdrant` (dense + sparse, top-50) | 22,755 tok | **30/42 (71.4%)** | 1.3 |
+
+State both halves. `qdrant` is the most accurate thing measured here — 4.7 points above yoke — and
+it spends 19× the context to get there, which on this dataset is most of a small model's window
+for one question. Efficiency differs by multiples; accuracy differs by points.
+
+Two operational notes for repeating this:
+
+- **`qdrant` needs `OMB_TIMEOUT` far above the default.** Its 22.8k-token injection does not finish
+  inside 180s through a local 4B model, and the run dies as `APITimeoutError` — a rival losing on
+  our timeout is not a measurement. 900s was enough.
+- **`mem0` would not run locally**, and it is absent above for that reason rather than any result.
+  Its provider here is built for cloud Gemini; pointing it at an OpenAI-compatible local endpoint
+  needs `response_format` translated (LM Studio accepts only `json_schema` or `text`, mem0 sends
+  `json_object`), and past that it fails inside its own pipeline (`'int' object has no attribute
+  'replace'`) plus a SQLite cross-thread violation in its history store. Two fixes in, still no
+  run; recorded here so the next attempt starts from the third problem rather than the first.
+
 ## Running
 
 ```bash
