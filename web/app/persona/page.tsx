@@ -17,6 +17,7 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel } from "../../lib/citation";
 import { useT } from "../../lib/i18n";
+import type { InjectedKnowledge, Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -150,6 +151,31 @@ function Person({ id }: { id: string }) {
 
   const name = who.data ? recordLabel(who.data.entity) : "";
 
+  // A disputed row has to LOOK disputed here too. Both sides of a live `conflicts_with` are part of
+  // this person's records, and rendering them as two ordinary rows shows an open disagreement as their
+  // settled position — the same defect the inject preview fixed, on the screen where the reader is
+  // most likely to read a row as "this is what they think". Same column, same words as that screen.
+  const disputedColumn = {
+    head: t.inject.disputedHead,
+    cell: (r: Knowledge) => {
+      const others = (r as InjectedKnowledge).conflictsWith;
+      if (!others) return null;
+      return (
+        <span className="flex flex-wrap gap-2">
+          {others.map((cid) => (
+            <Link
+              key={cid}
+              href={`/entity/?id=${encodeURIComponent(cid)}`}
+              title={cid}
+            >
+              {t.inject.disputedBy}
+            </Link>
+          ))}
+        </span>
+      );
+    },
+  };
+
   return (
     <>
       <h1>{name || t.persona.headingOne}</h1>
@@ -206,6 +232,7 @@ function Person({ id }: { id: string }) {
               rows={decisions}
               paginate
               empty={query ? t.persona.noMatch : t.persona.noDecisions}
+              trailing={disputedColumn}
             />
           </Panel>
           <Panel>
@@ -217,6 +244,7 @@ function Person({ id }: { id: string }) {
               rows={facts}
               paginate
               empty={query ? t.persona.noMatch : t.common.none}
+              trailing={disputedColumn}
             />
           </Panel>
         </>

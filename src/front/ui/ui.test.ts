@@ -1721,6 +1721,53 @@ describe("a retired record says why", () => {
   });
 });
 
+// A persona row can be disputed like any injected one, and this route dropped the marker: both sides
+// of a live conflicts_with came back as ordinary rows, so the screen showed an open disagreement as
+// this person's settled position. Same shape the inject preview already sends.
+describe("a disputed persona row says so", () => {
+  it("carries conflictsWith on the rows it returns", async () => {
+    const ont = seedOntology();
+    const mk = async (conclusion: string) =>
+      (
+        await commit(
+          store,
+          ont,
+          {
+            type: "decision",
+            attributes: { conclusion, rationale: "recorded at the time" },
+          },
+          { actor: personaAnchorId, origin: "cli", occurred_at: now },
+          now,
+        )
+      ).entity.id;
+    const one = await mk("freeze deploys on friday");
+    const two = await mk("deploy any day");
+    await verify(store, [one, two], "tester", now);
+    await commit(
+      store,
+      ont,
+      { type: "conflicts_with", attributes: {}, from: one, to: two },
+      prov,
+      now,
+    );
+
+    const result = await get(
+      `/api/persona/${encodeURIComponent(personaAnchorId)}`,
+    );
+    const byId = new Map<string, { conflictsWith?: string[] }>(
+      [...result.decisions, ...result.facts].map(
+        (r: { id: string; conflictsWith?: string[] }) => [r.id, r],
+      ),
+    );
+    // Both sides returned — withholding either would be the database picking a winner — and each names
+    // the other.
+    expect(byId.get(one)?.conflictsWith).toEqual([two]);
+    expect(byId.get(two)?.conflictsWith).toEqual([one]);
+    // An undisputed row carries nothing, so absent means "not disputed" rather than "not checked".
+    expect(byId.get(personaFactId)?.conflictsWith).toBeUndefined();
+  });
+});
+
 describe("POST /api/backfill --embeddings", () => {
   it("switches repair by body flag, and the authorship shape is untouched", async () => {
     const authorship = await post("/api/backfill", {});

@@ -169,8 +169,10 @@ export interface StaleQueue extends Page<Knowledge & { injections: number }> {
 }
 
 export interface Persona {
-  decisions: Knowledge[];
-  facts: Knowledge[];
+  /** `InjectedKnowledge`, because a persona row can be disputed like any other injected one — both
+   * sides of a `conflicts_with` are returned and the screen's job is to say so, not to pick. */
+  decisions: InjectedKnowledge[];
+  facts: InjectedKnowledge[];
 }
 
 /** GET /api/meta — ungated, so the shell can decide whether to show a login before it has one. */

@@ -151,12 +151,15 @@ describe("yoke MCP server", () => {
     expect(out).toContain("adopt append-only storage");
     expect(out).toContain(id); // citation
 
-    // query filter: no match → "no record"
+    // query filter: no match. The answer names the query it found nothing for — it used to say "no
+    // recorded knowledge (no record)", which is a statement of fact about the person and was false
+    // whenever their records were merely awaiting review.
     const filtered = await s.client.callTool({
       name: "yoke_persona",
       arguments: { person: "yoke:system", query: "nonexistent-topic-xyz" },
     });
-    expect(text(filtered)).toContain("no record");
+    expect(text(filtered)).toContain("no verified knowledge for yoke:system");
+    expect(text(filtered)).toContain("nonexistent-topic-xyz");
 
     // absent person → tool error
     const missing = await s.client.callTool({
@@ -168,6 +171,129 @@ describe("yoke MCP server", () => {
     // a person" — the second is what let a fact id produce a persona about nobody.
     expect(text(missing)).toContain("not found");
     await s.close();
+  });
+
+  // yoke_persona is the SPEC-designated PRIMARY consumption path, and it was the poorest of the three:
+  // it rebuilt the citation without the author, dropped what a decision rejected, said "no recorded
+  // knowledge" about a review backlog, and handed both sides of a live contradiction over as equals.
+  it("yoke_persona attributes to the author, carries the rejected alternatives, and marks a contradiction", async () => {
+    // A person record to anchor on, and a decision authored BY them but promoted by someone else —
+    // the ordinary shape of a governed corpus, and the one where the two names differ.
+    const port = new SqliteStorage(db);
+    await port.init();
+    const at = "2026-08-01T00:00:00Z";
+    const prov = (actor: string): Provenance => ({
+      actor,
+      origin: "cli",
+      occurred_at: at,
+    });
+    const author = (
+      await commit(
+        port,
+        seedOntology(),
+        { type: "person", attributes: { name: "Rin" } },
+        prov("mcp:seed"),
+        at,
+      )
+    ).entity.id;
+    const mk = async (attributes: Record<string, unknown>) =>
+      (
+        await commit(
+          port,
+          seedOntology(),
+          { type: "decision", attributes },
+          prov(author),
+          at,
+        )
+      ).entity.id;
+    const kept = await mk({
+      conclusion: "settle payouts nightly",
+      rationale: "the batch window is quiet",
+      rejected_alternatives: ["real-time settlement", "weekly batches"],
+    });
+    const other = await mk({
+      conclusion: "settle payouts hourly",
+      rationale: "money should move sooner",
+    });
+    await commit(
+      port,
+      seedOntology(),
+      { type: "conflicts_with", attributes: {}, from: other, to: kept },
+      prov("mcp:seed"),
+      at,
+    );
+    // A draft of theirs, so the withheld line has something true to say.
+    await mk({ conclusion: "unreviewed", rationale: "still in the queue" });
+    port.close();
+    // Promoted by the REVIEWER, which is what puts a different name in provenance.actor.
+    expect(
+      await runCli(["verify", kept, other, "--db", db, "--actor", "reviewer"]),
+    ).toBe(0);
+
+    const s = await openSession();
+    const out = text(
+      await s.client.callTool({
+        name: "yoke_persona",
+        arguments: { person: author },
+      }),
+    );
+    await s.close();
+
+    // Attribution: the author off the `authored_by` edge, with the promoter kept as who vouched for it
+    // (docs/SPEC.md:682). Rebuilt here without the author, every line named `reviewer` — the one name a
+    // document titled "Rin persona" must not put there.
+    expect(out).toContain(`${author} (confirmed by reviewer)`);
+    // What lost is half the judgment — the SKILL.md export has always carried it.
+    expect(out).toContain(
+      "Rejected alternatives: real-time settlement, weekly batches",
+    );
+    // Both sides of the contradiction, both marked, neither withheld.
+    expect(out).toContain("settle payouts nightly");
+    expect(out).toContain("settle payouts hourly");
+    expect(out).toContain(`CONTRADICTED by ${other}`);
+    expect(out).toContain(`CONTRADICTED by ${kept}`);
+    // ...and the answer admits to the record it is not showing.
+    expect(out).toContain("1 awaiting review");
+  });
+
+  it("yoke_persona does not call a review backlog 'no recorded knowledge'", async () => {
+    // The empty answer was a statement of FACT, and false whenever the person's records were merely
+    // awaiting review — the normal state, since everything an agent commits is a draft. An agent told
+    // that answers from nothing and says so confidently.
+    const port = new SqliteStorage(db);
+    await port.init();
+    const at = "2026-08-01T00:00:00Z";
+    const person = (
+      await commit(
+        port,
+        seedOntology(),
+        { type: "person", attributes: { name: "Only drafts" } },
+        { actor: "mcp:seed", origin: "cli", occurred_at: at },
+        at,
+      )
+    ).entity.id;
+    await commit(
+      port,
+      seedOntology(),
+      {
+        type: "fact",
+        attributes: { statement: "this one is still in the queue" },
+      },
+      { actor: person, origin: "cli", occurred_at: at },
+      at,
+    );
+    port.close();
+
+    const s = await openSession();
+    const out = text(
+      await s.client.callTool({
+        name: "yoke_persona",
+        arguments: { person },
+      }),
+    );
+    await s.close();
+    expect(out).not.toContain("no recorded knowledge");
+    expect(out).toContain("1 awaiting review");
   });
 
   it("scope links captured knowledge and scopes injection (v4.0)", async () => {

@@ -1103,7 +1103,9 @@ export function createUiHandler(
       // A persona read IS an injection — same knowledge, same citations — so it leaves the same
       // trail as its MCP twin. ENTERPRISE.md's audit target is "who got what knowledge injected",
       // and a read path that answers with attributes but writes no row makes that claim false.
-      const injected = [...result.decisions, ...result.facts];
+      const injected = [...result.decisions, ...result.facts].map(
+        (i) => i.entity,
+      );
       store.logAudit({
         actor,
         action: "persona",
@@ -1112,12 +1114,21 @@ export function createUiHandler(
         ns,
       });
       const { asR, prefetch } = serializers();
+      // The contradiction marker travels with the row, exactly as it does on the inject preview: both
+      // sides of a live `conflicts_with` are returned, and a persona screen that renders them as two
+      // ordinary rows presents an open disagreement as this person's settled position.
+      const rows = async (items: typeof result.decisions) =>
+        (await Promise.all(items.map((i) => asR(i.entity)))).map((r, n) =>
+          items[n].conflictsWith
+            ? { ...r, conflictsWith: items[n].conflictsWith }
+            : r,
+        );
       sendJson(res, 200, {
         ...(await (async () => {
-          await prefetch([...result.decisions, ...result.facts]);
+          await prefetch(injected);
           return {
-            decisions: await Promise.all(result.decisions.map(asR)),
-            facts: await Promise.all(result.facts.map(asR)),
+            decisions: await rows(result.decisions),
+            facts: await rows(result.facts),
           };
         })()),
       });

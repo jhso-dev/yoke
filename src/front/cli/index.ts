@@ -1908,7 +1908,9 @@ async function cmdPersona(
     mkdirSync(outDir, { recursive: true });
     const file = join(outDir, "SKILL.md");
     writeFileSync(file, md);
-    const injected = [...result.decisions, ...result.facts];
+    const injected = [...result.decisions, ...result.facts].map(
+      (i) => i.entity,
+    );
     // A persona read IS an injection — same knowledge, same citations — and this one also writes a
     // SKILL.md that goes into someone's prompt. Its MCP and web twins both audit it; this path was
     // the hole left when that was fixed in the web tier and the CLI was never checked.
@@ -1976,19 +1978,38 @@ async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
       lines.push(
         `unreadable  ${header.unparsed.join(", ")} — hand-edited header?`,
       );
+    // Counted against what the header DECLARED, not against what parsed. A file whose header says
+    // three and whose list holds one was reported "1 of 1 sources moved — all current" on the two it
+    // no longer names: the summary measured itself, so the sources most likely to be gone were the
+    // ones it could not count. `Math.max` keeps it truthful the other way round too, if a hand-edited
+    // header undercounts its own list.
+    const total = Math.max(
+      header.declared,
+      checks.length + header.unparsed.length,
+    );
+    const absent = total - checks.length - header.unparsed.length;
+    if (absent > 0)
+      lines.push(
+        `unlisted    ${absent} source(s) the header counts are not in the list — hand-edited header?`,
+      );
+    const bad = moved.length + header.unparsed.length + absent;
     lines.push(
-      moved.length === 0
-        ? `${checks.length} sources, all current`
-        : `${moved.length} of ${checks.length} sources moved — re-export with: yoke persona <person> --out <dir>`,
+      bad === 0
+        ? `${total} sources, all current`
+        : `${bad} of ${total} sources moved or unreadable — re-export with: yoke persona <person> --out <dir>`,
     );
     emit(v, lines.join("\n"), {
       file,
       sources: checks,
       unparsed: header.unparsed,
+      // What the header claimed and how many of those never reached a verdict — a JSON consumer
+      // (this is meant to be a CI gate) needs the denominator the human line is counted against.
+      declared: total,
+      unlisted: absent,
       moved: moved.length,
     });
     // Unparsed tokens are a failure too: a source that cannot be read is not a source that is fine.
-    return moved.length > 0 || header.unparsed.length > 0 ? 1 : 0;
+    return bad > 0 ? 1 : 0;
   });
 }
 

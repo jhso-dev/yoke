@@ -14,7 +14,6 @@ import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
-  citation,
   entityIdCandidates,
   inject,
   WALK_BUDGET,
@@ -615,7 +614,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       }
       const { decisions, facts } = persona;
       // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.
-      const injected = [...decisions, ...facts];
+      const injected = [...decisions, ...facts].map((i) => i.entity);
       store.logAudit?.({
         actor: defaultActor,
         action: "persona",
@@ -623,17 +622,76 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         at: ts,
         ns,
       });
+      // The contradiction marker, in the words yoke_inject uses. Both sides of a live conflicts_with
+      // are returned — the policy is that contradictions are surfaced and never auto-resolved — and
+      // this tool returned them as two equal statements of the person's position, which is the one
+      // place a reader would take a disagreement for a conviction.
+      const marker = (i: { conflictsWith?: string[] }) =>
+        i.conflictsWith
+          ? `\n[CONTRADICTED by ${i.conflictsWith.join(", ")} — both are recorded and nobody has ` +
+            `settled which is right. Do not present this as ${person}'s settled position; say the ` +
+            `records disagree and cite both.]`
+          : "";
       const blocks: string[] = [];
-      for (const d of decisions)
+      for (const i of decisions) {
+        const d = i.entity;
+        // What lost is half the judgment and the SKILL.md export has carried it since v5.x while this
+        // path — the SPEC-designated PRIMARY one — dropped it. "Postgres was on the table and lost"
+        // is how a person decides; VISION calls rejected alternatives the raw material of a persona.
+        const rejected = d.attributes.rejected_alternatives;
         blocks.push(
-          `[decision] ${String(d.attributes.conclusion)}\nRationale: ${String(d.attributes.rationale)}\n${citation(d)}`,
+          `[decision] ${String(d.attributes.conclusion)}\n` +
+            `Rationale: ${String(d.attributes.rationale)}\n` +
+            (Array.isArray(rejected) && rejected.length > 0
+              ? `Rejected alternatives: ${rejected.map(String).join(", ")}\n`
+              : "") +
+            // `i.citation`, not `citation(d)`: core already rebuilt it with the author off the
+            // `authored_by` edge. Rebuilt here without one, every line of a document that claims to be
+            // Alex's judgment named whoever VERIFIED it — `yoke:system` on a single-reviewer corpus —
+            // which is docs/SPEC.md:682's rule ("authorship comes off the authored_by edge, never
+            // provenance.actor") broken on the surface it matters most.
+            i.citation +
+            marker(i),
         );
-      for (const f of facts)
+      }
+      for (const i of facts)
         blocks.push(
-          `[knowledge] ${JSON.stringify(f.attributes)}\n${citation(f)}`,
+          `[knowledge] ${JSON.stringify(i.entity.attributes)}\n${i.citation}${marker(i)}`,
         );
+      // Say when this answer is a union, and that the link behind it is unreviewed. `same_as` is the
+      // one input that adds a SECOND person's judgment under this anchor, and no path can promote a
+      // relation, so the claim sits permanently outside governance (see inject's meaningEdges ceiling).
+      if (persona.identities)
+        blocks.push(
+          `[This person has ${persona.identities.length} records, combined here: ` +
+            `${persona.identities.map((p) => `${p.name} (${p.id})`).join(", ")}. They are recorded as ` +
+            `one person by same_as, which is an unreviewed claim — if it is wrong, some of the above ` +
+            `is someone else's judgment.]`,
+        );
+      // "no recorded knowledge" was a statement of FACT, and it was false whenever the person's
+      // records were merely awaiting review — the normal state, since everything an agent commits is a
+      // draft. An agent told that answers from nothing and says so confidently. Same reasons, same
+      // phrasing helper as yoke_inject's empty answer.
+      //
+      // Phrased as a fact about the PERSON rather than about `query`, and that is not decoration: core
+      // returns counts, not ids, so a filtered persona cannot say how many of the withheld records the
+      // filter would have matched. Claiming it did would trade one false statement for another.
       if (blocks.length === 0)
-        return ok(`no recorded knowledge for ${person} (no record).`);
+        return ok(
+          persona.withheld
+            ? `no verified knowledge for ${person}${query ? ` matching "${query}"` : ""}. ` +
+                `Their records also hold ${describeWithheld(persona.withheld)} — do not report this ` +
+                `as "nothing recorded"; say some of their knowledge is withheld and name the reason.`
+            : `no recorded knowledge for ${person} (no record).`,
+        );
+      // ...and on a NON-empty answer, for the reason yoke_inject says it there: a full page with the
+      // one relevant record held back reads as the complete state of what this person recorded.
+      if (persona.withheld)
+        blocks.push(
+          `[Also on record for ${person} but NOT injected: ${describeWithheld(persona.withheld)}. ` +
+            `Counted over everything they authored, not over this query. Do not report the above as ` +
+            `everything they have recorded.]`,
+        );
       return ok(blocks.join("\n\n"));
     },
   );
