@@ -191,8 +191,12 @@ function newestFirst<
 >(rows: T[]): T[] {
   return [...rows].sort(
     (a, b) =>
-      b.provenance.occurred_at.localeCompare(a.provenance.occurred_at) ||
-      b.id.localeCompare(a.id),
+      // By instant. The gate canonicalizes every stamp it writes, but a database that predates that
+      // holds both vintages, and `Z` sorts after `.` — so a record confirmed at 00:00:00.500Z came
+      // out OLDER than one at 00:00:00Z, half a second before it. The last collating comparison of a
+      // timestamp in the product.
+      Date.parse(b.provenance.occurred_at) -
+        Date.parse(a.provenance.occurred_at) || b.id.localeCompare(a.id),
   );
 }
 

@@ -1247,3 +1247,43 @@ describe("injection knows what a record contradicts and what replaced it", () =>
     expect(res.withheld).toBeUndefined();
   });
 });
+
+describe("freshest-first means the latest instant, not the highest string", () => {
+  it("orders a legacy stamp against a canonicalized one by when they happened", async () => {
+    // The gate canonicalizes every stamp it writes, but a database that predates that holds both
+    // vintages — and `Z` (0x5A) sorts after `.` (0x2E), so 00:00:00.500Z collated as OLDER than
+    // 00:00:00Z, half a second before it. The last collating timestamp comparison in the product.
+    // The anchored briefing is the path that orders by freshness ("the freshest knowledge about this
+    // work leads"); the query path orders by relevance, so the anchor is what exercises the sort.
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "ordering" } },
+      prov,
+      now,
+    );
+    await verify(port, [ws.id], "admin", now);
+    const older = "2026-07-13T00:00:00Z"; // legacy shape, earlier instant
+    const newer = "2026-07-13T00:00:00.500Z"; // canonical shape, later instant
+    for (const [id, at] of [
+      ["legacy-older", older],
+      ["canon-newer", newer],
+    ] as const) {
+      await port.putEntity({
+        id,
+        type: "fact",
+        attributes: { statement: `ordering probe ${id}` },
+        status: "verified",
+        version: 1,
+        last_confirmed: at,
+        provenance: { ...prov, occurred_at: at },
+      });
+      await link(id, ws.id);
+    }
+    const { items } = await inject(port, ont, "", now, { scope: ws.id });
+    expect(items.map((i) => i.entity.id)).toEqual([
+      "canon-newer",
+      "legacy-older",
+    ]);
+  });
+});

@@ -613,7 +613,10 @@ export async function inject(
         Number(b.effectiveStatus === "verified") -
           Number(a.effectiveStatus === "verified") ||
         // Most recently confirmed first — the freshest knowledge about this work leads.
-        b.entity.last_confirmed.localeCompare(a.entity.last_confirmed) ||
+        // By instant, not by collation: on a database holding both pre- and post-canonicalization
+        // stamps, `Z` sorts after `.`, so 00:00:00.500Z read as older than 00:00:00Z.
+        Date.parse(b.entity.last_confirmed) -
+          Date.parse(a.entity.last_confirmed) ||
         // ULID tiebreak. This is the piece that makes every backend agree, so it is not optional.
         a.entity.id.localeCompare(b.entity.id),
     );
