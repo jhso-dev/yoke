@@ -10,12 +10,14 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { CopyCode } from "../../components/CopyCode";
 import { DateTimePicker } from "../../components/DateTimePicker";
+import { DisputedLinks } from "../../components/DisputedLinks";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { Panel, PanelHead } from "../../components/Panel";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
 import { isoFromLocalInput, localTime } from "../../lib/time";
+import type { InjectedKnowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -193,7 +195,32 @@ function InjectBody() {
                 )}
               </Alert>
             )}
-            <KnowledgeTable rows={items} empty={t.inject.empty} paginate />
+            {/* Name what was held back and why — on a full page as much as an empty one. This screen
+                answers "what will my agent receive", and a reader shown ten records has no other way
+                to learn that the one answering their question is past its freshness window. */}
+            {result.data?.withheld && (
+              <Alert variant="warn">
+                {t.inject.withheld(result.data.withheld, items.length)}
+              </Alert>
+            )}
+            <KnowledgeTable
+              rows={items}
+              empty={t.inject.empty}
+              paginate
+              // A disputed row has to LOOK disputed. The conflicts screen one page over already listed
+              // these pairs; this screen claims to show what an agent receives, and the agent now
+              // receives the marker — without it two records that flatly disagree render as two
+              // ordinary rows. A link rather than the id, per the rule that a person never reads a ULID.
+              trailing={{
+                head: t.inject.disputedHead,
+                cell: (r) => (
+                  <DisputedLinks
+                    ids={(r as InjectedKnowledge).conflictsWith}
+                    rows={items}
+                  />
+                ),
+              }}
+            />
           </Panel>
         </>
       )}
@@ -202,8 +229,9 @@ function InjectBody() {
 }
 
 export default function Inject() {
+  const t = useT();
   return (
-    <Suspense fallback={<p className="muted">loading…</p>}>
+    <Suspense fallback={<p className="muted">{t.common.loading}</p>}>
       <InjectBody />
     </Suspense>
   );

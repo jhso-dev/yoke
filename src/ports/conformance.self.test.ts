@@ -5,6 +5,7 @@ import { matchesTokens, rankByRelevance, tokenize } from "../core/rank.js";
 import type { Entity, Relation } from "../core/types.js";
 import { describeStoragePort } from "./conformance.js";
 import {
+  ConflictError,
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   page,
@@ -39,6 +40,10 @@ function makeFake(): StoragePort {
     close() {},
 
     async putEntity(e) {
+      // The (id, version) primary key is part of the contract, so the minimum honest fake enforces it
+      // too: a duplicate is the version-race loser and must raise the typed ConflictError (C1/C2).
+      if (entities.some((r) => r.id === e.id && r.version === e.version))
+        throw new ConflictError(`version conflict on ${e.id}`);
       entities.push(e); // append-only: never modify existing rows
     },
     async getEntity(id, version) {

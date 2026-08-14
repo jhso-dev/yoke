@@ -22,6 +22,9 @@ import { ErrorBanner } from "./ErrorBanner";
 export type CreateOutcome = Knowledge & {
   duplicates?: Knowledge[];
   duplicateDetection?: "embedding" | "skipped";
+  /** A partial commit: the record is durable, but an edge the gate tried alongside it failed. Each
+   * entry is `"<what>: <error>"`. The caller must warn rather than report an unqualified success. */
+  unrecorded?: string[];
 };
 
 /**

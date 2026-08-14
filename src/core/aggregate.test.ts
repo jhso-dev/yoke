@@ -102,6 +102,19 @@ describe("overview", () => {
     expect(res.authors.map((a) => a.actor)).not.toContain("admin");
   });
 
+  it("does not credit a verified STRUCTURAL record as knowledge by author", async () => {
+    // A structural type (person, collaboration) names something knowledge attaches to; it is never
+    // injectable knowledge, and `inject`/`personaQuery` withhold it by type. The authors ranking must
+    // agree — a verified collaboration authored by `dana` is not a knowledge record she wrote.
+    const work = await add("collaboration", { title: "Migration" }, "dana");
+    const real = await add("fact", { statement: "verified work" }, "dana");
+    await verify(port, [work, real], "admin", now);
+
+    const res = await overview(port, ont, now);
+    // Credited for the fact only, not the collaboration.
+    expect(res.authors).toEqual([{ actor: "dana", verified: 1 }]);
+  });
+
   it("describes one namespace only", async () => {
     await commit(
       port,

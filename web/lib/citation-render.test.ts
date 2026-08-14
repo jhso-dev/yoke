@@ -43,6 +43,9 @@ const EXEMPT: Record<string, string> = {
   "components/LinkRecord.tsx":
     "a control caption naming the record being linked — the same screen (entity) renders that " +
     "record's citation in its own panel above the control",
+  "components/DisputedLinks.tsx":
+    "cross-reference links naming the records a row contradicts; each names a record whose own " +
+    "citation is on its own row in the same table, and the link opens its full record",
 };
 
 describe("knowledge is shown with its source", () => {

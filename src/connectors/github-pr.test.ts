@@ -105,7 +105,7 @@ describe("ingest", () => {
       fetchImpl: stubFetch(),
     });
     const res = await ingest(port, ont, connector, "yoke:system", now);
-    expect(res).toEqual({ added: 2, skipped: 0 });
+    expect(res).toEqual({ added: 2, updated: 0, skipped: 0 });
 
     const stored = await port.search({
       text: "https://github.com/o/r/pull/7#discussion_r1",
@@ -126,8 +126,8 @@ describe("ingest", () => {
       fetchImpl: stubFetch(),
     });
     const first = await ingest(port, ont, connector, "yoke:system", now);
-    expect(first).toEqual({ added: 2, skipped: 0 });
+    expect(first).toEqual({ added: 2, updated: 0, skipped: 0 });
     const second = await ingest(port, ont, connector, "yoke:system", now);
-    expect(second).toEqual({ added: 0, skipped: 2 });
+    expect(second).toEqual({ added: 0, updated: 0, skipped: 2 });
   });
 });

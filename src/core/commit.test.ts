@@ -7,7 +7,7 @@ import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "./commit.js";
 import type { Embedder } from "./embedding.js";
 import { seedOntology } from "./ontology.js";
-import type { Provenance } from "./types.js";
+import type { Provenance, Relation } from "./types.js";
 
 const ont = seedOntology();
 const now = "2026-07-12T00:00:00Z";
@@ -36,6 +36,87 @@ let port: SqliteStorage;
 beforeEach(async () => {
   port = new SqliteStorage(":memory:");
   await port.init();
+});
+
+/**
+ * Endpoints for the relation cases: the gate rejects an edge to an id that is not a record.
+ *
+ * Stored straight through the port rather than committed, because a commit also mirrors its own
+ * authorship — an extra `authored_by` out-edge per endpoint, which the edge counts below would then
+ * be counting.
+ */
+async function nodes(...ids: string[]): Promise<void> {
+  for (const id of ids)
+    await port.putEntity({
+      id,
+      type: "fact",
+      attributes: { statement: id },
+      status: "verified",
+      version: 1,
+      last_confirmed: now,
+      provenance: prov,
+    });
+}
+
+describe("attachTo", () => {
+  it("writes nothing when the attachment target is not a record", async () => {
+    // The regression this exists for: the edge used to be a second commit at the front tier, so the
+    // entity was already durable when the endpoint check threw. The caller heard "rejected" about a
+    // record that existed, and an agent that retries on a rejection doubles the corpus.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "orphan probe" } },
+        prov,
+        now,
+        { attachTo: "01NOSUCHRECORD0000000000" },
+      ),
+    ).rejects.toMatchObject({ reason: "ontology" });
+    expect((await port.listEntities({})).items).toEqual([]);
+  });
+
+  it("files one relates_to edge to the target", async () => {
+    await nodes("collab");
+    const { entity, attached } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "attached knowledge" } },
+      prov,
+      now,
+      { attachTo: "collab" },
+    );
+    expect(attached).toMatchObject({
+      type: "relates_to",
+      from: entity.id,
+      to: "collab",
+    });
+    const edges = await port.neighbors(entity.id, "relates_to");
+    expect(edges).toHaveLength(1);
+  });
+
+  it("attaching the same pair twice is one edge", async () => {
+    // relates_to is symmetric, so the second attach must find the first rather than file the mirror.
+    await nodes("collab");
+    const first = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "first" } },
+      prov,
+      now,
+      { attachTo: "collab" },
+    );
+    const again = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "first" } },
+      prov,
+      now,
+      { existingId: first.entity.id, attachTo: "collab" },
+    );
+    expect(again.attached?.id).toBe(first.attached?.id);
+    expect(await port.neighbors(first.entity.id, "relates_to")).toHaveLength(1);
+  });
 });
 
 describe("commit gate", () => {
@@ -74,6 +155,60 @@ describe("commit gate", () => {
     ).rejects.toMatchObject({ reason: "provenance" });
   });
 
+  it.each([
+    "yesterday",
+    "08/14/2026",
+    "   ",
+    "2026-13-45T99:99:99Z",
+  ])("rejects occurred_at %j, which names no moment", async (occurred_at) => {
+    // Non-empty STRING was the whole check, so all four were stored as the instant a claim was made.
+    // Nothing downstream then fails loudly: every comparison is `Date.parse` → NaN → false, so
+    // `versionAsOf` treats the version as older than every instant, `isFresh` reports it expired
+    // forever, and `julianday` yields NULL so the row vanishes from a bounded audit read and from a
+    // PITR copy. A timestamp that cannot be compared is not provenance.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "stamped with nonsense" } },
+        { ...prov, occurred_at },
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "provenance" });
+  });
+
+  it("refuses a last_confirmed that names no moment", async () => {
+    // The other timestamp the gate assigns, and `ingest` routes the SOURCE's clock through it.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "confirmed whenever" } },
+        prov,
+        "soon",
+      ),
+    ).rejects.toMatchObject({ reason: "provenance" });
+  });
+
+  it("stores one spelling of an instant, whatever spelling arrived", async () => {
+    // A VALID instant in offset notation is the half that validation alone would let through, and it
+    // collates nowhere near the same moment written as `Z` — which is what the briefing order,
+    // `newestFirst` on the web, and the SQL windows all do. Front tiers normalize today; a gate is a
+    // trust boundary, and what stops a third-party connector is the check here, not the convention
+    // there. The instant is unchanged — only its spelling.
+    const at = "2026-08-14T09:00:00+09:00";
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "offset spelling" } },
+      { ...prov, occurred_at: at },
+      at,
+    );
+    expect(entity.provenance.occurred_at).toBe("2026-08-14T00:00:00.000Z");
+    expect(entity.last_confirmed).toBe("2026-08-14T00:00:00.000Z");
+    expect(Date.parse(entity.provenance.occurred_at)).toBe(Date.parse(at));
+  });
+
   it("assigns draft, version=1, last_confirmed=now, empty duplicates", async () => {
     const { entity, duplicates } = await commit(
       port,
@@ -84,7 +219,7 @@ describe("commit gate", () => {
     );
     expect(entity.status).toBe("draft");
     expect(entity.version).toBe(1);
-    expect(entity.last_confirmed).toBe(now);
+    expect(entity.last_confirmed).toBe(new Date(now).toISOString());
     expect(entity.id).toBeTruthy();
     expect(duplicates).toEqual([]);
     expect(await port.getEntity(entity.id)).toEqual(entity);
@@ -109,7 +244,7 @@ describe("commit gate", () => {
     );
     expect(second.entity.id).toBe(first.entity.id);
     expect(second.entity.version).toBe(2);
-    expect(second.entity.last_confirmed).toBe(later);
+    expect(second.entity.last_confirmed).toBe(new Date(later).toISOString());
     // History preserved: the past version is still queryable.
     const v1 = await port.getEntity(first.entity.id, 1);
     expect(v1?.version).toBe(1);
@@ -119,6 +254,7 @@ describe("commit gate", () => {
   });
 
   it("commits a relation via putRelation", async () => {
+    await nodes("a", "b");
     const { entity } = await commit(
       port,
       ont,
@@ -137,6 +273,7 @@ describe("commit gate", () => {
   // three times, the graph drew three arrows over each other, and a collaboration counted one
   // attached record as three.
   it("commits the same edge once, and says it was already there", async () => {
+    await nodes("x", "y");
     const input = {
       type: "relates_to" as const,
       attributes: {},
@@ -156,6 +293,7 @@ describe("commit gate", () => {
   // Direction is not a claim for a symmetric relation, so recording it the other way round is not a
   // second fact. Without this, the link control's direction toggle turned one claim into two rows.
   it("treats a symmetric relation as one edge whichever way it was recorded", async () => {
+    await nodes("m", "n");
     await commit(
       port,
       ont,
@@ -177,6 +315,7 @@ describe("commit gate", () => {
   });
 
   it("still treats a DIRECTIONAL relation's two ways round as two edges", async () => {
+    await nodes("new", "old");
     // `supersedes` is the counter-case: which record supersedes which is the whole content.
     await commit(
       port,
@@ -197,6 +336,7 @@ describe("commit gate", () => {
   });
 
   it("keeps edges that differ in type, in direction, or in namespace", async () => {
+    await nodes("p", "q");
     const base = { attributes: {}, from: "p", to: "q" };
     await commit(port, ont, { ...base, type: "relates_to" }, prov, now);
     // A different type between the same two records is a different claim.
@@ -418,5 +558,203 @@ describe("authorship edge", () => {
     expect(
       (await port.neighbors(self.entity.id, "authored_by", "out")).length,
     ).toBe(0);
+  });
+});
+
+// One space defeated two of the five trust mechanisms.
+describe("whitespace is not a value", () => {
+  it("refuses a required attribute that is only spaces", async () => {
+    // `--attr statement=""` was already refused; `--attr statement="   "` produced a record whose
+    // knowledge is three spaces — a blank cell in the review queue, blank link text, an aria-label of
+    // "Select " and nothing, and an unlabelled node in the graph. `required` means a value a reader can
+    // use.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "   " } },
+        prov,
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "ontology" });
+  });
+
+  it("refuses an actor that is only spaces", async () => {
+    // Mechanism 1 is "nothing enters without a source". `--actor ""` was refused and `--actor "   "`
+    // was accepted: the record entered, `graph` drew an authored_by edge to an id no record carries, and
+    // the citation rendered as `[fact:…@v1]    , <ts>`.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "real knowledge" } },
+        { actor: "   ", origin: "cli", occurred_at: now },
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "provenance" });
+  });
+});
+
+// `lifecycle.ts` already assumed "the front tier refuses to file a self-edge". Nothing did, and every
+// relation type this ontology declares says something that cannot be true of one record.
+describe("a record cannot relate to itself", () => {
+  it.each([
+    "supersedes",
+    "conflicts_with",
+    "same_as",
+    "derived_from",
+    "relates_to",
+  ])("refuses %s pointing at its own subject", async (type) => {
+    await nodes("a");
+    await expect(
+      commit(
+        port,
+        ont,
+        { type, attributes: {}, from: "a", to: "a" },
+        prov,
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "ontology" });
+  });
+
+  it("still allows an edge between two different records", async () => {
+    await nodes("a", "b");
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: "a", to: "b" },
+      prov,
+      now,
+    );
+    expect(entity.id).toBeTruthy();
+  });
+});
+
+describe("an instant means the same moment on every machine", () => {
+  // The first version of this check wrote `[T ]` into its own regex and left the offset optional,
+  // which admits exactly the two forms the spec reads as LOCAL time. Measured across three server
+  // timezones, one input stored three instants nineteen hours apart:
+  //   "2026-08-14 00:00:00"  UTC 00:00Z · Asia/Seoul 2026-08-13T15:00Z · America/New_York 04:00Z
+  // An environment variable on whichever machine ran the write decided when the knowledge was true.
+  const local = ["2026-08-14 00:00:00", "2026-08-14T00:00:00"];
+
+  it.each([
+    "2026-02-30T00:00:00Z",
+    "2026-04-31",
+    "2026-08-14T24:00:00Z",
+  ])("refuses %j, a date the calendar does not have", async (occurred_at) => {
+    // The regex checks digit shape and Date.parse does not refuse a missing day — it ROLLS OVER:
+    // measured, Feb 30 parsed to March 2nd and Apr 31 to May 1st, so the gate stored a different
+    // day than the one written. Which instant the caller meant is unknowable; storing a guess as
+    // provenance is worse than refusing.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "rollover probe" } },
+        { ...prov, occurred_at },
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "provenance" });
+  });
+  it.each(local)("refuses %j, which is local time", async (occurred_at) => {
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "tz dependent" } },
+        { ...prov, occurred_at },
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "provenance" });
+  });
+
+  it.each([
+    "2026-08-14",
+    "2026-08-14T00:00:00Z",
+    "2026-08-14T09:00:00+09:00",
+  ])("accepts %j, which names one moment everywhere", async (occurred_at) => {
+    // The bare date stays legal because the spec defines the date-only form as UTC — one moment on
+    // every runtime, which is the whole test.
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: `ok ${occurred_at}` } },
+      { ...prov, occurred_at },
+      now,
+    );
+    expect(entity.provenance.occurred_at).toBe("2026-08-14T00:00:00.000Z");
+  });
+});
+
+describe("a record that is durable is never reported as rejected", () => {
+  /** A backend that stores entities but loses a chosen edge type mid-commit. */
+  class LosesEdges extends SqliteStorage {
+    constructor(private readonly losing: string) {
+      super(":memory:");
+    }
+    async putRelation(r: Relation): Promise<void> {
+      if (r.type === this.losing) throw new Error("backend went away");
+      return super.putRelation(r);
+    }
+  }
+
+  it("reports the authorship edge it could not write, and keeps the record", async () => {
+    // Stages 4/4b/4c write AFTER the entity is stored, and a storage failure in any of them used to
+    // propagate: the caller heard "commit failed" about a record that exists — the exact state
+    // `attachTo` was introduced to abolish, where a retrying agent doubles the corpus. Worse, a
+    // missing `authored_by` edge is invisible afterwards: the record never appears in a persona
+    // anchor, the overview's author ranking, or `identitySet`.
+    const port = new LosesEdges("authored_by");
+    await port.init();
+    const { entity, unrecorded } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "durable but partial" } },
+      prov,
+      now,
+    );
+    expect(unrecorded).toHaveLength(1);
+    expect(unrecorded?.[0]).toContain("authored_by");
+    expect(await port.getEntity(entity.id)).not.toBeNull();
+    port.close();
+  });
+
+  it("reports an attachment it could not file, rather than throwing over a stored record", async () => {
+    const port = new LosesEdges("relates_to");
+    await port.init();
+    await port.putEntity({
+      id: "collab",
+      type: "collaboration",
+      attributes: { title: "payments" },
+      status: "verified",
+      version: 1,
+      last_confirmed: now,
+      provenance: prov,
+    });
+    const { entity, attached, unrecorded } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "attach fails" } },
+      prov,
+      now,
+      { attachTo: "collab" },
+    );
+    // Asked for by name, so it is reported as missing rather than quietly absent from `attached`.
+    expect(attached).toBeUndefined();
+    expect(unrecorded?.join()).toContain("relates_to -> collab");
+    expect(await port.getEntity(entity.id)).not.toBeNull();
+    port.close();
+  });
+
+  it("says nothing when everything landed", async () => {
+    const { unrecorded } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "fully recorded" } },
+      prov,
+      now,
+    );
+    expect(unrecorded).toBeUndefined();
   });
 });

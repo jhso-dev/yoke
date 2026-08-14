@@ -26,6 +26,19 @@ export interface ShardConfig {
   shards: ShardSpec[];
 }
 
+// An unknown key is refused, not ignored (CLAUDE.md's validateTypeDef rule one level up): a
+// `"namespace"` typo for `"namespaces"` was accepted and silently dropped the tenant's namespaces, so
+// its rows routed to the DEFAULT shard — a cross-tenant placement bug, exactly what sharding exists to
+// prevent. Enumerate what is valid and reject the rest.
+const SHARD_SPEC_KEYS = [
+  "name",
+  "kind",
+  "path",
+  "namespaces",
+  "default",
+] as const;
+const SHARD_CONFIG_KEYS = ["shards"] as const;
+
 /** Validate a parsed config object. Throws Error with a clear message on any violation:
  *  >=1 shard, exactly one default, no namespace claimed twice, kind-specific required fields. */
 export function parseShardConfig(raw: unknown): ShardConfig {
@@ -36,6 +49,13 @@ export function parseShardConfig(raw: unknown): ShardConfig {
   ) {
     throw new Error("shard config must be an object with a `shards` array");
   }
+  const topUnknown = Object.keys(raw as Record<string, unknown>).filter(
+    (k) => !(SHARD_CONFIG_KEYS as readonly string[]).includes(k),
+  );
+  if (topUnknown.length > 0)
+    throw new Error(
+      `shard config: unknown key(s): ${topUnknown.join(", ")} — takes ${SHARD_CONFIG_KEYS.join(", ")}`,
+    );
   const shards = (raw as { shards: unknown[] }).shards;
   if (shards.length === 0)
     throw new Error("shard config needs at least one shard");
@@ -47,6 +67,13 @@ export function parseShardConfig(raw: unknown): ShardConfig {
   for (const s of shards) {
     if (typeof s !== "object" || s === null)
       throw new Error("each shard must be an object");
+    const unknown = Object.keys(s as Record<string, unknown>).filter(
+      (k) => !(SHARD_SPEC_KEYS as readonly string[]).includes(k),
+    );
+    if (unknown.length > 0)
+      throw new Error(
+        `shard ${String((s as { name?: unknown }).name)}: unknown key(s): ${unknown.join(", ")} — a shard takes ${SHARD_SPEC_KEYS.join(", ")}`,
+      );
     const spec = s as ShardSpec;
     if (!spec.name || typeof spec.name !== "string")
       throw new Error("each shard needs a non-empty `name`");

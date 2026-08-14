@@ -27,6 +27,23 @@ export interface Knowledge {
   citation: string;
 }
 
+/**
+ * An injected row, which may carry what it contradicts.
+ *
+ * Present only when the record has a live `conflicts_with` edge, so absent means "not disputed" rather
+ * than "not checked". Both sides are always injected — the policy is that contradictions are surfaced
+ * and never auto-resolved, so the screen's job is to say so, not to pick.
+ */
+export interface InjectedKnowledge extends Knowledge {
+  conflictsWith?: string[];
+  /** Who actually WROTE this, off the `authored_by` edge — resolved to `authorName` for reading.
+   * `actor`/`actorName` above name the PROMOTER (a verified record's provenance is its promotion), so
+   * when the two differ the writer is here and the citation string is rebuilt to name them. Absent when
+   * the record has no authorship edge, in which case the promoter is the only actor there is. */
+  author?: string;
+  authorName?: string;
+}
+
 /** A relation row: a Knowledge row plus its endpoints. */
 export interface Edge extends Knowledge {
   from: string;
@@ -36,6 +53,30 @@ export interface Edge extends Knowledge {
 export interface Page<T> {
   items: T[];
   next: string | null;
+}
+
+/**
+ * What matched but could not be injected, by reason — core's `WithheldStats`, mirrored.
+ *
+ * Shared by the inject preview and the persona screen so the two describe the same fact the same way.
+ * `structural` is always 0 on a persona (`personaQuery` zeroes it), present here only to match the
+ * one shape the server sends.
+ */
+export interface Withheld {
+  draft: number;
+  stale: number;
+  deprecated: number;
+  structural: number;
+  /** Verified, but something recorded as replacing it exists. Settled, unlike a conflict — so the
+   * record is withheld rather than marked, and the replacement answers on its own merits. */
+  superseded: number;
+}
+
+/** One identity record a persona unioned (`same_as`). `name` is resolved server-side; `id` is kept so
+ * a reader can check the merge, on hover/copy — never rendered as the readable text. */
+export interface PersonaIdentity {
+  id: string;
+  name: string;
 }
 
 /** GET /api/search. `next` is always null — search is a top-N, not a paged walk of the corpus, so
@@ -56,7 +97,14 @@ export interface EntityDetail {
   /** Present only on a retired record: who retired it, when, and why if anyone said. Read back from
    * the audit trail — verify/deprecate change status, never knowledge content, so the reason is a
    * property of the ACT rather than of the record. */
-  retirement?: { actor: string; at: string; reason?: string };
+  retirement?: {
+    actor: string;
+    /** The retiree resolved for reading; absent for a machine actor or an unresolvable id. Render
+     * `actorName ?? actor` and keep the id reachable, the same rule the row's own actor follows. */
+    actorName?: string;
+    at: string;
+    reason?: string;
+  };
   relations: {
     out: (Edge & {
       dir: "out";
@@ -99,6 +147,9 @@ export interface AuditEntry {
   /** The records `detail` names, resolved so the row can be read. Capped server-side; absent when
    * nothing resolved (every id deleted, or in another namespace). */
   refs?: { id: string; type: string; summary: string }[];
+  /** Why, on a governance act that carries a reason — the deprecate route writes it and the audit
+   * route emits it verbatim (`...e`). Absent on every other action. */
+  note?: string;
   at: string;
   ns?: string;
 }
@@ -134,7 +185,12 @@ export interface InjectPreview {
   omitted: number;
   /** What a multi-hop walk did — non-null only when depth > 1 was requested and walked. */
   walk: { depth: number; nodes: number; truncated: boolean } | null;
-  items: Knowledge[];
+  /** What matched but was held back, and why — non-null whenever something matched and at least one
+   * match was withheld, whether or not anything came through (measured: `items:1, withheld:{draft:1}`).
+   * Null means nothing was held back — either the query matched nothing, or everything it matched was
+   * injected. So a full table can still carry this: it names the records the page is NOT everything of. */
+  withheld: Withheld | null;
+  items: InjectedKnowledge[];
 }
 
 /** GET /api/review?stale=1. Verified records past their type's TTL.
@@ -147,8 +203,17 @@ export interface StaleQueue extends Page<Knowledge & { injections: number }> {
 }
 
 export interface Persona {
-  decisions: Knowledge[];
-  facts: Knowledge[];
+  /** `InjectedKnowledge`, because a persona row can be disputed like any other injected one — both
+   * sides of a `conflicts_with` are returned and the screen's job is to say so, not to pick. */
+  decisions: InjectedKnowledge[];
+  facts: InjectedKnowledge[];
+  /** What this person has on record but this document does NOT contain, by reason. Present only when
+   * something of theirs was held back — the difference between "everything in review" and "nothing on
+   * record", which without it render byte-identically (the CLI and MCP both surface it). */
+  withheld?: Withheld;
+  /** The identity records this persona combined (`same_as`), present only when more than one. A
+   * same_as link is an unreviewed claim, so the screen must disclose that N identities were merged. */
+  identities?: PersonaIdentity[];
 }
 
 /** GET /api/meta — ungated, so the shell can decide whether to show a login before it has one. */

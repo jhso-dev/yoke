@@ -4,7 +4,7 @@
 
 import { readEntities, type StoragePort } from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
-import { effectiveStatus, versionAsOf } from "./lifecycle.js";
+import { atOrBefore, effectiveStatus, versionAsOf } from "./lifecycle.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity, Status } from "./types.js";
@@ -13,6 +13,30 @@ export interface InjectItem {
   entity: Entity;
   effectiveStatus: Status;
   citation: string;
+  /**
+   * Ids of verified records this one is recorded as contradicting (`conflicts_with`), if any.
+   *
+   * MARKED, not withheld, because that is what the policy says: "contradictions are surfaced, never
+   * auto-resolved … deciding the winner is not the database's job" (README mechanism 4). Dropping either
+   * side would be the database deciding; dropping both would delete the disagreement, which is itself
+   * knowledge. So both travel and both say so.
+   *
+   * The store already knew. `yoke conflicts` printed the pair; injection — the product's core value —
+   * never mentioned it, so six queries on the demo corpus handed an agent both sides of a live
+   * disagreement as two equal facts: two deploy-freeze windows, three different Critical-patch SLAs, two
+   * refund limits, two mutually exclusive definitions of MAU. Absent on a record with nothing to
+   * declare, so a reader can tell "not disputed" from "we did not look".
+   */
+  conflictsWith?: string[];
+  /**
+   * Who actually wrote this, off the `authored_by` edge — absent when the record has no such edge.
+   *
+   * Exposed as well as folded into `citation` because a front tier has to RESOLVE it: the id is what
+   * makes a citation an audit pointer, and the name is what makes a line readable, so the two coexist
+   * (the web has always sent both). Without this a surface wanting the name would have to parse it back
+   * out of the citation string.
+   */
+  author?: string;
 }
 
 /** What a multi-hop anchor walk actually did (SPEC "Multi-hop"). Numbers only — front adapters turn
@@ -27,11 +51,53 @@ export interface WalkStats {
   truncated: boolean;
 }
 
+/**
+ * Why an empty answer is empty (counts only — front adapters turn them into words, the same division
+ * of labour `omitted` and `WalkStats` already have).
+ *
+ * An empty injection is the one result a reader cannot interpret: knowledge that is absent, knowledge
+ * that is waiting for review, and knowledge that was retired all read as "no results", and the reader
+ * has no way to tell which. The CLI had half of this — a second search for drafts, human output only,
+ * so `--json` and the MCP tool (the paths an AGENT reads) got the bare "no results" while the terminal
+ * got the explanation. Three surfaces, three phrasings, one of them right.
+ *
+ * `structural` is the reason that misdirects worst if left unsaid: a verified `person` matching the
+ * query is withheld by type, so a reader told "draft withheld" verifies it and the answer gets no
+ * better — the record was never injectable knowledge (see the structural note below).
+ */
+export interface WithheldStats {
+  /** Matched, but still awaiting review. Reachable with `includeDraft`, or by verifying. */
+  draft: number;
+  /** Matched and verified, but past its type's TTL. Reachable by re-confirming. */
+  stale: number;
+  /** Matched, but retired. Not reachable — the retirement is the answer. */
+  deprecated: number;
+  /** Matched, but names something knowledge is attached TO. Never injectable as knowledge. */
+  structural: number;
+  /**
+   * Matched and verified, but something recorded as superseding it exists.
+   *
+   * Withheld rather than marked, unlike a conflict, because the two states mean different things. A
+   * conflict is an open disagreement nobody has settled; a supersession is settled — someone recorded
+   * that this was replaced. Serving it is serving a decision that was reversed.
+   *
+   * `supersedes` had no lifecycle meaning at all: the only code in the product that understood it was
+   * `checkPersonaSources`, so an exported persona listed both halves of a reversal as live guiding
+   * principles with identical timestamps, and the product's OWN checker then labelled that export
+   * "superseded" and exited 1 while offering a re-export that reproduces it byte for byte.
+   */
+  superseded: number;
+}
+
 export interface InjectResult {
   items: InjectItem[];
   omitted: number;
   /** Present only when the walk went deeper than one hop. */
   walk?: WalkStats;
+  /** Present when something matched that could not be injected — including alongside a non-empty
+   * `items`, where a reader handed a full page has no other way to learn that the record answering
+   * their question was held back. Absent means everything that matched was handed over. */
+  withheld?: WithheldStats;
 }
 
 /**
@@ -84,6 +150,75 @@ export const BRIEFING_LIMIT = 50;
  * measured returning short pages, not on the strength of this comment.
  */
 const STALE_HEADROOM = 3;
+
+/**
+ * The two relations that change what a record MEANS to a reader, read in one hop.
+ *
+ * Both were invisible to injection: `grep conflicts_with src/core/inject.ts` found nothing, and
+ * `supersedes` was understood by exactly one function in the product (`checkPersonaSources`). The
+ * consequences are recorded on `InjectItem.conflictsWith` and `WithheldStats.superseded`.
+ *
+ * One `neighbors(id)` per record, unfiltered, then split in memory — two typed calls would double the
+ * round trips for the same answer. Namespace-filtered here for the reason `identitySet` and
+ * `downstreamOf` are: `neighbors` takes no `ns`, so an edge filed by one tenant would otherwise mark or
+ * withhold another tenant's record.
+ *
+ * Direction matters and only one way round is right. `A supersedes B` means A replaced B, so B carries
+ * the INCOMING edge and B is the record that is no longer current. Reading it the other way would
+ * withhold every replacement and serve everything it replaced.
+ *
+ * `asOf` rewinds the edges too. Without it an `--as-of 2020` read was answered with 2026's relation
+ * graph: a supersession recorded years after the instant asked about withheld a record that was current
+ * then, which is the same mistake `countWithheld` rewinds versions to avoid, one table over. Filtered on
+ * `provenance.occurred_at` — when the edge SAYS the link happened — through `atOrBefore`, which is
+ * `versionAsOf`'s comparison and has to be: comparing the two clocks differently makes one as-of read
+ * answer itself two ways.
+ *
+ * ceiling: an edge's `status` is not consulted, and cannot be. Every relation is committed `draft` and
+ * no path promotes one (`lifecycle.transition` refuses relation ids), so requiring `verified` here would
+ * disable supersession entirely rather than make it stricter. That leaves withholding — the one thing
+ * here that REMOVES verified knowledge from an answer — trusting an edge the governance layer cannot
+ * reach. The gate is the only check it passed. Fix the asymmetry by making edges promotable (a
+ * KNOWLEDGE-POLICY decision: should an unverified edge route injection at all?), not by tightening this
+ * line.
+ *
+ * ceiling: one relation read per record handed over — the cap, not the retrieval window, so a page of
+ * ten costs ten and a fifty-record briefing costs fifty. Not benchmarked: the sqlite read is a single
+ * indexed lookup, but fifty sequential round trips is the shape docs/SCALE.md profiled as slow on a
+ * remote backend. The way out is a batch `neighborsOf(ids)` on the port; add that before raising any
+ * limit that multiplies this.
+ */
+async function meaningEdges(
+  port: StoragePort,
+  id: string,
+  ns: string | null,
+  asOf?: string,
+): Promise<{
+  superseded: boolean;
+  conflictsWith: string[];
+  author?: string;
+}> {
+  const edges = (await port.neighbors(id)).filter(
+    (r) =>
+      normalizeNs(r.ns) === ns &&
+      (asOf === undefined || atOrBefore(r.provenance.occurred_at, asOf)),
+  );
+  return {
+    // The real author, for the citation. Free here: this read already has every edge, and asking for it
+    // separately would be a second round trip for a field the first one returned.
+    author: edges.find((r) => r.type === "authored_by" && r.from === id)?.to,
+    superseded: edges.some((r) => r.type === "supersedes" && r.to === id),
+    // Symmetric, so the pair is one claim recorded from whichever end — both directions count.
+    conflictsWith: [
+      ...new Set(
+        edges
+          .filter((r) => r.type === "conflicts_with")
+          .map((r) => (r.from === id ? r.to : r.from))
+          .filter((other) => other !== id),
+      ),
+    ].sort(),
+  };
+}
 const candidateQuery = (opts?: {
   includeDraft?: boolean;
   limit?: number;
@@ -192,9 +327,46 @@ async function vectorHits(
     .map((e) => ({ ...e, embedding: undefined }));
 }
 
-/** `[{type}:{id}@v{version}] {actor}, {occurred_at}` — the audit citation format. */
-export function citation(e: Entity): string {
-  return `[${e.type}:${e.id}@v${e.version}] ${e.provenance.actor}, ${e.provenance.occurred_at}`;
+/**
+ * `[{type}:{id}@v{version}] {actor}, {occurred_at}` — the audit citation format.
+ *
+ * With `author` (the `authored_by` edge's target) it becomes
+ * `[…] {author} (confirmed by {promoter}), {occurred_at}` — and ONLY when the two differ, so the
+ * single-user local path renders exactly as before.
+ *
+ * The plain form names whoever wrote the version being pointed at, which for a verified record is
+ * whoever PROMOTED it: `verify` appends a version whose provenance is the promotion. That is correct
+ * about the version and wrong about the knowledge. Measured: a decision authored under Alex's person id
+ * and verified by the reviewer was served inside Alex's persona citing `yoke:system`, so an agent
+ * quoting yoke names the wrong person. `docs/SPEC.md:682` states the rule this broke —
+ * "authorship comes off the `authored_by` edge, never `provenance.actor` … an authors list built from
+ * it ranks reviewers, calls them authors". `overview` obeys it and says so in its own output; the
+ * citation did not.
+ *
+ * Both, rather than swapping one for the other. The promoter is not noise — it is who vouched for this,
+ * which is the other half of what makes a citation auditable — and dropping it to fix attribution would
+ * trade one missing fact for another. It is invisible on a single-user database because there the two
+ * ARE the same actor, which is exactly why this went unnoticed.
+ */
+export function citation(e: Entity, author?: string): string {
+  const promoter = e.provenance.actor;
+  const who =
+    author && author !== promoter
+      ? `${author} (confirmed by ${promoter})`
+      : promoter;
+  return `${pointer(e)} ${who}, ${e.provenance.occurred_at}`;
+}
+
+/**
+ * The pointer half of a citation: which record, which version, and nothing about who.
+ *
+ * Split out because one reader needs the pointer without the actor. `provenance.actor` on a promoted
+ * row is whoever PROMOTED it (verify appends a version with `origin: 'lifecycle'`), which is the right
+ * thing for an audit pointer and the wrong thing inside a document that claims to be one person's
+ * judgment — see `renderPersonaSkill`. One format string, two readings of it.
+ */
+export function pointer(e: Entity): string {
+  return `[${e.type}:${e.id}@v${e.version}]`;
 }
 
 /**
@@ -441,7 +613,10 @@ export async function inject(
         Number(b.effectiveStatus === "verified") -
           Number(a.effectiveStatus === "verified") ||
         // Most recently confirmed first — the freshest knowledge about this work leads.
-        b.entity.last_confirmed.localeCompare(a.entity.last_confirmed) ||
+        // By instant, not by collation: on a database holding both pre- and post-canonicalization
+        // stamps, `Z` sorts after `.`, so 00:00:00.500Z read as older than 00:00:00Z.
+        Date.parse(b.entity.last_confirmed) -
+          Date.parse(a.entity.last_confirmed) ||
         // ULID tiebreak. This is the piece that makes every backend agree, so it is not optional.
         a.entity.id.localeCompare(b.entity.id),
     );
@@ -449,15 +624,156 @@ export async function inject(
   // BOTH paths cap here now, after filtering — that is the fix. `search` is asked for a superset and
   // core cuts to what the caller wanted once only injectable records remain, so `limit` finally means
   // "up to N records you can use" rather than "N candidates, then however many survive".
-  const limited =
-    opts?.limit === undefined ? items : items.slice(0, opts.limit);
-  // How many the caller's limit dropped, out of what was retrieved. On the unscoped path this counts
-  // within the over-fetched window rather than the whole corpus: `search` is a top-k, so a number
-  // for "everything that matched" is not knowable without materializing it, which is the thing that
-  // crashed. Under-reporting a truncation the reader can see is better than a guess they cannot.
+  const capped = opts?.limit === undefined ? items : items.slice(0, opts.limit);
+  // Supersession and contradiction, applied to the page rather than to the window — the cost is one
+  // relation read per record actually handed over (see `meaningEdges`). Superseded records drop out and
+  // are counted; contradicted ones travel carrying what they contradict.
+  //
+  // A page can come back short of `limit` because of this. It is not backfilled from further down the
+  // ranking: doing so would mean reading relations for the whole window to find replacements, and a
+  // short page a reader can see beats a full one assembled by a second pass they cannot.
+  //
+  // The shortfall is reported by `withheld.superseded`, NOT by `omitted` — those are two different
+  // facts and folding them together made both untrue. `omitted` means "your limit cut this many, ask
+  // again or raise it", which is what every front end says in words: the MCP tool tells an agent the
+  // remainder is "NOT lost … ask a specific question and it searches everything". A superseded record
+  // is not reachable that way at any limit, so counting it there turned an accurate instruction into a
+  // false one, and a caller who passed no `limit` at all was told their limit had dropped records.
+  let supersededCount = 0;
+  const limited: InjectItem[] = [];
+  for (const item of capped) {
+    const { superseded, conflictsWith, author } = await meaningEdges(
+      port,
+      item.entity.id,
+      ns,
+      opts?.asOf,
+    );
+    if (superseded) {
+      supersededCount++;
+      continue;
+    }
+    limited.push({
+      ...item,
+      // Rebuilt now that the author is known. Without it `citation` names the promoter alone, which on a
+      // verified record is whoever approved the knowledge rather than whoever wrote it.
+      citation: citation(item.entity, author),
+      ...(author ? { author } : {}),
+      ...(conflictsWith.length > 0 ? { conflictsWith } : {}),
+    });
+  }
+  // Say what was held back, whether or not anything came through. It was once computed only for the
+  // empty answer, on the theory that an empty result is the one a reader cannot interpret. A partial
+  // answer is worse: measured on the demo corpus, "why didn't we choose Kafka" returns ten unrelated
+  // records while the decision that answers it — rationale, rejected alternatives and all — sits one
+  // TTL past its window. The reader gets a full page and concludes nothing was ever recorded. An
+  // absence a reader can see beats a filter they cannot, and that argument does not stop at zero.
+  //
+  // The query path has to re-ask because `candidateQuery` pushes `status` DOWN: a withheld draft never
+  // reached this function to be counted, and over-fetching INSTEAD of pushing was tried and disproven
+  // (see candidateQuery). The anchor path already holds every status (the walk filters none), so it
+  // reuses the candidates it has and costs nothing.
+  //
+  // The diagnostic asks for the same 3x window the primary retrieval uses, minus the status push-down.
+  // At the caller's bare limit it cannot see what it is looking for: the whole point is a record ranked
+  // BELOW the page that was filtered out of it, and a window the size of the page contains only records
+  // that made the page. The bias the push-down exists to correct — verified rows sorting last on tied
+  // relevance, because `verify` rewrites the FTS row — is harmless here and mildly helpful: this pass
+  // wants the rows injection rejected.
+  //
+  // ceiling: one extra `search` per query-path injection, bounded by the same O(matches) ranking cost
+  // as the primary retrieval (docs/SCALE.md). The way out is a port-level count of matches by status,
+  // which no backend exposes today — add that before widening this window again.
+  const withheld = await countWithheld(
+    port,
+    ontology,
+    scope
+      ? candidates
+      : await port.search({
+          text: query,
+          ns,
+          limit:
+            opts?.limit === undefined ? undefined : opts.limit * STALE_HEADROOM,
+        }),
+    readAt,
+    askedForRoster,
+    limited,
+    opts?.asOf,
+    supersededCount,
+  );
   return {
     items: limited,
-    omitted: items.length - limited.length,
+    // How many the caller's LIMIT dropped, out of what was retrieved — and only that, which is why it
+    // is measured against `capped` rather than against the page finally handed over (see the loop
+    // above). On the unscoped path it counts within the over-fetched window rather than the whole
+    // corpus: `search` is a top-k, so a number for "everything that matched" is not knowable without
+    // materializing it, which is the thing that crashed. Under-reporting a truncation the reader can
+    // see is better than a guess they cannot.
+    omitted: items.length - capped.length,
     ...(walk ? { walk } : {}),
+    ...(withheld ? { withheld } : {}),
   };
+}
+
+/**
+ * Classify what matched but did not pass, by the reason it did not.
+ *
+ * One reason per record, structural first: a structural record is withheld by TYPE whatever its
+ * status, so counting it as "draft" would name a fix (verify it) that cannot work.
+ *
+ * Returns undefined when nothing was withheld, which is what lets a caller distinguish "the query
+ * matched nothing" from "the query matched only knowledge you cannot have".
+ */
+async function countWithheld(
+  port: StoragePort,
+  ontology: TypeDef[],
+  candidates: Entity[],
+  readAt: string,
+  askedForRoster: boolean,
+  injected: InjectItem[],
+  asOf?: string,
+  superseded = 0,
+): Promise<WithheldStats | undefined> {
+  // What was handed over is not withheld. Only matters now that this runs alongside a non-empty
+  // answer: the anchor path passes the very candidates the items were built from, so without this
+  // every injected record would also be counted as held back.
+  const handed = new Set(injected.map((i) => i.entity.id));
+  const structuralTypes = new Set(
+    ontology
+      .filter((t) => t.kind === "entity" && t.structural)
+      .map((t) => t.name),
+  );
+  const stats: WithheldStats = {
+    draft: 0,
+    stale: 0,
+    deprecated: 0,
+    structural: 0,
+    // Counted by the caller, which is the only place that knows: supersession is decided on the page it
+    // is about to hand over, not on the retrieval window this function classifies.
+    superseded,
+  };
+  for (const found of candidates) {
+    if (handed.has(found.id)) continue;
+    if (!askedForRoster && structuralTypes.has(found.type)) {
+      stats.structural++;
+      continue;
+    }
+    // Classify the version that was current at the instant asked about, the way the returning path
+    // already does. Judging today's row made an as-of read blame a retirement that had not happened
+    // yet: `--as-of 2020-01-01` on a corpus created in 2026 answered "1 retired", and a record that
+    // was a draft then was reported retired because it is retired now.
+    const entity = asOf ? await versionAsOf(port, found.id, asOf) : found;
+    // No version at or before that instant: the record did not exist yet, so nothing was withheld.
+    if (!entity) continue;
+    const status = effectiveStatus(entity, ontology, readAt);
+    if (status === "draft") stats.draft++;
+    else if (status === "stale") stats.stale++;
+    else if (status === "deprecated") stats.deprecated++;
+  }
+  const total =
+    stats.draft +
+    stats.stale +
+    stats.deprecated +
+    stats.structural +
+    stats.superseded;
+  return total > 0 ? stats : undefined;
 }

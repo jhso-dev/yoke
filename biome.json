@@ -19,7 +19,12 @@
   },
   "overrides": [
     {
-      "includes": ["src/core/**", "!src/core/**/*.test.ts"],
+      "includes": [
+        "src/core/**",
+        "!src/core/**/*.test.ts",
+        "src/ports/**",
+        "!src/ports/**/*.test.ts"
+      ],
       "linter": {
         "rules": {
           "style": {

@@ -36,23 +36,39 @@ import { useAsync } from "../../lib/useAsync";
  * empty value it means — it carries this token and the handler maps it back. */
 const ANY = "__any";
 
-/** The three actions RBAC actually knows (src/front/serve/rbac.ts). The form offers exactly these —
- * a free-text scope field made the caller memorise the grammar to grant "read". */
-const ACTIONS = ["read", "write", "verify"] as const;
+/** The four actions RBAC actually knows (src/front/serve/rbac.ts). The form offers exactly these —
+ * a free-text scope field made the caller memorise the grammar to grant "read". `admin` joined them
+ * when it stopped being `verify`'s second job: it grants the credential routes and nothing else. */
+const ACTIONS = ["read", "write", "verify", "admin"] as const;
 type Action = (typeof ACTIONS)[number];
 
-/** Compose scope strings in rbac.ts's own grammar. The form offers the action and an optional
- * record-type narrowing; the grammar's namespace segment stays a wildcard — a namespace is a
- * multi-tenant (`serve --auth`) concept, and asking the local single-user screen to name one was
- * a question with no meaningful answer here. `yoke token create` still spells ns-scoped grants. */
-function composeScopes(actions: Set<Action>, type: string): string[] {
+/**
+ * Compose scope strings in rbac.ts's own grammar. The form offers the action and an optional
+ * record-type narrowing; the namespace comes from the SERVER, which `/api/meta` already reports.
+ *
+ * It used to be a hard-coded wildcard, on the argument that a namespace is a multi-tenant concept with
+ * no meaningful answer on a local single-user screen. That reasoning holds for the local case and is
+ * wrong for the deployed one: a wildcard-namespace scope grants every tenant, so this form silently
+ * minted deployment-wide credentials on a per-tenant server — and now that an admin may only grant
+ * within its own namespace, they would simply be refused. A wildcard is still what the default
+ * namespace needs (`ceiling:` in rbac.ts), which is exactly the `ns === null` case.
+ */
+function composeScopes(
+  actions: Set<Action>,
+  type: string,
+  ns: string | null,
+): string[] {
+  const prefix = ns ?? "*";
   return ACTIONS.filter((a) => actions.has(a)).map((a) =>
-    type ? `*:${type}:${a}` : a,
+    ns === null && !type ? a : `${prefix}:${type || "*"}:${a}`,
   );
 }
 
 export default function Tokens() {
   const t = useT();
+  // The namespace this server serves. Ungated, so it resolves whether or not a credential is required.
+  const meta = useAsync(() => api.meta(), []);
+  const ns = meta.data?.ns ?? null;
   const tokens = useAsync(() => api.tokens(), []);
   const rows = [...(tokens.data ?? [])].reverse();
   const page = usePage(rows);
@@ -64,6 +80,7 @@ export default function Tokens() {
       <div className="page-head">
         <h1>{t.tokens.heading}</h1>
         <CreateTokenButton
+          ns={ns}
           onCreated={(tok) => {
             setCreated(tok);
             tokens.reload();
@@ -129,8 +146,11 @@ export default function Tokens() {
  */
 function CreateTokenButton({
   onCreated,
+  ns,
 }: {
   onCreated: (token: CreatedToken) => void;
+  /** The namespace this server serves, so the scopes the form composes are grantable on it. */
+  ns: string | null;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -144,11 +164,12 @@ function CreateTokenButton({
   // `*:desicion:read` without complaint and nothing failed until a caller was refused at runtime.
   const ontology = useAsync(() => api.ontology(), []);
 
-  const scopes = composeScopes(actions, type.trim());
+  const scopes = composeScopes(actions, type.trim(), ns);
   const hints: Record<Action, string> = {
     read: t.tokens.readHint,
     write: t.tokens.writeHint,
     verify: t.tokens.verifyHint,
+    admin: t.tokens.adminHint,
   };
 
   const submit = async (e: React.FormEvent) => {

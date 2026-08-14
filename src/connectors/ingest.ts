@@ -2,8 +2,10 @@
 // pull and routes each item through the commit gate (no bypass). Idempotency: externalId is stored as
 // attributes.external_id, and on re-run it is looked up via FTS and skipped if already present.
 
-import { commit } from "../core/commit.js";
+import { CommitRejected, commit } from "../core/commit.js";
+import type { Embedder } from "../core/embedding.js";
 import type { TypeDef } from "../core/ontology.js";
+import type { Entity } from "../core/types.js";
 import type { StoragePort } from "../ports/storage.js";
 import type { Connector } from "./types.js";
 
@@ -17,9 +19,89 @@ import type { Connector } from "./types.js";
  * word "github" and materializing a thousand of them to find the one row already known by name.
  * Measured at 1M entities: 292 ms and 1,000 rows per ingested item, against 34 ms and 0.
  */
-async function exists(port: StoragePort, externalId: string): Promise<boolean> {
-  const hits = await port.search({ text: externalId, terms: "all" });
-  return hits.some((e) => e.attributes.external_id === externalId);
+async function findByExternalId(
+  port: StoragePort,
+  externalId: string,
+  ns?: string | null,
+): Promise<Entity | null> {
+  // Scoped to the tenant, because the answer is per tenant: two namespaces may legitimately hold the
+  // same source item, and a probe that searched everywhere would report one tenant's copy as the other's
+  // and skip the import.
+  const hits = await port.search({ text: externalId, terms: "all", ns });
+  return hits.find((e) => e.attributes.external_id === externalId) ?? null;
+}
+
+/**
+ * Whether every attribute this pull produced already matches what is stored.
+ *
+ * The same comparison `rdb-mapping.unchanged` makes, and the reason it has to exist here too: presence
+ * of the key was the whole check, so an EDITED source item was skipped. Measured on a meeting
+ * transcript — one paragraph corrected from "cap webhook retries at 5 attempts" to "3 attempts
+ * (CORRECTED)" and a section appended: re-ingesting reported "added 2, skipped 24", the database kept
+ * the wrong number as v1, and the appended section arrived as a NEW record contradicting it. No
+ * `supersedes`, no conflict flag, nothing saying a stored chunk no longer matched its source.
+ *
+ * Only the attributes the connector produced are compared, which is the same boundary the write side
+ * draws (see the merge at the call site): the connector's authority ends at the fields it emits, so a
+ * key it no longer produces is neither compared nor overwritten. Comparing everything stored would make
+ * every run after a mapping change report a difference it cannot resolve.
+ */
+function sameContent(stored: Entity, next: Record<string, unknown>): boolean {
+  return Object.keys(next).every(
+    (k) => JSON.stringify(stored.attributes[k]) === JSON.stringify(next[k]),
+  );
+}
+
+/** What one ingest run did. `rejected` names the items that could not be recorded, and why. */
+export interface IngestResult {
+  added: number;
+  /** Source items whose content had changed: committed as a new version (append-only), not overwritten. */
+  updated: number;
+  skipped: number;
+  /** Present only when something was refused — absent means every item was accounted for. */
+  rejected?: string[];
+}
+
+/**
+ * Whether an external id can actually identify one source item.
+ *
+ * Every connector interpolates a field from the source into its key, and none of them checked that the
+ * field was there. Measured on the three that ingest through here:
+ *
+ * - A Slack history page with two messages missing `ts` produced `slack:C0PLATFORM:undefined` twice.
+ *   The first was committed; the second was found by the idempotency probe, counted as `skipped`, and
+ *   discarded. The lost message said "the shard rebalance runs at 02:00 UTC, not 02:00 KST" — a
+ *   correction, silently dropped as a duplicate of an unrelated message.
+ * - `github-pr` builds its key from `html_url` and `meeting-notes` from the file path, so both have the
+ *   same shape whenever the field drifts.
+ *
+ * The rdb connector's version of this is worse and is guarded at its own call site: a typo'd `idColumn`
+ * yields `rdb:employees:undefined` for EVERY row, and because that path re-versions on a key match, four
+ * different people became one entity's version chain with the last row winning — reported as
+ * "1 added, 3 updated", exit 0.
+ *
+ * A key that cannot identify anything is not a smaller success. Rejecting is right rather than
+ * generating one, because a synthetic key makes the item un-reingestable and un-deduplicable forever.
+ */
+export function unusableKey(externalId: unknown): string | null {
+  const bad = new Set(["undefined", "null", "NaN", ""]);
+  const noValue = (shown: string) =>
+    `external id has no identifying value: ${shown} — the source item is missing the field the key is built from`;
+  // Guard the OPERATION, not the four literals the last colon-segment happened to hold. A key that is
+  // not a non-empty string cannot identify anything — github-pr's `html_url` absent makes `externalId`
+  // itself undefined — and `undefined.slice(...)` threw a TypeError OUT of the per-item try, killing
+  // the ingest loop the caller expects to isolate one bad item. Returned as a message here, it stays a
+  // per-item `CommitRejected` at the call site.
+  if (typeof externalId !== "string" || externalId.trim() === "")
+    return noValue(String(externalId));
+  // The volatile field a connector interpolates is not always the tail: meeting-notes puts it before
+  // `#` (`file:${rel}#${i}`) and slack has two (`slack:${channel}:${ts}`), so `slack:undefined:1699`
+  // and `file:undefined#3` slipped past a tail-only check. Split on both template delimiters and reject
+  // if ANY segment is a sentinel a missing field leaves behind. Not split on `/`, so a github `html_url`
+  // whose path legitimately contains `null` stays one segment and is not a false positive.
+  if (externalId.split(/[:#]/).some((s) => bad.has(s.trim())))
+    return noValue(externalId);
+  return null;
 }
 
 /**
@@ -33,27 +115,106 @@ export async function ingest(
   actor: string,
   now: string,
   since?: string,
-): Promise<{ added: number; skipped: number }> {
+  ns?: string | null,
+  embedder?: Embedder,
+): Promise<IngestResult> {
   let added = 0;
+  let updated = 0;
   let skipped = 0;
+  const rejected: string[] = [];
   for await (const item of connector.pull(since)) {
-    const { externalId, ...input } = item;
-    if (await exists(port, externalId)) {
-      skipped++;
-      continue;
+    const { externalId, occurredAt, ...input } = item;
+    // Per item, not per run. One review comment with an empty body threw `CommitRejected` out of this
+    // loop: three earlier comments were already committed and stayed, the NEXT pull page was never
+    // fetched, and no `added/skipped` line was ever printed — the caller saw one stderr line and exit 1
+    // with no way to know how much had landed. The rdb path already isolates per row (`errors` in
+    // rdb-mapping); these three did not. A source item that cannot be recorded is one item's problem.
+    try {
+      // C4: findByExternalId then commit is a check-then-write, and without serialization two
+      // concurrent ingests of one source item both read "absent" and both insert — the corpus then
+      // holds the stale claim AND its correction as two live records, with no supersedes and exit 0
+      // (measured: 6 notes -> 7 records). Run the probe-and-commit as ONE critical section so the
+      // second ingest sees the first's committed row and takes the updated/skipped path. Feature-
+      // detected to keep ingest adapter-independent (invariant 1): a backend that cannot serialize a
+      // multi-statement section runs the body directly, the pre-fix behaviour.
+      const handleItem = async (): Promise<void> => {
+        const unusable = unusableKey(externalId);
+        if (unusable) throw new CommitRejected("ontology", unusable);
+        // Definitively set external_id in attributes (ingest is the single source of the idempotency key).
+        const pulled = { ...input.attributes, external_id: externalId };
+        const stored = await findByExternalId(port, externalId, ns);
+        if (stored && sameContent(stored, pulled)) {
+          skipped++;
+          return;
+        }
+        // Stored attributes UNDER the pulled ones, so a re-ingest overwrites what the source owns and
+        // keeps what it does not.
+        //
+        // The case that reaches this is a connector whose FIELD SET narrowed between runs, which is a
+        // configuration change and not a rare one: an `--attr` mapping edited to drop a column, an
+        // `idColumn`/`occurredAtColumn` retargeted, a connector upgraded to emit less. Without the merge,
+        // the next sync of an item whose text also moved rewrote the record with the narrower attribute
+        // set and the dropped fields left the head version — data removed by a mapping edit, on a path
+        // whose whole contract is append-only.
+        //
+        // A key the source stops emitting therefore lingers rather than being deleted. That is the right
+        // way round: a connector that dropped a field is indistinguishable from one that never had it,
+        // and silently deleting stored knowledge on that guess is the more expensive mistake. `sameContent`
+        // compares only the pulled keys for the same reason, so the two agree — the connector's authority
+        // ends at the fields it produces.
+        const attributes = stored
+          ? { ...stored.attributes, ...pulled }
+          : pulled;
+        await commit(
+          port,
+          ontology,
+          {
+            ...input,
+            attributes,
+          },
+          // `occurred_at` is when the SOURCE says it happened; `now` stays the ingestion clock. The two
+          // were the same value, so the TTL counted from the import and an archive never aged.
+          {
+            actor,
+            origin: `connector:${connector.name}`,
+            occurred_at: occurredAt ?? now,
+          },
+          // `last_confirmed` too, since that is what freshness is measured from: a message from last year
+          // confirmed as of today is a claim nobody made.
+          occurredAt ?? now,
+          // The embedder was never passed, so gate stages 3 and 4 could not run on this path even when
+          // one was configured — the BULK path was the only one with duplicate and contradiction detection
+          // permanently off, while the hand path at least says "no duplicate check ran". Measured: 67 notes
+          // ingested as 67 records over 29 distinct statements, the same sentence stored eight times.
+          //
+          // A changed source item becomes a new VERSION of the record it changed, which is what
+          // append-only means: the wrong number stays readable at v1 and the correction is v2, rather than
+          // the correction arriving as a second record that contradicts the first.
+          //
+          // That new version enters as `draft`, like every commit, so a record someone had VERIFIED drops
+          // out of injection until it is reviewed again. Deliberate, and the reason it is written down
+          // here: the content a reviewer vouched for is not the content now stored, and carrying the
+          // promotion across would make "verified" mean "verified at some earlier text". The cost is that
+          // a sync can quietly shrink what injection answers with, which is what `yoke review` is for —
+          // `updated` in the result is the number to watch.
+          { ns, embedder, ...(stored ? { existingId: stored.id } : {}) },
+        );
+        if (stored) updated++;
+        else added++;
+      };
+      if (port.withCriticalSection) await port.withCriticalSection(handleItem);
+      else await handleItem();
+    } catch (e) {
+      if (!(e instanceof CommitRejected)) throw e;
+      // Named, not counted. A number tells the caller something was dropped; the id and the reason tell
+      // them WHICH source item to go and look at, which is the only actionable form.
+      rejected.push(`${externalId}: ${e.message}`);
     }
-    // Definitively set external_id in attributes (ingest is the single source of the idempotency key).
-    await commit(
-      port,
-      ontology,
-      {
-        ...input,
-        attributes: { ...input.attributes, external_id: externalId },
-      },
-      { actor, origin: `connector:${connector.name}`, occurred_at: now },
-      now,
-    );
-    added++;
   }
-  return { added, skipped };
+  return {
+    added,
+    updated,
+    skipped,
+    ...(rejected.length > 0 ? { rejected } : {}),
+  };
 }

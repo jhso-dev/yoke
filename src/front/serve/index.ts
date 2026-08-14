@@ -39,7 +39,7 @@ import {
   type OidcSubject,
   oidcFromEnv,
 } from "./oidc.js";
-import { type Action, allowed } from "./rbac.js";
+import { type Action, allowed, ungrantable } from "./rbac.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -155,7 +155,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       ts,
       { existingId: id, ns },
     );
-    await verify(store, [id], id, ts);
+    await verify(store, [id], id, ts, ns);
   }
 
   async function authenticate(cred: string): Promise<Principal | null> {
@@ -241,6 +241,9 @@ export function createServeServer(deps: ServeDeps): ServeServer {
 
     let actor = defaultActor;
     let authorize: Authorize = ALLOW_ALL;
+    // What this caller may put INTO a credential. Empty on the ungated path: no principal, nothing out
+    // of reach (invariant 4). Under auth it is the principal's admin reach — see `ungrantable`.
+    let grantable: (wanted: string[]) => string[] = () => [];
     if (gated || (auth && optional)) {
       const cred = bearer(req);
       const principal = cred ? await authenticate(cred) : null;
@@ -256,11 +259,16 @@ export function createServeServer(deps: ServeDeps): ServeServer {
         actor = principal.actor;
         authorize = (action, type) =>
           allowed(principal.scopes, ns, type, action);
+        const scopes = principal.scopes;
+        grantable = (wanted) => ungrantable(scopes, wanted);
       } else {
         authorize = () => false; // optional route, no credential — reveal nothing
+        grantable = (wanted) => wanted; // and grant nothing
       }
     }
-    // Replica: deny write/verify regardless of scopes (wraps whatever base authorize resolved above).
+    // Replica: deny every mutation regardless of scopes (wraps whatever base authorize resolved above).
+    // `admin` is a mutation too — issuing a credential on a replica writes to the replica's own token
+    // table, and the primary would never see it.
     if (readOnly) {
       const base = authorize;
       authorize = (action, type) => action === "read" && base(action, type);
@@ -277,6 +285,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       ns,
       now,
       authorize,
+      grantable,
       webRoot: deps.webRoot,
       authRequired: auth,
       readOnly,
@@ -337,8 +346,12 @@ export async function runServe(
   // than warn: the whole point of binding wide is that other people can reach it.
   if (!isLoopback(host) && !auth)
     throw new Error(
+      // The remedy has to RUN and has to be safe. It named no --name, so copying it printed a usage
+      // error; and `--scopes read` is a wildcard-namespace grant, so the message that exists to stop an
+      // unsafe exposure was teaching the spelling that reads every tenant.
       `refusing to bind ${host} without authentication — add --auth (or YOKE_AUTH=on), ` +
-        `then mint a credential with 'yoke token create --scopes read'`,
+        `then mint a credential with ` +
+        `'yoke token create --name <who> --scopes "${opts.ns ?? resolveNs(undefined, env) ?? "<namespace>"}:read"'`,
     );
   const common = {
     defaultActor: env.YOKE_ACTOR ?? "yoke:system",

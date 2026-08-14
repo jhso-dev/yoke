@@ -46,6 +46,7 @@ import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
+  ConflictError,
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   orderByIds,
@@ -233,8 +234,29 @@ export class OpenSearchStorage implements StoragePort {
     name: string,
     docId: string,
     doc: unknown,
+    // `create` uses the _create endpoint, which 409s on an existing doc. The versioned entity/relation
+    // writes pass it so a duplicate (id, version) is the version-race loser (C1/C2); the vector and
+    // ontology writes stay upserts (they replace / mint a fresh version id).
+    create = false,
   ): Promise<void> {
-    await this.req("PUT", `/${name}/_doc/${encodeURIComponent(docId)}`, doc);
+    const verb = create ? "_create" : "_doc";
+    const path = `/${name}/${verb}/${encodeURIComponent(docId)}`;
+    const res = await this.fetchImpl(`${this.url}${path}`, {
+      method: "PUT",
+      headers: this.headers,
+      body: JSON.stringify(doc),
+    });
+    if (create && res.status === 409) {
+      await res.text();
+      throw new ConflictError(
+        `version conflict on ${docId}: another writer committed it first`,
+      );
+    }
+    if (!res.ok) {
+      throw new Error(
+        `opensearch PUT ${path} → ${res.status}: ${(await res.text()).slice(0, 400)}`,
+      );
+    }
     this.dirty.add(name);
   }
 
@@ -274,7 +296,14 @@ export class OpenSearchStorage implements StoragePort {
       provenance: JSON.stringify(e.provenance),
       last_confirmed: e.last_confirmed,
     };
-    await this.index(this.idx(ENTITIES), `${e.id}#${e.version}`, doc);
+    // ceiling: index-then-demote is two requests with no transaction to join them — OpenSearch has
+    // none — so a crash between leaves TWO docs flagged `latest: true` for one id until the next put
+    // of that id heals it. The ORDER is the deliberate part: demote-then-index would fail the other
+    // way, zero latest docs, a record every read silently loses. Duplication is visible and
+    // self-healing; disappearance is neither. The way out, if a real deployment hits the window, is a
+    // query-time collapse by max version — rejected so far because the stored flag is what lets
+    // `listEntities` paginate without collapsing per page (see the header note).
+    await this.index(this.idx(ENTITIES), `${e.id}#${e.version}`, doc, true);
     await this.demoteOlder(this.idx(ENTITIES), e.id, e.version);
     if (e.embedding) await this.indexEmbedding(e.id, e.embedding);
   }
@@ -293,7 +322,7 @@ export class OpenSearchStorage implements StoragePort {
       provenance: JSON.stringify(r.provenance),
       last_confirmed: r.last_confirmed,
     };
-    await this.index(this.idx(RELATIONS), `${r.id}#${r.version}`, doc);
+    await this.index(this.idx(RELATIONS), `${r.id}#${r.version}`, doc, true);
     await this.demoteOlder(this.idx(RELATIONS), r.id, r.version);
   }
 
@@ -440,6 +469,29 @@ export class OpenSearchStorage implements StoragePort {
     );
     const hit = res.hits.hits[0];
     return hit ? this.toEntity(hit._source) : null;
+  }
+
+  /** One edge by id — parity with the other adapters, so `get <relation-id>` resolves everywhere. */
+  async getRelation(id: string, version?: number): Promise<Relation | null> {
+    await this.ready(this.idx(RELATIONS));
+    if (version !== undefined) {
+      const res = await this.req<{ _source?: RelationDoc; found?: boolean }>(
+        "GET",
+        `/${this.idx(RELATIONS)}/_doc/${encodeURIComponent(`${id}#${version}`)}`,
+      );
+      return res._source ? this.toRelation(res._source) : null;
+    }
+    const res = await this.req<SearchResponse<RelationDoc>>(
+      "POST",
+      `/${this.idx(RELATIONS)}/_search`,
+      {
+        size: 1,
+        query: { bool: { filter: [{ term: { id } }] } },
+        sort: [{ version: "desc" }],
+      },
+    );
+    const hit = res.hits.hits[0];
+    return hit ? this.toRelation(hit._source) : null;
   }
 
   /** Batch point read (v5.5) — one search instead of one per id. The stored `latest` flag is what

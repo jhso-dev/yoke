@@ -49,11 +49,11 @@ describe("lifecycle", () => {
 
     expect(v.status).toBe("verified");
     expect(v.version).toBe(2);
-    expect(v.last_confirmed).toBe(later);
+    expect(v.last_confirmed).toBe(new Date(later).toISOString());
     expect(v.provenance).toEqual({
       actor: "alice",
       origin: "lifecycle",
-      occurred_at: later,
+      occurred_at: new Date(later).toISOString(),
     });
     // History preserved: v1, which was a draft, is still queryable.
     const v1 = await port.getEntity(id, 1);
@@ -294,8 +294,19 @@ describe("downstreamOf", () => {
     const dependent = await addFact("rests on both");
     await derive(dependent, a);
     await derive(dependent, b);
-    // A hand-filed self-edge reaches storage like any other relation (the front tier refuses to make one).
-    await derive(a, a);
+    // Written straight through the port: the gate refuses a self-edge now, and a row from before that
+    // guard is what this check exists for.
+    await port.putRelation({
+      id: "self-derive",
+      type: "derived_from",
+      from: a,
+      to: a,
+      attributes: {},
+      status: "verified",
+      version: 1,
+      last_confirmed: now,
+      provenance: prov,
+    });
 
     expect((await downstreamOf(port, [a, b])).map((e) => e.id)).toEqual([
       dependent,
@@ -311,5 +322,140 @@ describe("downstreamOf", () => {
     expect(
       (await downstreamOf(port, [basis], "acme")).map((e) => e.id),
     ).toEqual([dependent]);
+  });
+});
+
+// `link` prints an id and the word `draft`, so the next thing tried is `verify <that id>`. The answer
+// was "cannot transition unknown entity" — the store denying a row it was holding.
+describe("an edge id is refused as an edge, not as a stranger", () => {
+  it("names the relation and why promotion does not apply", async () => {
+    const a = await addFact("one end");
+    const b = await addFact("the other end");
+    const { entity: edge } = await commit(
+      port,
+      ont,
+      { type: "relates_to", attributes: {}, from: a, to: b },
+      prov,
+      now,
+    );
+    await expect(verify(port, [edge.id], "admin", now)).rejects.toThrow(
+      /is a relation, and relations are not promoted/,
+    );
+  });
+
+  it("still says unknown for an id that is neither", async () => {
+    await expect(
+      verify(port, ["01ZZZZZZZZZZZZZZZZZZZZZZZZ"], "admin", now),
+    ).rejects.toThrow(/unknown entity/);
+  });
+});
+
+// The tenant boundary. Every READ route filtered `ns`; promotion and retirement did not, and RBAC only
+// ever asked "may you verify" and never "is this record yours". Measured on one database: a token
+// scoped `teamA:verify` promoted, read back the text of, and then retired a record belonging to teamB —
+// and since the audit row is written with the CALLER's namespace, teamB's own trail showed nothing.
+describe("a governance act stays inside the caller's namespace", () => {
+  /** A draft belonging to `ns`. */
+  async function draftIn(ns?: string): Promise<string> {
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "tenant knowledge" } },
+      prov,
+      now,
+      ns ? { ns } : undefined,
+    );
+    return entity.id;
+  }
+
+  it("refuses to verify another tenant's record", async () => {
+    const theirs = await draftIn("team-b");
+    await expect(
+      verify(port, [theirs], "a-verifier", now, "team-a"),
+    ).rejects.toThrow(/unknown entity/);
+    // Untouched: still the draft it was, still one version.
+    const after = await port.getEntity(theirs);
+    expect(after?.status).toBe("draft");
+    expect(after?.version).toBe(1);
+  });
+
+  it("refuses to retire another tenant's record", async () => {
+    const theirs = await draftIn("team-b");
+    await verify(port, [theirs], "b-verifier", now, "team-b");
+    await expect(
+      deprecate(port, [theirs], "a-verifier", now, "team-a"),
+    ).rejects.toThrow(/unknown entity/);
+    expect((await port.getEntity(theirs))?.status).toBe("verified");
+  });
+
+  // "exists, but not yours" would be an existence oracle: one tenant could enumerate another's ids by
+  // watching which refusals change wording. Reads already answer this way (a foreign id 404s), so the
+  // two agree — and the test pins the wording rather than leaving it to be "improved" later.
+  it("says unknown, not forbidden, so the refusal is not an existence oracle", async () => {
+    const theirs = await draftIn("team-b");
+    const foreign = await verify(port, [theirs], "a", now, "team-a").catch(
+      (e: Error) => e.message,
+    );
+    const absent = await verify(
+      port,
+      ["01ZZZZZZZZZZZZZZZZZZZZZZZZ"],
+      "a",
+      now,
+      "team-a",
+    ).catch((e: Error) => e.message);
+    expect(foreign).toMatch(/unknown entity/);
+    expect(absent).toMatch(/unknown entity/);
+  });
+
+  it("refuses the WHOLE batch when one id is another tenant's", async () => {
+    const mine = await draftIn("team-a");
+    const theirs = await draftIn("team-b");
+    await expect(
+      verify(port, [mine, theirs], "a-verifier", now, "team-a"),
+    ).rejects.toThrow(/unknown entity/);
+    // The existing validate-then-write rule holds across the ns filter too: a half-applied governance
+    // action is worse than a refused one.
+    expect((await port.getEntity(mine))?.status).toBe("draft");
+  });
+
+  it("still promotes a record in the caller's own namespace", async () => {
+    const mine = await draftIn("team-a");
+    const [done] = await verify(port, [mine], "a-verifier", now, "team-a");
+    expect(done.status).toBe("verified");
+    expect(done.ns).toBe("team-a");
+  });
+
+  it("treats the default namespace as its own tenant", async () => {
+    const shared = await draftIn(undefined);
+    await expect(
+      verify(port, [shared], "a-verifier", now, "team-a"),
+    ).rejects.toThrow(/unknown entity/);
+    const [done] = await verify(port, [shared], "admin", now);
+    expect(done.status).toBe("verified");
+  });
+});
+
+describe("retiring what is already retired records nothing", () => {
+  it("does not append a second identical deprecated version", async () => {
+    // `deprecate X` twice wrote v3 and v4, identical but for the clock — and `history` then showed two
+    // retirements of one record, which also made the reason ambiguous since `retirementOf` takes the LAST
+    // deprecate row and both versions rendered it.
+    const f = await addFact("we deploy on fridays");
+    await verify(port, [f], "admin", now);
+    const [first] = await deprecate(port, [f], "admin", now);
+    expect(first.version).toBe(3);
+    const [again] = await deprecate(port, [f], "admin", "2026-07-13T00:00:00Z");
+    expect(again.version).toBe(3);
+    expect((await port.getEntity(f))?.version).toBe(3);
+  });
+
+  it("still re-confirms an already-verified record, because that is what re-confirmation is", async () => {
+    // Deliberately not deduplicated: moving `last_confirmed` is the entire content of a re-confirmation,
+    // and it is the act the stale queue asks for on a record whose stored status is already `verified`.
+    const f = await addFact("the gateway retries twice");
+    await verify(port, [f], "admin", now);
+    const [again] = await verify(port, [f], "admin", "2026-07-14T00:00:00Z");
+    expect(again.version).toBe(3);
+    expect(again.last_confirmed).toBe("2026-07-14T00:00:00.000Z");
   });
 });

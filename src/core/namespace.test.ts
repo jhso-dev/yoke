@@ -73,7 +73,9 @@ describe("inject isolation", () => {
         now,
         { ns },
       );
-      await verify(port, [entity.id], "alice", now);
+      // The tenant is passed, because `verify` is namespace-scoped: a record in tenant-a is not
+      // promotable from the default namespace, which is the whole point of the isolation this asserts.
+      await verify(port, [entity.id], "alice", now, ns);
       return entity.id;
     };
     const idA = await mk("tenant-a");

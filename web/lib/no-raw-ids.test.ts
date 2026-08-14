@@ -29,6 +29,9 @@ const files = [join(webRoot, "app"), join(webRoot, "components")]
 /** Files allowed to touch a raw value, because turning it into something readable IS their job. */
 const OWNERS = {
   actor: ["components/Actor.tsx"],
+  // The WRITER off the authored_by edge (injected/persona rows) — a person id, same defect class as
+  // `actor`, and rendered by the same component (which shows the name and keeps the id on hover).
+  author: ["components/Actor.tsx"],
   citation: ["components/Citation.tsx"],
   instant: ["components/Instant.tsx"],
 };
@@ -53,6 +56,24 @@ const INSTANTS = ["occurred_at", "last_confirmed", "at"];
  */
 const renderedInText = (field: string) =>
   new RegExp(`(?<![=$])\\{(?!t\\.|tr\\.)[\\w.]*\\.${field}\\}`);
+
+/**
+ * The same field passed RAW as a direct argument of a dictionary function in a text position —
+ * `{t.retire.retiredBy(d.retirement.actor, …)}`.
+ *
+ * `renderedInText` cannot see this: it excludes any brace starting `{t.`, so the raw id sitting INSIDE
+ * the sentence the dictionary builds was invisible, and a bare ULID rendered in "Retired by <id> …".
+ * The resolved sentence still reads through the dictionary — the fix is to hand it a name (an <Actor>,
+ * or `x.actorName ?? …`), not the id.
+ *
+ * Two contexts stay excluded, and both are correct. A PROP is not text — `title={t.chrome.authedAs(
+ * meta.actor)}` keeps the id on hover, which is the rule, so the leading `(?<![=$])` skips it. And a
+ * value WRAPPED in a resolver — `t.retire.retiredBy(localTime(d.retirement.at))` — is not raw: `[^()]*`
+ * stops at the resolver's own `(`, so only a field that is a DIRECT argument of the dictionary call
+ * matches.
+ */
+const inDictCall = (field: string) =>
+  new RegExp(`(?<![=$])\\{(?:t|tr)\\.[\\w.]+\\([^()]*\\.${field}\\b`);
 
 describe("no raw ids in human-facing renders", () => {
   it("scans a non-trivial number of screens", () => {
@@ -99,6 +120,29 @@ describe("no raw ids in human-facing renders", () => {
     expect("<th>{t.entity.citation}</th>").not.toMatch(
       renderedInText("citation"),
     );
+    // A raw id passed straight into a dictionary function — the shape that shipped a ULID inside
+    // "Retired by <id> …", which `renderedInText` skipped because the brace starts `{t.`.
+    expect("{t.retire.retiredBy(d.retirement.actor, when)}").toMatch(
+      inDictCall("actor"),
+    );
+    // A name handed to the same function is fine; only the raw id field is caught.
+    expect("{t.retire.retiredBy(when)}").not.toMatch(inDictCall("actor"));
+    // A resolver-wrapped value is not raw — the id/instant never reaches the screen.
+    expect("{t.retire.retiredBy(localTime(d.retirement.at))}").not.toMatch(
+      inDictCall("at"),
+    );
+    // A prop keeps the id on hover, which is the rule, not the defect.
+    expect("title={t.chrome.authedAs(meta.actor)}").not.toMatch(
+      inDictCall("actor"),
+    );
+    // `author` is a person id too — `{r.author}` in text would ship a raw ULID, the same defect one
+    // field over. Caught in text, allowed as a prop into <Actor> (which resolves it for reading).
+    expect('<td className="mono">{r.author}</td>').toMatch(
+      renderedInText("author"),
+    );
+    expect("<Actor author={r.author} authorName={r.authorName} />").not.toMatch(
+      renderedInText("author"),
+    );
     // ...and the exemption is narrow: a record still cannot be rendered raw.
     expect("<td>{t.actor}</td>").not.toMatch(renderedInText("actor"));
     expect("<td>{event.actor}</td>").toMatch(renderedInText("actor"));
@@ -116,6 +160,26 @@ describe("no raw ids in human-facing renders", () => {
         f.text,
         `${f.path}: render the actor with <Actor actor={…} actorName={…} />`,
       ).not.toMatch(renderedInText("actor"));
+      // …or handed raw into a dictionary sentence — resolve it first (an <Actor>, or actorName ?? id).
+      expect(
+        f.text,
+        `${f.path}: resolve the actor before passing it to a dictionary function`,
+      ).not.toMatch(inDictCall("actor"));
+    }
+  });
+
+  it("renders an author only through <Actor>", () => {
+    for (const f of files) {
+      if (OWNERS.author.includes(f.path)) continue;
+      // A JSX text position holding .author — `{r.author}` — is a raw person id, same as .actor.
+      expect(
+        f.text,
+        `${f.path}: render the author with <Actor author={…} authorName={…} />`,
+      ).not.toMatch(renderedInText("author"));
+      expect(
+        f.text,
+        `${f.path}: resolve the author before passing it to a dictionary function`,
+      ).not.toMatch(inDictCall("author"));
     }
   });
 
@@ -126,6 +190,10 @@ describe("no raw ids in human-facing renders", () => {
         f.text,
         `${f.path}: render the source with <Citation row={…} />`,
       ).not.toMatch(renderedInText("citation"));
+      expect(
+        f.text,
+        `${f.path}: resolve the citation before passing it to a dictionary function`,
+      ).not.toMatch(inDictCall("citation"));
     }
   });
 
@@ -143,6 +211,11 @@ describe("no raw ids in human-facing renders", () => {
           f.text,
           `${f.path}: render ${field} with <Instant iso={…} /> — the viewer's zone, ISO kept on hover`,
         ).not.toMatch(renderedInText(field));
+        // A raw instant handed straight to a dictionary sentence — format it (localTime) first.
+        expect(
+          f.text,
+          `${f.path}: format ${field} (localTime) before passing it to a dictionary function`,
+        ).not.toMatch(inDictCall(field));
       }
     }
     expect("const after = cursors.at(-1);").not.toMatch(renderedInText("at"));

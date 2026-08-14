@@ -200,6 +200,19 @@ describe("connect rdb CLI (sqlite source)", () => {
 
     try {
       expect(await runCli(["init", "--db", targetDb])).toBe(0);
+      // The FK's relation type has to be declared, exactly as the in-process test above says: it is not
+      // a seed type. This test never declared it, so the relation pass failed with
+      // `unknown type: reports_to` on every run and the FK edge this fixture exists to exercise was never
+      // created — invisible because `errors` was computed and discarded. Surfacing that count is what
+      // made it visible.
+      const relPath = join(dir, "reports_to.json");
+      writeFileSync(
+        relPath,
+        JSON.stringify({ name: "reports_to", kind: "relation", attrs: {} }),
+      );
+      expect(
+        await runCli(["ontology", "add-type", relPath, "--db", targetDb]),
+      ).toBe(0);
       expect(
         await runCli([
           "connect",
@@ -217,7 +230,22 @@ describe("connect rdb CLI (sqlite source)", () => {
         added: 2,
         updated: 0,
         skipped: 0,
+        // Zero, and asserted: this count was thrown away, so a sync in which every row failed was
+        // indistinguishable from a no-op success.
+        errors: 0,
       });
+
+      // The FK edge, which is the whole reason the mapping declares `relations` — and which this test
+      // did not check, so it went missing for as long as `errors` went unread.
+      const check = new SqliteStorage(targetDb);
+      await check.init();
+      const people = (await check.listEntities({ type: "person" })).items;
+      const bob = people.find((p) => p.attributes.name === "Bob");
+      const ada = people.find((p) => p.attributes.name === "Ada");
+      const edges = await check.neighbors(bob?.id ?? "", "reports_to", "out");
+      expect(edges).toHaveLength(1);
+      expect(edges[0].to).toBe(ada?.id);
+      check.close();
 
       // Re-run → all skipped.
       expect(

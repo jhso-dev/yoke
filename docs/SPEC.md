@@ -450,6 +450,17 @@ and the trail is per-client local sqlite rather than knowledge, so it is not tra
   stale/deprecated are **always excluded** regardless of options (strict on injection —
   we don't inject a decay signal. Viewing stale is the job of review/CLI)
 - Returns: a list of entities, each with its provenance (an auditable citation format)
+- **The citation names the author, and the confirmer when they differ.**
+  `[type:id@vN] author (confirmed by promoter), occurred_at` — collapsing to
+  `[type:id@vN] actor, occurred_at` when one actor did both, which is every single-user install.
+  `verify` appends a version whose provenance IS the promotion, so the plain form named whoever
+  approved the knowledge rather than whoever wrote it; the author comes off the `authored_by` edge,
+  as the overview clause below already required. Both are kept: who vouched for a record is the
+  other half of what makes a citation auditable.
+- **An injected item carries what it contradicts.** `conflicts_with` marks both sides and withholds
+  neither (contradictions are surfaced, never auto-resolved). A record with an incoming `supersedes`
+  edge is withheld and counted under that reason instead — a supersession is settled, and the
+  replacement answers on its own merits.
 
 ### Hybrid retrieval (v5.3 — the vector half of "falls back to FTS")
 
@@ -827,11 +838,16 @@ Rules that hold for every route:
   change what they must go and ask for, and saying it would mean threading the principal into the
   handler for nothing. The body was `{"error":"forbidden"}` until a read-only token was actually
   pointed at `POST /api/verify` and the refusal turned out to say nothing a person could act on.
-- **Any route that returns knowledge attributes writes an audit row.** A preview is an
-  injection: reading through the browser leaves the same trail as reading through MCP
-  (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing
-  routes that return only a truncated summary do not, but a route that returns full
-  attributes and cannot be audited must not exist.
+- **Any route that returns knowledge attributes writes an audit row — best-effort, after the
+  answer.** A preview is an injection: reading through the browser leaves the same trail as reading
+  through MCP (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing
+  routes that return only a truncated summary do not. Every route that returns full attributes MUST
+  attempt the row, but the answer is emitted FIRST and the row written after (68de12e): under lock or
+  IO contention — a concurrent writer holding the write lock, `database is locked` — the write may
+  fail, and a failed trail row is announced on stderr and dropped rather than turned into a failed
+  query. WAL's guarantee that readers never block is not given away for a secondary row; a dropped
+  row is the right thing to lose under contention. This holds across all three front adapters (CLI,
+  MCP, web): the audit is a record OF the read, never a gate ON it.
 
 - **The injection preview is the real `inject()`.** Not a re-implementation with similar
   filters — byte-for-byte what an agent would receive, so the screen cannot drift from
@@ -978,9 +994,27 @@ A persona is the person-anchored reading of an anchored injection — not a seco
   never what merely touches them (the collaboration they work on, whoever filed their person record).
 - Read **strictly**, and this is the one place the two entry points differ: a collaboration anchor
   unions in org-wide query matches, while a persona's `query` filters the person's *own* records.
-  Presenting knowledge someone did not author as their judgment would be impersonation.
+  Presenting knowledge someone did not author as their judgment would be impersonation. The filter
+  matches attribute **values** only: including the keys made the words a type declares (`statement`,
+  `rationale`) match every record of that type, which silently disabled the filter.
+- A **retired anchor is refused** (`NotAPerson`). The document is a derivative regenerated on every
+  call, so deprecating the person is the org's only way to stop producing it — and it is enforced in
+  core rather than per surface, since every document-producing path must honour it.
 - Output: decisions vs facts (`classifyPersona`), the rendering shape only. Filtering already
-  happened in `inject`.
+  happened in `inject` — and each side is the `InjectItem`, not the bare entity, so what injection
+  computed *about* a record survives to the surfaces:
+  - **contradictions are marked, never withheld** (KNOWLEDGE-POLICY: surfaced, never auto-resolved),
+    on all three surfaces — both sides of a live `conflicts_with` otherwise export as settled
+    guiding principles;
+  - **authorship comes off the edge**, so the citation names the author with the promoter as who
+    confirmed it (the rule at "Global aggregation" below), never the verifier alone;
+  - **what was withheld is stated** — an empty persona and a person whose every record is awaiting
+    review are different answers, and "no recorded knowledge" is false for the second. Counted over
+    the person, not over `query` (core returns counts, not ids), and `structural` is excluded because
+    on this anchor it is the work the person *started*, which is never their judgment at any status.
+- The identity union (`same_as`) is stated with **names beside ids** and marked as an **unreviewed
+  claim**: no path promotes a relation, so the one input that adds a second person's judgment under
+  this name can never have passed governance.
 
 Because authorship is a graph edge rather than a provenance lookup outside the storage contract,
 persona works on every conformant backend (sqlite, sharded, opensearch, postgres).
@@ -1012,6 +1046,14 @@ asked which rows are covered; `putEmbedding` is keyed by `id`, so re-running is 
 
 **Fallback path — SKILL.md export** (`yoke persona <person> --out`): an offline snapshot for environments with no MCP connection. frontmatter (name/description) + a citation list + a "no answers without a citation" instruction. The file records its generation time and the source knowledge versions so a stale snapshot can be identified.
 
+The person's `name` is **untrusted input to this file**, and the file goes into someone's prompt. It
+arrives from outside the database (an RDB read-mapping over `employees.name`, an OIDC claim), and a
+name carrying line breaks added YAML keys of its own — `allowed-tools: Bash(curl:*)` — and prose above
+the guardrail. `safeName` guards the file NAME; the contents are guarded by folding the name onto one
+line (control and format characters removed, length-capped) and emitting the frontmatter value as a
+quoted scalar. Hostile text survives as text, which is what the document is for; it never becomes
+structure.
+
 **Identifying one.** `yoke persona --check <SKILL.md>` re-reads the `Source knowledge` line and
 reports each source against the store as it is *now*:
 
@@ -1031,6 +1073,10 @@ reports each source against the store as it is *now*:
   read them.
 - Parsing is the inverse of `renderPersonaSkill` and lives beside it, asserted by a render → parse
   round trip. A format the writer and reader disagree about is the failure mode of every snapshot.
+- **Counted against the number the header declares**, not against the tokens that parsed: a header
+  saying three over a list of one was reported as "1 of 1 sources moved", which is the summary
+  measuring itself. Sources the header counts and the list does not name are `unlisted`, and they
+  fail the check like an unreadable one.
 - It reports; it does not regenerate. Regeneration is `yoke persona <person>`, and choosing when to
   re-export a file that is already in someone's prompt is not a decision a checker should take.
 

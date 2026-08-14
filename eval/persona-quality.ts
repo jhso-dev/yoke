@@ -176,7 +176,9 @@ async function run() {
   // ---- Run the persona, whole and per-topic. ----
   const whole = await personaQuery(store, ontology, alice, NOW);
   const wholeIds = new Set(
-    [...whole.decisions, ...whole.facts].map((e) => e.id),
+    // `.entity.id`: personaQuery returns InjectItems — the record plus what injection computed ABOUT
+    // it (its author, what it contradicts), which the persona surfaces now render.
+    [...whole.decisions, ...whole.facts].map((i) => i.entity.id),
   );
 
   const leaked = (ids: string[]) => ids.filter((id) => wholeIds.has(id));
@@ -198,7 +200,7 @@ async function run() {
     const q = await personaQuery(store, ontology, alice, NOW, {
       query: TOPICS[i],
     });
-    const ids = new Set([...q.decisions, ...q.facts].map((e) => e.id));
+    const ids = new Set([...q.decisions, ...q.facts].map((i) => i.entity.id));
     if (ids.size === 1 && ids.has(gold[i])) queryHits++;
   }
 

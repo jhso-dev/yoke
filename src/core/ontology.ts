@@ -65,6 +65,24 @@ export type TypeDef = {
   symmetric?: boolean;
 };
 
+/**
+ * Whether a required attribute has no value.
+ *
+ * `""` and `[]` are absent, not present-and-empty: required means a value a reader can use, and an
+ * empty string satisfied nothing while passing the check — `--attr statement=""` committed a fact
+ * whose knowledge was the empty string, one keystroke away from the rejection it had just been given.
+ * `false` and `0` are values and stay values.
+ */
+function isAbsent(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  // Trimmed, not just empty. `--attr statement=""` was already refused; `--attr statement="   "` was
+  // accepted and produced a record whose knowledge is three spaces — it rendered as a blank cell in the
+  // review queue, a blank link text, an `aria-label` of "Select " and nothing, and an unlabelled node in
+  // the graph. Whitespace is not a value a reader can use, which is what `required` means.
+  if (typeof value === "string" && value.trim() === "") return true;
+  return Array.isArray(value) && value.length === 0;
+}
+
 /** Whether the actual value matches AttrSpec.type. */
 function matchesType(spec: AttrSpec["type"], value: unknown): boolean {
   switch (spec) {
@@ -79,32 +97,293 @@ function matchesType(spec: AttrSpec["type"], value: unknown): boolean {
   }
 }
 
+const ATTR_TYPES: ReadonlyArray<AttrSpec["type"]> = [
+  "string",
+  "number",
+  "boolean",
+  "string[]",
+];
+
+/**
+ * Validate a type DEFINITION before it is stored. Returns a reason, or null when it is well formed.
+ *
+ * `add-type` is the one write that does not pass the commit gate — it changes the rules the gate applies
+ * — and it validated `name` and `kind` and nothing else. Everything below was accepted:
+ *
+ *   {"name":"junk"}                          → saved. `ontology list` then throws
+ *                                              "Cannot convert undefined or null to object" for EVERY
+ *                                              type in the database, and `yoke add junk` throws the
+ *                                              same. There is no `remove-type`, so the database cannot
+ *                                              be repaired from the CLI at all.
+ *   {"kind":"wormhole"}                      → saved. Neither entity nor relation; `add` accepts it.
+ *   {"attrs":"nope"}                         → saved. `Object.entries("nope")` yields the string's
+ *                                              indices, so the type renders four attributes named
+ *                                              0, 1, 2, 3.
+ *   {"ttl_days":"soon"} / {"ttl_days":-30}    → saved. `last_confirmed + "soon" * DAY_MS` is NaN, so
+ *                                              `isFresh` is permanently false: a human-verified record
+ *                                              is withheld from injection FOREVER and every surface
+ *                                              says only "past its freshness window".
+ *   {"attrs":{"x":{"type":"datetime"}}}       → saved. No value can ever satisfy it.
+ *   {"name":"fact","kind":"relation"}         → saved, flipping a populated entity type into a relation.
+ *
+ * The `ttl_days` cases are the ones that cost knowledge rather than crashing: they are silent, permanent,
+ * and indistinguishable from a TTL that has genuinely elapsed.
+ *
+ * A kind flip on a type that already has rows is refused by the callers, which are the ones that can
+ * count them — this function judges the definition alone.
+ */
+/**
+ * Every key a type definition may carry. A definition is REJECTED for anything else.
+ *
+ * The validator inspected only the keys it knew, which makes it a spell-checker for its own
+ * vocabulary: `{"name":"policy","kind":"entity","attrs":{…},"ttl_dayz":30}` was accepted and listed as
+ * `ttl=∞`. The author asked for a 30-day expiry, got no expiry, and was told "saved type: policy" —
+ * the same shape of silent wrong behaviour this function was written to stop, one typo further out.
+ * Unknown keys are refused rather than ignored because an ignored key is indistinguishable from an
+ * applied one at every surface afterwards.
+ */
+const TYPE_DEF_KEYS = [
+  "name",
+  "kind",
+  "attrs",
+  "ttl_days",
+  "membership",
+  "structural",
+  "symmetric",
+] as const;
+
+export function validateTypeDef(def: unknown): string | null {
+  if (typeof def !== "object" || def === null || Array.isArray(def))
+    return "a type definition must be a JSON object";
+  const d = def as Record<string, unknown>;
+  const unknown = Object.keys(d).filter(
+    (k) => !(TYPE_DEF_KEYS as readonly string[]).includes(k),
+  );
+  if (unknown.length > 0)
+    return `unknown field(s): ${unknown.join(", ")} — a type definition takes ${TYPE_DEF_KEYS.join(", ")}`;
+  if (typeof d.name !== "string" || d.name.trim() === "")
+    return "name must be a non-empty string";
+  // Refused, not silently trimmed or slugified: the name is an identity every stored row carries, and
+  // saving something other than what was written is its own surprise the next time someone greps.
+  //
+  // Whitespace makes an invisible twin — `" fact"` listed directly under `fact`, indistinguishable to
+  // a reader, and `list --type fact` never finds its records. A colon collides with the RBAC scope
+  // grammar (`ns:type:action`, rbac.ts): `team:note` makes `teamA:team:note:read` four segments, which
+  // `parseScope` refuses, so that type can never be granted to anyone. It fails closed, and silently —
+  // the deployment where it matters is the one where nobody is reading this file.
+  if (d.name !== d.name.trim())
+    return `name cannot start or end with whitespace (got ${JSON.stringify(d.name)})`;
+  if (/[\s:]/.test(d.name))
+    return `name cannot contain spaces or ":" (got ${JSON.stringify(d.name)}) — ":" separates the segments of an access scope, and a type carrying one can never be granted`;
+  if (d.kind !== "entity" && d.kind !== "relation")
+    return `kind must be "entity" or "relation" (got ${JSON.stringify(d.kind)})`;
+  if (typeof d.attrs !== "object" || d.attrs === null || Array.isArray(d.attrs))
+    return "attrs must be an object of attribute name → { type, required? }";
+  for (const [key, spec] of Object.entries(
+    d.attrs as Record<string, unknown>,
+  )) {
+    if (key.trim() === "") return "an attribute name cannot be empty";
+    if (typeof spec !== "object" || spec === null || Array.isArray(spec))
+      return `attribute ${key} must be { type, required? }`;
+    const s = spec as Record<string, unknown>;
+    if (!ATTR_TYPES.includes(s.type as AttrSpec["type"]))
+      return `attribute ${key}: type must be one of ${ATTR_TYPES.join(", ")} (got ${JSON.stringify(s.type)})`;
+    if (s.required !== undefined && typeof s.required !== "boolean")
+      return `attribute ${key}: required must be true or false`;
+  }
+  if (d.ttl_days !== undefined) {
+    if (
+      typeof d.ttl_days !== "number" ||
+      !Number.isFinite(d.ttl_days) ||
+      d.ttl_days < 0 ||
+      !Number.isInteger(d.ttl_days)
+    )
+      return `ttl_days must be a whole number of days, 0 or more (got ${JSON.stringify(d.ttl_days)}) — omit it for no expiry`;
+  }
+  for (const flag of ["membership", "structural", "symmetric"] as const)
+    if (d[flag] !== undefined && typeof d[flag] !== "boolean")
+      return `${flag} must be true or false`;
+  // Relation-only and entity-only flags, so a definition cannot claim behaviour its kind never reads.
+  if (d.kind === "entity" && (d.membership || d.symmetric))
+    return "membership and symmetric describe relation types, not entity types";
+  if (d.kind === "relation" && d.structural)
+    return "structural describes entity types, not relation types";
+  return null;
+}
+
+/**
+ * May `name`'s kind be changed from `prior` to `next`? Returns a reason, or null.
+ *
+ * A kind flip rewrites what the gate demands of a type that already has meaning. `{"name":"fact",
+ * "kind":"relation"}` was accepted: stored facts kept being injected as entities while `yoke add fact`
+ * started being refused as a relation needing `from` and `to`, and there is no `remove-type` to undo it.
+ *
+ * `rows` is passed in because counting them belongs to the store, not here.
+ *
+ * Seeded types are refused whatever their row count: they are part of the v1 contract every surface and
+ * every test is written against, and an empty `fact` table today is not permission to redefine `fact`.
+ * A type the caller declared themselves and has not used yet is theirs to correct — which matters
+ * because without `remove-type` a refusal there would trap them with an unusable declaration.
+ */
+export function kindChangeRefusal(
+  name: string,
+  prior: "entity" | "relation",
+  next: "entity" | "relation",
+  rows: number,
+): string | null {
+  if (prior === next) return null;
+  if (seedOntology().some((t) => t.name === name))
+    return `${name} is one of the seeded types and every surface is written against it being a ${prior} — declare a new type instead of redefining this one`;
+  if (rows > 0)
+    return `${name} is already declared as ${prior} and has records — changing its kind would leave them unreadable`;
+  return null;
+}
+
+/**
+ * Relation type names core itself reads. Renaming one is a code change disguised as a data change.
+ *
+ * Every entry is a name that appears in a `neighbors(...)` call in core: `authored_by` (persona's anchor,
+ * the overview's author ranking, backfill), `same_as` (identitySet), `derived_from` (downstreamOf),
+ * `conflicts_with` (the gate's stage 4 and injection's contradiction marker), `supersedes` (injection's
+ * supersession filter), `relates_to` (the gate's `attachTo`).
+ *
+ * `membership` and `structural` are NOT here, deliberately: those are ontology FLAGS, so an org renames
+ * `works_on` to `assigned_to`, marks it, and core never needed the name.
+ */
+const CORE_ANCHORED = [
+  "authored_by",
+  "same_as",
+  "derived_from",
+  "conflicts_with",
+  "supersedes",
+  "relates_to",
+] as const;
+
+/**
+ * May `from` be renamed to `to`? Returns a reason, or null.
+ *
+ * Rewriting a type name rewrites rows in place — deliberately, and SPEC records that history cannot
+ * capture it — so every refusal here is about damage nothing can undo. Four adapters implement
+ * `renameType`, which is exactly why the rules live in core and the front tier supplies the counts.
+ *
+ * Each rule is one measured failure:
+ *
+ * - `rename-type authored_by wrote` exited 0 and reported 15 rows rewritten. `yoke persona <someone>`
+ *   then wrote a complete SKILL.md containing nothing ("source knowledge: 0", exit 0), the overview's
+ *   author ranking went empty, and `backfill` died on `unknown type: authored_by`.
+ * - `rename-type fact decision` exited 0, merged four facts into the decision type, and DELETED the
+ *   `fact` declaration — after which `yoke add fact` was an unknown type, `yoke init` said "already
+ *   initialized" so it could not be re-seeded, and the persona export rendered `### undefined` /
+ *   `- Rationale: undefined` for records missing the target type's attributes. Nothing records WHICH
+ *   ids were rewritten, so the audit row cannot reverse it.
+ * - `--ns team-b rename-type fact factoid` exited 0 and half-applied: the tenant's rows became
+ *   `factoid`, a type declared nowhere, while `ontology list` still showed `fact`. `isFresh` returns
+ *   true for a type absent from the ontology, so a record that had been correctly withheld as stale
+ *   started being injected as current — an exit-0 command that broke invariant 5.
+ */
+export function renameRefusal(
+  from: string,
+  to: string,
+  opts: {
+    /** Rows already carrying `to` in this namespace (0 or 1 is enough — the caller may cap the read). */
+    toRows: number;
+    /** Whether `to` is declared in the effective ontology for this namespace. */
+    toDeclared: boolean;
+    /** The namespace being renamed in. null = the default shared one. */
+    ns: string | null;
+    /** Whether `from`'s only declaration is the shared one, so a tenant rename would not rewrite it. */
+    fromSharedOnly: boolean;
+  },
+): string | null {
+  if (from === to) return `${from} and ${to} are the same name`;
+  if ((CORE_ANCHORED as readonly string[]).includes(from))
+    return `${from} is a relation core reads by name (persona, identity, derivation, conflicts, supersession) — renaming it would silently empty those answers`;
+  // The same list guards the DESTINATION, and it was checked only as a source. Renaming a type AWAY
+  // from a name core reads empties an answer, which is bad and visible; renaming a type ONTO one fills
+  // an answer with edges that never meant it, which is worse and invisible. Measured end to end:
+  // `rename-type notes supersedes` turned every `notes` edge into a supersession, and the next
+  // `yoke inject` withheld a verified record — "1 replaced by newer knowledge" — for a replacement
+  // nobody had recorded. One rename, and knowledge left every answer with no trace but an audit line.
+  if ((CORE_ANCHORED as readonly string[]).includes(to))
+    return `${to} is a relation core acts on by name (persona, identity, derivation, conflicts, supersession) — renaming onto it would make every ${from} edge mean something it was never filed to mean`;
+  if (opts.toDeclared && opts.toRows > 0)
+    return `${to} already exists and has records: this would merge two types and drop the ${from} declaration, and nothing records which rows were rewritten so it could not be undone`;
+  if (opts.ns !== null && opts.fromSharedOnly && !opts.toDeclared)
+    return `${from} is declared in the shared ontology, not in ${opts.ns}, so renaming it here would leave this tenant's rows on a type declared nowhere — and an undeclared type has no TTL, so stale records would start being injected as current. Declare ${to} in ${opts.ns} first.`;
+  return null;
+}
+
 export function validateInput(
   ontology: TypeDef[],
   input: EntityInput | RelationInput,
 ): { ok: true } | { ok: false; reason: string } {
   const def = ontology.find((t) => t.name === input.type);
-  if (!def) return { ok: false, reason: `unknown type: ${input.type}` };
+  // The valid names travel with the refusal. `yoke ontology list` answers this for a person, but an agent
+  // over MCP has no equivalent — the commit tool's own description says "rejected if the type is not in
+  // the ontology" and named no way to read it, so a typo'd type left the agent guessing. The ontology is
+  // the argument to this function; withholding it was a choice, not a limitation. Split by kind because a
+  // relation is not a substitute for an entity.
+  if (!def) {
+    const names = (kind: TypeDef["kind"]) =>
+      ontology
+        .filter((t) => t.kind === kind)
+        .map((t) => t.name)
+        .join(", ") || "(none)";
+    return {
+      ok: false,
+      reason:
+        `unknown type: ${input.type}\n` +
+        `entity types: ${names("entity")}\n` +
+        `relation types: ${names("relation")}`,
+    };
+  }
 
+  // A kind mismatch is reported as itself. Without this the checks below answered a question nobody
+  // asked: recording an entity type as a relation ("<person> decision <id>") reached the attribute
+  // loop and came back "missing required attribute: conclusion", so the fix it named — supply a
+  // conclusion — could not work, and the caller retried a wrong command with more arguments. An
+  // entity type used as a relation is not an under-specified relation, it is the wrong type.
   const isRelation = "from" in input;
-  if (def.kind === "relation" || isRelation) {
+  if (def.kind === "relation" && !isRelation)
+    return {
+      ok: false,
+      reason: `${input.type} is a relation type: it needs a from and a to`,
+    };
+  if (def.kind === "entity" && isRelation)
+    return {
+      ok: false,
+      reason: `${input.type} is an entity type: it cannot be recorded as a relation`,
+    };
+  if (isRelation) {
     const r = input as RelationInput;
     if (!r.from)
       return { ok: false, reason: "relation requires non-empty from" };
     if (!r.to) return { ok: false, reason: "relation requires non-empty to" };
   }
 
+  // Every failure in one pass, in declared order. One-at-a-time reporting made the required set
+  // discoverable only by committing repeatedly: a `decision` took three rejections to file, and each
+  // one named a single attribute, so the caller learned the shape of the type from its refusals.
+  // Missing is reported before wrong-type because an absent attribute is the commoner mistake and
+  // reporting both at once would bury it.
+  const missing: string[] = [];
+  const wrongType: string[] = [];
   for (const [key, spec] of Object.entries(def.attrs)) {
     const value = input.attributes[key];
-    if (value === undefined || value === null) {
-      if (spec.required)
-        return { ok: false, reason: `missing required attribute: ${key}` };
+    if (isAbsent(value)) {
+      if (spec.required) missing.push(key);
       continue;
     }
-    if (!matchesType(spec.type, value)) {
-      return { ok: false, reason: `attribute ${key} must be ${spec.type}` };
-    }
+    if (!matchesType(spec.type, value))
+      wrongType.push(`${key} must be ${spec.type}`);
   }
+  if (missing.length > 0)
+    return {
+      ok: false,
+      reason: `missing required attribute${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`,
+    };
+  if (wrongType.length > 0)
+    return { ok: false, reason: `attribute ${wrongType.join("; ")}` };
   return { ok: true };
 }
 
