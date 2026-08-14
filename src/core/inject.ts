@@ -287,8 +287,9 @@ export async function inject(
     embedder?: Embedder;
     /** How much a keyword rank counts against a vector rank in hybrid fusion. Default
      * KEYWORD_WEIGHT (0.1) — swept over eval/gold-set.json. The constant's own ceiling names this
-     * knob: when two corpora disagree the answer is a per-deployment setting, and PersonaMem is the
-     * measured disagreement (exact-phrase recall corpora want the keyword half weighted UP). */
+     * knob: when two corpora disagree the answer is a per-deployment setting, and that disagreement
+     * is measured — a corpus answered by exact-phrase recall wants the keyword half weighted UP,
+     * where one answered by paraphrase wants it down. */
     keywordWeight?: number;
   },
 ): Promise<InjectResult> {

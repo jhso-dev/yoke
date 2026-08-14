@@ -11,10 +11,10 @@
 //
 // Why it is worth doing. "A relation is knowledge in its own right" is in this project's own
 // terminology, and until now the only path that could produce one was a person typing `yoke link`.
-// Measured against PersonaMem, where 13 of 19 questions ask how a claim changed and why: yoke filed
-// both halves of a preference reversal — the enthusiasm and the "I stopped, because it got
-// repetitive" — as two unrelated facts, and the store held zero `conflicts_with`. The trajectory was
-// present and unsayable.
+// Measured on a corpus of preference histories, where most questions ask how a claim changed and
+// why: yoke filed both halves of a preference reversal — the enthusiasm and the "I stopped, because
+// it got repetitive" — as two unrelated facts, and the store held zero `conflicts_with`. The
+// trajectory was present and unsayable.
 
 import type { TypeDef } from "../core/ontology.js";
 import type { Entity } from "../core/types.js";

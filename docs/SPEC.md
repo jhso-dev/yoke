@@ -1182,10 +1182,11 @@ a language model, and the first that can produce a relation without a person typ
   without paying for extraction again (one corpus is hours to extract and minutes to relate), and it
   works on records from any connector rather than only material a model read.
 - **Why it exists at all.** "A relation is knowledge in its own right" is this document's own
-  terminology, yet every automatic path could produce only entities. Measured against PersonaMem,
-  where 13 of 19 questions ask how a claim changed and why: yoke filed both halves of a preference
-  reversal — the enthusiasm, and the "I stopped, because it got repetitive" — as two unrelated facts,
-  and the store held zero `conflicts_with`. The trajectory was present and unsayable.
+  terminology, yet every automatic path could produce only entities. Measured on a corpus of
+  preference histories, where most questions ask how a claim changed and why: yoke filed both halves
+  of a preference reversal — the enthusiasm, and the "I stopped, because it got repetitive" — as two
+  unrelated facts, and the store held zero `conflicts_with`. The trajectory was present and
+  unsayable.
 - **The menu is the ontology minus `membership`.** The same shape as the entity menu one flag over.
   `membership` already marks the edges this document says are not knowledge, and those are also the
   two with the worst failure mode: `same_as` merges two people on a guess.
