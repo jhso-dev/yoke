@@ -60,15 +60,21 @@ Memory layers retrieve passages and paste them in. yoke injects **records** — 
 decision with its rationale, a preference, a fact — already distilled, so every
 token you spend is a claim rather than the prose around one.
 
-Same corpus, same questions, same answering model:
+Measured against two retrieval baselines in one harness — same corpus, same
+questions, same answering model, 42 questions over two people:
 
-| | injected context | accuracy |
-|---|---|---|
-| passage retrieval | ~5.1k tokens | — |
-| **yoke** | **~1.5k tokens** | no penalty |
+| | injected context | accuracy | correct per 1k tokens |
+|---|---|---|---|
+| no memory | 0 | 47.6% | — |
+| **yoke** | **1.2k tokens** | 66.7% | **23.5** |
+| keyword chunks | 5.1k tokens | 61.9% | 5.1 |
+| dense + sparse hybrid, top-50 chunks | 22.8k tokens | 71.4% | 1.3 |
 
-**3.5× less context, and every record arrives with its citation** — which a
-pasted passage cannot do.
+**4.6× the answers per token of chunk retrieval, 18× that of the hybrid
+retriever** — which buys its 71.4% with a 22.8k-token injection, most of a
+small model's context window spent on one question.
+
+Every record also arrives with its citation, which a pasted passage cannot do.
 
 ## At a glance
 
@@ -78,7 +84,7 @@ pasted passage cannot do.
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
-| **Context cost** | Records, not passages: **~1.5k tokens against ~5.1k** for passage retrieval — same questions, same answering model, no accuracy penalty. |
+| **Context cost** | Records, not passages: **1.2k tokens against 5.1k** (chunk retrieval) and **22.8k** (dense+sparse hybrid) on the same questions and answering model — 4.6× and 18× the answers per token. |
 | **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
