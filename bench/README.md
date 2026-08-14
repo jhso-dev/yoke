@@ -261,6 +261,22 @@ without it (answers parse fine — it genuinely ignores the memory), and the 35b
 context but worse than the 4B dense model does. Any headline lift must name its answering model;
 comparing lifts across papers without that is comparing readers, not memories.
 
+A frontier reader makes it worse, and the mechanism is the metric's own shape. `gpt-5-mini` over the
+same two users: floor 24/42, yoke 25/42 — **lift ×1.04**, against the 4B model's ×1.40. It is not
+that the strong reader reads the memory badly; it is that it does not NEED it. On u2 the 4B model
+gains +7 from the memory (10 → 17) and gpt-5-mini gains +2 (14 → 16): four-option multiple choice
+lets a capable model reason out the most plausible option unaided, so the floor rises and the
+memory's marginal contribution shrinks. **Lift on an MCQ benchmark rewards a weak answerer.** Two
+consequences: never quote a lift without its reader, and treat any cross-system lift comparison
+(including ours against TencentDB's ×1.58) as unfounded unless both sides publish the reader AND
+how the floor was scored — this harness itself deflated the floor to 0% until `runner.py:215` was
+read.
+
+Per-user spread swamps reader choice. The same yoke, same config, measured per user: ×1.70 (u3,
+floor 10/28) down to ×0.93 (u4, floor 14/26 vs yoke 13/26 — the memory arm below the floor). Pooled
+lift moved ×1.40 (2 users, n=42) → ×1.50 (3, n=70) → ×1.32 (4, n=96) as users were added. A lift
+quoted without its user sample is noise wearing a decimal point.
+
 ### `yoke relate`: the 26b stalls, the fast model finds no supersedes
 
 `google/gemma-4-26b-a4b-qat` never returned on a relate group (two 300s timeouts on a ~1KB prompt;
