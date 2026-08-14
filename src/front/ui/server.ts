@@ -1221,13 +1221,8 @@ export function createUiHandler(
           });
           return;
         }
-        const { entity, duplicates, duplicateDetection } = await commit(
-          store,
-          ontology,
-          { type, attributes },
-          prov,
-          ts,
-          {
+        const { entity, duplicates, duplicateDetection, unrecorded } =
+          await commit(store, ontology, { type, attributes }, prov, ts, {
             embedder: deps.embedder,
             ns,
             // Capture-side linking, the same act `yoke add --scope` makes — so the browser path and
@@ -1236,8 +1231,7 @@ export function createUiHandler(
             ...(typeof body.scope === "string" && body.scope
               ? { attachTo: body.scope }
               : {}),
-          },
-        );
+          });
         // Duplicates travel with the response: the gate found them, and a form that discards them
         // is a form that helps someone create the thing they were warned about.
         //
@@ -1248,6 +1242,8 @@ export function createUiHandler(
           ...(await asRow()(entity)),
           duplicates: await rowsOf(duplicates),
           duplicateDetection,
+          // Durable record, partial commit — the screen must not render an unqualified success.
+          ...(unrecorded ? { unrecorded } : {}),
         });
         return;
       } catch (e) {

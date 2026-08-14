@@ -7,7 +7,7 @@ import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { CommitRejected, commit } from "./commit.js";
 import type { Embedder } from "./embedding.js";
 import { seedOntology } from "./ontology.js";
-import type { Provenance } from "./types.js";
+import type { Provenance, Relation } from "./types.js";
 
 const ont = seedOntology();
 const now = "2026-07-12T00:00:00Z";
@@ -664,5 +664,77 @@ describe("an instant means the same moment on every machine", () => {
       now,
     );
     expect(entity.provenance.occurred_at).toBe("2026-08-14T00:00:00.000Z");
+  });
+});
+
+describe("a record that is durable is never reported as rejected", () => {
+  /** A backend that stores entities but loses a chosen edge type mid-commit. */
+  class LosesEdges extends SqliteStorage {
+    constructor(private readonly losing: string) {
+      super(":memory:");
+    }
+    async putRelation(r: Relation): Promise<void> {
+      if (r.type === this.losing) throw new Error("backend went away");
+      return super.putRelation(r);
+    }
+  }
+
+  it("reports the authorship edge it could not write, and keeps the record", async () => {
+    // Stages 4/4b/4c write AFTER the entity is stored, and a storage failure in any of them used to
+    // propagate: the caller heard "commit failed" about a record that exists — the exact state
+    // `attachTo` was introduced to abolish, where a retrying agent doubles the corpus. Worse, a
+    // missing `authored_by` edge is invisible afterwards: the record never appears in a persona
+    // anchor, the overview's author ranking, or `identitySet`.
+    const port = new LosesEdges("authored_by");
+    await port.init();
+    const { entity, unrecorded } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "durable but partial" } },
+      prov,
+      now,
+    );
+    expect(unrecorded).toHaveLength(1);
+    expect(unrecorded?.[0]).toContain("authored_by");
+    expect(await port.getEntity(entity.id)).not.toBeNull();
+    port.close();
+  });
+
+  it("reports an attachment it could not file, rather than throwing over a stored record", async () => {
+    const port = new LosesEdges("relates_to");
+    await port.init();
+    await port.putEntity({
+      id: "collab",
+      type: "collaboration",
+      attributes: { title: "payments" },
+      status: "verified",
+      version: 1,
+      last_confirmed: now,
+      provenance: prov,
+    });
+    const { entity, attached, unrecorded } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "attach fails" } },
+      prov,
+      now,
+      { attachTo: "collab" },
+    );
+    // Asked for by name, so it is reported as missing rather than quietly absent from `attached`.
+    expect(attached).toBeUndefined();
+    expect(unrecorded?.join()).toContain("relates_to -> collab");
+    expect(await port.getEntity(entity.id)).not.toBeNull();
+    port.close();
+  });
+
+  it("says nothing when everything landed", async () => {
+    const { unrecorded } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "fully recorded" } },
+      prov,
+      now,
+    );
+    expect(unrecorded).toBeUndefined();
   });
 });

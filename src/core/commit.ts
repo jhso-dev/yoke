@@ -52,6 +52,16 @@ export interface CommitResult {
    * assumed: an already-existing edge and a newly filed one are different facts to a caller that
    * pressed the button twice. */
   attached?: Relation;
+  /**
+   * Edges the gate could not write AFTER the record became durable — absent when everything landed.
+   *
+   * The record is stored first and its edges follow, so a storage failure in stage 4/4b/4c used to
+   * throw out of `commit`: the caller heard "rejected" about a record that exists, which is the state
+   * `attachTo` was added to abolish and which makes a retrying agent double the corpus. The commit is
+   * reported as what it is — partial — and the entity in `entity` is real. Authorship is re-derivable
+   * with `yoke backfill`; a missing attachment has to be filed again.
+   */
+  unrecorded?: string[];
 }
 
 interface CommitOpts {
@@ -329,6 +339,30 @@ export async function commit(
   if (embedding) entity.embedding = embedding;
   await port.putEntity(entity);
 
+  // From here the record is DURABLE, so nothing below may throw its way out to the caller.
+  //
+  // Stages 4, 4b and 4c write edges after the entity is stored, and a storage failure in any of them
+  // propagated — so the caller heard "commit failed" about a record that exists. Reproduced with a port
+  // whose `putRelation` rejects: `commit` threw, the entity was in `listEntities`, and it carried no
+  // `authored_by` edge, which makes it invisible to persona anchors, the overview's author ranking and
+  // `identitySet` — silently, because the only repair is a `backfill` nobody knows to run. Worse, this
+  // is precisely the state `attachTo` was introduced to abolish: "the caller was told 'rejected' and
+  // the record existed anyway. An agent that believes a rejection retries, and the corpus doubles."
+  //
+  // Reported instead. `unrecorded` names what could not be written, so a caller learns the commit was
+  // partial rather than inferring success — and for the derived edges this is the policy the `derived`
+  // option already stated and did not implement: "a derived edge must never be the reason the caller's
+  // own commit fails." `backfill` re-derives authorship, which is what makes degrading safe here rather
+  // than merely convenient.
+  const unrecorded: string[] = [];
+  const alongside = async (what: string, write: () => Promise<void>) => {
+    try {
+      await write();
+    } catch (e) {
+      unrecorded.push(`${what}: ${(e as Error).message}`);
+    }
+  };
+
   // (4) Conflict detection — a decision-only heuristic. Among similar (duplicate-candidate)
   // decisions, a differing conclusion creates a conflicts_with. The only input to the judgment is
   // the conclusion text (the v1 ontology has no subject). Both sides preserved, no auto-resolution.
@@ -340,15 +374,22 @@ export async function commit(
     for (const dup of duplicates) {
       if (dup.type !== "decision") continue;
       if (String(dup.attributes.conclusion ?? "") === conclusion) continue;
-      const rel = await commit(
-        port,
-        ontology,
-        { type: "conflicts_with", attributes: {}, from: entity.id, to: dup.id },
-        prov,
-        now,
-        { ns, derived: true },
-      );
-      conflicts.push(rel.entity as Relation);
+      await alongside(`conflicts_with -> ${dup.id}`, async () => {
+        const rel = await commit(
+          port,
+          ontology,
+          {
+            type: "conflicts_with",
+            attributes: {},
+            from: entity.id,
+            to: dup.id,
+          },
+          prov,
+          now,
+          { ns, derived: true },
+        );
+        conflicts.push(rel.entity as Relation);
+      });
     }
   }
 
@@ -365,42 +406,51 @@ export async function commit(
     prov.actor !== entity.id &&
     ontology.some((t) => t.name === "authored_by")
   ) {
-    const authored = await port.neighbors(entity.id, "authored_by", "out");
-    if (!authored.some((r) => r.to === prov.actor))
-      await commit(
-        port,
-        ontology,
-        {
-          type: "authored_by",
-          attributes: {},
-          from: entity.id,
-          to: prov.actor,
-        },
-        prov,
-        now,
-        { ns, derived: true },
-      );
+    await alongside(`authored_by -> ${prov.actor}`, async () => {
+      const authored = await port.neighbors(entity.id, "authored_by", "out");
+      if (!authored.some((r) => r.to === prov.actor))
+        await commit(
+          port,
+          ontology,
+          {
+            type: "authored_by",
+            attributes: {},
+            from: entity.id,
+            to: prov.actor,
+          },
+          prov,
+          now,
+          { ns, derived: true },
+        );
+    });
   }
 
   // (4c) The caller's attachment. Filed last so the edge never precedes the record it describes, and
   // through the ordinary gate so it inherits relation identity — `relates_to` is symmetric, so
   // attaching the same record twice is one edge, not two rows pointing opposite ways.
+  // Not `derived`, so its failure is louder: the caller asked for this edge by name and gets it back
+  // in `unrecorded` rather than in `attached`. It still may not throw — the entity is durable, and a
+  // thrown attach would recreate the exact "rejected, but it exists" state this option was added to
+  // abolish. The target was already proven to exist at stage 2b, so what reaches here is storage
+  // failing, not the caller being wrong.
   let attached: Relation | undefined;
   if (opts?.attachTo !== undefined) {
-    const link = await commit(
-      port,
-      ontology,
-      {
-        type: "relates_to",
-        attributes: {},
-        from: entity.id,
-        to: opts.attachTo,
-      },
-      prov,
-      now,
-      { ns },
-    );
-    attached = link.entity as Relation;
+    await alongside(`relates_to -> ${opts.attachTo}`, async () => {
+      const link = await commit(
+        port,
+        ontology,
+        {
+          type: "relates_to",
+          attributes: {},
+          from: entity.id,
+          to: opts.attachTo as string,
+        },
+        prov,
+        now,
+        { ns },
+      );
+      attached = link.entity as Relation;
+    });
   }
 
   return {
@@ -408,6 +458,7 @@ export async function commit(
     duplicates,
     duplicateDetection,
     ...(conflicts.length > 0 ? { conflicts } : {}),
+    ...(unrecorded.length > 0 ? { unrecorded } : {}),
     ...(attached ? { attached } : {}),
   };
 }

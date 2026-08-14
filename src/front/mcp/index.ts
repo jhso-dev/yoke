@@ -144,14 +144,12 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // threw after the entity was durable, so an agent heard "rejected" about a record that exists
       // and retried (see `attachTo` in core/commit.ts).
       const linkTo = effectiveScope(scope);
-      const { entity, duplicates, duplicateDetection } = await commit(
-        store,
-        ontology,
-        input,
-        prov,
-        ts,
-        { embedder, ns, ...(linkTo ? { attachTo: linkTo } : {}) },
-      );
+      const { entity, duplicates, duplicateDetection, unrecorded } =
+        await commit(store, ontology, input, prov, ts, {
+          embedder,
+          ns,
+          ...(linkTo ? { attachTo: linkTo } : {}),
+        });
       const edges: Array<[string, string]> = [];
       // Derivation (v5.8) travels this same road for the same reason: the caller declares its basis, so
       // the edge belongs where the caller is. Deduped and self-edge-free — citing one record twice, or
@@ -218,6 +216,18 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           // What was passed and could not be resolved, verbatim. Named rather than counted: the caller
           // has to see the string it sent to learn that a citation is not an id.
           ...(ignored.length ? { derived_from_ignored: ignored } : {}),
+          // The record is durable and part of the commit is not. An agent reading only `id` would
+          // report success, and a missing `authored_by` edge is silent afterwards — the record never
+          // shows up in a persona or an author ranking. Phrased as the instruction, like the other
+          // agent-facing notices: a model has to be told what to do, not handed a field.
+          ...(unrecorded
+            ? {
+                partial:
+                  `the record was stored but these could not be written: ${unrecorded.join("; ")}. ` +
+                  "Do not report this as fully recorded; authorship is re-derivable by running " +
+                  "'yoke backfill', and an attachment has to be filed again with yoke_link.",
+              }
+            : {}),
         }),
       );
     } catch (e) {

@@ -620,21 +620,15 @@ async function cmdAdd(
     const ts = now();
     try {
       const prov = { actor, origin: "cli", occurred_at: ts };
-      const { entity, duplicates, duplicateDetection } = await commit(
-        store,
-        ontology,
-        { type, attributes },
-        prov,
-        ts,
-        {
+      const { entity, duplicates, duplicateDetection, unrecorded } =
+        await commit(store, ontology, { type, attributes }, prov, ts, {
           embedder: makeFetchEmbedder(env),
           ns,
           // Capture-side linking (v4.0): --scope <entity-id> attaches the new knowledge to that
           // record. One commit, not two — a bad --scope used to be reported as a rejection with the
           // record already stored (see `attachTo` in core/commit.ts).
           ...(v.scope ? { attachTo: v.scope } : {}),
-        },
-      );
+        });
       const lines = [formatEntity(entity)];
       if (duplicates.length > 0)
         lines.push(
@@ -650,9 +644,17 @@ async function cmdAdd(
           "no duplicate check ran: set YOKE_EMBED_URL and YOKE_EMBED_MODEL " +
             "(any OpenAI-compatible /embeddings endpoint), then: yoke backfill --embeddings",
         );
+      // The record is durable and part of what was asked for is not. Saying so beats an exit 0 that
+      // reads as "all of it landed" — and an authorship edge missing here is invisible afterwards:
+      // the record simply never appears in a persona or an author ranking.
+      if (unrecorded)
+        lines.push(
+          `stored, but these could not be written:\n  ${unrecorded.join("\n  ")}\n` +
+            "authorship is re-derivable with 'yoke backfill'; an attachment must be filed again",
+        );
       // --json emits the entity as-is (preserving the existing contract). Both notices are human text only.
       emit(v, lines.join("\n"), entity);
-      return 0;
+      return unrecorded ? 1 : 0;
     } catch (e) {
       if (e instanceof CommitRejected) {
         console.error(`rejected (${e.reason}): ${e.message}`);
