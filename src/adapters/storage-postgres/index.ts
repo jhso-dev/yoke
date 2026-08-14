@@ -57,6 +57,7 @@ import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
+  ConflictError,
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   orderByIds,
@@ -68,6 +69,13 @@ import {
 
 /** The text-search configuration. See decision 4 in the header — this is a contract, not a knob. */
 const REGCONFIG = "simple";
+
+/** Postgres' unique-violation SQLSTATE. A duplicate `(id, version)` INSERT is the version-race loser
+ * (C1/C2), translated to the port's typed `ConflictError` so core retries — the same contract sqlite
+ * gives from `SQLITE_CONSTRAINT_PRIMARYKEY`. */
+function isVersionConflict(err: unknown): boolean {
+  return err instanceof Error && (err as { code?: string }).code === "23505";
+}
 
 /** Columns of a stored row, in the order every read selects them. `txt`/`tsv` are index state, never
  * returned: they are derived from `type` + `attributes` and a caller has both. */
@@ -310,25 +318,34 @@ export class PostgresStorage implements StoragePort {
     // Plain INSERT, not an upsert: re-putting an existing (id, version) is a primary-key conflict and
     // must stay one. That conflict is precisely why `putEmbedding` exists as a separate method (SPEC
     // "The vector index"), so swallowing it here would remove the reason for the design.
-    await this.tx(async (c) => {
-      await c.query(
-        `INSERT INTO ${this.t("entities")}
+    try {
+      await this.tx(async (c) => {
+        await c.query(
+          `INSERT INTO ${this.t("entities")}
            (id, version, type, status, ns, attributes, provenance, last_confirmed, txt)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)`,
-        [
-          e.id,
-          e.version,
-          e.type,
-          e.status,
-          normalizeNs(e.ns) ?? "",
-          JSON.stringify(e.attributes),
-          JSON.stringify(e.provenance),
-          e.last_confirmed,
-          txt,
-        ],
-      );
-      await this.reconcileSearchable(c, e.id);
-    });
+          [
+            e.id,
+            e.version,
+            e.type,
+            e.status,
+            normalizeNs(e.ns) ?? "",
+            JSON.stringify(e.attributes),
+            JSON.stringify(e.provenance),
+            e.last_confirmed,
+            txt,
+          ],
+        );
+        await this.reconcileSearchable(c, e.id);
+      });
+    } catch (err) {
+      // C1/C2: the version-race loser. Typed ConflictError so core retries, not the raw SQLSTATE.
+      if (isVersionConflict(err))
+        throw new ConflictError(
+          `version conflict on ${e.id}: another writer committed version ${e.version} first`,
+        );
+      throw err;
+    }
     if (e.embedding && this.vectors) await this.writeVector(e.id, e.embedding);
   }
 

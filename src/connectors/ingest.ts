@@ -117,67 +117,80 @@ export async function ingest(
     // with no way to know how much had landed. The rdb path already isolates per row (`errors` in
     // rdb-mapping); these three did not. A source item that cannot be recorded is one item's problem.
     try {
-      const unusable = unusableKey(externalId);
-      if (unusable) throw new CommitRejected("ontology", unusable);
-      // Definitively set external_id in attributes (ingest is the single source of the idempotency key).
-      const pulled = { ...input.attributes, external_id: externalId };
-      const stored = await findByExternalId(port, externalId, ns);
-      if (stored && sameContent(stored, pulled)) {
-        skipped++;
-        continue;
-      }
-      // Stored attributes UNDER the pulled ones, so a re-ingest overwrites what the source owns and
-      // keeps what it does not.
-      //
-      // The case that reaches this is a connector whose FIELD SET narrowed between runs, which is a
-      // configuration change and not a rare one: an `--attr` mapping edited to drop a column, an
-      // `idColumn`/`occurredAtColumn` retargeted, a connector upgraded to emit less. Without the merge,
-      // the next sync of an item whose text also moved rewrote the record with the narrower attribute
-      // set and the dropped fields left the head version — data removed by a mapping edit, on a path
-      // whose whole contract is append-only.
-      //
-      // A key the source stops emitting therefore lingers rather than being deleted. That is the right
-      // way round: a connector that dropped a field is indistinguishable from one that never had it,
-      // and silently deleting stored knowledge on that guess is the more expensive mistake. `sameContent`
-      // compares only the pulled keys for the same reason, so the two agree — the connector's authority
-      // ends at the fields it produces.
-      const attributes = stored ? { ...stored.attributes, ...pulled } : pulled;
-      await commit(
-        port,
-        ontology,
-        {
-          ...input,
-          attributes,
-        },
-        // `occurred_at` is when the SOURCE says it happened; `now` stays the ingestion clock. The two
-        // were the same value, so the TTL counted from the import and an archive never aged.
-        {
-          actor,
-          origin: `connector:${connector.name}`,
-          occurred_at: occurredAt ?? now,
-        },
-        // `last_confirmed` too, since that is what freshness is measured from: a message from last year
-        // confirmed as of today is a claim nobody made.
-        occurredAt ?? now,
-        // The embedder was never passed, so gate stages 3 and 4 could not run on this path even when
-        // one was configured — the BULK path was the only one with duplicate and contradiction detection
-        // permanently off, while the hand path at least says "no duplicate check ran". Measured: 67 notes
-        // ingested as 67 records over 29 distinct statements, the same sentence stored eight times.
+      // C4: findByExternalId then commit is a check-then-write, and without serialization two
+      // concurrent ingests of one source item both read "absent" and both insert — the corpus then
+      // holds the stale claim AND its correction as two live records, with no supersedes and exit 0
+      // (measured: 6 notes -> 7 records). Run the probe-and-commit as ONE critical section so the
+      // second ingest sees the first's committed row and takes the updated/skipped path. Feature-
+      // detected to keep ingest adapter-independent (invariant 1): a backend that cannot serialize a
+      // multi-statement section runs the body directly, the pre-fix behaviour.
+      const handleItem = async (): Promise<void> => {
+        const unusable = unusableKey(externalId);
+        if (unusable) throw new CommitRejected("ontology", unusable);
+        // Definitively set external_id in attributes (ingest is the single source of the idempotency key).
+        const pulled = { ...input.attributes, external_id: externalId };
+        const stored = await findByExternalId(port, externalId, ns);
+        if (stored && sameContent(stored, pulled)) {
+          skipped++;
+          return;
+        }
+        // Stored attributes UNDER the pulled ones, so a re-ingest overwrites what the source owns and
+        // keeps what it does not.
         //
-        // A changed source item becomes a new VERSION of the record it changed, which is what
-        // append-only means: the wrong number stays readable at v1 and the correction is v2, rather than
-        // the correction arriving as a second record that contradicts the first.
+        // The case that reaches this is a connector whose FIELD SET narrowed between runs, which is a
+        // configuration change and not a rare one: an `--attr` mapping edited to drop a column, an
+        // `idColumn`/`occurredAtColumn` retargeted, a connector upgraded to emit less. Without the merge,
+        // the next sync of an item whose text also moved rewrote the record with the narrower attribute
+        // set and the dropped fields left the head version — data removed by a mapping edit, on a path
+        // whose whole contract is append-only.
         //
-        // That new version enters as `draft`, like every commit, so a record someone had VERIFIED drops
-        // out of injection until it is reviewed again. Deliberate, and the reason it is written down
-        // here: the content a reviewer vouched for is not the content now stored, and carrying the
-        // promotion across would make "verified" mean "verified at some earlier text". The cost is that
-        // a sync can quietly shrink what injection answers with, which is what `yoke review` is for —
-        // `updated` in the result is the number to watch.
-        { ns, embedder, ...(stored ? { existingId: stored.id } : {}) },
-      );
-      if (stored) updated++;
-      else added++;
+        // A key the source stops emitting therefore lingers rather than being deleted. That is the right
+        // way round: a connector that dropped a field is indistinguishable from one that never had it,
+        // and silently deleting stored knowledge on that guess is the more expensive mistake. `sameContent`
+        // compares only the pulled keys for the same reason, so the two agree — the connector's authority
+        // ends at the fields it produces.
+        const attributes = stored
+          ? { ...stored.attributes, ...pulled }
+          : pulled;
+        await commit(
+          port,
+          ontology,
+          {
+            ...input,
+            attributes,
+          },
+          // `occurred_at` is when the SOURCE says it happened; `now` stays the ingestion clock. The two
+          // were the same value, so the TTL counted from the import and an archive never aged.
+          {
+            actor,
+            origin: `connector:${connector.name}`,
+            occurred_at: occurredAt ?? now,
+          },
+          // `last_confirmed` too, since that is what freshness is measured from: a message from last year
+          // confirmed as of today is a claim nobody made.
+          occurredAt ?? now,
+          // The embedder was never passed, so gate stages 3 and 4 could not run on this path even when
+          // one was configured — the BULK path was the only one with duplicate and contradiction detection
+          // permanently off, while the hand path at least says "no duplicate check ran". Measured: 67 notes
+          // ingested as 67 records over 29 distinct statements, the same sentence stored eight times.
+          //
+          // A changed source item becomes a new VERSION of the record it changed, which is what
+          // append-only means: the wrong number stays readable at v1 and the correction is v2, rather than
+          // the correction arriving as a second record that contradicts the first.
+          //
+          // That new version enters as `draft`, like every commit, so a record someone had VERIFIED drops
+          // out of injection until it is reviewed again. Deliberate, and the reason it is written down
+          // here: the content a reviewer vouched for is not the content now stored, and carrying the
+          // promotion across would make "verified" mean "verified at some earlier text". The cost is that
+          // a sync can quietly shrink what injection answers with, which is what `yoke review` is for —
+          // `updated` in the result is the number to watch.
+          { ns, embedder, ...(stored ? { existingId: stored.id } : {}) },
+        );
+        if (stored) updated++;
+        else added++;
+      };
+      if (port.withCriticalSection) await port.withCriticalSection(handleItem);
+      else await handleItem();
     } catch (e) {
       if (!(e instanceof CommitRejected)) throw e;
       // Named, not counted. A number tells the caller something was dropped; the id and the reason tell

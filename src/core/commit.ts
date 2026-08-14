@@ -7,7 +7,11 @@
 // provenance is reachable by graph traversal — see the comment at that stage.
 
 import { ulid } from "ulid";
-import { readEntities, type StoragePort } from "../ports/storage.js";
+import {
+  ConflictError,
+  readEntities,
+  type StoragePort,
+} from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
 import { serializeText } from "./embedding.js";
 import { normalizeNs } from "./namespace.js";
@@ -23,6 +27,42 @@ import type {
 
 // ceiling: start with a single threshold constant (0.85). Move to per-type thresholds if precision problems show up in practice.
 const DUP_THRESHOLD = 0.85;
+
+/**
+ * How many times a re-version retries after losing a `(id, version)` race (C1). Two processes that
+ * re-version one id both compute `prev.version + 1`; one wins the primary-key contest and the other
+ * gets a `ConflictError`, so it re-reads the latest version and tries again. Bounded, because an
+ * unbounded retry under pathological contention is a hang, not a fix — five is far past the realistic
+ * two-or-three writers and exhausting it surfaces the clean `ConflictError` rather than a raw SQL string.
+ */
+const MAX_VERSION_RETRIES = 5;
+
+/**
+ * Store an entity, retrying the version race (C1). On a `ConflictError` for a re-commit (existingId
+ * set), re-read the latest version, recompute `version`, and try again up to the bound; a fresh id
+ * (no existingId) cannot lose the race legitimately, so its conflict propagates unchanged.
+ */
+async function putEntityRetrying(
+  port: StoragePort,
+  entity: Entity,
+  existingId: string | undefined,
+): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await port.putEntity(entity);
+      return;
+    } catch (e) {
+      if (
+        !(e instanceof ConflictError) ||
+        existingId === undefined ||
+        attempt >= MAX_VERSION_RETRIES
+      )
+        throw e;
+      const latest = await port.getEntity(existingId);
+      entity.version = (latest?.version ?? entity.version) + 1;
+    }
+  }
+}
 
 export class CommitRejected extends Error {
   constructor(
@@ -328,6 +368,13 @@ export async function commit(
     const symmetric =
       ontology.find((d) => d.kind === "relation" && d.name === rel.type)
         ?.symmetric === true;
+    // ceiling: this dedup is a `neighbors().find()` read followed by a `putRelation` write with no
+    // serialization or uniqueness (C3, deliberately left this round). Two concurrent identical links
+    // both read "absent" and both insert, so two durable rows exist for one edge — the same-process
+    // idempotency this check gives is not concurrency-safe. Deferred because a real fix needs a UNIQUE
+    // index that interacts with the (id, version) history model (a latest-version-only partial index),
+    // which is a schema decision out of scope. Upgrade path: that partial unique index, OR route this
+    // check-and-write through the same `withCriticalSection` write-lock hook the connector uses for C4.
     const already = (
       await port.neighbors(rel.from, rel.type, symmetric ? undefined : "out")
     ).find(
@@ -352,7 +399,10 @@ export async function commit(
 
   const entity: Entity = { ...input, ...governed };
   if (embedding) entity.embedding = embedding;
-  await port.putEntity(entity);
+  // C1: the version was computed from a `prev` read that a concurrent re-commit may have raced.
+  // putEntityRetrying re-reads and recomputes on a ConflictError so both writers land (serialized),
+  // instead of surfacing a raw `UNIQUE constraint failed` to whoever lost.
+  await putEntityRetrying(port, entity, existingId);
 
   // From here the record is DURABLE, so nothing below may throw its way out to the caller.
   //

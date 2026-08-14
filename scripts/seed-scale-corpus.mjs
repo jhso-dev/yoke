@@ -105,18 +105,39 @@ if (E > 0) {
        (id, version, type, status, attributes, provenance, last_confirmed, ns, from_id, to_id)
      VALUES (?, 1, ?, 'verified', '{}', ?, ?, NULL, ?, ?)`,
   );
-  const TYPES = ["relates_to", "supersedes", "conflicts_with", "authored_by"];
+  // F0 trap, do not reintroduce: the old generator used `TYPES[i % 4]` (25% supersedes) with
+  // `to_id = id26((i*7919+13) % N)`, whose stride was aligned with the `i % 100` rollout selectivity
+  // marker — so EVERY `rollout` record was superseded by construction and `inject("rollout")` returned
+  // 0 at every scale, silently measuring an empty result. Type and endpoint must be INDEPENDENT of the
+  // selectivity marker. Both are now derived from a hash of i (not i itself), and the type mix is
+  // realistic rather than uniform: a corpus that is 25% supersedes has an unnaturally shredded graph.
+  const hash32 = (x) => {
+    let h = Math.imul(x ^ (x >>> 16), 0x45d9f3b);
+    h = Math.imul(h ^ (h >>> 16), 0x45d9f3b);
+    return (h ^ (h >>> 16)) >>> 0;
+  };
+  const hash01 = (x) => hash32(x) / 4294967296;
+  // ~55% relates_to / 30% authored_by / 10% supersedes / 5% conflicts_with.
+  const typeOf = (h) =>
+    h < 0.55
+      ? "relates_to"
+      : h < 0.85
+        ? "authored_by"
+        : h < 0.95
+          ? "supersedes"
+          : "conflicts_with";
   const t1 = Date.now();
   db.transaction(() => {
     for (let i = 0; i < E; i++) {
-      // 7919 is prime, so the edges spread rather than clustering on low ids.
+      // Type and both endpoints hash-scattered from i, so none of them correlates with the `i % 100`
+      // rollout marker or the `i % 10000` quorum marker on the entity side.
       insR.run(
         id26(i, "01KZ111111111"),
-        TYPES[i % 4],
+        typeOf(hash01(i * 2 + 1)),
         prov,
         AT,
-        id26(i % N),
-        id26((i * 7919 + 13) % N),
+        id26(hash32(i * 3 + 7) % N),
+        id26(hash32(i * 3 + 11) % N),
       );
     }
     // One high-degree anchor, because that is the shape the briefing path walks and the shape that

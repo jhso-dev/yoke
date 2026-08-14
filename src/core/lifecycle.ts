@@ -3,12 +3,19 @@
 // path rather than the commit gate. The only direct putEntity calls live in this file.
 // Time is injected — never call new Date() in core (SPEC: inject the clock).
 
-import { readEntities, type StoragePort } from "../ports/storage.js";
+import {
+  ConflictError,
+  readEntities,
+  type StoragePort,
+} from "../ports/storage.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity, Status } from "./types.js";
 
 const DAY_MS = 86_400_000;
+
+/** Bounded retry for the `(id, version)` race (C2), mirroring commit's MAX_VERSION_RETRIES. */
+const MAX_VERSION_RETRIES = 5;
 
 /**
  * Shared transition path. Reads every row in ONE batch, then appends a new version row each
@@ -96,14 +103,29 @@ async function transition(
       out.push(prev);
       continue;
     }
-    const next: Entity = {
+    let next: Entity = {
       ...prev,
       status,
       version: prev.version + 1,
       last_confirmed: now,
       provenance: { actor, origin: "lifecycle", occurred_at: now },
     };
-    await port.putEntity(next);
+    // C2: a concurrent re-version of this id makes `prev.version + 1` collide, and the raw throw used
+    // to land HERE — mid-loop, with earlier ids already promoted — so the caller heard "whole batch
+    // failed" about a batch that was half-applied (the exact state the two-loop design above claims to
+    // prevent). Retrying on the typed ConflictError re-reads the latest version and re-appends on top,
+    // so a lost race is resolved rather than surfaced, and the batch does not half-apply.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await port.putEntity(next);
+        break;
+      } catch (e) {
+        if (!(e instanceof ConflictError) || attempt >= MAX_VERSION_RETRIES)
+          throw e;
+        const latest = await port.getEntity(next.id);
+        next = { ...next, version: (latest?.version ?? next.version) + 1 };
+      }
+    }
     out.push(next);
   }
   return out;

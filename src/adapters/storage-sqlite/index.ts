@@ -11,6 +11,7 @@ import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
+  ConflictError,
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   orderByIds,
@@ -19,6 +20,15 @@ import {
   type StoragePort,
   type TextQuery,
 } from "../../ports/storage.js";
+
+/** A duplicate `(id, version)` INSERT — the version-race loser (C1/C2). Translated to the port's
+ * typed `ConflictError` so core retries rather than string-matching a raw SQL message. */
+function isVersionConflict(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err as { code?: string }).code === "SQLITE_CONSTRAINT_PRIMARYKEY"
+  );
+}
 
 // The schema is a TS constant rather than a .sql file (simpler bundling). created_at is an
 // internal column outside the Entity contract, so a DB default fills it — it is not a put argument.
@@ -52,6 +62,19 @@ CREATE TABLE IF NOT EXISTS relations (
 ) WITHOUT ROWID;
 
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(id UNINDEXED, text);
+
+-- C6/F2: keep the latest-version-only FTS row deletable by an INDEXED key. \`id UNINDEXED\` means
+-- \`DELETE FROM entities_fts WHERE id = ?\` passes NO constraint to fts5 and scans the whole index —
+-- O(N) per write, O(N^2) per bulk ingest, and a 22 s write-lock hold for a rename over 20k rows.
+-- The FTS \`rowid\` (its docid) IS indexed, so this maps each entity id to its stable rowid and deletes
+-- go \`WHERE rowid = ?\` (O(log n)). Measured (see reindexFts): a single write dropped 0.52 -> 0.06 ms
+-- at 10k and 4.97 -> 0.08 ms at 100k (was O(N), now flat); a 20k-row rename dropped 20,231 -> 53 ms.
+-- Search is byte-identical: it still SELECTs \`f.id\` and orders by \`f.rank\`; only the DELETE key moved.
+-- The rowid is written once per id and never moves, so this table is append-only per id.
+CREATE TABLE IF NOT EXISTS fts_docid (
+  id TEXT NOT NULL PRIMARY KEY,
+  docid INTEGER NOT NULL
+) WITHOUT ROWID;
 
 -- Bypasses the gate. append-only: versions accumulate per name; load returns only the latest.
 CREATE TABLE IF NOT EXISTS ontology_types (
@@ -209,6 +232,77 @@ export class SqliteStorage implements StoragePort {
     // rewrite), because those cannot be run twice and cannot ask the schema whether they already have.
     this.migrateColumns();
     this.db.exec(SCHEMA);
+    this.migrateFtsDocids();
+  }
+
+  /**
+   * C6/F2 migration: map every existing FTS row to its rowid, so deletes stop scanning (see the
+   * fts_docid schema note). Self-detecting and idempotent, the repo convention (see the ns migration):
+   * a database that predates fts_docid has FTS rows but an empty map, so this backfills it ONCE; every
+   * later open finds the map non-empty and does nothing, and a fresh database has no FTS rows so it is
+   * a no-op.
+   *
+   * `OR IGNORE`, not a bare INSERT, because init() runs concurrently across processes (invariant 4:
+   * `yoke mcp` + `yoke ui` + CLI on one file). One process can commit a record — mapping its id in
+   * fts_docid — between this migration's empty-map guard and its backfill SELECT, so the backfill
+   * would otherwise collide on that id's primary key. IGNORE skips the already-mapped row; the rowid it
+   * would have written is identical (reindexFts wrote the same one), so the two stay consistent.
+   */
+  private migrateFtsDocids(): void {
+    const mapped = this.db.prepare(`SELECT 1 FROM fts_docid LIMIT 1`).get();
+    if (mapped) return;
+    this.db.exec(
+      `INSERT OR IGNORE INTO fts_docid (id, docid) SELECT id, rowid FROM entities_fts`,
+    );
+  }
+
+  /**
+   * Reindex one id's latest-version FTS text, deleting by the INDEXED rowid rather than by the
+   * UNINDEXED `id` (C6/F2 — the whole reason fts_docid exists). The rowid is allocated once on first
+   * insert and reused on every re-version, so the mapping is write-once and the delete is O(log n).
+   */
+  private reindexFts(id: string, text: string): void {
+    const row = this.db
+      .prepare(`SELECT docid FROM fts_docid WHERE id = ?`)
+      .get(id) as { docid: number } | undefined;
+    if (row) {
+      this.db
+        .prepare(`DELETE FROM entities_fts WHERE rowid = ?`)
+        .run(row.docid);
+      this.db
+        .prepare(`INSERT INTO entities_fts (rowid, id, text) VALUES (?, ?, ?)`)
+        .run(row.docid, id, text);
+    } else {
+      const info = this.db
+        .prepare(`INSERT INTO entities_fts (id, text) VALUES (?, ?)`)
+        .run(id, text);
+      this.db
+        .prepare(`INSERT INTO fts_docid (id, docid) VALUES (?, ?)`)
+        .run(id, Number(info.lastInsertRowid));
+    }
+  }
+
+  /**
+   * Run `fn` as a critical section serialized against other writers (C4). `BEGIN IMMEDIATE` takes the
+   * write lock up front — waiting out `busy_timeout` rather than failing on a snapshot upgrade — so a
+   * check-then-write inside `fn` is atomic: the connector idempotency probe needs the second ingest of
+   * one source item to SEE the first's committed row. Nested `putEntity`/`putRelation` transactions
+   * become savepoints (better-sqlite3), so their writes commit and roll back with this section.
+   *
+   * See the port doc for the ceilings (lock held across `fn`'s awaits; assumes no concurrent op on the
+   * same handle). Re-entrant: an inner call while already in a transaction just runs `fn`.
+   */
+  async withCriticalSection<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.db.inTransaction) return fn();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const out = await fn();
+      this.db.exec("COMMIT");
+      return out;
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
   }
 
   /** Additive column migrations, each conditional so it runs on any vintage of database. */
@@ -332,31 +426,38 @@ export class SqliteStorage implements StoragePort {
    */
   async putEntity(e: Entity): Promise<void> {
     this.db.transaction(() => {
-      this.db
-        .prepare(
-          `INSERT INTO entities (id, version, type, status, attributes, provenance, last_confirmed, ns)
+      try {
+        this.db
+          .prepare(
+            `INSERT INTO entities (id, version, type, status, attributes, provenance, last_confirmed, ns)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          e.id,
-          e.version,
-          e.type,
-          e.status,
-          JSON.stringify(e.attributes),
-          JSON.stringify(e.provenance),
-          e.last_confirmed,
-          e.ns ?? null,
-        );
-      // FTS keeps only the latest version: drop the id's row, then re-insert the latest version's text.
+          )
+          .run(
+            e.id,
+            e.version,
+            e.type,
+            e.status,
+            JSON.stringify(e.attributes),
+            JSON.stringify(e.provenance),
+            e.last_confirmed,
+            e.ns ?? null,
+          );
+      } catch (err) {
+        // C1/C2: a concurrent writer already committed this (id, version). Raise the port's typed
+        // ConflictError so core re-reads and retries, never the raw `UNIQUE constraint failed` string.
+        if (isVersionConflict(err))
+          throw new ConflictError(
+            `version conflict on ${e.id}: another writer committed version ${e.version} first`,
+          );
+        throw err;
+      }
+      // FTS keeps only the latest version's text; the delete now goes by rowid (C6/F2 — reindexFts).
       const latest = this.db
         .prepare(
           `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
         )
         .get(e.id) as { type: string; attributes: string };
-      this.db.prepare(`DELETE FROM entities_fts WHERE id = ?`).run(e.id);
-      this.db
-        .prepare(`INSERT INTO entities_fts (id, text) VALUES (?, ?)`)
-        .run(e.id, serializeText(latest.type, latest.attributes));
+      this.reindexFts(e.id, serializeText(latest.type, latest.attributes));
 
       // Keep only the latest version's vector too (same delete+insert as FTS). Touch it only when an
       // embedding is present — re-putting a version without an embedding leaves the existing vector in
@@ -622,7 +723,11 @@ export class SqliteStorage implements StoragePort {
         insert.run(def.name, v, JSON.stringify(def), n);
       }
     });
-    tx(defs);
+    // C5: BEGIN IMMEDIATE. The body reads MAX(version) then INSERTs, so a plain deferred BEGIN starts
+    // as a reader and fails INSTANTLY with SQLITE_BUSY_SNAPSHOT when it upgrades to a writer under any
+    // concurrent writer — busy_timeout never applies to that upgrade. Requesting the write lock up
+    // front makes it WAIT out the timeout instead.
+    tx.immediate(defs);
   }
 
   /**
@@ -646,7 +751,7 @@ export class SqliteStorage implements StoragePort {
     ns?: string | null,
   ): Promise<number> {
     const n = normalizeNs(ns);
-    return this.db.transaction(() => {
+    const tx = this.db.transaction(() => {
       let rows = 0;
       // Collected before the UPDATE: the FTS text is built from type + attributes, so every affected
       // id's index row goes stale the instant the column changes.
@@ -665,17 +770,16 @@ export class SqliteStorage implements StoragePort {
       rows += this.db
         .prepare(`UPDATE relations SET type = ? WHERE type = ? AND ns IS ?`)
         .run(to, from, n).changes;
-      const del = this.db.prepare(`DELETE FROM entities_fts WHERE id = ?`);
-      const ins = this.db.prepare(
-        `INSERT INTO entities_fts (id, text) VALUES (?, ?)`,
-      );
+      // FTS reindex by rowid (C6/F2). Deleting each stale row by its UNINDEXED `id` was a full FTS
+      // scan PER affected id, so a rename over the whole type was O(N^2) and held the write lock for
+      // 22 s at 20k rows / >15 min at 200k — locking out every other process (C6). reindexFts deletes
+      // by rowid, dropping the 20k hold to ~53 ms (measured, see the fts_docid note).
       const latest = this.db.prepare(
         `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
       );
       for (const id of ids) {
         const l = latest.get(id) as { type: string; attributes: string };
-        del.run(id);
-        ins.run(id, serializeText(l.type, l.attributes));
+        this.reindexFts(id, serializeText(l.type, l.attributes));
       }
       // The declaration. saveOntology appends a version per name, which would leave every `from` row
       // sitting there, so these are rewritten in place — name column and the name inside `def`.
@@ -706,7 +810,11 @@ export class SqliteStorage implements StoragePort {
         }
       }
       return rows;
-    })();
+    });
+    // C5: BEGIN IMMEDIATE, for the same reason as saveOntology — this transaction opens with a SELECT
+    // (collect the affected ids) then UPDATEs, so a deferred BEGIN would die on the read-to-write
+    // upgrade the instant another writer holds the lock. Requesting the write lock up front waits.
+    return tx.immediate();
   }
 
   /** All versions of an id, ascending (outside StoragePort — for CLI history, PLAN 8.4).
@@ -914,6 +1022,12 @@ export class SqliteStorage implements StoragePort {
       );
       for (const r of latest)
         ins.run(r.id, serializeText(r.type, r.attributes));
+      // Map the rebuilt FTS rows to their rowids (C6/F2), so a write into the export is O(log n) like
+      // any other database. A later open would self-heal this via migrateFtsDocids anyway; doing it
+      // here keeps the export internally consistent the moment it is written.
+      this.db.exec(
+        `INSERT INTO bak.fts_docid (id, docid) SELECT id, rowid FROM bak.entities_fts`,
+      );
     } finally {
       this.db.exec("DETACH DATABASE bak");
     }

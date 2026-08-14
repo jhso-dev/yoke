@@ -10,7 +10,11 @@
 
 import assert from "node:assert/strict";
 import type { Entity, Relation } from "../core/types.js";
-import { DEFAULT_SEARCH_LIMIT, type StoragePort } from "./storage.js";
+import {
+  ConflictError,
+  DEFAULT_SEARCH_LIMIT,
+  type StoragePort,
+} from "./storage.js";
 
 let seq = 0;
 function nextId(): string {
@@ -307,6 +311,70 @@ export const conformanceCases: ConformanceCase[] = [
         listed.items.length,
         n,
         "listEntities must stay unbounded when no limit is given",
+      );
+    },
+  },
+  {
+    // (2b) A duplicate (id, version) INSERT is the version-race loser (C1/C2). The adapter must
+    // translate its backend's uniqueness violation into the port's TYPED ConflictError — the signal
+    // core catches to re-read and retry (two concurrent re-versions of one id then both land,
+    // serialized) — and never surface a raw `UNIQUE constraint failed` / SQLSTATE / 409 to the caller.
+    name: "putEntity of an existing (id, version) raises a typed ConflictError, not a raw SQL string",
+    async run(port) {
+      const id = nextId();
+      const v1 = makeEntity({ id, version: 1, attributes: { title: "cf1" } });
+      const v2 = makeEntity({ id, version: 2, attributes: { title: "cf2" } });
+      await port.putEntity(v1);
+      await port.putEntity(v2);
+
+      let err: unknown;
+      try {
+        await port.putEntity(v2); // the loser recomputed the same next version
+      } catch (e) {
+        err = e;
+      }
+      assert.ok(
+        err instanceof ConflictError,
+        "a duplicate (id, version) must raise the port's typed ConflictError",
+      );
+      assert.doesNotMatch(
+        (err as Error).message,
+        /UNIQUE|constraint failed|SQLSTATE|23505|\b409\b/i,
+        "the conflict error must not leak a backend SQL string",
+      );
+      // The failed write changed nothing — the latest version is still v2.
+      eq(await port.getEntity(id), v2);
+    },
+  },
+  {
+    // (2c) withCriticalSection (C4): optional, so this is where its transactional contract is pinned
+    // for every backend that claims it. The connector idempotency probe runs its check-and-commit
+    // here so a second concurrent ingest cannot slip between the two — which requires the section to
+    // be a real transaction: a write inside it that then throws must leave nothing behind.
+    name: "withCriticalSection runs fn as a transaction, rolling back on throw (optional capability)",
+    async run(port) {
+      if (!port.withCriticalSection) return;
+      const kept = makeEntity({ type: "critsec" });
+      await port.withCriticalSection(async () => {
+        await port.putEntity(kept);
+      });
+      assert.equal(
+        (await port.getEntity(kept.id))?.id,
+        kept.id,
+        "a committed critical section persists its writes",
+      );
+
+      const rolled = makeEntity({ type: "critsec" });
+      await assert.rejects(
+        port.withCriticalSection(async () => {
+          await port.putEntity(rolled);
+          throw new Error("abort the section");
+        }),
+      );
+      eq(
+        await port.getEntity(rolled.id),
+        null,
+        "a critical section that throws persists nothing",
       );
     },
   },

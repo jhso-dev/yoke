@@ -715,3 +715,204 @@ describe("a row and its indexes land together or not at all", () => {
     store.close();
   });
 });
+
+// C6/F2: `entities_fts` was `fts5(id UNINDEXED, text)`, so `DELETE ... WHERE id = ?` (in putEntity and
+// renameType) passed NO constraint to fts5 and scanned the whole index — O(N) per write, O(N^2) per
+// bulk ingest, a 22 s rename lock-hold at 20k. The fix maps each id to its stable FTS rowid so the
+// delete goes by rowid (O(log n)). These pin the STRUCTURE the speedup rests on; the numbers themselves
+// are measured in the fts_docid schema note.
+describe("FTS deletes by an indexed rowid, not a full scan (C6/F2)", () => {
+  const prov = {
+    actor: "tester",
+    origin: "cli",
+    occurred_at: "2026-08-14T00:00:00Z",
+  };
+  const ent = (id: string, version: number, note: string) => ({
+    id,
+    version,
+    type: "fact",
+    status: "verified" as const,
+    attributes: { statement: note },
+    provenance: prov,
+    last_confirmed: "2026-08-14T00:00:00Z",
+  });
+
+  it("maps each id to one stable rowid and reuses it across re-versions", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    const db = handleOf(store);
+    await store.putEntity(ent("a", 1, "alpha one"));
+    const first = db
+      .prepare("SELECT docid FROM fts_docid WHERE id = 'a'")
+      .get() as { docid: number } | undefined;
+    expect(first, "a mapping is written on first insert").toBeTruthy();
+
+    // Re-version several times — the rowid must NOT move and the FTS must not accumulate rows.
+    await store.putEntity(ent("a", 2, "alpha two"));
+    await store.putEntity(ent("a", 3, "alpha three"));
+    const again = db
+      .prepare("SELECT docid FROM fts_docid WHERE id = 'a'")
+      .get() as { docid: number };
+    expect(again.docid, "the rowid is stable across re-versions").toBe(
+      first?.docid,
+    );
+    const ftsRows = db
+      .prepare("SELECT rowid FROM entities_fts WHERE id = 'a'")
+      .all() as { rowid: number }[];
+    expect(ftsRows.map((r) => r.rowid)).toEqual([first?.docid]);
+
+    // Search follows the latest version only — byte-identical semantics to the old scheme.
+    expect((await store.search({ text: "three" })).map((e) => e.id)).toEqual([
+      "a",
+    ]);
+    expect(await store.search({ text: "one" })).toEqual([]);
+
+    // The delete the adapter now issues is a rowid equality lookup (constraint passed to fts5),
+    // whereas delete-by-id passes none — the plan the O(N) scan used to take.
+    const byRowid = db
+      .prepare("EXPLAIN QUERY PLAN DELETE FROM entities_fts WHERE rowid = ?")
+      .all(first?.docid)
+      .map((r) => (r as { detail: string }).detail)
+      .join(" ");
+    const byId = db
+      .prepare("EXPLAIN QUERY PLAN DELETE FROM entities_fts WHERE id = ?")
+      .all("a")
+      .map((r) => (r as { detail: string }).detail)
+      .join(" ");
+    expect(byRowid).toContain(":="); // fts5 got an equality constraint on the docid
+    expect(byId).not.toContain(":="); // the old key gets none — a full scan
+    store.close();
+  });
+
+  it("backfills the rowid map for a database that predates it, idempotently", async () => {
+    // A pre-fix database: entities + FTS rows, but no fts_docid table. init() must create the map,
+    // populate it once, keep search working, and let a later re-version delete by rowid.
+    const path = join(dir, `ftsmig-${Math.random().toString(36).slice(2)}.db`);
+    const seed = new Database(path);
+    seed.exec(`
+      CREATE TABLE entities (
+        id TEXT NOT NULL, version INTEGER NOT NULL, type TEXT NOT NULL,
+        status TEXT NOT NULL, attributes TEXT NOT NULL, provenance TEXT NOT NULL,
+        last_confirmed TEXT NOT NULL, PRIMARY KEY (id, version));
+      CREATE VIRTUAL TABLE entities_fts USING fts5(id UNINDEXED, text);
+      INSERT INTO entities VALUES
+        ('old1', 1, 'fact', 'verified', '{"statement":"legacy alpha"}',
+         '{"actor":"a","origin":"cli","occurred_at":"2026-01-01T00:00:00Z"}',
+         '2026-01-01T00:00:00Z');
+      INSERT INTO entities_fts (id, text) VALUES ('old1', 'fact {"statement":"legacy alpha"}');
+    `);
+    seed.close();
+
+    const store = new SqliteStorage(path);
+    await store.init();
+    const db = handleOf(store);
+    const mapped = db
+      .prepare("SELECT docid FROM fts_docid WHERE id = 'old1'")
+      .get() as { docid: number } | undefined;
+    expect(mapped, "the pre-existing FTS row got a rowid mapping").toBeTruthy();
+    expect((await store.search({ text: "legacy" })).map((e) => e.id)).toEqual([
+      "old1",
+    ]);
+
+    // A re-version now reuses that backfilled rowid: one FTS row, latest text only.
+    await store.putEntity({
+      id: "old1",
+      version: 2,
+      type: "fact",
+      status: "verified",
+      attributes: { statement: "legacy beta" },
+      provenance: prov,
+      last_confirmed: "2026-01-01T00:00:00Z",
+    });
+    expect(
+      (
+        db.prepare("SELECT rowid FROM entities_fts WHERE id='old1'").all() as {
+          rowid: number;
+        }[]
+      ).map((r) => r.rowid),
+    ).toEqual([mapped?.docid]);
+    expect((await store.search({ text: "beta" })).map((e) => e.id)).toEqual([
+      "old1",
+    ]);
+    expect(await store.search({ text: "alpha" })).toEqual([]);
+    store.close();
+
+    // Idempotent: a second open does not re-run the backfill or duplicate the mapping.
+    const reopened = new SqliteStorage(path);
+    await reopened.init();
+    const count = (
+      handleOf(reopened)
+        .prepare("SELECT count(*) AS n FROM fts_docid WHERE id='old1'")
+        .get() as { n: number }
+    ).n;
+    expect(count).toBe(1);
+    reopened.close();
+  });
+});
+
+// C5: renameType and saveOntology used a DEFERRED `db.transaction()`, which opens as a reader and
+// fails INSTANTLY (0 ms, before busy_timeout) when it upgrades to a writer under a concurrent writer.
+// BEGIN IMMEDIATE requests the write lock up front, so it WAITS out busy_timeout instead of dying.
+// Measured signal: deferred returns in ~0 ms, immediate in ~busy_timeout ms.
+describe("governance writes wait for the write lock instead of dying instantly (C5)", () => {
+  const prov = {
+    actor: "yoke:system",
+    origin: "cli",
+    occurred_at: "2026-01-01T00:00:00Z",
+  };
+  const ent = (id: string, type: string) => ({
+    id,
+    version: 1,
+    type,
+    status: "verified" as const,
+    attributes: { title: id },
+    provenance: prov,
+    last_confirmed: "2026-01-01T00:00:00Z",
+  });
+  const BUSY_MS = 300;
+
+  /** Hold the write lock on one handle while a second handle attempts `op`; return how long `op` took
+   * before it (inevitably) failed, since the lock is never released. Deferred dies at ~0; immediate
+   * waits ~BUSY_MS. */
+  async function heldWriteLock(op: (o: SqliteStorage) => Promise<unknown>) {
+    const path = join(dir, `c5-${Math.random().toString(36).slice(2)}.db`);
+    const holder = new SqliteStorage(path);
+    await holder.init();
+    await holder.saveOntology([{ name: "old", kind: "entity", attrs: {} }]);
+    await holder.putEntity(ent("e", "old"));
+    const other = new SqliteStorage(path);
+    await other.init();
+    handleOf(other).pragma(`busy_timeout = ${BUSY_MS}`);
+    handleOf(holder).exec("BEGIN IMMEDIATE"); // hold the write lock, never commit
+    handleOf(holder).prepare("UPDATE entities SET status = status").run();
+    const t0 = Date.now();
+    let failed = false;
+    try {
+      await op(other);
+    } catch {
+      failed = true;
+    }
+    const waited = Date.now() - t0;
+    handleOf(holder).exec("ROLLBACK");
+    holder.close();
+    other.close();
+    return { waited, failed };
+  }
+
+  it("renameType requests the lock up front (waits, not an instant snapshot failure)", async () => {
+    const { waited, failed } = await heldWriteLock((o) =>
+      o.renameType("old", "new"),
+    );
+    expect(failed).toBe(true); // the lock is never released, so it does time out
+    // The point: it WAITED for the lock (immediate) instead of dying at ~0 ms (the deferred upgrade).
+    expect(waited).toBeGreaterThanOrEqual(BUSY_MS - 80);
+  });
+
+  it("saveOntology requests the lock up front too", async () => {
+    const { waited, failed } = await heldWriteLock((o) =>
+      o.saveOntology([{ name: "another", kind: "entity", attrs: {} }]),
+    );
+    expect(failed).toBe(true);
+    expect(waited).toBeGreaterThanOrEqual(BUSY_MS - 80);
+  });
+});

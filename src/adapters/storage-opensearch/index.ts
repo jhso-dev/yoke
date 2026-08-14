@@ -46,6 +46,7 @@ import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
+  ConflictError,
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   orderByIds,
@@ -233,8 +234,29 @@ export class OpenSearchStorage implements StoragePort {
     name: string,
     docId: string,
     doc: unknown,
+    // `create` uses the _create endpoint, which 409s on an existing doc. The versioned entity/relation
+    // writes pass it so a duplicate (id, version) is the version-race loser (C1/C2); the vector and
+    // ontology writes stay upserts (they replace / mint a fresh version id).
+    create = false,
   ): Promise<void> {
-    await this.req("PUT", `/${name}/_doc/${encodeURIComponent(docId)}`, doc);
+    const verb = create ? "_create" : "_doc";
+    const path = `/${name}/${verb}/${encodeURIComponent(docId)}`;
+    const res = await this.fetchImpl(`${this.url}${path}`, {
+      method: "PUT",
+      headers: this.headers,
+      body: JSON.stringify(doc),
+    });
+    if (create && res.status === 409) {
+      await res.text();
+      throw new ConflictError(
+        `version conflict on ${docId}: another writer committed it first`,
+      );
+    }
+    if (!res.ok) {
+      throw new Error(
+        `opensearch PUT ${path} → ${res.status}: ${(await res.text()).slice(0, 400)}`,
+      );
+    }
     this.dirty.add(name);
   }
 
@@ -281,7 +303,7 @@ export class OpenSearchStorage implements StoragePort {
     // self-healing; disappearance is neither. The way out, if a real deployment hits the window, is a
     // query-time collapse by max version — rejected so far because the stored flag is what lets
     // `listEntities` paginate without collapsing per page (see the header note).
-    await this.index(this.idx(ENTITIES), `${e.id}#${e.version}`, doc);
+    await this.index(this.idx(ENTITIES), `${e.id}#${e.version}`, doc, true);
     await this.demoteOlder(this.idx(ENTITIES), e.id, e.version);
     if (e.embedding) await this.indexEmbedding(e.id, e.embedding);
   }
@@ -300,7 +322,7 @@ export class OpenSearchStorage implements StoragePort {
       provenance: JSON.stringify(r.provenance),
       last_confirmed: r.last_confirmed,
     };
-    await this.index(this.idx(RELATIONS), `${r.id}#${r.version}`, doc);
+    await this.index(this.idx(RELATIONS), `${r.id}#${r.version}`, doc, true);
     await this.demoteOlder(this.idx(RELATIONS), r.id, r.version);
   }
 

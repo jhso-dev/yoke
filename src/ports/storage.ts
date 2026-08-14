@@ -5,6 +5,23 @@
 import type { Entity, Relation } from "../core/types.js";
 
 /**
+ * Two writers computed the same next `(id, version)` and one lost the primary-key contest (C1/C2).
+ *
+ * Adapters translate their backend's uniqueness violation into THIS — SQLite's
+ * `SQLITE_CONSTRAINT_PRIMARYKEY`, Postgres' `23505`, OpenSearch's `409` — so core can catch a typed
+ * error and retry, rather than string-matching a raw `UNIQUE constraint failed` (invariant 1: a
+ * backend's error vocabulary must not leak into core). It is an optimistic-concurrency signal, not a
+ * defect: `commit` (existingId re-version) and `lifecycle.transition` re-read the latest version and
+ * retry, so two concurrent re-versions of one id both land, serialized.
+ */
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
+/**
  * How many rows `search` returns when the caller names no limit.
  *
  * Not a product policy — `inject` and the front adapters have their own caps. This is the floor
@@ -228,4 +245,26 @@ export interface StoragePort {
    * implements it; the optionality is the extension point, not a description of the current set.
    */
   putEmbedding?(e: Entity, opts?: { rebuild?: boolean }): Promise<void>;
+
+  /**
+   * Optional capability — run `fn` as a critical section serialized against every OTHER writer, so a
+   * check-then-write is atomic (C4).
+   *
+   * The connector idempotency probe is exactly this shape: `findByExternalId` then `commit`. Without
+   * serialization two concurrent ingests of one source item both read "absent" and both insert, so the
+   * corpus holds the stale claim and its correction as two live records. Holding the backend's write
+   * lock from before the read until after the write makes the second ingest see the first's row and
+   * take the updated/skipped path.
+   *
+   * On SQLite this is a `BEGIN IMMEDIATE` transaction. A backend that cannot serialize a MULTI-statement
+   * critical section across its own methods (a pooled remote, where each call may land on a different
+   * connection) omits it, and callers feature-detect — the same optional-capability shape as `similar`.
+   *
+   * ceiling: the write lock is held across every `await` inside `fn`, an embedder network call
+   * included. That is acceptable for a batch/cron ingest and is why this is opt-in per critical
+   * section rather than a global lock. It also assumes no OTHER operation runs on the same handle
+   * concurrently (true for the one-shot CLI ingest path); a long-running server sharing the handle
+   * would fold a concurrent write into the section.
+   */
+  withCriticalSection?<T>(fn: () => Promise<T>): Promise<T>;
 }
