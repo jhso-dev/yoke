@@ -301,44 +301,68 @@ export class SqliteStorage implements StoragePort {
 
   async putEmbedding(e: Entity, opts?: { rebuild?: boolean }): Promise<void> {
     if (!e.embedding) return;
-    this.indexEmbedding(e.id, e.embedding, opts?.rebuild);
+    // Delete-then-insert, so it is transactional for the same reason `putEntity` is. Milder here —
+    // `yoke backfill --embeddings` re-derives a lost vector, which is not true of a lost FTS row —
+    // but a torn write leaves a record retrievable by keyword and invisible to the vector half, which
+    // is a silently worse answer rather than an error.
+    this.db.transaction(() => {
+      this.indexEmbedding(e.id, e.embedding as Float32Array, opts?.rebuild);
+    })();
   }
 
   close(): void {
     this.db.close();
   }
 
+  /**
+   * One row plus its indexes, as ONE transaction.
+   *
+   * Four statements ran in autocommit here — insert the version, read back the latest, drop the FTS
+   * row, insert the new one — so anything that ended the process between them left a durable state
+   * nothing in the product can see or repair. Demonstrated end state: `getEntity` present,
+   * `listEntities` counts it, `search` returns nothing, and therefore `inject` never serves it. The
+   * window is real for a kill, an OOM or a power loss, and `yoke backfill` rebuilds embeddings and
+   * authorship — nothing rebuilds FTS, so a record that falls into it is invisible for good.
+   *
+   * The embedding write joins the transaction for the same reason and one more: `ensureVecTable`
+   * throws on a dimension change (deliberately — see `vectorHits`), and outside a transaction that
+   * throw would leave the entity and its FTS row committed while the caller heard an error. Today the
+   * mismatch is caught earlier, by `similar` during duplicate detection, so nothing reaches this line
+   * — which is exactly the kind of accident that stops being true when a caller skips the gate.
+   */
   async putEntity(e: Entity): Promise<void> {
-    this.db
-      .prepare(
-        `INSERT INTO entities (id, version, type, status, attributes, provenance, last_confirmed, ns)
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO entities (id, version, type, status, attributes, provenance, last_confirmed, ns)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        e.id,
-        e.version,
-        e.type,
-        e.status,
-        JSON.stringify(e.attributes),
-        JSON.stringify(e.provenance),
-        e.last_confirmed,
-        e.ns ?? null,
-      );
-    // FTS keeps only the latest version: drop the id's row, then re-insert the latest version's text.
-    const latest = this.db
-      .prepare(
-        `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
-      )
-      .get(e.id) as { type: string; attributes: string };
-    this.db.prepare(`DELETE FROM entities_fts WHERE id = ?`).run(e.id);
-    this.db
-      .prepare(`INSERT INTO entities_fts (id, text) VALUES (?, ?)`)
-      .run(e.id, serializeText(latest.type, latest.attributes));
+        )
+        .run(
+          e.id,
+          e.version,
+          e.type,
+          e.status,
+          JSON.stringify(e.attributes),
+          JSON.stringify(e.provenance),
+          e.last_confirmed,
+          e.ns ?? null,
+        );
+      // FTS keeps only the latest version: drop the id's row, then re-insert the latest version's text.
+      const latest = this.db
+        .prepare(
+          `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
+        )
+        .get(e.id) as { type: string; attributes: string };
+      this.db.prepare(`DELETE FROM entities_fts WHERE id = ?`).run(e.id);
+      this.db
+        .prepare(`INSERT INTO entities_fts (id, text) VALUES (?, ?)`)
+        .run(e.id, serializeText(latest.type, latest.attributes));
 
-    // Keep only the latest version's vector too (same delete+insert as FTS). Touch it only when an
-    // embedding is present — re-putting a version without an embedding leaves the existing vector in
-    // place (entities has no vector column, so the latest vector cannot be reconstructed).
-    if (e.embedding) this.indexEmbedding(e.id, e.embedding);
+      // Keep only the latest version's vector too (same delete+insert as FTS). Touch it only when an
+      // embedding is present — re-putting a version without an embedding leaves the existing vector in
+      // place (entities has no vector column, so the latest vector cannot be reconstructed).
+      if (e.embedding) this.indexEmbedding(e.id, e.embedding);
+    })();
   }
 
   async getEntity(id: string, version?: number): Promise<Entity | null> {

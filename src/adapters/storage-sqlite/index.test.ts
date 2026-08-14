@@ -657,3 +657,61 @@ describe("opening a database from before the ns migration", () => {
     }
   });
 });
+
+describe("a row and its indexes land together or not at all", () => {
+  // putEntity ran four statements in autocommit — insert the version, read back the latest, drop the
+  // FTS row, insert the new one. Anything ending the process between them left a durable state
+  // nothing in the product can see or repair: present to `getEntity` and `listEntities`, absent from
+  // `search` and therefore from every injection, with no command that rebuilds FTS.
+  const prov = {
+    actor: "tester",
+    origin: "cli",
+    occurred_at: "2026-08-14T00:00:00Z",
+  };
+  const row = (id: string) => ({
+    id,
+    type: "fact",
+    attributes: { statement: `findable ${id}` },
+    status: "verified" as const,
+    version: 1,
+    last_confirmed: "2026-08-14T00:00:00Z",
+    provenance: prov,
+  });
+
+  it("rolls the entity row back when indexing it fails", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    // The vector write is the LAST statement in putEntity and the one that really throws:
+    // `ensureVecTable` refuses a dimension change (deliberately — a silently dead vector half is the
+    // worse failure). So this is the true window, entered after the version row and the FTS row are
+    // already written.
+    await store.putEntity({
+      ...row("x0"),
+      embedding: Float32Array.from([1, 0]),
+    });
+    await expect(
+      store.putEntity({
+        ...row("x1"),
+        embedding: Float32Array.from([1, 0, 0, 0]),
+      }),
+    ).rejects.toThrow(/dimension/);
+    // The version row must not have survived its own index write, and neither may its FTS row —
+    // the state this guards is "present to getEntity, absent from search, no command to repair it".
+    expect(await store.getEntity("x1")).toBeNull();
+    expect((await store.listEntities({})).items.map((e) => e.id)).toEqual([
+      "x0",
+    ]);
+    expect(await store.search({ text: "findable x1" })).toHaveLength(0);
+    store.close();
+  });
+
+  it("leaves a written record findable by every read path", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    await store.putEntity(row("x2"));
+    expect(await store.getEntity("x2")).not.toBeNull();
+    expect((await store.listEntities({})).items).toHaveLength(1);
+    expect(await store.search({ text: "findable" })).toHaveLength(1);
+    store.close();
+  });
+});
