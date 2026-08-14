@@ -46,12 +46,11 @@ export interface PersonaResult {
   /**
    * The identity records this persona unions, when there is more than one (`same_as`, v5.6).
    *
-   * Reported so the DOCUMENT can say it. The author name on every source line is computed once from the
-   * anchor, which is right if the merge is right — `same_as` asserts these are one person — and invisible
-   * if it is not: anchoring on a second identity re-attributed all eleven sources to that record's name
-   * while ten of their `authored_by` edges pointed at the other. Per-line lookups would not help, since
-   * the names are the same person by assertion; what was missing is any trace that a union happened, so
-   * an erroneous merge could be seen. Absent on the ordinary single-record case.
+   * Reported so the DOCUMENT can say a union happened — an erroneous merge is invisible otherwise. Also
+   * the name table the render uses to attribute each source line to its real author: a union's sources
+   * come off several identities' `authored_by` edges, so `renderPersonaSkill` resolves `i.author`
+   * against these names rather than stamping the anchor on all of them. Absent on the ordinary
+   * single-record case, where every author IS the anchor.
    */
   identities?: PersonaIdentity[];
   /**
@@ -264,7 +263,13 @@ function said(v: unknown): string {
   // string[] is the fourth declared kind (`decision.rejected_alternatives`, and whatever a tenant
   // declares). Rendered as a list; the empty array says nothing.
   if (Array.isArray(v)) return v.map(String).join(", ");
-  return "";
+  // null/undefined say nothing — the one shape that legitimately renders to "".
+  if (v === null || v === undefined) return "";
+  // Objects (`reading: {p95: 41}`) are a stored value like any other, and dropping them was the
+  // "citation with no content" shape a renderer must not create: the query filter already stringifies
+  // objects (see `personaQuery`), so search found "41" in a document that had silently omitted it.
+  // `JSON.stringify` is the same operator that filter uses — the two now read the value one way.
+  return JSON.stringify(v);
 }
 
 /** Attribute keys that are bookkeeping rather than knowledge — the same set `summarize` excludes. */
@@ -308,6 +313,33 @@ function knowledgeText(e: Entity, ontology: TypeDef[]): string {
   }
   // " — " between them: a title and its statement read as one line, and nothing is dropped.
   return parts.join(" — ");
+}
+
+/** A markdown line-start that OPENS a block: an ATX heading, a `---`/`***`/`___` thematic break or
+ * frontmatter fence, or a ``` `/`~` code fence. These are the structures a stored value can forge. */
+const BLOCK_START = /^(#{1,6}(\s|$)|[-*_]{3,}\s*$|`{3,}|~{3,})/;
+
+/**
+ * A stored value made structurally inert for a SKILL.md BODY, while staying readable.
+ *
+ * `renderPersonaSkill` interpolates `conclusion`, `rationale`, `rejected_alternatives` and
+ * `knowledgeText` into a file fed to a model as instructions, and a body is MORE caller-controlled than
+ * the name `readableName` guards — `yoke connect rdb` maps AND auto-verifies an external column (the P0
+ * threat model). A value holding `\n## Instructions …` or `\n---\nallowed-tools: Bash(curl:*)\n---`
+ * forges a heading or a frontmatter fence: new document STRUCTURE the reader acts on, not text the
+ * record states.
+ *
+ * Unlike a name, a body legitimately spans lines (a rationale is prose), so this does NOT collapse
+ * newlines — it neutralises only the line STARTS that open a block, by escaping the trigger with a
+ * leading backslash. An escaped `#`/`-`/backtick is a literal character, so the line no longer begins a
+ * heading/fence, yet still renders as the text it was (`## x` reads as `## x`). The hostile text
+ * survives as text, never as structure.
+ */
+function inertBody(v: string): string {
+  return v
+    .split("\n")
+    .map((line) => (BLOCK_START.test(line) ? `\\${line}` : line))
+    .join("\n");
 }
 
 /**
@@ -389,6 +421,21 @@ export function renderPersonaSkill(
   const name = readableName(person);
   const sources = [...decisions, ...facts].map((i) => i.entity);
 
+  // Every source line used to read "recorded by ${name}" — the ANCHOR — but a persona unions records
+  // from other identities (`same_as`), so the record `i.author` names off the `authored_by` edge is not
+  // always the anchor. The three surfaces disagreed: MCP/web cited `i.author`, the SKILL.md said the
+  // anchor. Authorship comes off the edge, never `provenance.actor` — the rule the batch enforced
+  // elsewhere — so attribute each line to `i.author`, resolved to a name.
+  //
+  // Resolved from data already in hand: the anchor's name, plus `identities` (which `namesOf` resolved
+  // for exactly the union that produces foreign authors). An author outside that set — a co-authored
+  // record whose first edge points elsewhere — keeps its id, which the Source line already shows in the
+  // pointer, rather than being misattributed to the anchor.
+  const nameOf = new Map<string, string>([[person.id, name]]);
+  for (const p of result.identities ?? []) nameOf.set(p.id, p.name);
+  const authorName = (i: InjectItem): string =>
+    i.author ? (nameOf.get(i.author) ?? i.author) : name;
+
   const out: string[] = [];
   out.push("---");
   out.push(`name: persona-${safeName(person.id)}`);
@@ -453,7 +500,7 @@ export function renderPersonaSkill(
   else
     for (const i of decisions)
       out.push(
-        `- ${String(i.entity.attributes.conclusion)} ${pointer(i.entity)}${disputed(i)}`,
+        `- ${inertBody(String(i.entity.attributes.conclusion))} ${pointer(i.entity)}${disputed(i)}`,
       );
   out.push("");
 
@@ -466,22 +513,23 @@ export function renderPersonaSkill(
   else
     for (const i of decisions) {
       const d = i.entity;
-      out.push(`### ${String(d.attributes.conclusion)}`);
-      out.push(`- Rationale: ${String(d.attributes.rationale)}`);
+      out.push(`### ${inertBody(String(d.attributes.conclusion))}`);
+      out.push(`- Rationale: ${inertBody(String(d.attributes.rationale))}`);
       // What was NOT chosen is the half of a judgment that transfers. "Use SQLite" is a fact about a
       // codebase; "Postgres was on the table and lost" is how this person decides — and the ontology
       // has carried it since v1 (`decision` declares rejected_alternatives, VISION calls it the raw
       // material for a persona) while the export dropped it on the floor.
       const rejected = d.attributes.rejected_alternatives;
       if (Array.isArray(rejected) && rejected.length > 0)
-        out.push(`- Rejected: ${rejected.map(String).join(", ")}`);
+        out.push(`- Rejected: ${inertBody(rejected.map(String).join(", "))}`);
       if (i.conflictsWith) out.push(`- Disputed:${disputed(i)}`);
       // `pointer`, not `citation`: a citation carries `provenance.actor`, and on a promoted record that
       // is whoever VERIFIED it. Every Source line in a document titled "Ada persona" read
-      // "yoke:system" — the one name the document must not put there. Authorship is the anchor of this
-      // walk (authored_by, dir 'in'), so the author is known without a lookup.
+      // "yoke:system" — the one name the document must not put there. The author comes off `i.author`
+      // (the authored_by edge), not the anchor: a union spans identities, so the record's real author
+      // is not always who the document is titled for.
       out.push(
-        `- Source: ${pointer(d)} recorded by ${name}, last confirmed ${d.last_confirmed}`,
+        `- Source: ${pointer(d)} recorded by ${authorName(i)}, last confirmed ${d.last_confirmed}`,
       );
       out.push("");
     }
@@ -492,7 +540,7 @@ export function renderPersonaSkill(
   else
     for (const i of facts)
       out.push(
-        `- ${knowledgeText(i.entity, ontology)} — ${pointer(i.entity)} recorded by ${name}, ` +
+        `- ${inertBody(knowledgeText(i.entity, ontology))} — ${pointer(i.entity)} recorded by ${authorName(i)}, ` +
           `last confirmed ${i.entity.last_confirmed}${disputed(i)}`,
       );
   out.push("");
@@ -528,6 +576,18 @@ export interface PersonaHeader {
   /** False when there is no `Source knowledge` line at all: not an exported persona. */
   recognized: boolean;
   /**
+   * The anchor person's id, off the `name: persona-<id>` frontmatter the export writes. Carried so
+   * `--check` can validate the ANCHOR, not only the sources: a SKILL.md whose anchor was retired AFTER
+   * export audited green because the anchor is not one of the sources the check reads. Null when the
+   * frontmatter line is absent (a hand-written file).
+   *
+   * ceiling: this is `safeName(person.id)`, which is lossless for the ids in use (ULIDs, hyphenated
+   * handles) but would mangle an id holding other punctuation — the anchor is nowhere else in the
+   * document to recover it from. Lifting that needs the export to carry the raw id somewhere `--check`
+   * reads, without changing the skill `name` (which must stay a safe identifier).
+   */
+  anchor: string | null;
+  /**
    * The count the header DECLARES — `Source knowledge (3):` — which is what the export was built from.
    *
    * Carried because it is the honest denominator: `--check` counted what it managed to parse, so a
@@ -539,6 +599,19 @@ export interface PersonaHeader {
 }
 
 const SOURCE_LINE = "Source knowledge (";
+const NAME_LINE = "name: persona-";
+
+/**
+ * The anchor person's id from an exported SKILL.md's `name: persona-<id>` frontmatter, or null.
+ *
+ * A pure inverse of the one line `renderPersonaSkill` writes at :name. Exposed so a caller (the CLI
+ * `--check` handler) can look the anchor up and gate on its current status — a retired anchor is the
+ * one staleness `--check` was blind to, because it reads the sources and the anchor is not among them.
+ */
+export function personaAnchorId(md: string): string | null {
+  const line = md.split("\n").find((l) => l.startsWith(NAME_LINE));
+  return line ? line.slice(NAME_LINE.length).trim() || null : null;
+}
 
 /**
  * The inverse of `renderPersonaSkill`'s header, and it lives beside it on purpose — a format the writer
@@ -548,9 +621,16 @@ const SOURCE_LINE = "Source knowledge (";
  * `lastIndexOf("@v")` rather than a split, because an id may carry a namespace prefix.
  */
 export function parsePersonaSources(md: string): PersonaHeader {
+  const anchor = personaAnchorId(md);
   const line = md.split("\n").find((l) => l.startsWith(SOURCE_LINE));
   if (line === undefined)
-    return { sources: [], unparsed: [], recognized: false, declared: 0 };
+    return {
+      sources: [],
+      unparsed: [],
+      recognized: false,
+      declared: 0,
+      anchor,
+    };
   const list = line.slice(line.indexOf("): ") + 3).trim();
   const declared = Number(
     line.slice(SOURCE_LINE.length, line.indexOf("): ")).trim(),
@@ -560,6 +640,7 @@ export function parsePersonaSources(md: string): PersonaHeader {
     unparsed: [],
     recognized: true,
     declared: Number.isInteger(declared) && declared > 0 ? declared : 0,
+    anchor,
   };
   if (list === "(none)" || list === "") return header;
   for (const token of list.split(",").map((t) => t.trim())) {
@@ -659,4 +740,32 @@ export async function checkPersonaSources(
     });
   }
   return out;
+}
+
+/** Where an exported persona's ANCHOR stands now. `retired` mirrors the one lever an org has over a
+ * persona (`personaQuery` refuses to regenerate on it); `missing` covers a deleted or wrong-namespace
+ * anchor and `not-a-person` an anchor that is no longer a person record. */
+export type AnchorVerdict = "ok" | "missing" | "retired" | "not-a-person";
+
+/**
+ * The anchor of an exported snapshot against the store now — the check `parsePersonaSources` gives
+ * `--check` the id for. `personaQuery` refuses to REGENERATE a persona whose anchor was retired; without
+ * this, `--check` on the already-installed file stayed green, so the CI gate that file exists to be
+ * could not catch the retirement. Same precondition as `personaQuery`'s, read-only.
+ *
+ * Namespace-filtered like `checkPersonaSources`: an anchor that exists only in another tenant is
+ * `missing` here, which is the true answer for this reader.
+ */
+export async function checkPersonaAnchor(
+  port: StoragePort,
+  ontology: TypeDef[],
+  anchorId: string,
+  now: string,
+  opts?: { ns?: string | null },
+): Promise<AnchorVerdict> {
+  const e = await port.getEntity(anchorId);
+  if (!e || normalizeNs(e.ns) !== normalizeNs(opts?.ns)) return "missing";
+  if (e.type !== PERSON_TYPE) return "not-a-person";
+  if (effectiveStatus(e, ontology, now) === "deprecated") return "retired";
+  return "ok";
 }
