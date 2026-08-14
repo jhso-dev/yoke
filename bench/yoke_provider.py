@@ -310,15 +310,19 @@ class YokeMemoryProvider(MemoryProvider):
                     todo += newer_of.get(cur, []) + older_of.get(cur, [])
                 return sorted(seen)
 
+            # BUDGET-NEUTRAL, and that is the whole design. Appending chain members grows the
+            # context, and every arm that grew the context lost: the whole store -6, a doubled
+            # hybrid union -5. So a chain member takes the place of the LOWEST-ranked hit instead
+            # of being added — same record count, same token bill, different composition. If the
+            # trajectory questions need the earlier state more than they need hit #10, this wins;
+            # if they do not, it loses cleanly and says so.
+            budget = len(docs)
             expanded: list[Document] = []
             present = {d.id for d in docs}
             for d in docs:
-                members = [m for m in _chain(d.id) if m != d.id] if (
-                    d.id in newer_of or d.id in older_of
-                ) else []
                 expanded.append(self._with_chain_lines(d, newer_of, older_of, _summary))
-                for m in members:
-                    if m in present or m not in nodes:
+                for m in _chain(d.id):
+                    if m == d.id or m in present or m not in nodes:
                         continue
                     present.add(m)
                     expanded.append(
@@ -326,6 +330,8 @@ class YokeMemoryProvider(MemoryProvider):
                             _doc(nodes[m]), newer_of, older_of, _summary
                         )
                     )
-            docs = expanded
+            # Head order is preserved (the head is what the answering model attends to most), so the
+            # cut falls on the tail, where the least relevant hits were.
+            docs = expanded[:budget]
 
         return docs, {"count": len(docs)}

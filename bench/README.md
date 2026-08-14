@@ -277,6 +277,33 @@ floor 10/28) down to ×0.93 (u4, floor 14/26 vs yoke 13/26 — the memory arm be
 lift moved ×1.40 (2 users, n=42) → ×1.50 (3, n=70) → ×1.32 (4, n=96) as users were added. A lift
 quoted without its user sample is noise wearing a decimal point.
 
+### Why trajectory questions stay unanswerable here: `relate` files no change-of-position edge
+
+The questions this corpus is mostly made of ask how a position changed. Answering them needs an edge
+between the two halves of a reversal, and five attempts failed to produce one — recorded so the next
+attempt starts past them:
+
+1. **Three models.** `gemma-4-e4b` produced 2 `supersedes` on u1 and 0 on u2; `gemma-4-26b-a4b-qat`
+   never returned on a relate group (reasoning stall on a ~1KB prompt); `ornith-1.0-35b-mlx`
+   produced 23 edges on u1, all `relates_to`, no `supersedes`.
+2. **A sharper prompt.** Making the reversal test explicit and ranking `relates_to` as a last resort
+   raised the edge count from 23 to 52 and still produced zero `supersedes`. Reverted: doubling the
+   weakest edge type is noise, not an improvement.
+3. **A wider candidate set.** `YOKE_RELATE_NEIGHBOURS=10` (default 5) — 26 edges, still no
+   `supersedes` and no `conflicts_with`.
+
+What the probe says, and it is the useful part: handed a reversal pair directly (*"Diving into
+graphic novels is an enriching experience"* against *"Stopped reading graphic novels altogether"*),
+the same 4B model classifies it — as **`conflicts_with`**, not `supersedes`, with a correct
+`because`. So the model can see a change of position; on the real corpus it labels nearly every
+offered pair `relates_to` anyway. The gap is between the isolated pair and the pair as `summarize`
+renders it inside a group, which is where a next attempt should look — not at the model, and not at
+the type definitions in the prompt.
+
+Consequence for the chain-expansion arm (`YOKE_BENCH_CHAINS`): it walks `supersedes`, so on these
+stores it has nothing to walk and cannot be measured either way. If the edges ever appear, walk
+`conflicts_with` too — that is what a reversal is being called.
+
 ### `yoke relate`: the 26b stalls, the fast model finds no supersedes
 
 `google/gemma-4-26b-a4b-qat` never returned on a relate group (two 300s timeouts on a ~1KB prompt;
