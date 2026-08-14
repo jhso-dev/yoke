@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Citation } from "../../components/Citation";
 import { CopyCode } from "../../components/CopyCode";
 import { CreateButton } from "../../components/CreateButton";
+import { DisputedLinks } from "../../components/DisputedLinks";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { Panel, PanelHead } from "../../components/Panel";
@@ -155,25 +156,17 @@ function Person({ id }: { id: string }) {
   // this person's records, and rendering them as two ordinary rows shows an open disagreement as their
   // settled position — the same defect the inject preview fixed, on the screen where the reader is
   // most likely to read a row as "this is what they think". Same column, same words as that screen.
+  // Resolved against this person's whole loaded set — a decision may contradict a fact, so both lists
+  // are the lookup pool that names the contradicted record.
+  const loaded = [...allDecisions, ...allFacts];
   const disputedColumn = {
     head: t.inject.disputedHead,
-    cell: (r: Knowledge) => {
-      const others = (r as InjectedKnowledge).conflictsWith;
-      if (!others) return null;
-      return (
-        <span className="flex flex-wrap gap-2">
-          {others.map((cid) => (
-            <Link
-              key={cid}
-              href={`/entity/?id=${encodeURIComponent(cid)}`}
-              title={cid}
-            >
-              {t.inject.disputedBy}
-            </Link>
-          ))}
-        </span>
-      );
-    },
+    cell: (r: Knowledge) => (
+      <DisputedLinks
+        ids={(r as InjectedKnowledge).conflictsWith}
+        rows={loaded}
+      />
+    ),
   };
 
   return (

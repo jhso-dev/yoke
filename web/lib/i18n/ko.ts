@@ -158,6 +158,12 @@ export const ko: typeof en = {
       "생성했습니다. 다만 무엇과도 비교하지 않았습니다: 이 작업 공간에 임베딩 제공자가 설정되지 않아 중복 탐지가 실행되지 않았습니다.",
     createdToast: (label: string) =>
       `"${label}" 초안으로 생성됨 — 리뷰에서 검증하세요.`,
+    // 부분 커밋: 레코드는 저장됐지만 게이트가 함께 쓰려던 엣지가 기록되지 않았다. 저작 엣지는
+    // backfill로 다시 만들 수 있지만 호출자의 --scope 첨부는 다시 연결해야 한다.
+    partial: (label: string, attachment: boolean) =>
+      attachment
+        ? `"${label}" 초안으로 저장했지만 스코프 첨부가 기록되지 않았습니다 — 다시 연결하세요.`
+        : `"${label}" 초안으로 저장했지만 저작 엣지가 기록되지 않았습니다 — yoke backfill로 다시 만드세요.`,
   },
   status: {
     meaning: {
@@ -179,7 +185,8 @@ export const ko: typeof en = {
     placeholder:
       "재프레이밍한 버전으로 대체 · 테스트 픽스처였음 · … 이후로는 사실이 아님",
     kept: "레코드는 보존되며 주입에서만 제외됩니다.",
-    retiredBy: (actor: string, when: string) => `${actor}이(가) ${when}에 폐기`,
+    // <Actor>가 폐기자 이름을 앞에 렌더링하므로 여기서는 이름에 바로 붙는다: "<이름>님이 <when>에 …".
+    retiredBy: (when: string) => `님이 ${when}에 이 레코드를 폐기함`,
     noReason: "기록된 이유가 없습니다.",
   },
   review: {
@@ -370,7 +377,6 @@ export const ko: typeof en = {
     empty:
       "이 질문과 일치하는 verified 지식이 없어 에이전트에 전달할 내용이 없습니다",
     disputedHead: "상충",
-    disputedBy: "반박하는 레코드",
     withheld: (
       w: {
         draft: number;

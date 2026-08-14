@@ -36,6 +36,12 @@ export interface Knowledge {
  */
 export interface InjectedKnowledge extends Knowledge {
   conflictsWith?: string[];
+  /** Who actually WROTE this, off the `authored_by` edge — resolved to `authorName` for reading.
+   * `actor`/`actorName` above name the PROMOTER (a verified record's provenance is its promotion), so
+   * when the two differ the writer is here and the citation string is rebuilt to name them. Absent when
+   * the record has no authorship edge, in which case the promoter is the only actor there is. */
+  author?: string;
+  authorName?: string;
 }
 
 /** A relation row: a Knowledge row plus its endpoints. */
@@ -67,7 +73,14 @@ export interface EntityDetail {
   /** Present only on a retired record: who retired it, when, and why if anyone said. Read back from
    * the audit trail — verify/deprecate change status, never knowledge content, so the reason is a
    * property of the ACT rather than of the record. */
-  retirement?: { actor: string; at: string; reason?: string };
+  retirement?: {
+    actor: string;
+    /** The retiree resolved for reading; absent for a machine actor or an unresolvable id. Render
+     * `actorName ?? actor` and keep the id reachable, the same rule the row's own actor follows. */
+    actorName?: string;
+    at: string;
+    reason?: string;
+  };
   relations: {
     out: (Edge & {
       dir: "out";
@@ -145,8 +158,10 @@ export interface InjectPreview {
   omitted: number;
   /** What a multi-hop walk did — non-null only when depth > 1 was requested and walked. */
   walk: { depth: number; nodes: number; truncated: boolean } | null;
-  /** Why an empty preview is empty — non-null only when nothing could be injected AND something
-   * matched. Null means the query matched nothing at all, which is a different answer. */
+  /** What matched but was held back, and why — non-null whenever something matched and at least one
+   * match was withheld, whether or not anything came through (measured: `items:1, withheld:{draft:1}`).
+   * Null means nothing was held back — either the query matched nothing, or everything it matched was
+   * injected. So a full table can still carry this: it names the records the page is NOT everything of. */
   withheld: {
     draft: number;
     stale: number;

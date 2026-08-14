@@ -59,18 +59,29 @@ export function CreateButton({
           type={type}
           scope={scope}
           onCreated={(created) => {
-            // One sentence, the most important one: a duplicate warning outranks the plain
-            // "created" (it already says created), and "nothing was compared" outranks silence.
+            // One sentence, the most important one, and a PARTIAL commit outranks them all: the record
+            // is durable but an edge the gate tried alongside it was not written, and a plain "created"
+            // toast would report that as an unqualified success. After it, a duplicate warning outranks
+            // the plain "created" (it already says created), and "nothing was compared" outranks silence.
             const dups = created.duplicates ?? [];
+            const unrecorded = created.unrecorded ?? [];
             announce(
-              dups.length > 0
-                ? t.create.duplicates(
-                    dups.length,
-                    dups.map((d) => recordLabel(d)).join(" · "),
+              unrecorded.length > 0
+                ? t.create.partial(
+                    recordLabel(created),
+                    // The caller's own --scope attachment failing is the one that must be re-filed;
+                    // an authorship edge re-derives with backfill. Distinguished so the toast names
+                    // the remedy that actually applies.
+                    unrecorded.some((u) => u.startsWith("relates_to")),
                   )
-                : created.duplicateDetection === "skipped"
-                  ? t.create.notChecked
-                  : t.create.createdToast(recordLabel(created)),
+                : dups.length > 0
+                  ? t.create.duplicates(
+                      dups.length,
+                      dups.map((d) => recordLabel(d)).join(" · "),
+                    )
+                  : created.duplicateDetection === "skipped"
+                    ? t.create.notChecked
+                    : t.create.createdToast(recordLabel(created)),
             );
             setOpen(false);
             onCreated(created);

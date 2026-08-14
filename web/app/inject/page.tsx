@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Alert } from "@/components/ui/alert";
@@ -11,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { CopyCode } from "../../components/CopyCode";
 import { DateTimePicker } from "../../components/DateTimePicker";
+import { DisputedLinks } from "../../components/DisputedLinks";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { Panel, PanelHead } from "../../components/Panel";
@@ -213,24 +213,12 @@ function InjectBody() {
               // ordinary rows. A link rather than the id, per the rule that a person never reads a ULID.
               trailing={{
                 head: t.inject.disputedHead,
-                cell: (r) => {
-                  const others =
-                    (r as InjectedKnowledge).conflictsWith ?? undefined;
-                  if (!others) return null;
-                  return (
-                    <span className="flex flex-wrap gap-2">
-                      {others.map((id) => (
-                        <Link
-                          key={id}
-                          href={`/entity/?id=${encodeURIComponent(id)}`}
-                          title={id}
-                        >
-                          {t.inject.disputedBy}
-                        </Link>
-                      ))}
-                    </span>
-                  );
-                },
+                cell: (r) => (
+                  <DisputedLinks
+                    ids={(r as InjectedKnowledge).conflictsWith}
+                    rows={items}
+                  />
+                ),
               }}
             />
           </Panel>
@@ -241,8 +229,9 @@ function InjectBody() {
 }
 
 export default function Inject() {
+  const t = useT();
   return (
-    <Suspense fallback={<p className="muted">loading…</p>}>
+    <Suspense fallback={<p className="muted">{t.common.loading}</p>}>
       <InjectBody />
     </Suspense>
   );

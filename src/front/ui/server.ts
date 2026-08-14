@@ -473,6 +473,11 @@ export function createUiHandler(
       asRel: async (r: Relation) =>
         relRow(r, ontology, ts, await nameOf(r.provenance.actor)),
       prefetch,
+      // Exposed so the inject/persona routes can resolve an AUTHOR id (off the authored_by edge, not
+      // provenance.actor) to a name — the citation core built names the writer, and the screen has to
+      // render it. ceiling: a point read per distinct author not already prefetched; the memo dedups,
+      // and a persona's rows share one author so it costs one read.
+      nameOf,
     };
   };
   const asRow = () => serializers().asR;
@@ -513,7 +518,16 @@ export function createUiHandler(
     // and a static export has no middleware to tell it. Carries no knowledge — and when the caller
     // is unauthenticated it withholds actor and ns too, so it cannot be used to enumerate tenants.
     if (method === "GET" && path === "/api/meta") {
-      const authenticated = authorize("read");
+      // "Authenticated" is holding ANY scope, not `read` specifically. A least-privileged admin
+      // (`tenant-a:*:admin`, the token screen's own audience) has no `read`, so gating ns on `read`
+      // handed it `ns:null` — from which the token form composed bare/`*:` scopes that its own grant
+      // check then refused, making Create a dead button. ns is this principal's own namespace (the
+      // 403 body already discloses it), so any valid credential may learn it.
+      const authenticated =
+        authorize("read") ||
+        authorize("write") ||
+        authorize("verify") ||
+        authorize("admin");
       // The topbar says who you are signed in as. Under --auth that actor is a person entity id, so
       // without resolution the header reads as a ULID.
       const actorName = authenticated
@@ -649,8 +663,7 @@ export function createUiHandler(
         sendJson(res, 404, { error: "not found" });
         return;
       }
-      const asR = asRow();
-      const asRel = asRelRow();
+      const { asR, asRel, nameOf } = serializers();
       const rels = await store.neighbors(id);
       const side = async (other: string) => {
         const o = await store.getEntity(other);
@@ -689,9 +702,21 @@ export function createUiHandler(
         // content — so this reads the governance act back instead of copying it onto the row.
         // `asR` already resolved the read-time status; reading it off the row keeps one answer to
         // "is this retired" rather than recomputing the rule here.
-        ...((await asR(e)).effectiveStatus === "deprecated"
-          ? { retirement: retirementOf(store, id, ns) }
-          : {}),
+        ...(await (async () => {
+          if ((await asR(e)).effectiveStatus !== "deprecated") return {};
+          const retire = retirementOf(store, id, ns);
+          if (!retire) return {};
+          // The retiree resolved for reading, like entity.actorName above it — the same response
+          // resolves the record's own actor and left this one a bare ULID in the "Retired by …"
+          // sentence. The id stays on the row for hover/copy (no-raw-ids rule).
+          const actorName = await nameOf(retire.actor);
+          return {
+            retirement: {
+              ...retire,
+              ...(actorName === undefined ? {} : { actorName }),
+            },
+          };
+        })()),
         relations: {
           out: edges.filter((x) => x.dir === "out"),
           in: edges.filter((x) => x.dir === "in"),
@@ -781,7 +806,7 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      const { asR, prefetch } = serializers();
+      const { asR, prefetch, nameOf } = serializers();
       sendJson(res, 200, {
         query,
         scope: scope ?? null,
@@ -799,14 +824,28 @@ export function createUiHandler(
           const es = items.map((it) => it.entity);
           await prefetch(es);
           const rows = await Promise.all(es.map(asR));
-          // The contradiction marker travels with the row. This screen's own claim is that it shows what
-          // an agent receives, and the agent receives it — without this the preview would render two
-          // records that disagree as two identical-looking rows, which is what the conflicts screen was
-          // already doing one page over.
-          return rows.map((r, i) =>
-            items[i].conflictsWith
-              ? { ...r, conflictsWith: items[i].conflictsWith }
-              : r,
+          // The author-aware citation, the author id, and the contradiction marker travel with the row.
+          // row() rebuilt `citation` from provenance alone, naming the PROMOTER as the author — on a
+          // verified record that is whoever approved it, not whoever wrote it. Core already built the
+          // right citation (item.citation) and knows the writer (item.author); both are handed over and
+          // the author id is resolved for reading. Without the marker two records that disagree render
+          // as two identical rows, the defect the conflicts screen was already showing one page over.
+          return Promise.all(
+            rows.map(async (r, i) => {
+              const it = items[i];
+              const authorName = it.author
+                ? await nameOf(it.author)
+                : undefined;
+              return {
+                ...r,
+                citation: it.citation,
+                ...(it.author ? { author: it.author } : {}),
+                ...(authorName === undefined ? {} : { authorName }),
+                ...(it.conflictsWith
+                  ? { conflictsWith: it.conflictsWith }
+                  : {}),
+              };
+            }),
           );
         })(),
       });
@@ -1113,15 +1152,24 @@ export function createUiHandler(
         at: ts,
         ns,
       });
-      const { asR, prefetch } = serializers();
-      // The contradiction marker travels with the row, exactly as it does on the inject preview: both
-      // sides of a live `conflicts_with` are returned, and a persona screen that renders them as two
-      // ordinary rows presents an open disagreement as this person's settled position.
-      const rows = async (items: typeof result.decisions) =>
-        (await Promise.all(items.map((i) => asR(i.entity)))).map((r, n) =>
-          items[n].conflictsWith
-            ? { ...r, conflictsWith: items[n].conflictsWith }
-            : r,
+      const { asR, prefetch, nameOf } = serializers();
+      // The author-aware citation, author id, and contradiction marker travel with the row, exactly as
+      // on the inject preview. row() names the PROMOTER; on a persona — every row authored by the one
+      // person on screen — that renders each of their records cited to whoever verified it, not to them.
+      // Core built the right citation (i.citation) and knows the author (i.author); both are handed over.
+      const rows = async (list: typeof result.decisions) =>
+        Promise.all(
+          list.map(async (i) => {
+            const r = await asR(i.entity);
+            const authorName = i.author ? await nameOf(i.author) : undefined;
+            return {
+              ...r,
+              citation: i.citation,
+              ...(i.author ? { author: i.author } : {}),
+              ...(authorName === undefined ? {} : { authorName }),
+              ...(i.conflictsWith ? { conflictsWith: i.conflictsWith } : {}),
+            };
+          }),
         );
       sendJson(res, 200, {
         ...(await (async () => {

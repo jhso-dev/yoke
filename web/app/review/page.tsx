@@ -260,8 +260,9 @@ function ReviewBody() {
 
 export default function Review() {
   // `useSearchParams` needs a Suspense boundary under static export, the same as the inject screen.
+  const t = useT();
   return (
-    <Suspense fallback={<p className="muted">loading…</p>}>
+    <Suspense fallback={<p className="muted">{t.common.loading}</p>}>
       <ReviewBody />
     </Suspense>
   );

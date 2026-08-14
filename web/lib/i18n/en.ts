@@ -162,6 +162,13 @@ export const en = {
       "Created. Nothing was compared against it: this workspace has no embedding provider configured, so duplicate detection did not run.",
     createdToast: (label: string) =>
       `Created "${label}" as a draft — verify it in Review.`,
+    // A partial commit: the record is durable but an edge the gate tried alongside it was not written.
+    // Naming the remedy that applies — an authorship edge re-derives with backfill, but the caller's
+    // own --scope attachment has to be filed again — so the toast is not an unqualified "created".
+    partial: (label: string, attachment: boolean) =>
+      attachment
+        ? `Saved "${label}" as a draft, but its attachment to the scope was NOT recorded — link it again.`
+        : `Saved "${label}" as a draft, but its authorship edge was NOT recorded — re-derive it with yoke backfill.`,
   },
   status: {
     /** Why a record in this state is or is not injected. The stored NAME stays English (it is what
@@ -188,9 +195,9 @@ export const en = {
     placeholder:
       "superseded by the reframed version · was a test fixture · no longer true since …",
     kept: "The record is kept and stops being injected.",
-    /** Shown on the retired record itself. */
-    retiredBy: (actor: string, when: string) =>
-      `Retired by ${actor} on ${when}`,
+    /** Shown on the retired record itself, after an <Actor> that names the retiree — a leading space
+     * joins the two, so this reads "<name> retired this record on <when>". */
+    retiredBy: (when: string) => ` retired this record on ${when}`,
     noReason: "No reason was recorded.",
   },
   review: {
@@ -392,11 +399,10 @@ export const en = {
       `Showing ${shown} of ${total}. An agent receives the same results and a note to ask a more specific question for the rest. Raise the limit to preview more.`,
     empty:
       "No verified knowledge matches this query, so nothing will be sent to the agent",
-    // The column and the link that say a row is contested. Named as a state ("disputed") rather than an
-    // action, because there is nothing to click to fix it — settling a contradiction is a human judgment
-    // the database deliberately does not make.
+    // The column that says a row is contested. Named as a state ("disputed") rather than an action,
+    // because there is nothing to click to fix it — settling a contradiction is a human judgment the
+    // database deliberately does not make. Each cell names the contradicted record (DisputedLinks).
     disputedHead: "disputed",
-    disputedBy: "contradicted by",
     // The empty state above claims nothing matches. When something DID match and was held back, saying
     // so is the difference between "we know nothing about this" and "this is waiting for review".
     withheld: (

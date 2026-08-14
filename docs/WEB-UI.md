@@ -129,8 +129,9 @@ The viewing set — reading what is already stored, never adding to it:
 11. **Tokens** — mint/list/revoke API tokens for `serve`. It governs ACCESS to knowledge
     (who can read, who can verify), which is a governance act even though no knowledge
     renders; it composes the three token routes and synthesises nothing; it creates no
-    knowledge. Gated on `verify` under `--auth`; under plain `yoke ui` it is as open as the
-    terminal running it (invariant 4, same trust boundary).
+    knowledge. Gated on `admin` under `--auth` — the credential axis, distinct from `verify`, so a
+    reviewer does not also get the power to mint credentials (see `Action` in serve/rbac.ts); under
+    plain `yoke ui` it is as open as the terminal running it (invariant 4, same trust boundary).
 12. **Login** — not a screen about knowledge: the credential prompt `serve --auth` needs so
     a browser can present a token or OIDC identity. Exists because 401 has to land
     somewhere ungated.
