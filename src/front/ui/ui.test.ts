@@ -7,7 +7,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { verify } from "../../core/lifecycle.js";
@@ -652,6 +652,51 @@ describe("ui API", () => {
     // Neither q nor scope is a 400, not an accidental full dump.
     const bad = await fetch(`${base}/api/inject`);
     expect(bad.status).toBe(400);
+  });
+
+  // C7: a read whose answer is computed must not be discarded because the trail INSERT lost the
+  // write lock. WAL guarantees readers never block; before the fix, a `database is locked` on the
+  // `inject_preview` row (written BEFORE sendJson) surfaced as a 500 and threw away a preview the
+  // human already needed. The audit write is now best-effort and happens after the response.
+  it("C7: /api/inject returns its answer even when the audit write fails (locked trail)", async () => {
+    const s = new SqliteStorage(join(dir, "c7-inject.sqlite"));
+    await s.init();
+    const ont = seedOntology();
+    await s.saveOntology(ont);
+    const at = "2026-07-13T00:00:00Z";
+    const p: Provenance = { actor: "seed", origin: "cli", occurred_at: at };
+    const f = await commit(
+      s,
+      ont,
+      { type: "fact", attributes: { statement: "sky is blue" } },
+      p,
+      at,
+    );
+    await verify(s, [f.entity.id], "seed", at);
+    // Every audit write throws, as a concurrent writer's held lock would.
+    vi.spyOn(s, "logAudit").mockImplementation(() => {
+      throw new Error("database is locked");
+    });
+    const srv = createUiServer({
+      store: s,
+      actor: "reviewer",
+      now: () => at,
+      webRoot: null,
+    });
+    await new Promise<void>((r) => srv.listen(0, r));
+    const b = `http://localhost:${(srv.address() as AddressInfo).port}`;
+    try {
+      const res = await fetch(`${b}/api/inject?q=sky`);
+      // 200, NOT a 500 from the trail INSERT — the read succeeded and is returned.
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.items.map((r: { id: string }) => r.id)).toEqual([
+        f.entity.id,
+      ]);
+    } finally {
+      srv.close();
+      s.close();
+    }
   });
 
   it("graph is bounded and says so, and an anchor walks outward from one node", async () => {

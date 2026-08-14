@@ -164,6 +164,103 @@ describe("runCli", () => {
     expect(human).toContain("injected 2x");
   });
 
+  // C7: `search`, `inject`, `get` and `overview` compute their answer and then record a trail row.
+  // Under a concurrent writer's held lock the trail INSERT throws `database is locked`; written BEFORE
+  // emit it discarded a read that had already succeeded. The row is now written AFTER the answer and
+  // best-effort, so a locked trail can never turn a successful read into a failed query.
+  it("C7: a read survives a locked audit trail — answer returned, trail row best-effort", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    // Seed one verified fact so the reads have something to return.
+    const store = new SqliteStorage(db);
+    await store.init();
+    const ont = store.loadOntology(null);
+    const at = "2026-07-13T00:00:00Z";
+    const prov: Provenance = { actor: "seed", origin: "cli", occurred_at: at };
+    const { entity } = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { statement: "locked trail knowledge" } },
+      prov,
+      at,
+    );
+    await verify(store, [entity.id], "seed", at);
+    store.close();
+
+    // Every audit write now throws, as a held write lock would.
+    const spy = vi
+      .spyOn(SqliteStorage.prototype, "logAudit")
+      .mockImplementation(() => {
+        throw new Error("database is locked");
+      });
+    try {
+      expect(await runCli(["search", "locked", "--db", db, "--json"])).toBe(0);
+      expect(
+        (JSON.parse(logs.at(-1) as string) as unknown[]).length,
+      ).toBeGreaterThan(0);
+
+      expect(await runCli(["inject", "locked", "--db", db, "--json"])).toBe(0);
+      expect(
+        (JSON.parse(logs.at(-1) as string) as unknown[]).length,
+      ).toBeGreaterThan(0);
+
+      expect(await runCli(["get", entity.id, "--db", db, "--json"])).toBe(0);
+      expect(JSON.parse(logs.at(-1) as string).id).toBe(entity.id);
+
+      expect(await runCli(["overview", "--db", db])).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+    // The dropped write was observable, not silently swallowed.
+    expect(errs.some((e) => e.includes("database is locked"))).toBe(true);
+  });
+
+  // F1: `review --stale` counts consumption over the audit trail. Reading the WHOLE trail materialized
+  // every row into JS (83ms at 100k, 2.7s at 1M, no retention). The read is now bounded to a recent
+  // window, and the window is named in the output — never a silent slice.
+  it("F1: review --stale bounds the consumption read to a window, not the whole trail", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    // An aged verified record, so the stale queue is non-empty and reaches the consumption count.
+    const store = new SqliteStorage(db);
+    await store.init();
+    const ont = store.loadOntology(null);
+    const then = "2020-06-01T00:00:00Z";
+    const past: Provenance = {
+      actor: "seed",
+      origin: "cli",
+      occurred_at: then,
+    };
+    const { entity } = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { statement: "aged" } },
+      past,
+      then,
+    );
+    await verify(store, [entity.id], "seed", then);
+    store.close();
+
+    const calls: Array<{ limit?: number } | undefined> = [];
+    const spy = vi
+      .spyOn(SqliteStorage.prototype, "listAudit")
+      .mockImplementation((q) => {
+        calls.push(q as { limit?: number } | undefined);
+        return [];
+      });
+    try {
+      expect(await runCli(["review", "--stale", "--db", db])).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+    // The stale queue read the trail for consumption — and every such read is bounded, never a full
+    // unbounded scan.
+    expect(calls.length).toBeGreaterThan(0);
+    for (const q of calls) expect(typeof q?.limit).toBe("number");
+    // Never a silent slice: the window is named in the output.
+    expect(logs.join("\n")).toContain("audit rows");
+  });
+
   it("bare --version prints the package version", async () => {
     expect(await runCli(["--version"])).toBe(0);
     expect(logs.at(-1)).toMatch(/^\d+\.\d+\.\d+/);

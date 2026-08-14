@@ -222,6 +222,22 @@ export function injectShape(detail: string): {
  * The `detail` grammar is `subject -> id id …` (see `injectDetail`); the ids side is taken from the
  * LAST arrow, since a query in the subject may contain anything.
  */
+/**
+ * The window a stale-queue consumption count is taken over, in audit rows.
+ *
+ * F1: `consumptionCounts` materializes every audit row it is handed into JS, and its callers passed
+ * the WHOLE trail (`listAudit({ ns })`) — measured 83ms at 100k rows, 2.7s at 1M, and audit_log is
+ * the one table that only grows with no retention anywhere. So the callers cap `listAudit` to the most
+ * recent N rows instead. Bounded by the index (`rowid DESC LIMIT`, no `julianday` wrap — see
+ * SqliteStorage.listAudit), so the read is O(N), not O(trail).
+ *
+ * The most RECENT window is the meaningful one for this queue anyway: re-confirmation effort should go
+ * to knowledge agents are being fed NOW, not to a record consumed 40 times two years ago and untouched
+ * since. Never a silent slice (repo convention): every surface that ranks by this count names the
+ * window in its output, so "injected 12x" is not read as an all-time total.
+ */
+export const CONSUMPTION_WINDOW = 50_000;
+
 export function consumptionCounts(
   events: Array<{ action: string; detail: string }>,
 ): Map<string, number> {

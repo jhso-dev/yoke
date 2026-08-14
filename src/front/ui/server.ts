@@ -33,6 +33,7 @@ import {
 import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
 import {
+  CONSUMPTION_WINDOW,
   consumptionCounts,
   injectDetail,
   makeActorNames,
@@ -44,7 +45,7 @@ import {
   ULID,
 } from "../display.js";
 import { parseScope } from "../serve/rbac.js";
-import { openStore, type YokeStore } from "../store.js";
+import { type AuditEvent, openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
 
 type Env = Record<string, string | undefined>;
@@ -438,6 +439,24 @@ export function createUiHandler(
     });
     return true;
   };
+  /**
+   * A read's audit row, written best-effort (C7).
+   *
+   * A search/entity/inject read whose answer is already computed must not be discarded because the
+   * trail INSERT lost the write lock to a concurrent writer — WAL's guarantee is that readers never
+   * block, so a `database is locked` on a secondary trail row must not become a failed query. A failed
+   * write is logged and dropped (the read succeeded — the trail is a secondary record), never
+   * propagated to the response. Write routes keep their audit inline; only reads use this.
+   */
+  const bestEffortAudit = (event: AuditEvent): void => {
+    try {
+      store.logAudit(event);
+    } catch (err) {
+      console.error(
+        `audit row not written (read succeeded): ${(err as Error).message}`,
+      );
+    }
+  };
   /** One audit row for a knowledge read, in the `<subject> -> <id> …` shape every other action
    * uses so the trail is comparable across adapters (SPEC "HTTP API"). Called with what is about
    * to be sent, never with what was asked for, so a row cannot claim ids the response withheld. */
@@ -446,7 +465,7 @@ export function createUiHandler(
     ids: string[],
     subject?: string,
   ) =>
-    store.logAudit({
+    bestEffortAudit({
       actor,
       action,
       detail: subject ? `${subject} -> ${ids.join(" ")}` : ids.join(" "),
@@ -563,13 +582,15 @@ export function createUiHandler(
         );
         // Most-consumed first (same rule as `yoke review --stale`): the count is inject+persona
         // audit rows naming the record, so re-confirmation effort goes where agents are actually
-        // reading. Ranked before serialization; `injections` rides on each row.
+        // reading. Ranked before serialization; `injections` rides on each row. Bounded to the most
+        // recent CONSUMPTION_WINDOW audit rows (F1): the whole trail materialized every row into JS.
         const ranked = rankByConsumption(
           items,
-          consumptionCounts(store.listAudit({ ns })),
+          consumptionCounts(store.listAudit({ ns, limit: CONSUMPTION_WINDOW })),
         );
         // `scanned` travels with the rows: the walk is bounded, so a screen that printed only the
-        // count would be claiming a corpus-wide number this did not compute.
+        // count would be claiming a corpus-wide number this did not compute. `consumptionWindow` is
+        // the count's own bound — never a silent slice: the screen can say what "injections" counts.
         sendJson(res, 200, {
           items: (await rowsOf(ranked)).map((r, i) => ({
             ...r,
@@ -577,6 +598,7 @@ export function createUiHandler(
           })),
           next,
           scanned,
+          consumptionWindow: CONSUMPTION_WINDOW,
         });
         return;
       }
@@ -796,7 +818,9 @@ export function createUiHandler(
           embedder: deps.embedder,
         },
       );
-      store.logAudit({
+      // Built here, written AFTER the response is sent (C7). Doing it before sendJson turned a preview
+      // the human already needed into a `database is locked` 500 whenever a writer held the lock.
+      const previewEvent: AuditEvent = {
         actor,
         action: "inject_preview",
         detail: injectDetail(
@@ -805,7 +829,7 @@ export function createUiHandler(
         ),
         at: ts,
         ns,
-      });
+      };
       const { asR, prefetch, nameOf } = serializers();
       sendJson(res, 200, {
         query,
@@ -849,6 +873,7 @@ export function createUiHandler(
           );
         })(),
       });
+      bestEffortAudit(previewEvent);
       return;
     }
 

@@ -60,6 +60,7 @@ import {
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
+  CONSUMPTION_WINDOW,
   consumptionCounts,
   describeWithheld,
   injectDetail,
@@ -334,6 +335,28 @@ function parseAttrs(attrs: string[]): Record<string, unknown> {
 /** Machine JSON with --json, human text otherwise. */
 function emit(v: Values, human: string, data: unknown): void {
   console.log(v.json ? JSON.stringify(data) : human);
+}
+
+/**
+ * Write a READ command's audit row AFTER its answer is already out, best-effort.
+ *
+ * C7: `search`, `inject`, `get` and `overview` compute their answer and then record a trail row.
+ * Written BEFORE emit, a `database is locked` from a concurrent writer's held lock threw away a read
+ * that had already succeeded — the flagship command returning a sqlite string instead of knowledge.
+ * WAL's guarantee is that readers never block; a secondary trail row must not take that away. So the
+ * answer is emitted first and the row is written here, where a failed write is noted on stderr (the
+ * read succeeded — a dropped trail row is the right thing to lose under contention) but never turned
+ * into a failed query. Write commands (add/verify/deprecate/link/rename) do NOT use this: there the
+ * audit row is part of the mutation's record and stays inline.
+ */
+function auditRead(store: YokeStore, event: AuditEvent): void {
+  try {
+    store.logAudit(event);
+  } catch (err) {
+    console.error(
+      `warning: audit row not written (read succeeded): ${(err as Error).message}`,
+    );
+  }
 }
 
 function formatEntity(
@@ -758,18 +781,19 @@ async function cmdGet(
       // own right, so it answers a read like everything else.
       const rel = inNs((await store.getRelation?.(id, version)) ?? null);
       if (rel) {
-        store.logAudit({
+        emit(
+          v,
+          `${formatEntity(rel)}\n  ${rel.from} -${rel.type}-> ${rel.to}`,
+          rel,
+        );
+        // Audited AFTER the answer is out (C7): a read must not be discarded by a locked trail row.
+        auditRead(store, {
           actor,
           action: "read",
           detail: rel.id,
           at: now(),
           ns: getNs,
         });
-        emit(
-          v,
-          `${formatEntity(rel)}\n  ${rel.from} -${rel.type}-> ${rel.to}`,
-          rel,
-        );
         return 0;
       }
       // "not found" is a claim about the corpus, and with `--version` it was usually false: `get <id>
@@ -793,15 +817,16 @@ async function cmdGet(
     // A read of full attributes, which is where SPEC draws the audit line — and the twin of
     // `GET /api/entity/:id`. The rule is per front ADAPTER: if only the browser wrote this row,
     // "who read this record" would be unanswerable for every read done the normal way, which is
-    // exactly how `verify` drifted before v5.0.
+    // exactly how `verify` drifted before v5.0. Written AFTER the answer is out (C7), so a locked
+    // trail cannot discard a `get` that already printed the record.
     const readAt = now();
-    store.logAudit({
+    const readEvent: AuditEvent = {
       actor,
       action: "read",
       detail: e.id,
       at: readAt,
       ns: getNs,
-    });
+    };
     const ontology = store.loadOntology(getNs);
     // A retired record raises exactly one question, and the answer is on the audit row (see history).
     const retired =
@@ -812,6 +837,7 @@ async function cmdGet(
         : formatEntity(e, ontology, readAt);
     if (!v.relations) {
       emit(v, head, retired ? { ...e, retired } : e);
+      auditRead(store, readEvent);
       return 0;
     }
     // Relations are reachable from no other command — the entity-detail screen needs them, so the
@@ -832,6 +858,7 @@ async function cmdGet(
       [head, lines.length ? lines.join("\n") : "  (no relations)"].join("\n"),
       { ...e, relations: edges, ...(retired ? { retired } : {}) },
     );
+    auditRead(store, readEvent);
     return 0;
   });
 }
@@ -968,15 +995,6 @@ async function cmdSearch(
       limit,
       ns,
     });
-    // The query is the subject, not just the ids: `search` records what someone was looking for,
-    // which is the fact an enumeration row does not carry.
-    store.logAudit({
-      actor,
-      action: "search",
-      detail: `${query} -> ${results.map((e) => e.id).join(" ")}`,
-      at: now(),
-      ns,
-    });
     // `inject` says "no results"; this printed a blank line, so a search that found nothing looked
     // like a command that did nothing. --json is unchanged (an empty array is already unambiguous).
     emit(
@@ -986,6 +1004,15 @@ async function cmdSearch(
         : "no results",
       results,
     );
+    // Audited AFTER the answer is out (C7). The query is the subject, not just the ids: `search`
+    // records what someone was looking for, which is the fact an enumeration row does not carry.
+    auditRead(store, {
+      actor,
+      action: "search",
+      detail: `${query} -> ${results.map((e) => e.id).join(" ")}`,
+      at: now(),
+      ns,
+    });
     return 0;
   });
 }
@@ -1011,10 +1038,12 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
       }
       // Most-consumed first: re-confirmation effort goes to the knowledge agents are actually being
       // fed. The count is this store's audit trail — under `serve` that is the team's central trail;
-      // pointed straight at a shared remote backend it is this client's own reads only.
+      // pointed straight at a shared remote backend it is this client's own reads only. Bounded to the
+      // most recent CONSUMPTION_WINDOW rows (F1): the whole trail materialized every audit row into JS,
+      // and the recent window is the meaningful signal anyway. Named on the summary line below.
       const ranked = rankByConsumption(
         items,
-        consumptionCounts(store.listAudit({ ns })),
+        consumptionCounts(store.listAudit({ ns, limit: CONSUMPTION_WINDOW })),
       );
       // This queue exists to name a person to go and ask, so an unresolved id is the column doing the
       // opposite of its job.
@@ -1032,6 +1061,7 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
       // corpus", which is a claim this walk did not make.
       lines.push(
         `-- ${ranked.length} stale among ${scanned} verified records scanned` +
+          `; injection counts over the last ${CONSUMPTION_WINDOW.toLocaleString()} audit rows` +
           (next === null ? "" : `; more to scan: --after ${next}`),
       );
       emit(v, lines.join("\n"), ranked);
@@ -1223,8 +1253,10 @@ async function cmdInject(
         embedder: makeFetchEmbedder(env),
       },
     );
-    // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core stays pure.
-    store.logAudit({
+    // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core
+    // stays pure. Built here, but written AFTER emit (C7) so a locked trail cannot discard an
+    // injection the agent already received.
+    const injectEvent: AuditEvent = {
       actor: resolveActor(v, env),
       action: "inject",
       detail: injectDetail(
@@ -1233,7 +1265,7 @@ async function cmdInject(
       ),
       at: ts,
       ns,
-    });
+    };
     // The contradiction marker rides the line, not a footnote: `yoke conflicts` already printed these
     // pairs while injection — the thing an agent actually reads — said nothing, so six queries on the demo
     // corpus handed over both sides of a live disagreement as two equal facts.
@@ -1298,6 +1330,7 @@ async function cmdInject(
     // ignores it and the person debugging the script reads it.
     if (v.json && withheld) console.error(reasonLine);
     emit(v, human, items);
+    auditRead(store, injectEvent);
     return 0;
   });
 }
@@ -1428,14 +1461,15 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
     const o = await overview(store, ontology, ts, { ns, top });
     // Same audit row the MCP tool writes: a hub line carries a record's own text, and SPEC's audit
     // table says "the same actions are written wherever the act happens" — this adapter was the one
-    // place `overview` happened silently.
-    store.logAudit({
+    // place `overview` happened silently. Built here, written AFTER emit (C7) so a locked trail cannot
+    // discard an overview a person already read.
+    const overviewEvent: AuditEvent = {
       actor: resolveActor(v, env),
       action: "overview",
       detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
       at: ts,
       ns,
-    });
+    };
     // Types with nothing in them are noise on a screen whose job is showing what IS here.
     const typeRows = Object.entries(o.entities.byType)
       .sort((a, b) => a[0].localeCompare(b[0]))
@@ -1473,6 +1507,7 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
       ...(authorRows.length ? authorRows : ["  (none)"]),
     ].join("\n");
     emit(v, human, o);
+    auditRead(store, overviewEvent);
     return 0;
   });
 }
