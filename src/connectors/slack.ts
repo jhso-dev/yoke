@@ -34,9 +34,8 @@ export function makeSlackConnector(opts: {
     params: Record<string, string>,
   ): Promise<SlackPage> {
     const url = `${base}/${method}?${new URLSearchParams(params)}`;
-    // conversations.replies fires once per threaded message, so a busy channel
-    // trips Slack's rate limit quickly (seen live: 429 mid-sync). Honor
-    // Retry-After and retry a few times before giving up.
+    // conversations.replies fires once per threaded message, so a busy channel trips Slack's rate limit
+    // quickly. Honor Retry-After and retry a few times before giving up.
     for (let attempt = 0; ; attempt++) {
       const res = await fetchImpl(url, {
         headers: { Authorization: `Bearer ${opts.token}` },
@@ -72,8 +71,8 @@ export function makeSlackConnector(opts: {
   }
 
   function toItem(m: SlackMessage): SourceItem | null {
-    // Skip system events (channel_join, bot_message, etc.) — seen live: join
-    // notices carry text and were landing in the review queue as noise.
+    // Skip system events (channel_join, bot_message, etc.): they carry text but are not statements,
+    // and would land in the review queue as noise.
     if (m.subtype) return null;
     if (!m.text) return null; // uploads etc. carry no statement
     const externalId = `slack:${opts.channel}:${m.ts}`;
@@ -85,9 +84,8 @@ export function makeSlackConnector(opts: {
         external_id: externalId,
       },
       externalId,
-      // Slack's `ts` is unix seconds with a microsecond fraction, and it was already in hand here — it
-      // builds the key on the line above. Dropping it made the TTL count from the import instead of from
-      // when the message was posted, so an imported archive never went stale.
+      // Slack's `ts` is the post time (unix seconds); pass it as occurredAt so the TTL counts from when
+      // the message was posted, not from the import.
       occurredAt: slackTsToIso(m.ts),
     };
   }

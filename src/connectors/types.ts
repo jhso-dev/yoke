@@ -6,16 +6,14 @@ import type { EntityInput } from "../core/types.js";
 /**
  * One item from a source: the knowledge, its idempotency key, and when the source says it happened.
  *
- * `occurredAt` exists because dropping it cost freshness. Every connector stamped the import time:
- * a Slack message from 2026-08-05 was stored with `occurred_at` and `last_confirmed` of the moment the
- * import ran, so the type's TTL counted from THEN — an imported archive never went stale, never appeared
- * in `review --stale`, and was injected as current knowledge indefinitely. The Slack `ts` was already in
- * hand at the line that built the key.
+ * `occurredAt` is when the SOURCE says the fact became true. Without it the type's TTL counts from the
+ * import, so an imported archive never goes stale, never appears in `review --stale`, and is injected as
+ * current knowledge indefinitely.
  *
- * Optional, because not every source has one a reader would trust: a local transcript file has a
+ * Optional, because not every source has an instant a reader would trust: a local transcript file has a
  * filesystem mtime, which is when someone last touched the file rather than when the meeting happened.
- * Absent means "the source does not say", and ingest falls back to the import clock — which is at least
- * honest about being an ingestion timestamp.
+ * Absent means "the source does not say", and ingest falls back to the import clock — honest about being
+ * an ingestion timestamp.
  */
 export type SourceItem = EntityInput & {
   externalId: string;
