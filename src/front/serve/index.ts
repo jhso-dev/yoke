@@ -87,8 +87,8 @@ function bearer(req: IncomingMessage): string | null {
 }
 
 /** Same cap as the UI handler's `readBody` (SPEC "Bounded input" — a rule for EVERY route on this
- * server, and `/mcp` never reaches the UI handler, so without its own cap this was the one unbounded
- * stream on an auth-fronted, possibly non-loopback surface). Kept as a second const rather than an
+ * server). `/mcp` never reaches the UI handler, so it needs its own cap: an unbounded stream on an
+ * auth-fronted, possibly non-loopback surface is the hazard. Kept as a second const rather than an
  * export from ui/server.ts because serve must not depend on the UI tier for a number. */
 const MAX_MCP_BODY = 256 * 1024;
 
@@ -346,9 +346,8 @@ export async function runServe(
   // than warn: the whole point of binding wide is that other people can reach it.
   if (!isLoopback(host) && !auth)
     throw new Error(
-      // The remedy has to RUN and has to be safe. It named no --name, so copying it printed a usage
-      // error; and `--scopes read` is a wildcard-namespace grant, so the message that exists to stop an
-      // unsafe exposure was teaching the spelling that reads every tenant.
+      // The remedy has to RUN and has to be safe: name a --name, and scope to a namespace rather than
+      // the wildcard-ns `read` that would read every tenant.
       `refusing to bind ${host} without authentication — add --auth (or YOKE_AUTH=on), ` +
         `then mint a credential with ` +
         `'yoke token create --name <who> --scopes "${opts.ns ?? resolveNs(undefined, env) ?? "<namespace>"}:read"'`,
