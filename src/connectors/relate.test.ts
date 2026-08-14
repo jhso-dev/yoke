@@ -15,6 +15,7 @@ import {
   rankOf,
   refsFor,
   relateSystemPrompt,
+  relateText,
 } from "./relate.js";
 
 const ont = seedOntology();
@@ -36,6 +37,40 @@ const refs: Ref[] = [
     order: 1,
   },
 ];
+
+describe("relateText: what the relater is allowed to read", () => {
+  it("keeps the rationale a decision's conclusion cannot carry", () => {
+    // The measured defect this function exists to fix: `summarize` returns the first declared string
+    // attribute cut at 60 characters, so a decision reached the relater as its conclusion alone and
+    // the half that says the position CHANGED never arrived.
+    const text = relateText(
+      {
+        type: "decision",
+        attributes: {
+          conclusion: "Stopped reading graphic novels altogether.",
+          rationale:
+            "A few disappointing titles overshadowed the earlier enjoyment of the form.",
+          external_id: "raw:00003-abc.md#7",
+          sources: "I have stopped reading graphic novels altogether",
+        },
+      },
+      ont,
+    );
+    expect(text).toContain("Stopped reading graphic novels");
+    expect(text).toContain("disappointing titles");
+    // Bookkeeping stays out: an id is not a claim, and the quote is longer than the record.
+    expect(text).not.toContain("raw:00003");
+    expect(text).not.toContain("I have stopped reading");
+  });
+
+  it("caps a long record rather than sending a whole document", () => {
+    const text = relateText(
+      { type: "fact", attributes: { statement: "x".repeat(900) } },
+      ont,
+    );
+    expect(text.length).toBe(400);
+  });
+});
 
 describe("linkableTypes", () => {
   it("offers the edges that are knowledge and withholds the ones that are not", () => {

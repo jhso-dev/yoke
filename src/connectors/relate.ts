@@ -115,6 +115,53 @@ export function rankOf(records: Entity[]): (e: Entity) => number {
   return (e: Entity) => at.get(e.id) ?? 0;
 }
 
+/** Attributes that are bookkeeping rather than what a record says. `sources` is excluded for a
+ * different reason than the rest: it is the verbatim span, often longer than the record, and a batch
+ * of quotes crowds out the records the model is being asked to compare. */
+const NOT_CONTENT = new Set([
+  "external_id",
+  "sources",
+  "author",
+  "topic",
+  "key",
+  "status",
+]);
+
+/**
+ * A record as the RELATER needs to read it: every attribute that carries meaning, in declared order.
+ *
+ * Not `summarize`, and that distinction is the whole point of this function existing. `summarize` is
+ * the terminal's one-line reading — the first declared string attribute, cut at 60 characters — and
+ * feeding it to a model was measured as the reason `relate` could not see a change of position. A
+ * decision's `conclusion` fits in 60 characters; its `rationale`, which is the half that says the
+ * position CHANGED and why, never reached the prompt at all. Handed the full text of the same two
+ * records directly, the same 4B model classified the reversal correctly on the first try.
+ *
+ * ceiling: 400 characters per record, joined with " — ". Long enough for a conclusion and its
+ * rationale, short enough that a group of ten stays a small prompt (the batch size, not the prompt,
+ * is what made a naive relater fail — see the module comment).
+ */
+export function relateText(
+  entity: { type: string; attributes: Record<string, unknown> },
+  ontology: TypeDef[],
+): string {
+  const def = ontology.find((t) => t.name === entity.type);
+  const declared = def ? Object.keys(def.attrs) : [];
+  const keys = [
+    ...declared,
+    ...Object.keys(entity.attributes).filter((k) => !declared.includes(k)),
+  ];
+  const parts: string[] = [];
+  for (const key of keys) {
+    if (NOT_CONTENT.has(key)) continue;
+    const val = entity.attributes[key];
+    if (typeof val === "string" && val.trim()) parts.push(val.trim());
+    else if (Array.isArray(val))
+      parts.push(val.filter((v) => typeof v === "string").join(", "));
+  }
+  return parts.join(" — ").slice(0, 400);
+}
+
 export function relateSystemPrompt(ontology: TypeDef[]): string {
   return [
     "r1 is a record from a knowledge base. The records after it are OLDER records about similar",
