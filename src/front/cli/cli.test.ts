@@ -1002,6 +1002,61 @@ describe("runCli", () => {
     expect(await runCli(["export", "--db", db, "--out", out])).toBe(1);
   });
 
+  it("cuts at the same instant however the offset is spelled", async () => {
+    // The cut ran as a SQL string comparison against stored `...Z` stamps, and `instantFlag` passed
+    // the caller's spelling through — so `--until <future as -09:00>` sorted below every stored row
+    // and wrote a disaster-recovery copy with ZERO records, exit 0, "exported state as of …".
+    // Reproduced through this CLI before the fix: the same moment spelled Z / -09:00 gave 2 / 0.
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "statement=survives the cut",
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+
+    // 2099-01-01T00:00:00Z spelled from a -09:00 zone: the day BEFORE, lexicographically tiny.
+    const out = newDb();
+    expect(
+      await runCli([
+        "export",
+        "--db",
+        db,
+        "--until",
+        "2098-12-31T15:00:00-09:00",
+        "--out",
+        out,
+      ]),
+    ).toBe(0);
+    const store = new SqliteStorage(out);
+    await store.init();
+    expect(await store.getEntity(id)).not.toBeNull();
+    store.close();
+
+    // The audit window reads offsets the same way — `--since <before now, as +09:00>` said
+    // "no audit events" for a trail with events in it.
+    expect(await runCli(["verify", id, "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "audit",
+        "--db",
+        db,
+        "--since",
+        "2020-01-01T09:00:00+09:00",
+        "--json",
+      ]),
+    ).toBe(0);
+    const events = JSON.parse(logs.at(-1) as string) as { action: string }[];
+    expect(events.some((e) => e.action === "verify")).toBe(true);
+  });
+
   it("namespace isolation: add in ns A is invisible from ns B, visible from ns A", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
@@ -1381,7 +1436,7 @@ describe("inject --as-of", () => {
       .filter((a) => a.action === "inject")
       .at(-1);
     check.close();
-    expect(entry?.detail).toContain("@2026-07-15T00:00:00Z");
+    expect(entry?.detail).toContain("@2026-07-15T00:00:00.000Z");
   });
 });
 

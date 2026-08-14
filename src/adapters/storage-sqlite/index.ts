@@ -714,8 +714,15 @@ export class SqliteStorage implements StoragePort {
    * `limit` takes the most recent N and still returns them oldest-first, so a paging viewer and
    * `yoke audit` read the same direction. */
   listAudit(q: AuditQuery = {}): AuditEvent[] {
-    const sinceClause = q.since === undefined ? "" : " AND at >= @since";
-    const untilClause = q.until === undefined ? "" : " AND at <= @until";
+    // By instant (`julianday` parses ISO 8601, offsets included), never by string. Stored `at` values
+    // are not one spelling — the DB default is whole-second `...Z`, callers write millisecond `...Z` —
+    // and `Z` sorts AFTER `.`, so a string compare misses rows in the bound's own second even when
+    // both sides are UTC. Measured with an offset bound: `--since <now as +09:00>` answered
+    // "no audit events" for a window that had them.
+    const sinceClause =
+      q.since === undefined ? "" : " AND julianday(at) >= julianday(@since)";
+    const untilClause =
+      q.until === undefined ? "" : " AND julianday(at) <= julianday(@until)";
     // DESC + LIMIT selects the newest rows; the reverse below restores ascending order.
     const order = q.limit === undefined ? "rowid" : "rowid DESC";
     const limitClause = q.limit === undefined ? "" : " LIMIT @limit";
@@ -842,14 +849,14 @@ export class SqliteStorage implements StoragePort {
         .prepare(
           `INSERT INTO bak.entities (id, version, type, status, attributes, provenance, last_confirmed, ns, created_at)
            SELECT id, version, type, status, attributes, provenance, last_confirmed, ns, created_at
-           FROM entities WHERE COALESCE(created_at, last_confirmed) <= ?`,
+           FROM entities WHERE julianday(COALESCE(created_at, last_confirmed)) <= julianday(?)`,
         )
         .run(ts);
       this.db
         .prepare(
           `INSERT INTO bak.relations (id, version, type, status, attributes, provenance, last_confirmed, ns, created_at, from_id, to_id)
            SELECT id, version, type, status, attributes, provenance, last_confirmed, ns, created_at, from_id, to_id
-           FROM relations WHERE COALESCE(created_at, last_confirmed) <= ?`,
+           FROM relations WHERE julianday(COALESCE(created_at, last_confirmed)) <= julianday(?)`,
         )
         .run(ts);
       // Ontology defs have no timestamp — copy them all; a reconstructed DB is unusable without them.
@@ -859,8 +866,9 @@ export class SqliteStorage implements StoragePort {
       );
       this.db
         .prepare(
-          `INSERT INTO bak.audit_log (actor, action, detail, at)
-           SELECT actor, action, detail, at FROM audit_log WHERE at <= ?`,
+          `INSERT INTO bak.audit_log (actor, action, detail, at, ns, note)
+           SELECT actor, action, detail, at, ns, note FROM audit_log
+           WHERE julianday(at) <= julianday(?)`,
         )
         .run(ts);
       // Rebuild FTS from the copied latest versions (serializeText is JS, not SQL).

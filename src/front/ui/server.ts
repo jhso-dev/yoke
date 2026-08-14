@@ -26,7 +26,6 @@ import {
 import { normalizeNs } from "../../core/namespace.js";
 import {
   kindChangeRefusal,
-  renameRefusal,
   type TypeDef,
   validateTypeDef,
 } from "../../core/ontology.js";
@@ -42,6 +41,7 @@ import {
   injectDetail,
   makeActorNames,
   rankByConsumption,
+  refuseRename,
   retirementOf,
   summarize,
   ULID,
@@ -167,6 +167,26 @@ function intParam(url: URL, name: string, def: number, max: number): number {
     throw new Error(`${name} must be a positive integer`);
   if (n > max) throw new Error(`${name} must be <= ${max}`);
   return n;
+}
+
+/**
+ * A timestamp query param, or a 400 — returned NORMALIZED to UTC ISO 8601, never as sent.
+ *
+ * The CLI's `instantFlag`, for the web tier, and it exists for both of that function's reasons:
+ * garbage must not reach a comparison (`Date.parse` → NaN → every row excluded → an empty screen that
+ * reads as "nothing happened then"), and a VALID instant in offset notation must not either. The
+ * audit route passed `since`/`until` straight through to SQL, where strings are compared against
+ * stored `...Z` stamps: `?since=2026-08-14T12:00:00+09:00` — a real moment, three hours ago — sorted
+ * above every `Z` row and answered "no audit events" for a governance trail that had them. The inject
+ * route validated `asOf` but kept the caller's spelling, which is the same hole one comparison later.
+ */
+function instantParam(url: URL, name: string): string | undefined {
+  const raw = url.searchParams.get(name);
+  if (raw === null) return undefined;
+  const ms = Date.parse(raw);
+  if (Number.isNaN(ms))
+    throw new Error(`${name} must be an ISO 8601 instant (got "${raw}")`);
+  return new Date(ms).toISOString();
 }
 
 function newestFirst<
@@ -718,11 +738,7 @@ export function createUiHandler(
       // As-of: what this query would have injected then. Rejected here rather than passed through, so
       // a typo produces a 400 instead of Date.parse's NaN quietly excluding every record — a screen
       // showing "0 records" for a bad date reads as "we knew nothing then", which is a lie.
-      const asOfParam = url.searchParams.get("asOf") ?? undefined;
-      if (asOfParam !== undefined && Number.isNaN(Date.parse(asOfParam))) {
-        sendJson(res, 400, { error: "asOf must be an ISO instant" });
-        return;
-      }
+      const asOfParam = instantParam(url, "asOf");
       // Same default rule as the MCP tool and the CLI, verbatim: an anchored briefing is capped at
       // BRIEFING_LIMIT, a query is not (SPEC "the three front adapters apply the default to a
       // briefing … and never to a query"). Defaulting every call would show 50 where the agent gets
@@ -892,8 +908,10 @@ export function createUiHandler(
       if (denied(res, "read")) return;
       const limit = intParam(url, "limit", 200, 2000);
       const events = store.listAudit({
-        since: url.searchParams.get("since") ?? undefined,
-        until: url.searchParams.get("until") ?? undefined,
+        // Through the same gate as every other instant this server accepts — these two went straight
+        // into SQL string comparisons (see `instantParam` for what that answered).
+        since: instantParam(url, "since"),
+        until: instantParam(url, "until"),
         ns,
         limit,
       });
@@ -1339,20 +1357,11 @@ export function createUiHandler(
         sendJson(res, 400, { error: "from and to are the same name" });
         return;
       }
-      // The same refusals the CLI applies, from the same place in core — see `renameRefusal` for the
-      // three measured failures each one closes.
-      const effective = store.loadOntology(ns);
-      const shared = ns === null ? effective : store.loadOntology(null);
-      const defOf = (list: TypeDef[], name: string) =>
-        JSON.stringify(list.find((t) => t.name === name) ?? null);
-      const refusal = renameRefusal(from, to, {
-        toRows: (await store.listEntities({ ns, type: to, limit: 1 })).items
-          .length,
-        toDeclared: effective.some((t) => t.name === to),
-        ns,
-        fromSharedOnly:
-          ns !== null && defOf(effective, from) === defOf(shared, from),
-      });
+      // The same refusals the CLI applies — literally the same call now (`refuseRename`), because
+      // "the same refusals, assembled separately" is what this route had: its own copy of the row
+      // count, still counting only entities after the CLI's copy learned that `renameType` rewrites
+      // relations too. Evidence gathered per caller drifts per caller.
+      const refusal = await refuseRename(store, from, to, ns);
       if (refusal) {
         sendJson(res, 409, { error: refusal });
         return;
@@ -1360,7 +1369,7 @@ export function createUiHandler(
       // A typo'd source name is a 404, not a success with rows: 0. The screen rendered
       // "renamed nosuch to other — 0 rows rewritten", a success sentence for a no-op, while the CLI
       // said "no rows carried type" — so the governance surface was the one that misreported.
-      if (!effective.some((t) => t.name === from)) {
+      if (!store.loadOntology(ns).some((t) => t.name === from)) {
         sendJson(res, 404, {
           error: `no type named ${from} in this namespace`,
         });

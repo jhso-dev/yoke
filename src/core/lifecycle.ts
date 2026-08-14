@@ -233,17 +233,18 @@ export async function listVersions(
  * deprecated for a question about last month, when it was the answer.
  */
 /**
- * Whether `stamp` is at or before `at`. The one comparison every as-of read makes, in one place.
+ * Whether `stamp` is at or before `at` — the comparison the TS as-of reads share.
  *
- * By instant, never by string. Both sides are caller-supplied ISO 8601 and `instantFlag` validates the
- * format without normalising it, so the offset a person typed survives all the way here: measured,
- * `--as-of 2026-08-13T20:00:00-09:00` and `--as-of 2026-08-14T05:00:00Z` are the same moment and a
- * lexicographic `<=` puts them on opposite sides of an edge stamped 01:28Z. One read answered itself
- * two ways.
+ * NOT the only one in the product: `exportUntil` and `listAudit` compare inside SQL, where this
+ * function cannot reach. Those are correct because the front tiers normalize every caller-supplied
+ * instant to UTC at the boundary (`instantFlag` in the CLI, `instantParam` on the web), which makes a
+ * string comparison against stored `...Z` stamps sound. This function is the belt to that suspender:
+ * core is also called directly (tests, embedders of the library), and a by-instant comparison stays
+ * right even for a caller that skipped the boundary.
  *
  * It exists as a function because a second caller wrote the comparison out again rather than reuse the
- * one already here (`inject.meaningEdges`, filtering relations for the same as-of read), and got a
- * different answer from the same timestamps. A shared operator is small enough to look not worth
+ * one already here (`inject.meaningEdges`) — as a lexicographic `<=`, which put the same moment
+ * spelled two ways on opposite sides of an edge. A shared operator is small enough to look not worth
  * extracting, which is exactly how two of them end up disagreeing.
  */
 export function atOrBefore(stamp: string, at: string): boolean {

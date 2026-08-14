@@ -8,7 +8,7 @@
 
 import type { WithheldStats } from "../core/inject.js";
 import { effectiveStatus } from "../core/lifecycle.js";
-import type { TypeDef } from "../core/ontology.js";
+import { renameRefusal, type TypeDef } from "../core/ontology.js";
 import type { Entity, Relation, Status } from "../core/types.js";
 import { readEntities } from "../ports/storage.js";
 import type { YokeStore } from "./store.js";
@@ -289,6 +289,45 @@ export function describeWithheld(w: WithheldStats): string {
  * which is the count of governance acts rather than of knowledge — add an index when a corpus has
  * enough retirements for this to be felt.
  */
+/**
+ * The rename guard, assembled against the store ONCE, for every surface that renames.
+ *
+ * `renameRefusal` (core) is pure and judges numbers it is handed, which meant each caller assembled
+ * its own evidence — and the assembly is where the defect lived, twice: the CLI counted `toRows` with
+ * `listEntities` alone while `renameType` rewrites relations too, and when that was fixed, the web
+ * route kept its own copy of the same wrong count under a comment claiming "the same refusals the CLI
+ * applies". A guard whose inputs every caller computes for itself is only ever as right as its
+ * least-maintained caller. This is now the one place the evidence is gathered; callers hold a store
+ * and two names, nothing else.
+ *
+ * Counts BOTH tables because the operation rewrites both — `renameType` runs one UPDATE over
+ * `entities` and one over `relations` and does not ask which kind the name was.
+ */
+export async function refuseRename(
+  store: YokeStore,
+  from: string,
+  to: string,
+  ns: string | null,
+): Promise<string | null> {
+  const effective = store.loadOntology(ns);
+  // `fromSharedOnly` is inferred by comparing the tenant's effective ontology with the shared one: a
+  // declaration present in both, byte-identical, is the shared one showing through the overlay. A
+  // tenant override that happens to be identical to the shared definition is refused unnecessarily —
+  // a conservative miss whose message names the fix, against a half-renamed database.
+  const shared = ns === null ? effective : store.loadOntology(null);
+  const defOf = (list: TypeDef[], name: string) =>
+    JSON.stringify(list.find((t) => t.name === name) ?? null);
+  return renameRefusal(from, to, {
+    toRows:
+      (await store.listEntities({ ns, type: to, limit: 1 })).items.length +
+      (await store.listRelations({ ns, type: to, limit: 1 })).items.length,
+    toDeclared: effective.some((t) => t.name === to),
+    ns,
+    fromSharedOnly:
+      ns !== null && defOf(effective, from) === defOf(shared, from),
+  });
+}
+
 export function retirementOf(
   store: YokeStore,
   id: string,

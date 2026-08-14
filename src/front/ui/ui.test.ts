@@ -1013,6 +1013,31 @@ describe("the audit window has two bounds", () => {
     );
     for (const e of only.items) expect(e.at).toBe(cut);
   });
+
+  it("reads a bound the same whatever offset it is spelled in", async () => {
+    // These went straight into SQL string comparisons against stored `...Z` stamps, so
+    // `?since=...+09:00` — a real moment — sorted above every Z row and the governance trail
+    // answered "no audit events" for a window that had them.
+    const all = await get("/api/audit");
+    const cut = all.items[0].at as string;
+    const plusNine = new Date(Date.parse(cut) + 9 * 3600_000)
+      .toISOString()
+      .replace("Z", "+09:00");
+    const viaZ = await get(`/api/audit?since=${encodeURIComponent(cut)}`);
+    const viaOffset = await get(
+      `/api/audit?since=${encodeURIComponent(plusNine)}`,
+    );
+    expect(viaZ.items.length).toBeGreaterThan(0);
+    expect(viaOffset.items).toEqual(viaZ.items);
+  });
+
+  it("refuses a bound that is not an instant, instead of answering an empty trail", async () => {
+    const res = await fetch(`${base}/api/audit?since=yesterday`);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain(
+      "ISO 8601",
+    );
+  });
 });
 
 describe("audit detail resolves both of its shapes", () => {
@@ -1292,6 +1317,66 @@ describe("schema and maintenance from the browser", () => {
     ).toBe(400);
     expect((await postRaw("/api/rename-type", { from: "a" })).status).toBe(400);
   });
+
+  it("refuses the two renames the CLI refuses, with the same evidence", async () => {
+    // This route kept its own copy of the guard's row count — still entities-only after the CLI's
+    // learned that `renameType` rewrites relations too, under a comment claiming "the same refusals
+    // the CLI applies". Both callers now gather evidence through one function (`refuseRename`), and
+    // this pins the route to it: a relation-type merge and a rename onto a name core acts on, each
+    // reproduced through HTTP.
+    const ids: string[] = [];
+    for (const s of ["merge probe one", "merge probe two"]) {
+      ids.push(
+        (
+          (await (
+            await postRaw("/api/entity", {
+              type: "fact",
+              attributes: { statement: s },
+            })
+          ).json()) as { id: string }
+        ).id,
+      );
+    }
+    for (const name of ["mentions", "blocks"])
+      expect(
+        (
+          await postRaw("/api/ontology", {
+            def: { name, kind: "relation", attrs: {} },
+          })
+        ).status,
+      ).toBe(201);
+    for (const type of ["mentions", "blocks"])
+      expect(
+        (
+          await postRaw("/api/link", {
+            type,
+            from: ids[0],
+            to: ids[1],
+            attributes: {},
+          })
+        ).status,
+      ).toBe(201);
+
+    // Merging one relation type into another that has edges: refused, not "N rows rewritten".
+    const merge = await postRaw("/api/rename-type", {
+      from: "mentions",
+      to: "blocks",
+    });
+    expect(merge.status).toBe(409);
+    expect(((await merge.json()) as { error: string }).error).toMatch(
+      /already exists and has records/,
+    );
+
+    // Renaming onto a name core acts on: every edge would become a supersession nobody recorded.
+    const onto = await postRaw("/api/rename-type", {
+      from: "mentions",
+      to: "supersedes",
+    });
+    expect(onto.status).toBe(409);
+    expect(((await onto.json()) as { error: string }).error).toMatch(
+      /core acts on by name/,
+    );
+  });
 });
 
 // The measurement that decides whether graph expansion is worth investing in: which of briefing /
@@ -1350,14 +1435,15 @@ describe("as-of injection over HTTP", () => {
     const out = await get(
       `/api/inject?q=${encodeURIComponent("tokens")}&asOf=2026-07-15T00:00:00Z`,
     );
-    // Echoed back: the screen banners off the SERVER's value, because what matters is which clock
-    // produced these rows.
-    expect(out.asOf).toBe("2026-07-15T00:00:00Z");
+    // Echoed back NORMALIZED: the screen banners off the SERVER's value — which clock actually
+    // produced these rows — and the server canonicalizes every instant at the boundary, so the echo
+    // is the canonical spelling whatever the caller typed.
+    expect(out.asOf).toBe("2026-07-15T00:00:00.000Z");
     const entry = store
       .listAudit()
       .filter((a) => a.action === "inject_preview")
       .at(-1);
-    expect(entry?.detail).toContain("@2026-07-15T00:00:00Z");
+    expect(entry?.detail).toContain("@2026-07-15T00:00:00.000Z");
   });
 
   it("asOf is null on a normal read", async () => {
@@ -1371,7 +1457,7 @@ describe("as-of injection over HTTP", () => {
     // which reads as "we knew nothing then". A 400 is the honest answer to a typo.
     const res = await fetch(`${base}/api/inject?q=tokens&asOf=last-tuesday`);
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/ISO instant/);
+    expect((await res.json()).error).toMatch(/ISO 8601 instant/);
   });
 });
 

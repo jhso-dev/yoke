@@ -46,7 +46,6 @@ import {
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import {
   kindChangeRefusal,
-  renameRefusal,
   seedOntology,
   type TypeDef,
   validateTypeDef,
@@ -68,6 +67,7 @@ import {
   injectShape,
   makeActorNames,
   rankByConsumption,
+  refuseRename,
   retirementOf,
   shownStatus,
   summarize,
@@ -215,24 +215,34 @@ function intFlag(
 }
 
 /**
- * A timestamp flag, or a refusal.
+ * A timestamp flag, or a refusal — returned NORMALIZED to UTC ISO 8601, never as typed.
  *
  * `--as-of yesterday`, `--as-of not-a-date`, `--as-of ""` and `--as-of 2026-13-45T99:99:99Z` were all
  * accepted with exit 0. Downstream, `Date.parse` yields NaN and every comparison against it is false,
  * so `versionAsOf` keeps the latest version while `isFresh` reports everything expired: the answer is
  * a plausible-looking history of a moment that does not exist. A question about the past is the one
  * question whose answer a reader cannot sanity-check, so the instant has to be real before it is used.
+ *
+ * Normalized here, at the boundary, because "validate but pass the spelling through" put the caller's
+ * offset notation in front of every comparison below — and those comparisons do not agree on how to
+ * read it. TS paths parse; the SQL paths (`exportUntil`, `listAudit`) compare strings against stored
+ * `...Z` stamps, where `2026-08-13T20:00:00-09:00` sorts BEFORE every 2026-08-14 row it is actually
+ * after. Measured before this: the same instant spelled two ways gave `export --until` 2 records or 0
+ * — a disaster-recovery copy silently empty, exit 0 — and turned `yoke audit --since` into "no audit
+ * events" for a window with events in it. Fixing comparisons one at a time is how three of them got
+ * fixed while four stayed broken; after this line there is nothing left to spell differently.
  */
 function instantFlag(
   raw: string | undefined,
   name: string,
 ): string | undefined {
   if (raw === undefined) return undefined;
-  if (Number.isNaN(Date.parse(raw)))
+  const ms = Date.parse(raw);
+  if (Number.isNaN(ms))
     throw new UsageError(
       `--${name} must be an ISO 8601 instant, e.g. 2026-08-13T00:00:00Z (got "${raw}")`,
     );
-  return raw;
+  return new Date(ms).toISOString();
 }
 
 /**
@@ -1511,31 +1521,11 @@ async function cmdRenameType(
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     if (!requireOntology(store, ns, v, env)) return 1;
-    // The refusals live in core (four adapters implement renameType); the counts are the store's to
-    // supply. `fromSharedOnly` is inferred by comparing the tenant's effective ontology with the shared
-    // one: a declaration present in both, byte-identical, is the shared one showing through the overlay.
-    // A tenant override that happens to be identical to the shared definition would be refused here
-    // unnecessarily — a conservative miss whose message names the fix, against a half-renamed database.
-    const effective = store.loadOntology(ns);
-    const shared = ns === null ? effective : store.loadOntology(null);
-    const defOf = (list: TypeDef[], name: string) =>
-      JSON.stringify(list.find((t) => t.name === name) ?? null);
-    const refusal = renameRefusal(from, to, {
-      // BOTH tables, because `renameType` rewrites both: it runs one UPDATE over `entities` and one
-      // over `relations` and does not ask which kind the name was ("the other statement simply matches
-      // nothing"). Counting with `listEntities` alone made the merge refusal blind to every relation
-      // type — the guard fired for entity→entity and never once for relation→relation, which is the
-      // half wired into injection. Measured: `rename-type mentions blocks` with edges already filed
-      // under `blocks` reported "2 rows rewritten" and merged them, and the refusal that exists to say
-      // "nothing records which rows were rewritten so it could not be undone" never printed.
-      toRows:
-        (await store.listEntities({ ns, type: to, limit: 1 })).items.length +
-        (await store.listRelations({ ns, type: to, limit: 1 })).items.length,
-      toDeclared: effective.some((t) => t.name === to),
-      ns,
-      fromSharedOnly:
-        ns !== null && defOf(effective, from) === defOf(shared, from),
-    });
+    // The judgment lives in core, and the EVIDENCE is gathered in one shared place (`refuseRename`),
+    // because assembling it per caller is how the CLI counted only entities while `renameType`
+    // rewrites relations too — and how the web route kept that same wrong count after this one was
+    // fixed.
+    const refusal = await refuseRename(store, from, to, ns);
     if (refusal) {
       console.error(refusal);
       return 1;

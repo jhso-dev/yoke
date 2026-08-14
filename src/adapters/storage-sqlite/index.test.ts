@@ -364,10 +364,12 @@ describe("audit extensions (PLAN 8.4)", () => {
     // limit takes the most recent N but still returns them oldest-first.
     expect(store.listAudit({ limit: 1 })).toEqual([b]);
     expect(store.listAudit({ limit: 5 })).toEqual([a, b]);
-    // `at >= since` is a TEXT compare, so `since` must be the same ISO shape the rows are written in.
-    // Every writer uses `new Date().toISOString()`, i.e. milliseconds — and a second-precision `since`
-    // sorts AFTER a row inside its own second (`Z` > `.`), silently dropping it. A caller building
-    // `since` by hand is the one who would trip on this, so it is pinned here rather than assumed.
+    // The bound is compared BY INSTANT (`julianday`), never as text. The text compare this replaced
+    // was pinned right here as a caller hazard — "a second-precision `since` sorts AFTER a row inside
+    // its own second (`Z` > `.`), silently dropping it" — which is a defect described as a contract:
+    // the same hazard, reached through an offset spelling, made `export --until` write an empty
+    // disaster-recovery copy with exit 0. A row half a second after the bound is after the bound in
+    // every spelling of it.
     const ms = {
       actor: "dave",
       action: "verify",
@@ -378,7 +380,11 @@ describe("audit extensions (PLAN 8.4)", () => {
     expect(store.listAudit({ since: "2026-04-01T00:00:00.000Z" })).toEqual([
       ms,
     ]);
-    expect(store.listAudit({ since: "2026-04-01T00:00:00Z" })).toEqual([]);
+    expect(store.listAudit({ since: "2026-04-01T00:00:00Z" })).toEqual([ms]);
+    expect(store.listAudit({ since: "2026-04-01T09:00:00.500+09:00" })).toEqual(
+      [ms],
+    );
+    expect(store.listAudit({ since: "2026-04-01T00:00:00.501Z" })).toEqual([]);
     store.close();
   });
 });
