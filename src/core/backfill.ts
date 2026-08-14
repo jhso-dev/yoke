@@ -12,19 +12,35 @@
 // exposure of core functions" rule exists to catch.
 
 import type { StoragePort } from "../ports/storage.js";
-import { commit } from "./commit.js";
+import { CommitRejected, commit } from "./commit.js";
 import { type Embedder, serializeText } from "./embedding.js";
 import { listVersions } from "./lifecycle.js";
 import type { TypeDef } from "./ontology.js";
 
-/** Idempotent: a second run creates nothing, because it skips authors already linked. */
+/**
+ * Idempotent: a second run creates nothing, because it skips authors already linked.
+ *
+ * `unrepairable` names the versions whose stored provenance the gate will not accept. This function
+ * re-commits provenance it READ rather than provenance a caller supplied, so it is the one path where
+ * old rows meet today's rules — and when the gate learned to require a real ISO 8601 instant, a single
+ * legacy `occurred_at` threw `CommitRejected` out of the loop: the repair command died partway through
+ * a database it exists to repair, with edges already written and no report of how many. A row this
+ * cannot fix is one row's problem, and naming it is the only actionable form — nobody can repair a
+ * count.
+ */
 export async function backfillAuthorship(
   port: StoragePort,
   ontology: TypeDef[],
   now: string,
   opts?: { ns?: string | null },
-): Promise<{ scanned: number; created: number }> {
+): Promise<{
+  scanned: number;
+  created: number;
+  /** Present only when something could not be re-derived. Absent means every version was accounted for. */
+  unrepairable?: string[];
+}> {
   const ns = opts?.ns ?? null;
+  const unrepairable: string[] = [];
   let scanned = 0;
   let created = 0;
   // One unfiltered enumeration, not a union over the three statuses — it cannot miss a status
@@ -41,19 +57,29 @@ export async function backfillAuthorship(
       const prov = ver.provenance;
       if (prov.origin === "lifecycle" || prov.actor === id) continue;
       if (linked.has(prov.actor)) continue;
-      await commit(
-        port,
-        ontology,
-        { type: "authored_by", attributes: {}, from: id, to: prov.actor },
-        prov,
-        now,
-        { ns, derived: true },
-      );
+      try {
+        await commit(
+          port,
+          ontology,
+          { type: "authored_by", attributes: {}, from: id, to: prov.actor },
+          prov,
+          now,
+          { ns, derived: true },
+        );
+      } catch (e) {
+        if (!(e instanceof CommitRejected)) throw e;
+        unrepairable.push(`${id}@v${ver.version}: ${e.message}`);
+        continue;
+      }
       linked.add(prov.actor);
       created++;
     }
   }
-  return { scanned, created };
+  return {
+    scanned,
+    created,
+    ...(unrepairable.length > 0 ? { unrepairable } : {}),
+  };
 }
 
 /** How many rows one page of the embedding walk loads. Independent of the caller's `limit`, which

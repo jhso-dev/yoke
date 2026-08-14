@@ -1597,17 +1597,24 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
       emit(v, lines.join("\n"), { scanned, embedded, skipped, next });
       return 0;
     }
-    const { scanned, created } = await backfillAuthorship(
+    const { scanned, created, unrepairable } = await backfillAuthorship(
       store,
       ontology,
       now(),
       { ns },
     );
-    emit(v, `scanned ${scanned} entities, added ${created} authorship edges`, {
-      scanned,
-      created,
-    });
-    return 0;
+    // A repair that skipped rows and said only how many it fixed reads as "done". These are the
+    // versions whose stored provenance today's gate refuses — the ones a person has to go and look at,
+    // so they are named rather than counted, and the exit code says the repair is incomplete.
+    emit(
+      v,
+      `scanned ${scanned} entities, added ${created} authorship edges` +
+        (unrepairable
+          ? `\ncould not re-derive ${unrepairable.length}:\n  ${unrepairable.join("\n  ")}`
+          : ""),
+      { scanned, created, ...(unrepairable ? { unrepairable } : {}) },
+    );
+    return unrepairable ? 1 : 0;
   });
 }
 

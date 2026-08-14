@@ -98,16 +98,32 @@ function provenanceOk(p: Provenance): boolean {
 }
 
 /**
- * A string naming a real moment, in ISO 8601. Non-empty was the whole check for `occurred_at`.
+ * A string naming a real moment, UNAMBIGUOUSLY. Non-empty was the whole check for `occurred_at`.
  *
- * The SHAPE is checked as well as the parse, because `Date.parse` on anything that is not ISO 8601 is
- * implementation-defined by the spec — V8 reads `08/14/2026` as a date and another engine may read it
- * as another one or not at all. For a store whose whole job is to say when something was true, an input
- * that means different instants on different runtimes is worse than one that is rejected. Every writer
- * in this product emits `toISOString()`; this refuses what only V8 would have understood.
+ * Three things have to hold, and the first version of this check only got the first two.
+ *
+ * 1. It parses. `"yesterday"` did not, and every comparison against it is `Date.parse` → NaN → false,
+ *    which never fails loudly: `versionAsOf` treats such a version as older than every instant,
+ *    `isFresh` calls it expired forever, and `julianday` yields NULL so the row disappears from a
+ *    bounded audit read and from a PITR copy.
+ * 2. It is ISO 8601 SHAPED. `Date.parse` on anything else is implementation-defined by the spec — V8
+ *    reads `08/14/2026`, another engine may read it differently or not at all.
+ * 3. It names the same moment everywhere. This is the one the first version missed, by writing `[T ]`
+ *    and by making the offset optional. Both of those forms are LOCAL time: measured, the same input
+ *    stored three different instants across three server timezones —
+ *
+ *      "2026-08-14 00:00:00"  UTC 00:00Z · Asia/Seoul 2026-08-13T15:00Z · America/New_York 04:00Z
+ *      "2026-08-14T00:00:00"  identical spread
+ *
+ *    Nineteen hours of it, decided by an environment variable on the machine that happened to run the
+ *    write. For a store whose job is saying when something was true, that is the hazard this function's
+ *    own comment was written to refuse, admitted by its own regex.
+ *
+ * A bare date (`2026-08-14`) stays legal: the spec defines the date-only form as UTC, so it means one
+ * moment on every runtime — which is the whole test.
  */
 const ISO_8601 =
-  /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2}))?$/;
 function isInstant(v: unknown): v is string {
   return (
     typeof v === "string" &&

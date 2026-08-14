@@ -629,3 +629,40 @@ describe("a record cannot relate to itself", () => {
     expect(entity.id).toBeTruthy();
   });
 });
+
+describe("an instant means the same moment on every machine", () => {
+  // The first version of this check wrote `[T ]` into its own regex and left the offset optional,
+  // which admits exactly the two forms the spec reads as LOCAL time. Measured across three server
+  // timezones, one input stored three instants nineteen hours apart:
+  //   "2026-08-14 00:00:00"  UTC 00:00Z · Asia/Seoul 2026-08-13T15:00Z · America/New_York 04:00Z
+  // An environment variable on whichever machine ran the write decided when the knowledge was true.
+  const local = ["2026-08-14 00:00:00", "2026-08-14T00:00:00"];
+  it.each(local)("refuses %j, which is local time", async (occurred_at) => {
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "tz dependent" } },
+        { ...prov, occurred_at },
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "provenance" });
+  });
+
+  it.each([
+    "2026-08-14",
+    "2026-08-14T00:00:00Z",
+    "2026-08-14T09:00:00+09:00",
+  ])("accepts %j, which names one moment everywhere", async (occurred_at) => {
+    // The bare date stays legal because the spec defines the date-only form as UTC — one moment on
+    // every runtime, which is the whole test.
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: `ok ${occurred_at}` } },
+      { ...prov, occurred_at },
+      now,
+    );
+    expect(entity.provenance.occurred_at).toBe("2026-08-14T00:00:00.000Z");
+  });
+});
