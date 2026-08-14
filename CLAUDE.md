@@ -3,6 +3,26 @@
 An ontology-based knowledge database. The core is the knowledge model; everything around it is an adapter.
 The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user's context, injected on demand.
 
+## First principle: always subtract
+
+This project is finished not when there is nothing left to add, but when there is nothing left to
+take away. Removal is the default move; addition carries the burden of proof. Every change should leave
+the codebase smaller or the same size unless new behavior genuinely requires more.
+
+- **Code that no longer earns its place goes.** Unused exports, one-implementation abstractions,
+  speculative options, dead branches, a helper that a caller could inline — delete them.
+- **A comment states a present constraint or it is deleted.** The codebase is read in the present
+  tense. A comment may say what the code cannot show — an invariant, an ordering requirement, a
+  measured limit (`ceiling:`), a deliberate corner cut (`ponytail:`). It may **not** narrate history:
+  "used to", "previously", "before the fix", "X was Y, now Z", "the old behavior", commit archaeology,
+  or a before/after war story about a bug already fixed. That belongs in git, not the source. The
+  reader needs to know what is true now and what must stay true — never what was once wrong.
+- **History with lasting value lives where history belongs.** git holds the change record; `docs/`
+  (e.g. RESEARCH.md's dated measurements) holds findings that still constrain a decision. A measured
+  number that governs a current `ceiling:` stays; the story of the bug that motivated it does not.
+
+When in doubt, cut. A smaller diff that removes is worth more than a larger one that adds.
+
 ## Invariants (never violate)
 
 1. **The core imports no adapter.** Dependencies always point one way: adapter → core.
