@@ -1835,6 +1835,330 @@ describe("POST /api/backfill --embeddings", () => {
 // process on the same database. The exposure escaped the server that was exposed.
 //
 // The route wiring was verified against a real LAN peer (403 on all three credential routes, 200 on
+// instantParam now defers to the gate's own parseInstant (CLAUDE.md: the second place that parses
+// calls the first). Date.parse accepted what the gate rejects, all with a 200 and silently-wrong
+// filtering — an impossible date rolled over, a local-time string was tz-dependent, "0" became 1999.
+describe("W-INSTANT: an instant param is the gate's instant", () => {
+  it.each([
+    ["asOf", "2026-02-30", "/api/inject?q=tokens"], // Feb 30 → Date.parse rolls to Mar 2
+    ["asOf", "2026-08-14 00:00:00", "/api/inject?q=tokens"], // space, local time, tz-dependent
+    ["since", "0", "/api/audit"], // Date.parse("0") → year 1999/2000
+  ])("400s a bad %s=%s instead of filtering by a wrong moment", async (name, bad, route) => {
+    const res = await fetch(
+      `${base}${route}${route.includes("?") ? "&" : "?"}${name}=${encodeURIComponent(bad)}`,
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(
+      `${name} must be an ISO 8601 instant (got "${bad}")`,
+    );
+  });
+
+  it("still accepts a valid instant", async () => {
+    const res = await fetch(
+      `${base}/api/inject?q=tokens&asOf=2026-07-15T00:00:00Z`,
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+// W-PERSONA-C7: the persona route logged its audit row inline, so a locked trail 400'd a persona that
+// was already computed. Routed through bestEffortAudit like inject/search/entity — the row drops to
+// stderr, the answer returns 200.
+describe("W-PERSONA-C7: persona survives a locked trail", () => {
+  it("returns 200 with the audit write dropped, not a 400", async () => {
+    const s = new SqliteStorage(join(dir, "c7-persona.sqlite"));
+    await s.init();
+    const ont = seedOntology();
+    await s.saveOntology(ont);
+    const at = "2026-07-13T00:00:00Z";
+    const person = await commit(
+      s,
+      ont,
+      { type: "person", attributes: { name: "Locked Lena" } },
+      { actor: "seed", origin: "cli", occurred_at: at },
+      at,
+    );
+    const f = await commit(
+      s,
+      ont,
+      { type: "fact", attributes: { statement: "wal lets readers not block" } },
+      { actor: person.entity.id, origin: "cli", occurred_at: at },
+      at,
+    );
+    await verify(s, [f.entity.id], "seed", at);
+    vi.spyOn(s, "logAudit").mockImplementation(() => {
+      throw new Error("database is locked");
+    });
+    const srv = createUiServer({
+      store: s,
+      actor: "reviewer",
+      now: () => at,
+      webRoot: null,
+    });
+    await new Promise<void>((r) => srv.listen(0, r));
+    const b = `http://localhost:${(srv.address() as AddressInfo).port}`;
+    try {
+      const res = await fetch(
+        `${b}/api/persona/${encodeURIComponent(person.entity.id)}`,
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.facts.map((r: { id: string }) => r.id)).toContain(
+        f.entity.id,
+      );
+    } finally {
+      srv.close();
+      s.close();
+    }
+  });
+});
+
+// W-PERSONA-ENVELOPE: the route returned only {decisions, facts}, so "everything in review" and
+// "nothing on record" were byte-identical, and a same_as merge was applied with no disclosure.
+describe("W-PERSONA-ENVELOPE: the persona carries withheld and identities", () => {
+  const at = "2026-07-13T00:00:00Z";
+  let s: SqliteStorage;
+  let srv: Server;
+  let b: string;
+  let draftOnly: string;
+  let merged: string;
+  let mergedAlt: string;
+  beforeAll(async () => {
+    const ont = seedOntology();
+    s = new SqliteStorage(join(dir, "envelope.sqlite"));
+    await s.init();
+    await s.saveOntology(ont);
+    const P = (actor: string): Provenance => ({
+      actor,
+      origin: "cli",
+      occurred_at: at,
+    });
+    // A person whose only authored record is a DRAFT: 0 injectable, but withheld says why.
+    const a = await commit(
+      s,
+      ont,
+      { type: "person", attributes: { name: "Draft Dana" } },
+      P("seed"),
+      at,
+    );
+    draftOnly = a.entity.id;
+    await commit(
+      s,
+      ont,
+      {
+        type: "decision",
+        attributes: { conclusion: "flag it", rationale: "safer" },
+      },
+      P(draftOnly),
+      at,
+    );
+    // Two identities merged by same_as, each authoring a verified record.
+    const m = await commit(
+      s,
+      ont,
+      { type: "person", attributes: { name: "Merged Mira" } },
+      P("seed"),
+      at,
+    );
+    const m2 = await commit(
+      s,
+      ont,
+      { type: "person", attributes: { name: "Mira Alt" } },
+      P("seed"),
+      at,
+    );
+    merged = m.entity.id;
+    mergedAlt = m2.entity.id;
+    await commit(
+      s,
+      ont,
+      { type: "same_as", attributes: {}, from: merged, to: mergedAlt },
+      P("seed"),
+      at,
+    );
+    const mf = await commit(
+      s,
+      ont,
+      { type: "fact", attributes: { statement: "ttl is 300s" } },
+      P(merged),
+      at,
+    );
+    const m2d = await commit(
+      s,
+      ont,
+      {
+        type: "decision",
+        attributes: { conclusion: "use redis", rationale: "latency" },
+      },
+      P(mergedAlt),
+      at,
+    );
+    await verify(s, [mf.entity.id, m2d.entity.id], "reviewer", at);
+    srv = createUiServer({
+      store: s,
+      actor: "reviewer",
+      now: () => at,
+      webRoot: null,
+    });
+    await new Promise<void>((r) => srv.listen(0, r));
+    b = `http://localhost:${(srv.address() as AddressInfo).port}`;
+  });
+  afterAll(() => {
+    srv.close();
+    s.close();
+  });
+
+  it("a draft-only person renders 'in review', distinct from 'nothing on record'", async () => {
+    const p = await fetch(
+      `${b}/api/persona/${encodeURIComponent(draftOnly)}`,
+    ).then((r) => r.json());
+    expect(p.decisions).toHaveLength(0);
+    expect(p.facts).toHaveLength(0);
+    // The difference that used to be invisible: something IS on record, awaiting review.
+    expect(p.withheld).toMatchObject({ draft: 1 });
+    expect(p.identities).toBeUndefined();
+  });
+
+  it("a same_as-merged persona discloses the identity union", async () => {
+    const p = await fetch(
+      `${b}/api/persona/${encodeURIComponent(merged)}`,
+    ).then((r) => r.json());
+    expect(p.identities).toEqual([
+      { id: merged, name: "Merged Mira" },
+      { id: mergedAlt, name: "Mira Alt" },
+    ]);
+    // The union combined both authors' verified records.
+    expect([...p.decisions, ...p.facts]).toHaveLength(2);
+  });
+});
+
+// W-META: /api/meta enumerated four UNtyped authorize() calls, so a type-scoped principal
+// (`*:fact:read`) fell through to actor:null though its credential works. Resolve it by probing the
+// ontology's types too, without regressing the anonymous case to non-null.
+describe("W-META: meta reports a type-scoped principal", () => {
+  it("names the actor for a `*:fact:read` credential, and stays null when anonymous", async () => {
+    const s = new SqliteStorage(join(dir, "meta-typed.sqlite"));
+    await s.init();
+    await s.saveOntology(seedOntology());
+    // A type-scoped principal: read on `fact` only. No UNtyped action is granted.
+    const typed = createUiServer({
+      store: s,
+      actor: "person:api-architect",
+      authRequired: true,
+      authorize: (action, type) => action === "read" && type === "fact",
+      grantable: (wanted) => wanted,
+      now: () => now,
+      webRoot: null,
+    });
+    await new Promise<void>((r) => typed.listen(0, r));
+    const tb = `http://localhost:${(typed.address() as AddressInfo).port}`;
+    const meta = await fetch(`${tb}/api/meta`).then((r) => r.json());
+    // The topbar can now say who is signed in — it fell through to null before.
+    expect(meta.actor).toBe("person:api-architect");
+    expect(meta.auth).toBe(true);
+    typed.close();
+
+    // The anonymous optional path (authorize() === false for every pair) still reveals nothing.
+    const anon = createUiServer({
+      store: s,
+      actor: "person:api-architect",
+      authRequired: true,
+      authorize: () => false,
+      grantable: (wanted) => wanted,
+      now: () => now,
+      webRoot: null,
+    });
+    await new Promise<void>((r) => anon.listen(0, r));
+    const ab = `http://localhost:${(anon.address() as AddressInfo).port}`;
+    const anonMeta = await fetch(`${ab}/api/meta`).then((r) => r.json());
+    expect(anonMeta.actor).toBeNull();
+    expect(anonMeta.ns).toBeNull();
+    anon.close();
+    s.close();
+  });
+});
+
+// W-SECURITY: on `serve --auth --ns tenant-a`, a tenant-a principal saw the NAME of a person that
+// exists only in the DEFAULT namespace, because the name resolver was unscoped. The endpoint already
+// ns-filtered the record; the resolver did not. Fixed by passing the route ns into makeActorNames.
+describe("W-SECURITY: the actor-name resolver is namespace-scoped", () => {
+  const at = "2026-07-13T00:00:00Z";
+  let s: SqliteStorage;
+  let defaultPerson: string;
+  let tenantFact: string;
+  beforeAll(async () => {
+    const ont = seedOntology();
+    s = new SqliteStorage(join(dir, "xns.sqlite"));
+    await s.init();
+    await s.saveOntology(ont);
+    await s.saveOntology(ont, "tenant-a");
+    // A person recorded ONLY in the default namespace.
+    const person = await commit(
+      s,
+      ont,
+      { type: "person", attributes: { name: "Default Dana" } },
+      { actor: "seed", origin: "cli", occurred_at: at },
+      at,
+    );
+    defaultPerson = person.entity.id;
+    // A tenant-a record whose provenance.actor is that default-ns person id.
+    const f = await commit(
+      s,
+      ont,
+      { type: "fact", attributes: { statement: "leaked-if-named" } },
+      { actor: defaultPerson, origin: "cli", occurred_at: at },
+      at,
+      { ns: "tenant-a" },
+    );
+    tenantFact = f.entity.id;
+  });
+  afterAll(() => s.close());
+
+  const on = async (ns: string | null, path: string) => {
+    const srv = createUiServer({
+      store: s,
+      actor: "reviewer",
+      ns,
+      now: () => at,
+      webRoot: null,
+    });
+    await new Promise<void>((r) => srv.listen(0, r));
+    const url = `http://localhost:${(srv.address() as AddressInfo).port}${path}`;
+    try {
+      return await fetch(url).then((r) => r.json());
+    } finally {
+      srv.close();
+    }
+  };
+
+  it("withholds a foreign-ns person's name from a tenant-a listing and detail", async () => {
+    const list = await on("tenant-a", "/api/entities?type=fact");
+    const row = list.items.find((r: { id: string }) => r.id === tenantFact);
+    expect(row.actor).toBe(defaultPerson); // the id stays — it is what the citation points at
+    expect(row.actorName).toBeUndefined(); // the NAME does not cross the tenant boundary
+    const detail = await on(
+      "tenant-a",
+      `/api/entity/${encodeURIComponent(tenantFact)}`,
+    );
+    expect(detail.entity.actorName).toBeUndefined();
+  });
+
+  it("still resolves the same person's name within its OWN (default) namespace", async () => {
+    // A record in the DEFAULT ns authored by the same person still reads their name — the fix scopes
+    // resolution, it does not disable it.
+    const home = await commit(
+      s,
+      seedOntology(),
+      { type: "fact", attributes: { statement: "home-ns record" } },
+      { actor: defaultPerson, origin: "cli", occurred_at: at },
+      at,
+    );
+    const list = await on(null, "/api/entities?type=fact");
+    const row = list.items.find((r: { id: string }) => r.id === home.entity.id);
+    expect(row.actorName).toBe("Default Dana");
+  });
+});
+
 // /api/entities, 201 from the host itself). What is asserted here is the decision, because the shape
 // of the address is where this goes wrong: a dual-stack listener reports a loopback peer as an
 // IPv4-mapped `::ffff:127.0.0.1`, and reading that as remote would lock the host out of its own tokens.

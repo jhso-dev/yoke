@@ -12,7 +12,7 @@ import {
 } from "node:http";
 import { fileURLToPath } from "node:url";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
-import { CommitRejected, commit } from "../../core/commit.js";
+import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
 import {
@@ -181,10 +181,15 @@ function intParam(url: URL, name: string, def: number, max: number): number {
 function instantParam(url: URL, name: string): string | undefined {
   const raw = url.searchParams.get(name);
   if (raw === null) return undefined;
-  const ms = Date.parse(raw);
-  if (Number.isNaN(ms))
+  // The gate's own strict parser (CLAUDE.md: the second place that parses calls the first). `Date.parse`
+  // accepted what the gate rejects — `2026-02-30` (rolls to Mar 2), `"2026-08-14 00:00:00"`
+  // (tz-dependent), `"0"` (→ 1999) — all 200 with silently-wrong filtering. Rethrown as this route's
+  // 400 with the field name so the message still says which param was bad.
+  try {
+    return parseInstant(raw);
+  } catch {
     throw new Error(`${name} must be an ISO 8601 instant (got "${raw}")`);
-  return new Date(ms).toISOString();
+  }
 }
 
 function newestFirst<
@@ -485,7 +490,9 @@ export function createUiHandler(
   const serializers = () => {
     const ontology = store.loadOntology(ns);
     const ts = now();
-    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    // ns-scoped: nameOf withholds a name whose resolved person is in a DIFFERENT namespace than this
+    // route's ns, so a tenant-a response never carries a default-ns person's name (W-SECURITY).
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
     return {
       asR: async (e: Entity) =>
         row(e, ontology, ts, await nameOf(e.provenance.actor)),
@@ -542,15 +549,21 @@ export function createUiHandler(
       // handed it `ns:null` — from which the token form composed bare/`*:` scopes that its own grant
       // check then refused, making Create a dead button. ns is this principal's own namespace (the
       // 403 body already discloses it), so any valid credential may learn it.
+      //
+      // Probing only the four UNtyped actions still missed a type-scoped principal (`*:fact:read`),
+      // which grants no untyped action and so fell through to actor:null though its credential works
+      // (W-META). A scope names an ontology type, so the type-scoped grants are found by probing each
+      // declared type. Fails closed: an anonymous /api/meta caller has authorize()===false for every
+      // pair, so it still cannot enumerate the actor or namespace.
+      const metaOntology = store.loadOntology(ns);
+      const actions = ["read", "write", "verify", "admin"] as const;
       const authenticated =
-        authorize("read") ||
-        authorize("write") ||
-        authorize("verify") ||
-        authorize("admin");
+        actions.some((a) => authorize(a)) ||
+        metaOntology.some((t) => actions.some((a) => authorize(a, t.name)));
       // The topbar says who you are signed in as. Under --auth that actor is a person entity id, so
       // without resolution the header reads as a ULID.
       const actorName = authenticated
-        ? await makeActorNames(store, store.loadOntology(ns)).nameOf(actor)
+        ? await makeActorNames(store, metaOntology, ns).nameOf(actor)
         : undefined;
       sendJson(res, 200, {
         auth: deps.authRequired ?? false,
@@ -986,7 +999,8 @@ export function createUiHandler(
       // heavily across events (the same knowledge injected again and again), so a shared memo turns
       // what would be limit×refs point reads into one per distinct id.
       const auditOnt = store.loadOntology(ns);
-      const { nameOf } = makeActorNames(store, auditOnt);
+      // ns-scoped like every other resolver here — a foreign-ns actor id resolves to no name (W-SECURITY).
+      const { nameOf } = makeActorNames(store, auditOnt, ns);
       const seen = new Map<string, { type: string; summary: string } | null>();
       const resolve = async (id: string) => {
         if (!seen.has(id)) {
@@ -1170,7 +1184,10 @@ export function createUiHandler(
       const injected = [...result.decisions, ...result.facts].map(
         (i) => i.entity,
       );
-      store.logAudit({
+      // Best-effort (C7): the persona is already computed, so a locked trail must drop the row to
+      // stderr rather than 400 an answer. Inline `logAudit` here made a held write lock turn a read
+      // into a failure — the same defect the inject/search/entity reads were converted for.
+      bestEffortAudit({
         actor,
         action: "persona",
         detail: `${id} -> ${injected.map((e) => e.id).join(" ")}`,
@@ -1197,6 +1214,12 @@ export function createUiHandler(
           }),
         );
       sendJson(res, 200, {
+        // What matched this person and could NOT be injected, and the identities this persona unioned
+        // — both carried like the inject preview and the SKILL.md do (W-PERSONA-ENVELOPE). Without
+        // them "everything in review" and "nothing on record" are byte-identical here, and a same_as
+        // identity merge is applied with no disclosure. Absent when there is nothing to say.
+        ...(result.withheld ? { withheld: result.withheld } : {}),
+        ...(result.identities ? { identities: result.identities } : {}),
         ...(await (async () => {
           await prefetch(injected);
           return {

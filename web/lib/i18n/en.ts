@@ -163,12 +163,32 @@ export const en = {
     createdToast: (label: string) =>
       `Created "${label}" as a draft — verify it in Review.`,
     // A partial commit: the record is durable but an edge the gate tried alongside it was not written.
-    // Naming the remedy that applies — an authorship edge re-derives with backfill, but the caller's
-    // own --scope attachment has to be filed again — so the toast is not an unqualified "created".
-    partial: (label: string, attachment: boolean) =>
-      attachment
-        ? `Saved "${label}" as a draft, but its attachment to the scope was NOT recorded — link it again.`
-        : `Saved "${label}" as a draft, but its authorship edge was NOT recorded — re-derive it with yoke backfill.`,
+    // Core emits three kinds (commit.ts) and each has a DIFFERENT remedy: a `relates_to` attachment
+    // must be re-linked, an `authored_by` edge re-derives with backfill, and a `conflicts_with` marker
+    // has NO backfill (backfill re-derives only authorship). Classifying by `relates_to` alone sent a
+    // conflict loss to `yoke backfill`, which cannot re-derive a contradiction, and silently dropped an
+    // authorship loss when an attachment loss rode alongside it. Each kind present names its own remedy.
+    partial: (label: string, unrecorded: string[]) => {
+      const has = (prefix: string) =>
+        unrecorded.some((u) => u.startsWith(prefix));
+      const parts: string[] = [];
+      if (has("relates_to"))
+        parts.push(
+          "its attachment to the scope was NOT recorded — link it again",
+        );
+      if (has("authored_by"))
+        parts.push(
+          "its authorship edge was NOT recorded — re-derive it with yoke backfill",
+        );
+      if (has("conflicts_with"))
+        parts.push(
+          "a contradiction it raised with an existing record was NOT recorded — it will not show as disputed, and backfill does not re-derive conflicts",
+        );
+      // An edge core added that this list does not name yet — reported, never dropped as success.
+      if (parts.length === 0)
+        parts.push("an edge the gate tried alongside it was NOT recorded");
+      return `Saved "${label}" as a draft, but ${parts.join("; ")}.`;
+    },
   },
   status: {
     /** Why a record in this state is or is not injected. The stored NAME stays English (it is what
@@ -380,6 +400,32 @@ export const en = {
     decisions: "guiding decisions",
     noDecisions: "this person has not recorded any decisions",
     otherKnowledge: "other knowledge",
+    // What this person has on record but this view does NOT contain, by reason — the same wording the
+    // inject preview and the exported SKILL.md use. An empty view and a person whose every record is
+    // in review look identical without this; the note says why the omission matters.
+    withheld: (w: {
+      draft: number;
+      stale: number;
+      deprecated: number;
+      structural: number;
+      superseded: number;
+    }) =>
+      `This person has records this view does not contain: ${[
+        w.draft && `${w.draft} awaiting review`,
+        w.stale && `${w.stale} past its freshness window`,
+        w.deprecated && `${w.deprecated} retired`,
+        w.superseded && `${w.superseded} replaced by newer knowledge`,
+      ]
+        .filter(Boolean)
+        .join(
+          ", ",
+        )} — so its silence on a subject is not evidence they never recorded one.`,
+    // A same_as union combines a second person's judgment under this name; the link is unreviewed, so
+    // the merge is disclosed. The names follow this lead-in; the note (below) states the trust caveat.
+    identityUnion: (n: number) =>
+      `Combined ${n} identity records recorded as the same person by same_as:`,
+    identityUnionNote: (name: string) =>
+      `That link is an unreviewed claim (relations cannot be verified): if these are not one person, this view attributes someone else's judgment to ${name}.`,
   },
   inject: {
     heading: "Injection preview",

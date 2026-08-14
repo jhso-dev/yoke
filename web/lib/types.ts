@@ -55,6 +55,30 @@ export interface Page<T> {
   next: string | null;
 }
 
+/**
+ * What matched but could not be injected, by reason — core's `WithheldStats`, mirrored.
+ *
+ * Shared by the inject preview and the persona screen so the two describe the same fact the same way.
+ * `structural` is always 0 on a persona (`personaQuery` zeroes it), present here only to match the
+ * one shape the server sends.
+ */
+export interface Withheld {
+  draft: number;
+  stale: number;
+  deprecated: number;
+  structural: number;
+  /** Verified, but something recorded as replacing it exists. Settled, unlike a conflict — so the
+   * record is withheld rather than marked, and the replacement answers on its own merits. */
+  superseded: number;
+}
+
+/** One identity record a persona unioned (`same_as`). `name` is resolved server-side; `id` is kept so
+ * a reader can check the merge, on hover/copy — never rendered as the readable text. */
+export interface PersonaIdentity {
+  id: string;
+  name: string;
+}
+
 /** GET /api/search. `next` is always null — search is a top-N, not a paged walk of the corpus, so
  * `truncated` is how the screen learns the cap bit rather than a cursor it cannot follow. */
 export interface SearchResult extends Page<Knowledge> {
@@ -123,6 +147,9 @@ export interface AuditEntry {
   /** The records `detail` names, resolved so the row can be read. Capped server-side; absent when
    * nothing resolved (every id deleted, or in another namespace). */
   refs?: { id: string; type: string; summary: string }[];
+  /** Why, on a governance act that carries a reason — the deprecate route writes it and the audit
+   * route emits it verbatim (`...e`). Absent on every other action. */
+  note?: string;
   at: string;
   ns?: string;
 }
@@ -162,15 +189,7 @@ export interface InjectPreview {
    * match was withheld, whether or not anything came through (measured: `items:1, withheld:{draft:1}`).
    * Null means nothing was held back — either the query matched nothing, or everything it matched was
    * injected. So a full table can still carry this: it names the records the page is NOT everything of. */
-  withheld: {
-    draft: number;
-    stale: number;
-    deprecated: number;
-    structural: number;
-    /** Verified, but something recorded as replacing it exists. Settled, unlike a conflict — so the
-     * record is withheld rather than marked, and the replacement answers on its own merits. */
-    superseded: number;
-  } | null;
+  withheld: Withheld | null;
   items: InjectedKnowledge[];
 }
 
@@ -188,6 +207,13 @@ export interface Persona {
    * sides of a `conflicts_with` are returned and the screen's job is to say so, not to pick. */
   decisions: InjectedKnowledge[];
   facts: InjectedKnowledge[];
+  /** What this person has on record but this document does NOT contain, by reason. Present only when
+   * something of theirs was held back — the difference between "everything in review" and "nothing on
+   * record", which without it render byte-identically (the CLI and MCP both surface it). */
+  withheld?: Withheld;
+  /** The identity records this persona combined (`same_as`), present only when more than one. A
+   * same_as link is an unreviewed claim, so the screen must disclose that N identities were merged. */
+  identities?: PersonaIdentity[];
 }
 
 /** GET /api/meta — ungated, so the shell can decide whether to show a login before it has one. */

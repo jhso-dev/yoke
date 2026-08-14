@@ -158,12 +158,29 @@ export const ko: typeof en = {
       "생성했습니다. 다만 무엇과도 비교하지 않았습니다: 이 작업 공간에 임베딩 제공자가 설정되지 않아 중복 탐지가 실행되지 않았습니다.",
     createdToast: (label: string) =>
       `"${label}" 초안으로 생성됨 — 리뷰에서 검증하세요.`,
-    // 부분 커밋: 레코드는 저장됐지만 게이트가 함께 쓰려던 엣지가 기록되지 않았다. 저작 엣지는
-    // backfill로 다시 만들 수 있지만 호출자의 --scope 첨부는 다시 연결해야 한다.
-    partial: (label: string, attachment: boolean) =>
-      attachment
-        ? `"${label}" 초안으로 저장했지만 스코프 첨부가 기록되지 않았습니다 — 다시 연결하세요.`
-        : `"${label}" 초안으로 저장했지만 저작 엣지가 기록되지 않았습니다 — yoke backfill로 다시 만드세요.`,
+    // 부분 커밋: 레코드는 저장됐지만 게이트가 함께 쓰려던 엣지가 기록되지 않았다. core는 세 종류를
+    // 내보내며(commit.ts) 각각 처방이 다르다 — relates_to 첨부는 다시 연결, authored_by 엣지는
+    // backfill로 재생성, conflicts_with 표식은 backfill로 되살릴 수 없다(backfill은 저작만 재생성).
+    // relates_to만으로 분류하면 상충 손실을 backfill로 잘못 안내하고 첨부와 겹친 저작 손실을 조용히
+    // 흘린다. 존재하는 종류마다 제 처방을 이름한다.
+    partial: (label: string, unrecorded: string[]) => {
+      const has = (prefix: string) =>
+        unrecorded.some((u) => u.startsWith(prefix));
+      const parts: string[] = [];
+      if (has("relates_to"))
+        parts.push("스코프 첨부가 기록되지 않았습니다 — 다시 연결하세요");
+      if (has("authored_by"))
+        parts.push(
+          "저작 엣지가 기록되지 않았습니다 — yoke backfill로 다시 만드세요",
+        );
+      if (has("conflicts_with"))
+        parts.push(
+          "기존 레코드와의 상충이 기록되지 않았습니다 — 상충으로 표시되지 않으며, backfill은 상충을 재생성하지 않습니다",
+        );
+      if (parts.length === 0)
+        parts.push("게이트가 함께 쓰려던 엣지가 기록되지 않았습니다");
+      return `"${label}" 초안으로 저장했지만 ${parts.join("; ")}.`;
+    },
   },
   status: {
     meaning: {
@@ -356,6 +373,27 @@ export const ko: typeof en = {
     decisions: "판단의 근거가 되는 결정",
     noDecisions: "이 사람이 기록한 결정이 없습니다",
     otherKnowledge: "그 밖의 지식",
+    withheld: (w: {
+      draft: number;
+      stale: number;
+      deprecated: number;
+      structural: number;
+      superseded: number;
+    }) =>
+      `이 사람에게는 이 화면에 담기지 않은 레코드가 있습니다: ${[
+        w.draft && `검토 대기 ${w.draft}건`,
+        w.stale && `신선도 기간이 지난 것 ${w.stale}건`,
+        w.deprecated && `폐기된 것 ${w.deprecated}건`,
+        w.superseded && `더 새로운 지식으로 대체된 것 ${w.superseded}건`,
+      ]
+        .filter(Boolean)
+        .join(
+          ", ",
+        )} — 그러므로 어떤 주제에 대한 침묵이 그 사람이 그것을 기록한 적 없다는 증거는 아닙니다.`,
+    identityUnion: (n: number) =>
+      `same_as로 동일인으로 기록된 신원 레코드 ${n}건을 결합했습니다:`,
+    identityUnionNote: (name: string) =>
+      `이 연결은 검증되지 않은 주장입니다(관계는 검증할 수 없습니다). 이들이 동일인이 아니라면 이 화면은 다른 사람의 판단을 ${name}에게 귀속시킵니다.`,
   },
   inject: {
     heading: "주입 미리보기",

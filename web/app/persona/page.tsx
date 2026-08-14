@@ -4,6 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -183,6 +184,31 @@ function Person({ id }: { id: string }) {
           persona.reload();
         }}
       />
+
+      {/* A same_as union ADDS a second person's judgment under this name, and the link is an
+          unreviewed claim (relations cannot be verified) — so the screen has to disclose the merge,
+          exactly as the exported SKILL.md does. Names in text, ids kept on hover for checking. */}
+      {persona.data?.identities && (
+        <Alert variant="warn">
+          {t.persona.identityUnion(persona.data.identities.length)}{" "}
+          {persona.data.identities.map((p, i) => (
+            <span key={p.id}>
+              {i > 0 ? ", " : ""}
+              <span title={p.id}>{p.name}</span>
+            </span>
+          ))}
+          {". "}
+          {t.persona.identityUnionNote(name || t.persona.headingOne)}
+        </Alert>
+      )}
+      {/* What this person has on record that this document does NOT contain. Without it, a person
+          whose every record is in review renders identically to one with nothing on record — the
+          same absence the inject preview and the SKILL.md refuse to be silent about. */}
+      {persona.data?.withheld && (
+        <Alert variant="warn">
+          {t.persona.withheld(persona.data.withheld)}
+        </Alert>
+      )}
 
       <div className="controls">
         <Input

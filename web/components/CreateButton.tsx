@@ -67,13 +67,9 @@ export function CreateButton({
             const unrecorded = created.unrecorded ?? [];
             announce(
               unrecorded.length > 0
-                ? t.create.partial(
-                    recordLabel(created),
-                    // The caller's own --scope attachment failing is the one that must be re-filed;
-                    // an authorship edge re-derives with backfill. Distinguished so the toast names
-                    // the remedy that actually applies.
-                    unrecorded.some((u) => u.startsWith("relates_to")),
-                  )
+                ? // Core emits three kinds of unrecorded edge, each with its own remedy; the toast
+                  // classifies them (see t.create.partial) rather than collapsing to one boolean.
+                  t.create.partial(recordLabel(created), unrecorded)
                 : dups.length > 0
                   ? t.create.duplicates(
                       dups.length,

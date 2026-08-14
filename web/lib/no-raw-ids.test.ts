@@ -29,6 +29,9 @@ const files = [join(webRoot, "app"), join(webRoot, "components")]
 /** Files allowed to touch a raw value, because turning it into something readable IS their job. */
 const OWNERS = {
   actor: ["components/Actor.tsx"],
+  // The WRITER off the authored_by edge (injected/persona rows) — a person id, same defect class as
+  // `actor`, and rendered by the same component (which shows the name and keeps the id on hover).
+  author: ["components/Actor.tsx"],
   citation: ["components/Citation.tsx"],
   instant: ["components/Instant.tsx"],
 };
@@ -132,6 +135,14 @@ describe("no raw ids in human-facing renders", () => {
     expect("title={t.chrome.authedAs(meta.actor)}").not.toMatch(
       inDictCall("actor"),
     );
+    // `author` is a person id too — `{r.author}` in text would ship a raw ULID, the same defect one
+    // field over. Caught in text, allowed as a prop into <Actor> (which resolves it for reading).
+    expect('<td className="mono">{r.author}</td>').toMatch(
+      renderedInText("author"),
+    );
+    expect("<Actor author={r.author} authorName={r.authorName} />").not.toMatch(
+      renderedInText("author"),
+    );
     // ...and the exemption is narrow: a record still cannot be rendered raw.
     expect("<td>{t.actor}</td>").not.toMatch(renderedInText("actor"));
     expect("<td>{event.actor}</td>").toMatch(renderedInText("actor"));
@@ -154,6 +165,21 @@ describe("no raw ids in human-facing renders", () => {
         f.text,
         `${f.path}: resolve the actor before passing it to a dictionary function`,
       ).not.toMatch(inDictCall("actor"));
+    }
+  });
+
+  it("renders an author only through <Actor>", () => {
+    for (const f of files) {
+      if (OWNERS.author.includes(f.path)) continue;
+      // A JSX text position holding .author — `{r.author}` — is a raw person id, same as .actor.
+      expect(
+        f.text,
+        `${f.path}: render the author with <Actor author={…} authorName={…} />`,
+      ).not.toMatch(renderedInText("author"));
+      expect(
+        f.text,
+        `${f.path}: resolve the author before passing it to a dictionary function`,
+      ).not.toMatch(inDictCall("author"));
     }
   });
 
