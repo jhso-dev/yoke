@@ -41,6 +41,7 @@ import { makeFetchEmbedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
   envKeywordWeight,
+  envRoundRobin,
   inject,
   WALK_BUDGET,
 } from "../../core/inject.js";
@@ -866,6 +867,7 @@ async function cmdInject(
       // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
       embedder: makeFetchEmbedder(env),
       keywordWeight: envKeywordWeight(env),
+      roundRobin: envRoundRobin(env),
     });
     // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core stays pure.
     store.logAudit({

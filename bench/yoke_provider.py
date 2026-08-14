@@ -196,6 +196,11 @@ class YokeMemoryProvider(MemoryProvider):
         user_id: str | None = None,
         query_timestamp: str | None = None,
     ) -> tuple[list[Document], dict | None]:
+        # YOKE_BENCH_K overrides the harness's k. Motive, measured: every experiment that widened the
+        # injected context lost accuracy (the whole verified store -6 questions; a doubled hybrid
+        # union -5), so the untested direction is the other one — fewer, better records. A knob
+        # rather than a new default, because k belongs to whoever is paying for the context.
+        k = int(os.environ.get("YOKE_BENCH_K") or k)
         args = ["inject", query, "--limit", str(k), "--json"]
         # yoke answers "what would this have injected then" natively, so a dataset that stamps its
         # queries gets time-correct retrieval instead of hindsight.

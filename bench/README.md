@@ -287,6 +287,40 @@ nothing to expand. Also: relate prints NOTHING on success until the final summar
 20-minute run is healthy, check the relations table before killing it (a kill mid-run is safe:
 commits are per-group and the gate refuses duplicates on resume).
 
+### The published numbers are measured with a different reader — read them that way
+
+`results-manifest.json` in the harness carries the site's own PersonaMem 32k results (n=589):
+
+| system | accuracy | avg context | avg retrieve |
+|---|---|---|---|
+| hindsight | 86.6% | 15,812 tok | 675 ms |
+| hybrid-search | 84.4% | 24,169 tok | 362 ms |
+| cognee | 81.8% | 11,848 tok | 658 ms |
+
+`hybrid-search` is the same provider code this repo ran locally, and locally it scored **71.4%** —
+13 points below its published 84.4% on the same dataset and split. The variable is the answering
+model: these runs use the harness default (a frontier model), ours a local 4B. So a local score is
+not comparable to that table, and the 13-point gap on a system BOTH setups ran is the calibration
+factor for reading one against the other. To publish a comparable number, hold the reader fixed and
+say which one it was.
+
+Related setup trap, paid for once: a reasoning answering model needs `OMB_MAX_TOKENS` raised. At the
+700 default its reasoning eats the budget before the answer, and the arm scores near the no-memory
+floor for reasons that have nothing to do with the memory under test.
+
+### How many records to inject (`YOKE_BENCH_K`), swept
+
+| k | u1 | u2 | total | avg context | correct per 1k tokens |
+|---|---|---|---|---|---|
+| 10 | 11/19 | **17/23** | **28/42 (66.7%)** | 1,191 | 23.5 |
+| 5 | **13/19** | 13/23 | 26/42 (61.9%) | 602 | 43.2 |
+| 3 | 9/19 | 14/23 | 23/42 (54.8%) | 358 | **64.3** |
+
+Two things. Accuracy peaks at k=10 and efficiency at k=3, so k is a budget dial rather than a
+tuning knob — there is no k that is best on both axes. And the per-user optimum inverts (u1 peaks at
+5, u2 at 10), the same split `YOKE_KEYWORD_WEIGHT` shows, which is the argument for exposing k
+rather than picking a number here.
+
 ### Against the other memory systems in this harness (the comparison that holds)
 
 A lift ratio against a number from someone else's rig cannot be checked. The providers already in

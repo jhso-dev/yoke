@@ -156,6 +156,45 @@ export function envKeywordWeight(
   const n = Number(env.YOKE_KEYWORD_WEIGHT);
   return env.YOKE_KEYWORD_WEIGHT && Number.isFinite(n) && n > 0 ? n : undefined;
 }
+/** YOKE_HYBRID_MERGE=round-robin selects `roundRobinMerge` over `fuse`. Same env-in, value-out
+ * pattern and the same reason: one parse, shared by both front adapters. */
+export function envRoundRobin(
+  env: Record<string, string | undefined>,
+): boolean {
+  return env.YOKE_HYBRID_MERGE === "round-robin";
+}
+/**
+ * Merge two retrieval lists by giving each its own slots, instead of ranking them against each other.
+ *
+ * `fuse` makes the halves compete: one ranked list, then `limit` cuts it. A keyword rank-1 that lands
+ * at fused position 15 is gone at limit 10 even though nothing outranked it *in its own list* — and
+ * whichever half is systematically outranked stops contributing at all. Weighting (KEYWORD_WEIGHT)
+ * moves where the cut falls; it cannot stop the cut from landing on one half.
+ *
+ * Measured, and this is why the alternative exists: over 42 questions the keyword half and the vector
+ * half each answered 28, agreed on 23, and each answered 5 the other missed. Two retrievers that
+ * disagree on a ninth of the corpus are complementary, and forcing them through one ranking discards
+ * exactly the disagreement. Taking them in turn — best keyword, best vector, second keyword, … —
+ * keeps both heads and costs one extra record per pair rather than a second query.
+ *
+ * `fuse` remains the default. Round-robin claims no ordering across the two lists (nothing says a
+ * vector rank-1 outranks a keyword rank-1), so it is the honest merge when the halves are known to
+ * be complementary, and the wrong one when the caller needs a single graded relevance order.
+ */
+function roundRobinMerge(lists: Entity[][]): Entity[] {
+  const out: Entity[] = [];
+  const seen = new Set<string>();
+  const depth = Math.max(...lists.map((l) => l.length), 0);
+  for (let i = 0; i < depth; i++)
+    for (const list of lists) {
+      const e = list[i];
+      if (e && !seen.has(e.id)) {
+        seen.add(e.id);
+        out.push(e);
+      }
+    }
+  return out;
+}
 function fuse(lists: Array<{ rows: Entity[]; weight: number }>): Entity[] {
   const score = new Map<string, number>();
   const byId = new Map<string, Entity>();
@@ -291,6 +330,10 @@ export async function inject(
      * is measured — a corpus answered by exact-phrase recall wants the keyword half weighted UP,
      * where one answered by paraphrase wants it down. */
     keywordWeight?: number;
+    /** Merge the keyword and vector halves by taking them in turn rather than ranking them against
+     * each other (`roundRobinMerge`). Default false = `fuse`, byte for byte as before. Right when
+     * the two halves are measured complementary, wrong when the caller needs one graded order. */
+    roundRobin?: boolean;
   },
 ): Promise<InjectResult> {
   const scope = opts?.scope;
@@ -310,8 +353,10 @@ export async function inject(
     const vec = await vectorHits(port, query, ns, opts);
     // Returning `fts` itself (not a fused list of one) is what makes an unconfigured embedder
     // byte-identical to v5.2: fusion would re-sort ties by id, which is a change nobody asked for.
-    return vec.length === 0
-      ? fts
+    if (vec.length === 0) return fts;
+    // Both halves answered. `roundRobin` keeps each one's own head; `fuse` ranks them together.
+    return opts?.roundRobin
+      ? roundRobinMerge([fts, vec])
       : fuse([
           { rows: fts, weight: opts?.keywordWeight ?? KEYWORD_WEIGHT },
           { rows: vec, weight: 1 },
@@ -467,6 +512,13 @@ export async function inject(
   // BOTH paths cap here now, after filtering — that is the fix. `search` is asked for a superset and
   // core cuts to what the caller wanted once only injectable records remain, so `limit` finally means
   // "up to N records you can use" rather than "N candidates, then however many survive".
+  //
+  // `limit` stays a TOTAL under round-robin, and that is a measured choice rather than the obvious
+  // one. Giving each half its own `limit` looked right — the complementarity was measured with each
+  // retriever holding its own full depth — and scored 8/19 against 12/19 for the shared cap and
+  // 13/19 for plain fusion, because it doubled the injected context and the answering model reads a
+  // longer context worse. The complementarity is real in RETRIEVAL and does not survive
+  // concatenation: realizing it needs a selection step over the union, not a bigger union.
   const limited =
     opts?.limit === undefined ? items : items.slice(0, opts.limit);
   // How many the caller's limit dropped, out of what was retrieved. On the unscoped path this counts
