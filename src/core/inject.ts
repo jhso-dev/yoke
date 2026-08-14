@@ -144,6 +144,18 @@ const RRF_K = 60;
  * disagree the answer is a per-deployment setting, not a better number here.
  */
 const KEYWORD_WEIGHT = 0.1;
+/**
+ * The per-deployment setting the KEYWORD_WEIGHT ceiling names, parsed from YOKE_KEYWORD_WEIGHT.
+ * Lives here beside the constant it overrides (same env-in, value-out pattern as makeFetchEmbedder)
+ * so both front adapters share one parse and cannot drift. Unset, non-numeric or non-positive →
+ * undefined, i.e. the swept default.
+ */
+export function envKeywordWeight(
+  env: Record<string, string | undefined>,
+): number | undefined {
+  const n = Number(env.YOKE_KEYWORD_WEIGHT);
+  return env.YOKE_KEYWORD_WEIGHT && Number.isFinite(n) && n > 0 ? n : undefined;
+}
 function fuse(lists: Array<{ rows: Entity[]; weight: number }>): Entity[] {
   const score = new Map<string, number>();
   const byId = new Map<string, Entity>();
@@ -273,6 +285,12 @@ export async function inject(
     depth?: number;
     asOf?: string;
     embedder?: Embedder;
+    /** How much a keyword rank counts against a vector rank in hybrid fusion. Default
+     * KEYWORD_WEIGHT (0.1) — swept over eval/gold-set.json. The constant's own ceiling names this
+     * knob: when two corpora disagree the answer is a per-deployment setting, and that disagreement
+     * is measured — a corpus answered by exact-phrase recall wants the keyword half weighted UP,
+     * where one answered by paraphrase wants it down. */
+    keywordWeight?: number;
   },
 ): Promise<InjectResult> {
   const scope = opts?.scope;
@@ -295,7 +313,7 @@ export async function inject(
     return vec.length === 0
       ? fts
       : fuse([
-          { rows: fts, weight: KEYWORD_WEIGHT },
+          { rows: fts, weight: opts?.keywordWeight ?? KEYWORD_WEIGHT },
           { rows: vec, weight: 1 },
         ]);
   };

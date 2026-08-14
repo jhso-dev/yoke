@@ -17,14 +17,22 @@ import type { Connector } from "./types.js";
  * word "github" and materializing a thousand of them to find the one row already known by name.
  * Measured at 1M entities: 292 ms and 1,000 rows per ingested item, against 34 ms and 0.
  */
-async function exists(port: StoragePort, externalId: string): Promise<boolean> {
-  const hits = await port.search({ text: externalId, terms: "all" });
+async function exists(
+  port: StoragePort,
+  externalId: string,
+  ns: string | null | undefined,
+): Promise<boolean> {
+  const hits = await port.search({ text: externalId, terms: "all", ns });
   return hits.some((e) => e.attributes.external_id === externalId);
 }
 
 /**
  * Route a connector's pull through the commit gate. Commit as draft if absent, skip if present.
  * @param now ISO 8601 (core does not create time — the front tier injects it).
+ * @param ns tenant namespace for everything this run commits (PLAN-V2 10.1); omitted = the shared one.
+ *   The idempotency probe is scoped to it too, because external ids are only unique WITHIN a source:
+ *   two tenants capturing their own `#general` both produce `slack:C123:...`, and an unscoped probe
+ *   would let whichever ingested first silently suppress the other's records.
  */
 export async function ingest(
   port: StoragePort,
@@ -33,12 +41,13 @@ export async function ingest(
   actor: string,
   now: string,
   since?: string,
+  ns?: string | null,
 ): Promise<{ added: number; skipped: number }> {
   let added = 0;
   let skipped = 0;
   for await (const item of connector.pull(since)) {
-    const { externalId, ...input } = item;
-    if (await exists(port, externalId)) {
+    const { externalId, occurredAt, ...input } = item;
+    if (await exists(port, externalId, ns)) {
       skipped++;
       continue;
     }
@@ -50,8 +59,21 @@ export async function ingest(
         ...input,
         attributes: { ...input.attributes, external_id: externalId },
       },
-      { actor, origin: `connector:${connector.name}`, occurred_at: now },
+      {
+        actor,
+        origin: `connector:${connector.name}`,
+        // WHEN IT WAS SAID, not when we heard it. `now` is the fallback for a source that carries no
+        // time of its own, and it used to be the only option — which made every record from one run
+        // share a timestamp to the millisecond. That is wrong twice over. `--as-of` rewinds each
+        // record to the version whose `occurred_at <= T`, so a corpus stamped with its ingest time
+        // answers "what did we know last March" with everything or nothing. And a claim reversed
+        // later in the same transcript lands at the same instant as the claim it reversed, so
+        // nothing downstream can tell which came first — measured on 34 records extracted from one
+        // conversation, every one carried 2026-08-12T13:00:28.878Z.
+        occurred_at: occurredAt ?? now,
+      },
       now,
+      { ns },
     );
     added++;
   }
