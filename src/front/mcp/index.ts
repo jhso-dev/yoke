@@ -75,12 +75,9 @@ export async function resolveScope(
     title: String(e.attributes.title ?? e.id),
   });
   const byId = await store.getEntity(key);
-  // The id path took `ns` and never used it, so this was the one MCP read that crossed a tenant
-  // boundary. Measured: a `teamA:read` token resolved a teamB resource and got its title back —
-  // "Acquisition of Northwind Corp - confidential term sheet". It was also an existence oracle, since a
-  // nonexistent id answered "no collaboration matches" while any real id in any namespace resolved.
-  // Every other MCP read (`yoke_inject`, `yoke_persona`) already held the line; the `search` fallback
-  // below always did, because `search` takes the ns.
+  // id-based reads must still ns-check: getEntity takes no ns, so an unscoped id read crosses the
+  // tenant boundary (and doubles as an existence oracle for ids in any namespace). The search
+  // fallback holds the line on its own, because search takes the ns.
   if (byId && normalizeNs(byId.ns) === normalizeNs(ns)) return asEntity(byId);
   const hits = await store.search({ text: key, ns });
   const named = hits.filter(
@@ -126,11 +123,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   // Input actor > server startup env (defaultActor) > 'yoke:system' (already folded into defaultActor).
   const resolveActor = (actor?: string) => actor ?? defaultActor;
 
-  // PLAN 8.4 audit is a read's TRAIL, not its result. On a locked DB the write throws; the CLI and web
-  // long since made it best-effort (auditRead / bestEffortAudit) so a dropped trail row never turns a
-  // good read into a failed query. MCP — the surface agents actually use — still let logAudit throw
-  // straight out of the tool, discarding an already-computed answer. stderr, not stdout: stdout is the
-  // protocol channel. WRITE tools keep the audit inline; only reads are best-effort.
+  // A read's audit row is best-effort: on a locked DB logAudit throws, and a dropped trail row must
+  // not turn an already-computed read into a failed query. stderr, not stdout: stdout is the protocol
+  // channel. WRITE tools keep the audit inline; only reads are best-effort.
   const bestEffortAudit = (event: AuditEvent): void => {
     try {
       store.logAudit?.(event);
@@ -143,8 +138,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
 
   // Resolve a person id to a display name, scoped to THIS request's ns. getEntity is id-based and
   // global (it takes no ns), so a bare resolve would leak a foreign tenant's person name into an
-  // agent-facing citation — the cross-ns disclosure closed on the web tier. Fall back to the id when it
-  // is not a person in this ns (a machine actor like `yoke:system` reads fine as its own slug).
+  // agent-facing citation. Fall back to the id when it is not a person in this ns (a machine actor
+  // like `yoke:system` reads fine as its own slug).
   const nameOf = async (id: string): Promise<string> => {
     const e = await store.getEntity(id);
     return e && e.type === PERSON_TYPE && normalizeNs(e.ns) === normalizeNs(ns)
@@ -183,9 +178,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     };
     try {
       // Capture-side linking (v4.0): attach the new knowledge to the scope entity via relates_to.
-      // Passed INTO the gate rather than filed afterwards: as a second commit its endpoint check
-      // threw after the entity was durable, so an agent heard "rejected" about a record that exists
-      // and retried (see `attachTo` in core/commit.ts).
+      // Passed INTO the gate, not filed as a second commit — otherwise a bad endpoint refuses AFTER
+      // the entity is durable, telling the agent "rejected" about a record that exists (see `attachTo`
+      // in core/commit.ts).
       const linkTo = effectiveScope(scope);
       const { entity, duplicates, duplicateDetection, unrecorded } =
         await commit(store, ontology, input, prov, ts, {
@@ -206,10 +201,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         for (const raw of new Set(derivedFrom ?? [])) {
           // The one place a relation endpoint is checked, and only because of what the caller can see:
           // every surface renders a record as `[fact:01K…@v2]`, so an agent citing "what inject
-          // returned" cites that. Measured: 3 of 3 agents populated the field unprompted and 2 of 3
-          // passed a citation rather than an id. Unresolvable is reported, never filed — an edge
-          // pointing at nothing makes `downstreamOf` answer "nothing rests on this", which is the
-          // silent wrong answer the whole feature exists to prevent.
+          // returned" cites that, not a bare id. Unresolvable is reported, never filed — an edge
+          // pointing at nothing makes `downstreamOf` answer "nothing rests on this", the silent wrong
+          // answer the whole feature exists to prevent.
           let src: string | undefined;
           for (const cand of entityIdCandidates(raw)) {
             if (cand === entity.id) break; // self-citation: not an error, just nothing to file
@@ -239,10 +233,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           // Similar-knowledge candidates — no auto-merge. Included in the result for the agent to judge.
           duplicates: duplicates.map((d) => ({ id: d.id, type: d.type })),
           // WHY the list is empty. `[]` reads as "checked, nothing similar", and with no embedder
-          // configured nothing was checked at all — the CLI has said so since the gate started reporting
-          // it ("no duplicate check ran: set YOKE_EMBED_URL …") and MCP dropped the field. It matters
-          // twice over: conflict detection consumes the same candidates, so on a keyless install an agent
-          // recording a contradiction is told nothing about either.
+          // configured nothing was checked at all. It matters twice over: conflict detection consumes
+          // the same candidates, so on a keyless install an agent recording a contradiction is told
+          // nothing about either.
           duplicate_check:
             duplicateDetection === "skipped"
               ? "not run — this deployment has no embedding provider configured, so nothing was compared and no contradiction could be detected"
@@ -331,9 +324,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       if (!authorize("read")) return forbidden();
       const ts = now();
       const anchor = effectiveScope(scope);
-      // A briefing (anchored, no query) had no cap at all: a collaboration with 300 records attached
-      // returned all 300 in full, ~15k tokens, because someone pinned a scope. Default it, and let an
-      // explicit limit override. Only the briefing — a query is already narrowed by its own terms.
+      // A briefing (anchored, no query) is capped: uncapped, a collaboration with 300 records attached
+      // returns all 300 in full (~15k tokens). An explicit limit overrides; a query is already
+      // narrowed by its own terms.
       const briefing = anchor !== undefined && !query;
       const { items, omitted, walk, withheld } = await inject(
         store,
@@ -346,8 +339,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           ns,
           scope: anchor,
           depth,
-          // The same embedder the commit gate gets (SPEC "Hybrid retrieval"). Without it an agent's
-          // query was keyword-only while its writes were being embedded — half a vector index.
+          // The same embedder the commit gate gets (SPEC "Hybrid retrieval"): without it a query would
+          // be keyword-only while writes are embedded — half a vector index.
           embedder,
         },
       );
@@ -483,9 +476,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       },
     },
     ({ type, attributes, actor, scope, derived_from, from, to }) =>
-      // `from`/`to` were absent from this schema, so a relation attempt was answered "supersedes is a
-      // relation type: it needs a from and a to" — about arguments the caller HAD passed and the schema
-      // had silently dropped. An agent reading that message retries it forever.
+      // Relation types carry from/to; entity types omit them.
       doCommit(
         from !== undefined && to !== undefined
           ? { type, attributes, from, to }
@@ -635,8 +626,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     async ({ person, query }) => {
       if (!authorize("read")) return forbidden();
       const ts = now();
-      // Both refusals come from core now: an id that is not a record, and an id that is a record but
-      // not a person (a fact id used to produce a SKILL.md about nobody, with zero sources).
+      // Both refusals come from core: an id that is not a record, and a record that is not a person.
       let persona: PersonaResult;
       try {
         persona = await personaQuery(store, ontology, person, ts, {
@@ -645,10 +635,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         });
       } catch (e) {
         if (!(e instanceof NotAPerson)) throw e;
-        // The CLI's hint has no MCP equivalent, and the only route to a person id here was
-        // `yoke_overview`'s author list — which counts VERIFIED knowledge, so on a corpus with a review
-        // backlog (the normal state, since everything an agent records is a draft) it is empty. That made
-        // this a dead end unless the agent already held a ULID. The people are one read away.
+        // yoke_overview's author list counts VERIFIED knowledge, so on a corpus with a review backlog
+        // (the normal state — everything an agent records is a draft) it is empty. List the people
+        // directly so a persona anchor is always one read away.
         const people = (
           await store.listEntities({ type: PERSON_TYPE, ns, limit: 20 })
         ).items
@@ -677,8 +666,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         ns,
       });
       // The contradiction marker, in the words yoke_inject uses. Both sides of a live conflicts_with
-      // are returned — the policy is that contradictions are surfaced and never auto-resolved — and
-      // this tool returned them as two equal statements of the person's position, which is the one
+      // are returned — contradictions are surfaced, never auto-resolved — and a persona is the one
       // place a reader would take a disagreement for a conviction.
       const marker = (i: { conflictsWith?: string[] }) =>
         i.conflictsWith
@@ -689,9 +677,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const blocks: string[] = [];
       for (const i of decisions) {
         const d = i.entity;
-        // What lost is half the judgment and the SKILL.md export has carried it since v5.x while this
-        // path — the SPEC-designated PRIMARY one — dropped it. "Postgres was on the table and lost"
-        // is how a person decides; VISION calls rejected alternatives the raw material of a persona.
+        // Rejected alternatives are half the judgment — "Postgres was on the table and lost" is how a
+        // person decides, and VISION calls them the raw material of a persona.
         const rejected = d.attributes.rejected_alternatives;
         blocks.push(
           `[decision] ${String(d.attributes.conclusion)}\n` +
@@ -721,14 +708,12 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
             `one person by same_as, which is an unreviewed claim — if it is wrong, some of the above ` +
             `is someone else's judgment.]`,
         );
-      // "no recorded knowledge" was a statement of FACT, and it was false whenever the person's
-      // records were merely awaiting review — the normal state, since everything an agent commits is a
-      // draft. An agent told that answers from nothing and says so confidently. Same reasons, same
-      // phrasing helper as yoke_inject's empty answer.
+      // "no recorded knowledge" is false whenever the person's records are merely awaiting review —
+      // the normal state, since everything an agent commits is a draft — and an agent told it answers
+      // from nothing. Same reasons, same phrasing helper as yoke_inject's empty answer.
       //
-      // Phrased as a fact about the PERSON rather than about `query`, and that is not decoration: core
-      // returns counts, not ids, so a filtered persona cannot say how many of the withheld records the
-      // filter would have matched. Claiming it did would trade one false statement for another.
+      // Phrased as a fact about the PERSON rather than about `query`: core returns counts, not ids, so
+      // a filtered persona cannot say how many of the withheld records the filter would have matched.
       if (blocks.length === 0)
         return ok(
           persona.withheld

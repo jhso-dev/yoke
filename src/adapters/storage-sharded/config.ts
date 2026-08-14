@@ -27,9 +27,9 @@ export interface ShardConfig {
 }
 
 // An unknown key is refused, not ignored (CLAUDE.md's validateTypeDef rule one level up): a
-// `"namespace"` typo for `"namespaces"` was accepted and silently dropped the tenant's namespaces, so
-// its rows routed to the DEFAULT shard — a cross-tenant placement bug, exactly what sharding exists to
-// prevent. Enumerate what is valid and reject the rest.
+// `"namespace"` typo for `"namespaces"` would otherwise be accepted and silently drop the tenant's
+// namespaces, routing its rows to the DEFAULT shard — a cross-tenant placement bug, exactly what
+// sharding exists to prevent. Enumerate what is valid and reject the rest.
 const SHARD_SPEC_KEYS = [
   "name",
   "kind",

@@ -42,8 +42,7 @@ export interface MappingSpec {
    *
    * Without it the import clock is used, so the type's TTL counts from the sync rather than from the
    * source — a mapped table never goes stale and never reaches `review --stale`, whatever its rows
-   * actually say. The capture connectors had the same defect; this is the read-mapping's version of the
-   * fix, and it is opt-in because only the operator knows which column means "when this was true".
+   * actually say. Opt-in because only the operator knows which column means "when this was true".
    */
   occurredAtColumn?: string;
 }
@@ -139,12 +138,11 @@ export async function ingestMapped(
 
   // Pass 1 — entities. Build the external_id → yoke id map for pass 2.
   for (const { spec, rows } of tables) {
-    // The primary key column, checked ONCE against the first row rather than per row. A typo'd
-    // `idColumn` is a mapping-file mistake, not a data one: every row yields the same
-    // `rdb:employees:undefined`, and because this path re-versions on a key match, four different people
-    // became one entity's version chain with the last row winning — reported as "1 added, 3 updated",
-    // exit 0, and `history` on the survivor read as one person renamed three times. Refusing the spec
-    // names the fix; refusing row by row would bury it in five identical errors.
+    // The primary key column, checked ONCE against the first row rather than per row: a typo'd `idColumn`
+    // is a mapping-file mistake, not a data one. Every row would yield the same `rdb:<table>:undefined`,
+    // and because this path re-versions on a key match, distinct rows would collapse into one entity's
+    // version chain with the last row winning. Refusing the whole spec names the fix; refusing row by row
+    // would bury it in identical errors.
     if (rows.length > 0 && !(spec.idColumn in rows[0])) {
       console.error(
         `rdb: ${spec.table} has no column "${spec.idColumn}" — ` +

@@ -11,12 +11,9 @@ import { normalizeNs } from "../../core/namespace.js";
 /**
  * The four axes. `admin` grants the credential routes and NOTHING else.
  *
- * It was missing, and `verify` stood in for it: `docs/ENTERPRISE.md` says "we separate admin / write /
- * verify" while the code had no admin axis, so the three `/api/tokens` routes gated on `verify` — which
- * every reviewer holds. Measured: a `teamA:verify` token minted a working `["teamB:read",
- * "teamB:verify", "write"]` credential, listed all thirteen tokens in the database with their scopes,
- * and revoked another tenant's. Verify is the governance permission; issuing credentials is not
- * governance, it is the thing governance is granted BY.
+ * Issuing credentials is not governance — it is the thing governance is granted BY — so it must never
+ * gate on `verify`, the governance permission every reviewer holds (`docs/ENTERPRISE.md`: "we separate
+ * admin / write / verify").
  *
  * `admin` is deliberately not a superset: an admin who needs to read knowledge asks for `read` too.
  * The point of the separation is that the person who hands out credentials is not automatically the

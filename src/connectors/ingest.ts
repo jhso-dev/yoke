@@ -34,17 +34,12 @@ async function findByExternalId(
 /**
  * Whether every attribute this pull produced already matches what is stored.
  *
- * The same comparison `rdb-mapping.unchanged` makes, and the reason it has to exist here too: presence
- * of the key was the whole check, so an EDITED source item was skipped. Measured on a meeting
- * transcript — one paragraph corrected from "cap webhook retries at 5 attempts" to "3 attempts
- * (CORRECTED)" and a section appended: re-ingesting reported "added 2, skipped 24", the database kept
- * the wrong number as v1, and the appended section arrived as a NEW record contradicting it. No
- * `supersedes`, no conflict flag, nothing saying a stored chunk no longer matched its source.
- *
- * Only the attributes the connector produced are compared, which is the same boundary the write side
- * draws (see the merge at the call site): the connector's authority ends at the fields it emits, so a
- * key it no longer produces is neither compared nor overwritten. Comparing everything stored would make
- * every run after a mapping change report a difference it cannot resolve.
+ * Compares only the pulled keys, not mere presence of the key: a source EDIT must re-version, not be
+ * skipped as already-present nor arrive as a contradicting new record. This is the boundary the write
+ * side draws (see the merge at the call site) — the connector's authority ends at the fields it emits,
+ * so a key it no longer produces is neither compared nor overwritten. Comparing everything stored would
+ * make every run after a mapping change report a difference it cannot resolve. Same comparison as
+ * `rdb-mapping.unchanged`.
  */
 function sameContent(stored: Entity, next: Record<string, unknown>): boolean {
   return Object.keys(next).every(
@@ -65,40 +60,26 @@ export interface IngestResult {
 /**
  * Whether an external id can actually identify one source item.
  *
- * Every connector interpolates a field from the source into its key, and none of them checked that the
- * field was there. Measured on the three that ingest through here:
- *
- * - A Slack history page with two messages missing `ts` produced `slack:C0PLATFORM:undefined` twice.
- *   The first was committed; the second was found by the idempotency probe, counted as `skipped`, and
- *   discarded. The lost message said "the shard rebalance runs at 02:00 UTC, not 02:00 KST" — a
- *   correction, silently dropped as a duplicate of an unrelated message.
- * - `github-pr` builds its key from `html_url` and `meeting-notes` from the file path, so both have the
- *   same shape whenever the field drifts.
- *
- * The rdb connector's version of this is worse and is guarded at its own call site: a typo'd `idColumn`
- * yields `rdb:employees:undefined` for EVERY row, and because that path re-versions on a key match, four
- * different people became one entity's version chain with the last row winning — reported as
- * "1 added, 3 updated", exit 0.
- *
- * A key that cannot identify anything is not a smaller success. Rejecting is right rather than
- * generating one, because a synthetic key makes the item un-reingestable and un-deduplicable forever.
+ * Every connector interpolates a source field into its key (`github-pr` from `html_url`, `slack` from
+ * `ts`, `meeting-notes` from the file path). When that field is missing the key collapses to a sentinel
+ * like `slack:C0PLATFORM:undefined`, which collides for every item that lost the same field — the second
+ * is skipped as a duplicate of the first. A synthetic key also makes the item un-reingestable and
+ * un-deduplicable forever, so reject it rather than generate one. (The rdb path guards its own `idColumn`
+ * at its call site.)
  */
-export function unusableKey(externalId: unknown): string | null {
+function unusableKey(externalId: unknown): string | null {
   const bad = new Set(["undefined", "null", "NaN", ""]);
   const noValue = (shown: string) =>
     `external id has no identifying value: ${shown} — the source item is missing the field the key is built from`;
-  // Guard the OPERATION, not the four literals the last colon-segment happened to hold. A key that is
-  // not a non-empty string cannot identify anything — github-pr's `html_url` absent makes `externalId`
-  // itself undefined — and `undefined.slice(...)` threw a TypeError OUT of the per-item try, killing
-  // the ingest loop the caller expects to isolate one bad item. Returned as a message here, it stays a
-  // per-item `CommitRejected` at the call site.
+  // Guard the OPERATION, not just the sentinel literals: a key that is not a non-empty string cannot
+  // identify anything (an absent `html_url` makes `externalId` itself undefined). Returned as a message,
+  // so the call site raises it as a per-item `CommitRejected` rather than throwing out of the loop.
   if (typeof externalId !== "string" || externalId.trim() === "")
     return noValue(String(externalId));
-  // The volatile field a connector interpolates is not always the tail: meeting-notes puts it before
-  // `#` (`file:${rel}#${i}`) and slack has two (`slack:${channel}:${ts}`), so `slack:undefined:1699`
-  // and `file:undefined#3` slipped past a tail-only check. Split on both template delimiters and reject
-  // if ANY segment is a sentinel a missing field leaves behind. Not split on `/`, so a github `html_url`
-  // whose path legitimately contains `null` stays one segment and is not a false positive.
+  // The interpolated field is not always the tail: meeting-notes puts it before `#` (`file:${rel}#${i}`)
+  // and slack has two (`slack:${channel}:${ts}`). Split on both template delimiters and reject if ANY
+  // segment is a sentinel a missing field leaves behind. Not split on `/`, so a github `html_url` whose
+  // path legitimately contains `null` stays one segment and is not a false positive.
   if (externalId.split(/[:#]/).some((s) => bad.has(s.trim())))
     return noValue(externalId);
   return null;
@@ -124,19 +105,16 @@ export async function ingest(
   const rejected: string[] = [];
   for await (const item of connector.pull(since)) {
     const { externalId, occurredAt, ...input } = item;
-    // Per item, not per run. One review comment with an empty body threw `CommitRejected` out of this
-    // loop: three earlier comments were already committed and stayed, the NEXT pull page was never
-    // fetched, and no `added/skipped` line was ever printed — the caller saw one stderr line and exit 1
-    // with no way to know how much had landed. The rdb path already isolates per row (`errors` in
-    // rdb-mapping); these three did not. A source item that cannot be recorded is one item's problem.
+    // Per item, not per run: a source item that cannot be recorded is one item's problem. Without this
+    // try, one CommitRejected throws out of the loop, abandoning every later item and the next pull page
+    // and losing the added/skipped tally. (The rdb path isolates per row the same way — `errors` in rdb-mapping.)
     try {
-      // C4: findByExternalId then commit is a check-then-write, and without serialization two
-      // concurrent ingests of one source item both read "absent" and both insert — the corpus then
-      // holds the stale claim AND its correction as two live records, with no supersedes and exit 0
-      // (measured: 6 notes -> 7 records). Run the probe-and-commit as ONE critical section so the
-      // second ingest sees the first's committed row and takes the updated/skipped path. Feature-
+      // C4: findByExternalId then commit is a check-then-write. Without serialization two concurrent
+      // ingests of one source item both read "absent" and both insert, leaving the stale claim AND its
+      // correction as two live records with no supersedes. Run probe-and-commit as ONE critical section
+      // so the second ingest sees the first's committed row and takes the updated/skipped path. Feature-
       // detected to keep ingest adapter-independent (invariant 1): a backend that cannot serialize a
-      // multi-statement section runs the body directly, the pre-fix behaviour.
+      // multi-statement section runs the body directly.
       const handleItem = async (): Promise<void> => {
         const unusable = unusableKey(externalId);
         if (unusable) throw new CommitRejected("ontology", unusable);
@@ -148,20 +126,13 @@ export async function ingest(
           return;
         }
         // Stored attributes UNDER the pulled ones, so a re-ingest overwrites what the source owns and
-        // keeps what it does not.
-        //
-        // The case that reaches this is a connector whose FIELD SET narrowed between runs, which is a
-        // configuration change and not a rare one: an `--attr` mapping edited to drop a column, an
-        // `idColumn`/`occurredAtColumn` retargeted, a connector upgraded to emit less. Without the merge,
-        // the next sync of an item whose text also moved rewrote the record with the narrower attribute
-        // set and the dropped fields left the head version — data removed by a mapping edit, on a path
-        // whose whole contract is append-only.
-        //
-        // A key the source stops emitting therefore lingers rather than being deleted. That is the right
-        // way round: a connector that dropped a field is indistinguishable from one that never had it,
-        // and silently deleting stored knowledge on that guess is the more expensive mistake. `sameContent`
-        // compares only the pulled keys for the same reason, so the two agree — the connector's authority
-        // ends at the fields it produces.
+        // keeps what it does not. When a connector's field set narrows between runs (an `--attr` mapping
+        // edited to drop a column, an `idColumn`/`occurredAtColumn` retargeted), the merge keeps the
+        // dropped fields on the head version rather than removing them — data must not vanish from an
+        // append-only path because of a config edit. A connector that dropped a field is indistinguishable
+        // from one that never had it, and silently deleting stored knowledge on that guess is the more
+        // expensive mistake. `sameContent` compares only the pulled keys for the same reason: the
+        // connector's authority ends at the fields it produces.
         const attributes = stored
           ? { ...stored.attributes, ...pulled }
           : pulled;
@@ -172,8 +143,8 @@ export async function ingest(
             ...input,
             attributes,
           },
-          // `occurred_at` is when the SOURCE says it happened; `now` stays the ingestion clock. The two
-          // were the same value, so the TTL counted from the import and an archive never aged.
+          // `occurred_at` is when the SOURCE says it happened; `now` stays the ingestion clock. Conflating
+          // them makes the TTL count from the import, so an archive never ages.
           {
             actor,
             origin: `connector:${connector.name}`,
@@ -182,21 +153,16 @@ export async function ingest(
           // `last_confirmed` too, since that is what freshness is measured from: a message from last year
           // confirmed as of today is a claim nobody made.
           occurredAt ?? now,
-          // The embedder was never passed, so gate stages 3 and 4 could not run on this path even when
-          // one was configured — the BULK path was the only one with duplicate and contradiction detection
-          // permanently off, while the hand path at least says "no duplicate check ran". Measured: 67 notes
-          // ingested as 67 records over 29 distinct statements, the same sentence stored eight times.
+          // Pass the embedder so gate stages 3 and 4 (duplicate and contradiction detection) run on this
+          // path when one is configured; without it a bulk sync stores the same statement many times over.
           //
-          // A changed source item becomes a new VERSION of the record it changed, which is what
-          // append-only means: the wrong number stays readable at v1 and the correction is v2, rather than
-          // the correction arriving as a second record that contradicts the first.
-          //
-          // That new version enters as `draft`, like every commit, so a record someone had VERIFIED drops
-          // out of injection until it is reviewed again. Deliberate, and the reason it is written down
-          // here: the content a reviewer vouched for is not the content now stored, and carrying the
-          // promotion across would make "verified" mean "verified at some earlier text". The cost is that
-          // a sync can quietly shrink what injection answers with, which is what `yoke review` is for —
-          // `updated` in the result is the number to watch.
+          // A changed source item becomes a new VERSION of the record it changed — append-only: the wrong
+          // number stays readable at v1 and the correction is v2, rather than a second record contradicting
+          // the first. That version enters as `draft` like every commit, so a record someone had VERIFIED
+          // drops out of injection until reviewed again: the content a reviewer vouched for is not the
+          // content now stored, and carrying the promotion across would make "verified" mean "verified at
+          // some earlier text". A sync can therefore quietly shrink what injection answers with — `updated`
+          // in the result is the number to watch, and what `yoke review` is for.
           { ns, embedder, ...(stored ? { existingId: stored.id } : {}) },
         );
         if (stored) updated++;

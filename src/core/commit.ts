@@ -95,11 +95,11 @@ export interface CommitResult {
   /**
    * Edges the gate could not write AFTER the record became durable — absent when everything landed.
    *
-   * The record is stored first and its edges follow, so a storage failure in stage 4/4b/4c used to
-   * throw out of `commit`: the caller heard "rejected" about a record that exists, which is the state
-   * `attachTo` was added to abolish and which makes a retrying agent double the corpus. The commit is
-   * reported as what it is — partial — and the entity in `entity` is real. Authorship is re-derivable
-   * with `yoke backfill`; a missing attachment has to be filed again.
+   * The record is stored first and its edges follow, so a storage failure in stage 4/4b/4c must not
+   * throw out of `commit`: a caller told "rejected" about a record that exists doubles the corpus on
+   * retry (the state `attachTo` exists to abolish). The commit is reported as what it is — partial — and
+   * the entity in `entity` is real. Authorship is re-derivable with `yoke backfill`; a missing
+   * attachment has to be filed again.
    */
   unrecorded?: string[];
 }
@@ -126,10 +126,10 @@ interface CommitOpts {
    * Attach the new entity to this record with a `relates_to` edge, as ONE act with the entity.
    *
    * The target is checked before anything is stored, so a typo refuses the whole commit and leaves
-   * nothing behind. The front tier used to file this edge as a second `commit()` after the first had
-   * returned: the entity was already durable when the edge's endpoint check threw, so the caller was
-   * told "rejected" and the record existed anyway. An agent that believes a rejection retries, and
-   * the corpus doubles. One caller intent, one outcome.
+   * nothing behind. Filing this edge as a separate `commit()` after the first returns would leave the
+   * entity durable when the edge's endpoint check throws, so the caller is told "rejected" while the
+   * record exists — and an agent that believes a rejection retries, doubling the corpus. One caller
+   * intent, one outcome.
    *
    * Not `derived`: the caller asked for this edge by name, so an unresolvable target is the caller's
    * error to hear about, unlike the gate's own bookkeeping edges above.
@@ -139,35 +139,32 @@ interface CommitOpts {
 
 /** Whether actor/origin are non-empty strings and occurred_at is a real instant. */
 function provenanceOk(p: Provenance): boolean {
-  // Trimmed. `--actor ""` was refused and `--actor "   "` was accepted, so mechanism 1 ("nothing enters
-  // without a source") was defeated by one space: the record entered, `graph` drew an `authored_by` edge
-  // to an id no record carries, and the citation rendered as `[fact:…@v1]    , <ts>` — an author-less
+  // Trimmed: a whitespace-only actor or origin is not a source, and mechanism 1 ("nothing enters
+  // without a source") would be defeated by one space — the record enters, `graph` draws an `authored_by`
+  // edge to an id no record carries, and the citation renders as `[fact:…@v1]    , <ts>`, an author-less
   // claim with an author-shaped hole where the name goes.
   const ok = (v: unknown) => typeof v === "string" && v.trim().length > 0;
   return ok(p.actor) && ok(p.origin) && isInstant(p.occurred_at);
 }
 
 /**
- * A string naming a real moment, UNAMBIGUOUSLY. Non-empty was the whole check for `occurred_at`.
+ * A string naming a real moment, UNAMBIGUOUSLY. Non-empty is not enough — three things have to hold:
  *
- * Three things have to hold, and the first version of this check only got the first two.
- *
- * 1. It parses. `"yesterday"` did not, and every comparison against it is `Date.parse` → NaN → false,
+ * 1. It parses. `"yesterday"` does not, and every comparison against it is `Date.parse` → NaN → false,
  *    which never fails loudly: `versionAsOf` treats such a version as older than every instant,
  *    `isFresh` calls it expired forever, and `julianday` yields NULL so the row disappears from a
  *    bounded audit read and from a PITR copy.
  * 2. It is ISO 8601 SHAPED. `Date.parse` on anything else is implementation-defined by the spec — V8
  *    reads `08/14/2026`, another engine may read it differently or not at all.
- * 3. It names the same moment everywhere. This is the one the first version missed, by writing `[T ]`
- *    and by making the offset optional. Both of those forms are LOCAL time: measured, the same input
- *    stored three different instants across three server timezones —
+ * 3. It names the same moment everywhere, so an offset (or `Z`) is required. `[T ]` with an optional
+ *    offset is LOCAL time: the same input stores three different instants across three server timezones —
  *
  *      "2026-08-14 00:00:00"  UTC 00:00Z · Asia/Seoul 2026-08-13T15:00Z · America/New_York 04:00Z
  *      "2026-08-14T00:00:00"  identical spread
  *
  *    Nineteen hours of it, decided by an environment variable on the machine that happened to run the
- *    write. For a store whose job is saying when something was true, that is the hazard this function's
- *    own comment was written to refuse, admitted by its own regex.
+ *    write. For a store whose job is saying when something was true, that is the hazard this regex
+ *    refuses.
  *
  * A bare date (`2026-08-14`) stays legal: the spec defines the date-only form as UTC, so it means one
  * moment on every runtime — which is the whole test.
@@ -217,19 +214,17 @@ export function parseInstant(raw: unknown): string {
  * The write half of "every instant crosses one boundary" — the read halves are `instantFlag` (CLI) and
  * `instantParam` (web).
  *
- * `occurred_at` was checked for being a non-empty STRING, so the gate accepted `"yesterday"` and
- * `"08/14/2026"` and stored them as the moment a claim was made. Downstream every comparison against
- * them is `Date.parse` → NaN → false, which does not fail loudly: `versionAsOf` treats such a version
- * as older than every instant, `isFresh` reports it expired forever, and `julianday` yields NULL so the
- * row vanishes from a bounded audit read and from a PITR copy. A timestamp that cannot be compared is
- * not provenance.
+ * A non-empty-STRING check would accept `"yesterday"` and `"08/14/2026"` and store them as the moment a
+ * claim was made; downstream every comparison against them is `Date.parse` → NaN → false, which does not
+ * fail loudly: `versionAsOf` treats such a version as older than every instant, `isFresh` reports it
+ * expired forever, and `julianday` yields NULL so the row vanishes from a bounded audit read and from a
+ * PITR copy. A timestamp that cannot be compared is not provenance.
  *
  * Normalized to UTC as well as validated, for the reason the read boundaries are: a VALID instant in
  * offset notation (`2026-08-14T09:00:00+09:00`) sorts by `localeCompare` nowhere near the same moment
  * written as `Z`, and the briefing order, `newestFirst` on the web, and the FTS-independent tiebreaks
- * all collate rather than parse. Front tiers normalize today, which is precisely why this never showed:
- * a gate is a trust boundary, and what stops a third-party connector or a library caller is the check
- * here, not the convention there.
+ * all collate rather than parse. A gate is a trust boundary: what stops a third-party connector or a
+ * library caller is the check here, not the convention the front tiers follow.
  *
  * The instant is unchanged — only its spelling — so "provenance is a record of what happened" holds.
  */
@@ -293,13 +288,13 @@ export async function commit(
   const ns = normalizeNs(opts?.ns);
 
   // (2b) The attachment target, before anything is stored and before the embedder is paid for. An
-  // entity plus its attachment is one thing the caller asked for; half of it is not a smaller
-  // success. See `attachTo` for what the two-commit version cost.
+  // entity plus its attachment is one thing the caller asked for; half of it is not a smaller success.
   //
-  // Scoped to THIS commit's ns: `getEntity` is an id-based point read (ids are globally unique), so a
-  // `--scope <id-in-another-ns>` resolved to a record and the attachment was filed — a `relates_to`
-  // edge in ns `other` pointing at an id no record in `other` carries, the dangling endpoint the
-  // relation gate refuses. The 4c edge that lands is written in this ns, so its target must live here.
+  // Scoped to THIS commit's ns: `getEntity` is an id-based point read (ids are globally unique), so
+  // without the ns check a `--scope <id-in-another-ns>` resolves to a record and the attachment is
+  // filed — a `relates_to` edge in ns `other` pointing at an id no record in `other` carries, the
+  // dangling endpoint the relation gate refuses. The 4c edge that lands is written in this ns, so its
+  // target must live here.
   if (opts?.attachTo !== undefined && !isRelation) {
     const target = await port.getEntity(opts.attachTo);
     if (!target || normalizeNs(target.ns ?? null) !== ns)
@@ -344,10 +339,10 @@ export async function commit(
 
   if (isRelation) {
     const rel = input as RelationInput;
-    // Both endpoints have to be records. Non-empty was the whole check, so a typo in the last
-    // argument stored an edge to nothing: `link <person> works_on 01ZZZ…` returned an id and exit 0,
-    // the graph drew the arrow, and the id it pointed at was never a record. An edge is a claim about
-    // two things — filing one about a thing that does not exist is not knowledge.
+    // Both endpoints have to be records. Non-empty is not enough: a typo'd id would store an edge to
+    // nothing — `link <person> works_on 01ZZZ…` returning an id and exit 0, the graph drawing an arrow
+    // at an id that was never a record. An edge is a claim about two things — filing one about a thing
+    // that does not exist is not knowledge.
     //
     // ceiling: existence, not namespace agreement. An edge filed in one namespace may name a record
     // in another, which is dead data rather than a leak — every read path filters `ns` itself
@@ -355,13 +350,13 @@ export async function commit(
     // Tightening this to same-namespace needs the port to scope relations, not the gate to guess.
     // A record is not related to itself, and every relation type this ontology declares says something
     // that cannot be true of one thing: `A supersedes A`, `A conflicts_with A`, `A same_as A`, `A
-    // derived_from A`. All were accepted, and `lifecycle.ts:121` already assumes "the front tier refuses
-    // to file a self-edge" — nothing did. `conflicts_with` on itself made `yoke conflicts` print a record
-    // disagreeing with itself, and after this commit's supersession filter a self-supersedes would
-    // withhold a record on its own authority.
+    // derived_from A`. `lifecycle.ts` assumes the front tier refuses to file a self-edge, but a
+    // hand-filed one reaches storage: `conflicts_with` on itself makes `yoke conflicts` print a record
+    // disagreeing with itself, and after this commit's supersession filter a self-supersedes withholds a
+    // record on its own authority.
     //
-    // The gate, not the front tier, because that assumption was made about a guard that has to hold for
-    // every caller — `link`, the browser, MCP and the connectors.
+    // The gate, not the front tier, because this guard has to hold for every caller — `link`, the
+    // browser, MCP and the connectors.
     if (rel.from === rel.to)
       throw new CommitRejected(
         "ontology",
@@ -377,9 +372,8 @@ export async function commit(
           );
     }
     // A relation's identity is (type, from, to) in a namespace — nothing else distinguishes one edge
-    // from the same edge. Without this, pressing Link twice stored two rows with different ids, the
-    // same actor and the same instant: the entity screen listed the link three times, the graph drew
-    // three arrows over each other, and a collaboration counted one attached record as three.
+    // from the same edge. Without this, filing the same link twice stores two rows with different ids,
+    // the same actor and the same instant, and every reader counts one edge as many.
     //
     // ceiling: dedup ignores `attributes`, because no seeded relation type declares any. A relation
     // that carried them would need the versioning entities get through `existingId`, and there is no
@@ -428,19 +422,17 @@ export async function commit(
 
   // From here the record is DURABLE, so nothing below may throw its way out to the caller.
   //
-  // Stages 4, 4b and 4c write edges after the entity is stored, and a storage failure in any of them
-  // propagated — so the caller heard "commit failed" about a record that exists. Reproduced with a port
-  // whose `putRelation` rejects: `commit` threw, the entity was in `listEntities`, and it carried no
-  // `authored_by` edge, which makes it invisible to persona anchors, the overview's author ranking and
-  // `identitySet` — silently, because the only repair is a `backfill` nobody knows to run. Worse, this
-  // is precisely the state `attachTo` was introduced to abolish: "the caller was told 'rejected' and
-  // the record existed anyway. An agent that believes a rejection retries, and the corpus doubles."
+  // Stages 4, 4b and 4c write edges after the entity is stored. A storage failure in any of them must
+  // not propagate — the caller would hear "commit failed" about a record that exists, carrying no
+  // `authored_by` edge and so invisible to persona anchors, the overview's author ranking and
+  // `identitySet`, silently, because the only repair is a `backfill` nobody knows to run. This is the
+  // state `attachTo` was introduced to abolish: told "rejected" while the record exists, an agent that
+  // believes the rejection retries, and the corpus doubles.
   //
   // Reported instead. `unrecorded` names what could not be written, so a caller learns the commit was
   // partial rather than inferring success — and for the derived edges this is the policy the `derived`
-  // option already stated and did not implement: "a derived edge must never be the reason the caller's
-  // own commit fails." `backfill` re-derives authorship, which is what makes degrading safe here rather
-  // than merely convenient.
+  // option states: a derived edge must never be the reason the caller's own commit fails. `backfill`
+  // re-derives authorship, which is what makes degrading safe here rather than merely convenient.
   const unrecorded: string[] = [];
   const alongside = async (what: string, write: () => Promise<void>) => {
     try {
@@ -481,9 +473,9 @@ export async function commit(
   }
 
   // (4b) Authorship as a graph edge. provenance.actor is a stored field, so a graph walk cannot see
-  // it — which is why persona used to need a listByActor lookup outside the port. Mirroring
-  // authorship as an authored_by relation makes "knowledge from this person" the same one-hop walk
-  // as "knowledge in this collaboration": one mechanism, and it works on every conformant backend.
+  // it. Mirroring authorship as an authored_by relation makes "knowledge from this person" the same
+  // one-hop walk as "knowledge in this collaboration": one mechanism, and it works on every conformant
+  // backend.
   // Entities only (the inner call commits a relation, which returns above — no recursion), skipping
   // self-authorship, and idempotent per (entity, actor) so re-commits never pile up edges.
   // Skipped when the ontology in force does not declare authored_by: a tenant schema that never

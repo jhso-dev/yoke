@@ -1,12 +1,11 @@
 // storage-composite (v5.2) — knowledge in a remote backend, yoke's own bookkeeping in a local sqlite.
 //
 // This exists because of one fact about the interface above the port: `openStore` returns a
-// `YokeStore`, and **8 of that interface's 12 extension methods are synchronous** (`backupTo`/`exportUntil`
-// always returned promises; `saveOntology`/`renameType` went async in v5.2) — they were shaped
+// `YokeStore`, and several of that interface's extension methods are synchronous — they were shaped
 // by better-sqlite3, which is. A network-backed store cannot implement a synchronous signature. That,
 // not a missing adapter, is the bar an adapter clears to be reachable from the CLI at all: a backend
-// whose `loadOntology` has to be async does not satisfy `YokeStore` (`saveOntology` already went
-// async in v5.2 — the synchronous read surface is what remains load-bearing).
+// whose `loadOntology` has to be async does not satisfy `YokeStore`, so the synchronous read surface
+// is what remains load-bearing.
 //
 // So a remote backend is COMPOSED rather than substituted, and the split is a decision rather than a
 // workaround (SPEC "Remote backends"):
@@ -92,8 +91,7 @@ class CompositeStorage implements YokeStore {
       this.getEntities = (ids) => impl(ids);
     }
     // Conditional like the three above, and for the sharper reason: declaring the capability while the
-    // remote lacks it would answer "not found" for an edge that exists, which is the bug this method
-    // was added to fix.
+    // remote lacks it would answer "not found" for an edge that exists.
     if (typeof remote.getRelation === "function") {
       const impl = remote.getRelation.bind(remote);
       this.getRelation = (id, version) => impl(id, version);

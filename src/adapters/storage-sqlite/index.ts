@@ -67,9 +67,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(id UNINDEXED, text);
 -- \`DELETE FROM entities_fts WHERE id = ?\` passes NO constraint to fts5 and scans the whole index —
 -- O(N) per write, O(N^2) per bulk ingest, and a 22 s write-lock hold for a rename over 20k rows.
 -- The FTS \`rowid\` (its docid) IS indexed, so this maps each entity id to its stable rowid and deletes
--- go \`WHERE rowid = ?\` (O(log n)). Measured (see reindexFts): a single write dropped 0.52 -> 0.06 ms
--- at 10k and 4.97 -> 0.08 ms at 100k (was O(N), now flat); a 20k-row rename dropped 20,231 -> 53 ms.
--- Search is byte-identical: it still SELECTs \`f.id\` and orders by \`f.rank\`; only the DELETE key moved.
+-- go \`WHERE rowid = ?\` (O(log n)). Search is unaffected: it still SELECTs \`f.id\` and orders by \`f.rank\`.
 -- The rowid is written once per id and never moves, so this table is append-only per id.
 CREATE TABLE IF NOT EXISTS fts_docid (
   id TEXT NOT NULL PRIMARY KEY,
@@ -213,15 +211,10 @@ export class SqliteStorage implements StoragePort {
   async init(): Promise<void> {
     this.db.pragma("journal_mode = WAL");
     sqliteVec.load(this.db);
-    // Columns FIRST, then the schema. The order is the whole point and it was the other way round.
-    //
-    // SCHEMA declares indexes over `ns` (`idx_entities_ns_type_id` and four more, added v5.0). On a
-    // database created before PLAN-V2 10.1 that column does not exist yet, so `exec(SCHEMA)` threw
-    // "no such column: ns" — before reaching the ALTER TABLE loop that adds it. The migration was
-    // correct and unreachable: every command died on a bare sqlite error, and `yoke init`, the one
-    // repair the code comment promises, died at the same line. `restore` then reported exit 0 for a
-    // file that could not be opened. Git dates the regression precisely: the ns migration landed
-    // 2026-07-13, the ns indexes joined SCHEMA on 2026-08-03.
+    // Columns FIRST, then the schema — a required ordering. SCHEMA declares indexes over `ns`
+    // (`idx_entities_ns_type_id` and four more); on a database created before PLAN-V2 10.1 that column
+    // does not exist yet, so `exec(SCHEMA)` throws "no such column: ns" before the ALTER TABLE loop
+    // that adds it can run. Running the ALTERs first keeps SCHEMA's index DDL valid on every vintage.
     //
     // Safe in both directions because every statement is conditional. On a fresh database the ALTERs
     // throw "no such table" and are ignored, then SCHEMA creates the tables with `ns` already in them;
@@ -237,12 +230,12 @@ export class SqliteStorage implements StoragePort {
 
   /**
    * C6/F2 migration: map every currently-UNMAPPED FTS row to its rowid, so deletes stop scanning (see
-   * the fts_docid schema note). Reconciles per-id on every open, not once: the old "any row in the map
-   * → return" guard skipped a MIXED database forever — one where some `entities_fts` rows are mapped and
-   * some are not (mixed-vintage writes: a rollback, a shared file, two installs). An unmapped id then
-   * reaches `reindexFts`'s else-branch, which inserts a SECOND fts row without deleting the first, so the
-   * old text stays searchable as a ghost and every hit doubles. Mapping the id here first forces the
-   * delete-by-rowid path, leaving exactly one fts row per id.
+   * the fts_docid schema note). Reconciles per-id on every open, not once: a MIXED database — some
+   * `entities_fts` rows mapped and some not (mixed-vintage writes: a rollback, a shared file, two
+   * installs) — otherwise leaves an unmapped id reaching `reindexFts`'s else-branch, which inserts a
+   * SECOND fts row without deleting the first, so the old text stays searchable as a ghost and every
+   * hit doubles. Mapping the id here first forces the delete-by-rowid path, leaving exactly one fts row
+   * per id.
    *
    * Cheap: only unmapped rows do work. `WHERE NOT EXISTS ... fts_docid` uses the map's primary key, so
    * an already-reconciled database inserts nothing and a fresh one has no fts rows at all — a no-op.
@@ -314,7 +307,6 @@ export class SqliteStorage implements StoragePort {
     // Migration for DBs created before PLAN-V2 10.1: add the nullable ns column. Fresh DBs already
     // have it (in SCHEMA), so ADD COLUMN throws "duplicate column" — caught and ignored. NULL default
     // means every pre-existing row belongs to the default shared namespace (backward compatible).
-    // audit_log joined the list in v5.0 (its rows were namespace-blind until then).
     for (const table of [
       "entities",
       "relations",
@@ -415,18 +407,18 @@ export class SqliteStorage implements StoragePort {
   /**
    * One row plus its indexes, as ONE transaction.
    *
-   * Four statements ran in autocommit here — insert the version, read back the latest, drop the FTS
-   * row, insert the new one — so anything that ended the process between them left a durable state
-   * nothing in the product can see or repair. Demonstrated end state: `getEntity` present,
-   * `listEntities` counts it, `search` returns nothing, and therefore `inject` never serves it. The
-   * window is real for a kill, an OOM or a power loss, and `yoke backfill` rebuilds embeddings and
-   * authorship — nothing rebuilds FTS, so a record that falls into it is invisible for good.
+   * The four statements — insert the version, read back the latest, drop the FTS row, insert the new
+   * one — must commit together. A process that ends between them (a kill, an OOM, a power loss) leaves
+   * a durable state nothing in the product can see or repair: `getEntity` present, `listEntities`
+   * counts it, `search` returns nothing, so `inject` never serves it — and `yoke backfill` rebuilds
+   * embeddings and authorship but nothing rebuilds FTS, so a record that falls into that window is
+   * invisible for good.
    *
    * The embedding write joins the transaction for the same reason and one more: `ensureVecTable`
    * throws on a dimension change (deliberately — see `vectorHits`), and outside a transaction that
-   * throw would leave the entity and its FTS row committed while the caller heard an error. Today the
-   * mismatch is caught earlier, by `similar` during duplicate detection, so nothing reaches this line
-   * — which is exactly the kind of accident that stops being true when a caller skips the gate.
+   * throw would leave the entity and its FTS row committed while the caller heard an error. The gate
+   * catches the mismatch earlier, by `similar` during duplicate detection, so nothing reaches this
+   * line — but that guarantee stops holding the moment a caller skips the gate.
    */
   async putEntity(e: Entity): Promise<void> {
     this.db.transaction(() => {
@@ -455,7 +447,7 @@ export class SqliteStorage implements StoragePort {
           );
         throw err;
       }
-      // FTS keeps only the latest version's text; the delete now goes by rowid (C6/F2 — reindexFts).
+      // FTS keeps only the latest version's text; the delete goes by rowid (C6/F2 — reindexFts).
       const latest = this.db
         .prepare(
           `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
@@ -597,8 +589,8 @@ export class SqliteStorage implements StoragePort {
     // needs it: an engine with WAND (Tantivy, Lucene) behind this same port — which is what the port
     // is for. Not worth doing on a guess.
     //
-    // The filters sit in this WHERE, so they apply BEFORE the limit. That ordering is the fix for
-    // "asked for 50, received 29": inject used to cap here and filter afterwards in JS.
+    // The filters sit in this WHERE, so they apply BEFORE the limit: capping first and filtering
+    // afterward in JS returns fewer rows than the caller asked for.
     const limitClause = " LIMIT @limit";
     // Namespace isolation (PLAN-V2 10.1): `IS @ns` handles NULL (default ns sees only default rows).
     const rows = this.db
@@ -774,10 +766,9 @@ export class SqliteStorage implements StoragePort {
       rows += this.db
         .prepare(`UPDATE relations SET type = ? WHERE type = ? AND ns IS ?`)
         .run(to, from, n).changes;
-      // FTS reindex by rowid (C6/F2). Deleting each stale row by its UNINDEXED `id` was a full FTS
-      // scan PER affected id, so a rename over the whole type was O(N^2) and held the write lock for
-      // 22 s at 20k rows / >15 min at 200k — locking out every other process (C6). reindexFts deletes
-      // by rowid, dropping the 20k hold to ~53 ms (measured, see the fts_docid note).
+      // FTS reindex by rowid (C6/F2). Deleting each stale row by its UNINDEXED `id` is a full FTS scan
+      // per affected id — O(N^2) over the whole type, a 22 s write-lock hold at 20k rows / >15 min at
+      // 200k, locking out every other process (C6). reindexFts deletes by rowid instead (O(log n)).
       const latest = this.db.prepare(
         `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
       );
@@ -853,8 +844,7 @@ export class SqliteStorage implements StoragePort {
     // By instant (`julianday` parses ISO 8601, offsets included), never by string. Stored `at` values
     // are not one spelling — the DB default is whole-second `...Z`, callers write millisecond `...Z` —
     // and `Z` sorts AFTER `.`, so a string compare misses rows in the bound's own second even when
-    // both sides are UTC. Measured with an offset bound: `--since <now as +09:00>` answered
-    // "no audit events" for a window that had them.
+    // both sides are UTC (an offset bound like `--since <now as +09:00>` is the case that breaks).
     //
     // ceiling: wrapping the column kills the range scan on `idx_audit_ns_at` (declared above for
     // exactly this filter), so a bounded read now scans the namespace's rows and parses each one.

@@ -48,13 +48,11 @@ async function transition(
   const wantNs = normalizeNs(ns);
   const found = new Map(
     (await readEntities(port, ids))
-      // The namespace is the tenant isolation unit (ENTERPRISE.md), and this path had no notion of it.
-      // Every READ route filters ns; promotion and retirement did not, and RBAC only ever asked "may
-      // you verify" and never "is this record yours". Measured on one database: a token scoped
-      // `teamA:verify` promoted, read back the text of, and then retired a record belonging to teamB —
-      // and because the audit row is written with the CALLER's ns, teamB's own trail showed nothing at
-      // all. Three losses from one missing filter: the record mutated, its contents disclosed, and the
-      // governance history of the tenant that owns it left blank.
+      // The namespace is the tenant isolation unit (ENTERPRISE.md): this write path filters ns as every
+      // READ route does. RBAC only asks "may you verify", never "is this record yours", so without the
+      // filter a token scoped `teamA:verify` crosses the tenant boundary — mutating, disclosing and
+      // retiring a record owned by teamB, whose own audit trail (written with the caller's ns) shows
+      // nothing.
       //
       // A foreign record is reported as unknown rather than as forbidden, deliberately. "exists, but
       // not yours" is an existence oracle: it lets one tenant enumerate another's ids by watching which
@@ -99,9 +97,9 @@ async function transition(
     last_confirmed: now,
     provenance: { actor, origin: "lifecycle", occurred_at: now },
   });
-  // Retiring what is already retired records nothing. `deprecate X` twice wrote v3 and v4, identical but
-  // for the clock, and `history` then showed two retirements of one record — which also made the reason
-  // ambiguous, since `retirementOf` takes the LAST deprecate row and both versions rendered it.
+  // Retiring what is already retired records nothing: a repeated `deprecate` would otherwise append a
+  // second identical-but-for-the-clock version row, `history` would show two retirements of one record,
+  // and `retirementOf` (which takes the LAST deprecate row) would render the reason on both.
   //
   // Deliberately NOT applied to `verify`. Re-verifying looks like the same no-op and is not: moving
   // `last_confirmed` is the whole content of a re-confirmation, which is exactly the act the stale queue
@@ -117,11 +115,10 @@ async function transition(
       continue;
     }
     let next = buildNext(prev);
-    // C2: a concurrent re-version of this id makes `prev.version + 1` collide, and the raw throw used
-    // to land HERE — mid-loop, with earlier ids already promoted — so the caller heard "whole batch
-    // failed" about a batch that was half-applied (the exact state the two-loop design above claims to
-    // prevent). Retrying on the typed ConflictError re-reads the latest version and re-appends on top,
-    // so a lost race is resolved rather than surfaced, and the batch does not half-apply.
+    // C2: a concurrent re-version of this id makes `prev.version + 1` collide. Retrying on the typed
+    // ConflictError re-reads the latest version and re-appends on top, so a lost race is resolved rather
+    // than surfaced mid-loop with earlier ids already promoted — the half-applied batch the two-loop
+    // design above exists to prevent.
     for (let attempt = 0; ; attempt++) {
       try {
         await port.putEntity(next);
@@ -243,10 +240,9 @@ export function effectiveStatus(
  * therefore async; versions are a dense 1..n sequence because `transition` and the commit gate both
  * increment by one, so counting reaches all of them.
  *
- * One copy: `backfillAuthorship` had its own feature-detect that settled for the latest version alone
- * on a backend without the extension, which credited a promoter as the author of everything they
- * promoted — the very thing its comment says reading only the latest row would do. Two copies of a
- * capability probe is how display.ts's `summarize` drifted, and this is the same shape.
+ * One copy of the capability probe, not one per caller: a probe that settled for the latest version
+ * alone on a backend without the extension would credit a promoter as the author of everything they
+ * promoted, so `backfillAuthorship` reads its versions through here.
  */
 export async function listVersions(
   port: StoragePort,
@@ -290,10 +286,9 @@ export async function listVersions(
  * core is also called directly (tests, embedders of the library), and a by-instant comparison stays
  * right even for a caller that skipped the boundary.
  *
- * It exists as a function because a second caller wrote the comparison out again rather than reuse the
- * one already here (`inject.meaningEdges`) — as a lexicographic `<=`, which put the same moment
- * spelled two ways on opposite sides of an edge. A shared operator is small enough to look not worth
- * extracting, which is exactly how two of them end up disagreeing.
+ * It is a function, not an inlined `<=`, because a lexicographic string compare and a `Date.parse`
+ * compare disagree on the same moment spelled two ways: a shared operator is small enough to look not
+ * worth extracting, which is exactly how two of them end up disagreeing.
  */
 export function atOrBefore(stamp: string, at: string): boolean {
   return Date.parse(stamp) <= Date.parse(at);

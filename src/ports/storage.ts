@@ -42,7 +42,7 @@ export interface TextQuery {
   /** Stored status. An array means "any of these", which is what injection needs: it wants
    * verified, or verified-and-draft, and could not say so with a single value. Over-fetching instead
    * does not work — `verify` rewrites the row, so on tied relevance the injectable records sort LAST
-   * and a 4x window can miss all of them (found by the test written to prove the opposite). */
+   * and a 4x window can miss all of them. */
   status?: string | string[];
   limit?: number;
   /** Tenant namespace filter (PLAN-V2 10.1). Omitted/undefined = the default shared
@@ -136,8 +136,7 @@ export function orderByIds<T extends { id: string }>(
 /**
  * Read many entities, using the backend's batch capability when it has one and the `getEntity` loop
  * when it does not. Callers in core use THIS rather than probing `getEntities` themselves — one copy
- * of the feature-detect, the same rule `listVersions` learned after `backfillAuthorship` grew its own
- * (and settled for the wrong fallback).
+ * of the feature-detect.
  *
  * Returns rows in `ids` order with absent ids omitted, on both paths.
  */
@@ -186,11 +185,8 @@ export interface StoragePort {
   /**
    * Optional capability — one relation by id (latest version, or a given one). null if absent.
    *
-   * `link` returns the id of the edge it stored, and until this existed that id resolved to nothing:
-   * `get` answered "not found" for a row the same command had just reported, and `verify` answered
-   * "cannot transition unknown entity" — three commands disagreeing about whether a relation exists.
-   * A relation is knowledge in its own right (CLAUDE.md terminology), and an id a tool hands back has
-   * to name something.
+   * `link` returns the id of the edge it stored, and that id has to resolve: a relation is knowledge
+   * in its own right (CLAUDE.md terminology), so `get` and `verify` must both find it by id.
    *
    * Optional in the shape `similar` and `putEmbedding` are: an adapter without it is conformant and
    * callers feature-detect, so a backend that cannot address an edge by id is slower to read rather
@@ -207,10 +203,10 @@ export interface StoragePort {
   /**
    * Keyword (FTS) search. Empty array on no match.
    *
-   * Two clauses tightened in v5.1, both conformance cases (SPEC "search"):
+   * Two clauses, both conformance cases (SPEC "search"):
    * - **Best match first**, never storage order. An adapter with a ranker uses it; one without
    *   ranks the rows it already materialized (`core/rank.ts`). Returning insertion order makes
-   *   `limit` mean "oldest N", which is what injection was silently doing.
+   *   `limit` mean "oldest N".
    * - **Bounded when the caller omits `limit`**: `DEFAULT_SEARCH_LIMIT` applies. A resource bound,
    *   not a policy cap — an unbounded search at 10M entities exhausted the JS heap.
    *

@@ -2,9 +2,8 @@
 // reads to a person is a front-tier concern (CLAUDE.md invariant 1 — core imports no adapter, and this
 // imports only core types).
 //
-// This file exists because there were two copies of summarize(). The CLI's had a bug fix the web's did
-// not — connector-ingested rows summarised as their idempotency key ("rdb:table:1") instead of their
-// knowledge — so every web screen showed the defect the CLI had already fixed. One copy, one fix.
+// One copy of each presentation helper (summarize, actor-name resolution, the refusal guards): two
+// copies drift, and a fix to one is a defect the other still shows.
 
 import type { WithheldStats } from "../core/inject.js";
 import { effectiveStatus } from "../core/lifecycle.js";
@@ -22,13 +21,8 @@ import type { YokeStore } from "./store.js";
  * The status to SHOW for a record: the stored one, unless the type's TTL has expired it.
  *
  * `stale` is computed at read time and never stored (core/lifecycle), so a surface that prints the
- * stored column tells the reader "verified" about a record injection refuses to serve. Reproduced on
- * one record across four commands: `yoke get` and `yoke list` said verified, `yoke review --stale`
- * listed it as aged out, `yoke overview` counted it stale, and `yoke inject` withheld it. A person
+ * stored column tells the reader "verified" about a record injection refuses to serve. A person
  * checking whether their knowledge is live reads `get` and concludes it is.
- *
- * The web tier has always done this (`row()` in ui/server.ts, whose comment describes exactly this
- * hazard). It was fixed there and nowhere else — the same one-copy argument this file was created for.
  *
  * Relations pass through: nothing filters on an edge's status, and no relation type declares a TTL, so
  * computing freshness for one would invent a distinction the rest of the product does not make
@@ -54,21 +48,15 @@ export function personName(e: Entity, ontology: TypeDef[]): string | undefined {
 /**
  * actor id → display name, memoized for one call.
  *
- * Moved here from the web tier, which was the only surface doing it. `yoke list`, `yoke review`,
- * `review --stale`, `yoke history` and the injected citation all printed the raw actor, so a corpus
- * whose authors are person records — which is what `--actor <person-id>` and every seeded corpus
- * produce — rendered a wall of ULIDs on exactly the commands a person reads for meaning. One copy, for
- * the reason this file exists.
- *
  * `provenance.actor` is "a person entity id or agent identifier" (core/types.ts), so half the time
  * it is a ULID that means nothing to a reader. Resolution lives HERE, in the front tier, and never
  * in `citation()`: the citation is the audit pointer and an id is what makes it one — names are not
  * unique and they change, so a renamed person must not rewrite history.
  *
- * A profile DID eventually say these reads matter (v5.5). `prefetch` resolves a whole response's
- * actors in one batch read, because the memo only helps when authors repeat and in a real corpus they
- * do not: an anchored graph at depth 3 spent **1,595 of its 1,715** port calls here, one per distinct
- * author, and the traversal it was blamed on accounted for 117.
+ * `prefetch` resolves a whole response's actors in one batch read, because the memo only helps when
+ * authors repeat and in a real corpus they do not: an anchored graph at depth 3 spent **1,595 of its
+ * 1,715** port calls here, one per distinct author, and the traversal it was blamed on accounted for
+ * 117.
  */
 export function makeActorNames(
   store: YokeStore,
@@ -130,15 +118,14 @@ const NOT_CONTENT = new Set([
  * The compact one-line reading of a record, ≤60 chars.
  *
  * Attribute ORDER as WRITTEN is caller-controlled, so "first string value" is not good enough: a
- * decision committed as `{topic, conclusion, rationale}` summarised as its topic, which made three
+ * decision committed as `{topic, conclusion, rationale}` would summarise as its topic, making three
  * unrelated decisions all read "caching". Attribute order as DECLARED is not caller-controlled — it
  * is the ontology saying which attribute carries the meaning — so the first declared string that the
  * record actually has wins.
  *
- * Declared order, not required-ness. Required-ness was the rule until `fact` declared `{title,
- * statement}`: `statement` is the required one (it is all the capture path can promise), so every
- * hand-filed fact started summarising as the first 60 characters of its body — "## 개요\n2026-07-14
- * 새벽, 주 결제대행사…" instead of its title. What a type declares FIRST is what it wants read.
+ * Declared order, not required-ness: `fact` declares `{title, statement}` with `statement` required,
+ * so keying on required-ness would summarise every hand-filed fact as the first 60 characters of its
+ * body instead of its title. What a type declares FIRST is what it wants read.
  *
  * Falls back to the first string that is not bookkeeping, then to "".
  */
@@ -172,10 +159,8 @@ export const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 /**
  * The `detail` string for an injection audit row: `<subject tokens> -> <ids>` (SPEC "HTTP API").
  *
- * Three adapters were building this by hand — the CLI, the MCP server and the injection preview — and
- * only the query was ever in it, so the trail could not tell an anchored injection from an unscoped
- * one. That is the number that decides the retrieval design (docs/RESEARCH.md), and it was not being
- * recorded by any of the three.
+ * Shared by the CLI, the MCP server and the injection preview so the trail can tell an anchored
+ * injection from an unscoped one — the number that decides the retrieval design (docs/RESEARCH.md).
  *
  * The subject is a token list, newest fact first: anchor, then `@`-prefixed as-of instant, then the
  * query text. A ULID token names a record and the audit screen resolves it; `@`-prefixing the
@@ -199,10 +184,9 @@ export function injectDetail(
 /**
  * `injectDetail` read back: which workload shape one injection row was.
  *
- * This is the read side of the measurement that clause exists for. The ratio of anchored (a relation
- * hop) and as-of (a clock) reads to plain lookups is what decides whether graph expansion is worth
- * building on, and docs/RESEARCH.md §5 says it must come out of the trail rather than a guess — the
- * write side has been recording it since v5.2 and nothing read it.
+ * The ratio of anchored (a relation hop) and as-of (a clock) reads to plain lookups is what decides
+ * whether graph expansion is worth building on, and docs/RESEARCH.md §5 says it must come out of the
+ * trail rather than a guess.
  *
  * `asOf` is orthogonal, not a fourth shape: a historical read is still one of the three.
  */
@@ -240,10 +224,10 @@ export function injectShape(detail: string): {
 /**
  * The window a stale-queue consumption count is taken over, in audit rows.
  *
- * F1: `consumptionCounts` materializes every audit row it is handed into JS, and its callers passed
- * the WHOLE trail (`listAudit({ ns })`) — measured 83ms at 100k rows, 2.7s at 1M, and audit_log is
- * the one table that only grows with no retention anywhere. So the callers cap `listAudit` to the most
- * recent N rows instead. Bounded by the index (`rowid DESC LIMIT`, no `julianday` wrap — see
+ * F1: `consumptionCounts` materializes every audit row it is handed into JS, so handing it the WHOLE
+ * trail (`listAudit({ ns })`) costs — measured 83ms at 100k rows, 2.7s at 1M, and audit_log is the
+ * one table that only grows with no retention anywhere. So the callers cap `listAudit` to the most
+ * recent N rows. Bounded by the index (`rowid DESC LIMIT`, no `julianday` wrap — see
  * SqliteStorage.listAudit), so the read is O(N), not O(trail).
  *
  * The most RECENT window is the meaningful one for this queue anyway: re-confirmation effort should go
@@ -290,10 +274,9 @@ export function rankByConsumption<T extends { id: string }>(
 /**
  * An empty injection, said in words: what matched, and why none of it could be handed over.
  *
- * Adapter-neutral on purpose — no command names. Three surfaces phrased this differently (the CLI
- * explained drafts and nothing else, MCP said "no verified knowledge found for: <query>", the web
- * said nothing), and the reason a reader needs is the same on all three. A surface with one next
- * action worth naming appends it; the clause itself travels unchanged.
+ * Adapter-neutral on purpose — no command names — so the CLI, MCP and web give the same reason for
+ * the same emptiness. A surface with one next action worth naming appends it; the clause itself
+ * travels unchanged.
  */
 export function describeWithheld(w: WithheldStats): string {
   const parts: string[] = [];
@@ -325,16 +308,12 @@ export function describeWithheld(w: WithheldStats): string {
  * enough retirements for this to be felt.
  */
 /**
- * The kind-change guard, assembled against the store ONCE — `refuseRename`'s sibling, and it had the
- * sibling defect.
+ * The kind-change guard, assembled against the store ONCE — `refuseRename`'s sibling.
  *
- * `kindChangeRefusal` judges a `rows` count its callers compute, and both computed it with
- * `listEntities` alone. A type being flipped from `relation` to `entity` has its records in the
- * RELATIONS table by definition, so the count was zero exactly when it mattered and the refusal never
- * fired for the direction that has stored rows to lose. Reproduced: with an edge filed under `cites`,
- * redeclaring `cites` as an entity type printed "saved type: cites", after which the stored edge
- * contradicts the declaration and `yoke link … cites …` is refused as "an entity type: it cannot be
- * recorded as a relation" — the records the refusal exists to protect, stranded.
+ * `kindChangeRefusal` (core) judges a `rows` count it is handed. A type being flipped from `relation`
+ * to `entity` has its records in the RELATIONS table by definition, so the count must cover BOTH
+ * tables: counting only entities makes it zero exactly when it matters, and the refusal never fires
+ * for the direction that has stored rows to lose.
  *
  * Returns null when there is nothing declared under that name yet, which is the ordinary case.
  */
@@ -356,13 +335,10 @@ export async function refuseKindChange(
 /**
  * The rename guard, assembled against the store ONCE, for every surface that renames.
  *
- * `renameRefusal` (core) is pure and judges numbers it is handed, which meant each caller assembled
- * its own evidence — and the assembly is where the defect lived, twice: the CLI counted `toRows` with
- * `listEntities` alone while `renameType` rewrites relations too, and when that was fixed, the web
- * route kept its own copy of the same wrong count under a comment claiming "the same refusals the CLI
- * applies". A guard whose inputs every caller computes for itself is only ever as right as its
- * least-maintained caller. This is now the one place the evidence is gathered; callers hold a store
- * and two names, nothing else.
+ * `renameRefusal` (core) is pure and judges numbers it is handed. Gathering that evidence in ONE
+ * place — rather than per caller — is the point: a guard whose inputs every caller computes for
+ * itself is only ever as right as its least-maintained caller. Callers hold a store and two names,
+ * nothing else.
  *
  * Counts BOTH tables because the operation rewrites both — `renameType` runs one UPDATE over
  * `entities` and one over `relations` and does not ask which kind the name was.
