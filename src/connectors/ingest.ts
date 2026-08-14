@@ -118,12 +118,24 @@ export async function ingest(
       const unusable = unusableKey(externalId);
       if (unusable) throw new CommitRejected("ontology", unusable);
       // Definitively set external_id in attributes (ingest is the single source of the idempotency key).
-      const attributes = { ...input.attributes, external_id: externalId };
+      const pulled = { ...input.attributes, external_id: externalId };
       const stored = await findByExternalId(port, externalId, ns);
-      if (stored && sameContent(stored, attributes)) {
+      if (stored && sameContent(stored, pulled)) {
         skipped++;
         continue;
       }
+      // Stored attributes UNDER the pulled ones, so a re-ingest overwrites what the source owns and
+      // keeps what it does not. `sameContent` already promises this ("a reviewer who edited a record by
+      // hand has changed something the source does not know about, and a re-ingest must not silently
+      // revert it") and only half-kept it: the promise held while nothing had changed, and the moment
+      // any one source field moved, `commit` wrote the pulled attributes WHOLESALE and every hand-added
+      // key vanished from the head version. Reviewer annotations are exactly the attributes a connector
+      // never produces, so they were the ones that disappeared.
+      //
+      // A key the source DELETES therefore lingers. That is the right way round: a connector that stops
+      // emitting a field cannot be told apart from a connector that never had it, and dropping a
+      // reviewer's work on that guess is the more expensive mistake.
+      const attributes = stored ? { ...stored.attributes, ...pulled } : pulled;
       await commit(
         port,
         ontology,
@@ -149,6 +161,13 @@ export async function ingest(
         // A changed source item becomes a new VERSION of the record it changed, which is what
         // append-only means: the wrong number stays readable at v1 and the correction is v2, rather than
         // the correction arriving as a second record that contradicts the first.
+        //
+        // That new version enters as `draft`, like every commit, so a record someone had VERIFIED drops
+        // out of injection until it is reviewed again. Deliberate, and the reason it is written down
+        // here: the content a reviewer vouched for is not the content now stored, and carrying the
+        // promotion across would make "verified" mean "verified at some earlier text". The cost is that
+        // a sync can quietly shrink what injection answers with, which is what `yoke review` is for —
+        // `updated` in the result is the number to watch.
         { ns, embedder, ...(stored ? { existingId: stored.id } : {}) },
       );
       if (stored) updated++;

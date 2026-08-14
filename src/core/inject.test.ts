@@ -1148,6 +1148,48 @@ describe("injection knows what a record contradicts and what replaced it", () =>
     expect(res.withheld?.stale).toBe(0);
   });
 
+  it("does not let a supersession withhold a record from before it was recorded", async () => {
+    // An as-of read rewinds versions; it has to rewind the edges too. Otherwise today's relation graph
+    // answers a question about a past instant, and a record that was current then is withheld by a
+    // replacement nobody had recorded yet — the same mistake `countWithheld` rewinds versions to avoid.
+    const a = await addFact("internal calls use gRPC");
+    const b = await addFact("internal calls use HTTP/JSON");
+    await verify(port, [a, b], "admin", now);
+    const later = "2027-01-01T00:00:00Z";
+    await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: b, to: a },
+      { ...prov, occurred_at: later },
+      later,
+    );
+    // Asked about today, before the supersession happened: both stand.
+    const then = await inject(port, ont, "internal calls", now, { asOf: now });
+    expect(then.items.map((i) => i.entity.id).sort()).toEqual([a, b].sort());
+    expect(then.withheld?.superseded ?? 0).toBe(0);
+    // Asked about after it: the replaced one drops out.
+    const after = await inject(port, ont, "internal calls", later, {
+      asOf: later,
+    });
+    expect(after.items.map((i) => i.entity.id)).not.toContain(a);
+    expect(after.withheld?.superseded).toBe(1);
+  });
+
+  it("counts a supersession as withheld, never as a limit truncation", async () => {
+    // `omitted` means "your limit cut this many — ask again or raise it", and every front end says so
+    // in words. A superseded record is not reachable at any limit, so folding it in made that
+    // instruction false; a caller passing no limit at all was told their limit had dropped records.
+    await pair(
+      "the new limit is 300 rpm",
+      "the limit is 1000 rpm",
+      "supersedes",
+    );
+    const res = await inject(port, ont, "rpm limit", now);
+    expect(res.items).toHaveLength(1);
+    expect(res.omitted).toBe(0);
+    expect(res.withheld?.superseded).toBe(1);
+  });
+
   it("does not withhold the record that supersedes", async () => {
     const { a } = await pair(
       "the new limit is 300 rpm",

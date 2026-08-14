@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
+import { verify } from "../core/lifecycle.js";
 import { seedOntology } from "../core/ontology.js";
+import type { Entity } from "../core/types.js";
 import { ingest } from "./ingest.js";
 import { makeNotesConnector, splitChunks } from "./meeting-notes.js";
 
@@ -121,6 +123,42 @@ describe("a corrected transcript is re-versioned, not skipped", () => {
     // Append-only: the wrong number is still readable at v1.
     const v1 = await port.getEntity(stored[0].id, 1);
     expect(v1?.attributes.statement).toContain("5 attempts");
+    rmSync(d, { recursive: true, force: true });
+  });
+
+  it("a re-ingest keeps what the source does not own, and re-opens what it changed", async () => {
+    const d = scratch("# Weekly\n\nWe cap webhook retries at 5 attempts.\n");
+    await ingest(port, ont, makeNotesConnector({ dir: d }), "alice", now);
+    const found = (await port.search({ text: "webhook retries" })).filter(
+      (e) => typeof e.attributes.external_id === "string",
+    );
+    expect(found).toHaveLength(1);
+    const id = found[0].id;
+
+    // A reviewer promotes it and annotates it — an attribute the connector never produces.
+    await verify(port, [id], "reviewer", now);
+    const promoted = (await port.getEntity(id)) as Entity;
+    await port.putEntity({
+      ...promoted,
+      version: promoted.version + 1,
+      attributes: { ...promoted.attributes, reviewer_note: "checked with SRE" },
+    });
+
+    writeFileSync(
+      join(d, "weekly.md"),
+      "# Weekly\n\nWe cap webhook retries at 3 attempts (CORRECTED).\n",
+    );
+    expect(
+      await ingest(port, ont, makeNotesConnector({ dir: d }), "alice", now),
+    ).toMatchObject({ updated: 1 });
+
+    const after = (await port.getEntity(id)) as Entity;
+    // The source's field is overwritten; the reviewer's is not collateral damage.
+    expect(after.attributes.statement).toContain("3 attempts");
+    expect(after.attributes.reviewer_note).toBe("checked with SRE");
+    // And the promotion does NOT carry across: the text someone vouched for is not the text now
+    // stored, so the record goes back through review rather than staying 'verified' about new content.
+    expect(after.status).toBe("draft");
     rmSync(d, { recursive: true, force: true });
   });
 

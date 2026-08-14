@@ -167,22 +167,40 @@ const STALE_HEADROOM = 3;
  * the INCOMING edge and B is the record that is no longer current. Reading it the other way would
  * withhold every replacement and serve everything it replaced.
  *
+ * `asOf` rewinds the edges too. Without it an `--as-of 2020` read was answered with 2026's relation
+ * graph: a supersession recorded years after the instant asked about withheld a record that was current
+ * then, which is the same mistake `countWithheld` rewinds versions to avoid, one table over. Filtered on
+ * `provenance.occurred_at` — when the edge SAYS the link happened — because that is the clock the rest
+ * of the as-of path reads.
+ *
+ * ceiling: an edge's `status` is not consulted, and cannot be. Every relation is committed `draft` and
+ * no path promotes one (`lifecycle.transition` refuses relation ids), so requiring `verified` here would
+ * disable supersession entirely rather than make it stricter. That leaves withholding — the one thing
+ * here that REMOVES verified knowledge from an answer — trusting an edge the governance layer cannot
+ * reach. The gate is the only check it passed. Fix the asymmetry by making edges promotable (a
+ * KNOWLEDGE-POLICY decision: should an unverified edge route injection at all?), not by tightening this
+ * line.
+ *
  * ceiling: one relation read per record handed over — the cap, not the retrieval window, so a page of
- * ten costs ten and a fifty-record briefing costs fifty. Sub-millisecond on sqlite; fifty sequential
- * round trips on a remote backend, which is the shape docs/SCALE.md profiled on the graph route. The way
- * out is a batch `neighborsOf(ids)` on the port; add that before raising any limit that multiplies this.
+ * ten costs ten and a fifty-record briefing costs fifty. Not benchmarked: the sqlite read is a single
+ * indexed lookup, but fifty sequential round trips is the shape docs/SCALE.md profiled as slow on a
+ * remote backend. The way out is a batch `neighborsOf(ids)` on the port; add that before raising any
+ * limit that multiplies this.
  */
 async function meaningEdges(
   port: StoragePort,
   id: string,
   ns: string | null,
+  asOf?: string,
 ): Promise<{
   superseded: boolean;
   conflictsWith: string[];
   author?: string;
 }> {
   const edges = (await port.neighbors(id)).filter(
-    (r) => normalizeNs(r.ns) === ns,
+    (r) =>
+      normalizeNs(r.ns) === ns &&
+      (asOf === undefined || r.provenance.occurred_at <= asOf),
   );
   return {
     // The real author, for the citation. Free here: this read already has every edge, and asking for it
@@ -607,10 +625,16 @@ export async function inject(
   // relation read per record actually handed over (see `meaningEdges`). Superseded records drop out and
   // are counted; contradicted ones travel carrying what they contradict.
   //
-  // A page can come back short of `limit` because of this, which `omitted` already reports honestly. It
-  // is not backfilled from further down the ranking: doing so would mean reading relations for the whole
-  // window to find replacements, and a short page a reader can see beats a full one assembled by a
-  // second pass they cannot.
+  // A page can come back short of `limit` because of this. It is not backfilled from further down the
+  // ranking: doing so would mean reading relations for the whole window to find replacements, and a
+  // short page a reader can see beats a full one assembled by a second pass they cannot.
+  //
+  // The shortfall is reported by `withheld.superseded`, NOT by `omitted` — those are two different
+  // facts and folding them together made both untrue. `omitted` means "your limit cut this many, ask
+  // again or raise it", which is what every front end says in words: the MCP tool tells an agent the
+  // remainder is "NOT lost … ask a specific question and it searches everything". A superseded record
+  // is not reachable that way at any limit, so counting it there turned an accurate instruction into a
+  // false one, and a caller who passed no `limit` at all was told their limit had dropped records.
   let supersededCount = 0;
   const limited: InjectItem[] = [];
   for (const item of capped) {
@@ -618,6 +642,7 @@ export async function inject(
       port,
       item.entity.id,
       ns,
+      opts?.asOf,
     );
     if (superseded) {
       supersededCount++;
@@ -632,10 +657,6 @@ export async function inject(
       ...(conflictsWith.length > 0 ? { conflictsWith } : {}),
     });
   }
-  // How many the caller's limit dropped, out of what was retrieved. On the unscoped path this counts
-  // within the over-fetched window rather than the whole corpus: `search` is a top-k, so a number
-  // for "everything that matched" is not knowable without materializing it, which is the thing that
-  // crashed. Under-reporting a truncation the reader can see is better than a guess they cannot.
   // Say what was held back, whether or not anything came through. It was once computed only for the
   // empty answer, on the theory that an empty result is the one a reader cannot interpret. A partial
   // answer is worse: measured on the demo corpus, "why didn't we choose Kafka" returns ten unrelated
@@ -677,7 +698,13 @@ export async function inject(
   );
   return {
     items: limited,
-    omitted: items.length - limited.length,
+    // How many the caller's LIMIT dropped, out of what was retrieved — and only that, which is why it
+    // is measured against `capped` rather than against the page finally handed over (see the loop
+    // above). On the unscoped path it counts within the over-fetched window rather than the whole
+    // corpus: `search` is a top-k, so a number for "everything that matched" is not knowable without
+    // materializing it, which is the thing that crashed. Under-reporting a truncation the reader can
+    // see is better than a guess they cannot.
+    omitted: items.length - capped.length,
     ...(walk ? { walk } : {}),
     ...(withheld ? { withheld } : {}),
   };
