@@ -125,6 +125,15 @@ export class ShardedStorage implements YokeStore {
   // port.similar` / `"similar" in port` reflect the real capability (commit() and conformance rely on it).
   similar?: (embedding: Float32Array, k: number) => Promise<Entity[]>;
 
+  // C4: present only when EVERY member supports it, so `typeof port.withCriticalSection` reflects the
+  // real capability that ingest feature-detects (ingest.ts) and conformance pins. A sharded store
+  // routes one ns's writes to one shard, but the section is handed a bare `fn` with no ns, so we
+  // cannot know up front which shard it touches. So we take the write lock on EVERY member (nested,
+  // in member order) around `fn`: two concurrent ingests both block on the first member's
+  // `BEGIN IMMEDIATE`, so mutual exclusion holds cross-process, and each member's nested
+  // putEntity/putRelation becomes a savepoint that commits or rolls back with the section.
+  withCriticalSection?: <T>(fn: () => Promise<T>) => Promise<T>;
+
   constructor(private readonly members: ShardMember[]) {
     const def = members.find((m) => m.isDefault);
     if (!def)
@@ -133,6 +142,27 @@ export class ShardedStorage implements YokeStore {
     if (members.some((m) => typeof m.store.similar === "function")) {
       this.similar = (embedding, k) => this.similarImpl(embedding, k);
     }
+    // Exposed only when every member can serialize — a section that skipped an unlockable member
+    // would not actually wrap writes routed there. ceiling: locking all shards serializes ingest
+    // across ALL namespaces, not just the section's own ns, and holds N write locks for `fn`'s
+    // duration. Correct but coarse. Upgrade path: an ns-scoped `withCriticalSection(fn, ns?)` on the
+    // port that locks only the owner shard — a StoragePort contract change, deferred until a sharded
+    // deployment's ingest throughput needs it.
+    if (
+      members.every((m) => typeof m.store.withCriticalSection === "function")
+    ) {
+      this.withCriticalSection = (fn) => this.critSecImpl(fn);
+    }
+  }
+
+  /** Nest each member's critical section so `fn` runs inside all of them (see the field comment). */
+  private critSecImpl<T>(fn: () => Promise<T>): Promise<T> {
+    const nest = (i: number): Promise<T> =>
+      i >= this.members.length
+        ? fn()
+        : // biome-ignore lint/style/noNonNullAssertion: exposed only when every member has it.
+          this.members[i].store.withCriticalSection!(() => nest(i + 1));
+    return nest(0);
   }
 
   /** The shard owning ns: the one listing it, else the default shard (null/unlisted ns → default). */

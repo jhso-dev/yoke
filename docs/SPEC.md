@@ -838,11 +838,16 @@ Rules that hold for every route:
   change what they must go and ask for, and saying it would mean threading the principal into the
   handler for nothing. The body was `{"error":"forbidden"}` until a read-only token was actually
   pointed at `POST /api/verify` and the refusal turned out to say nothing a person could act on.
-- **Any route that returns knowledge attributes writes an audit row.** A preview is an
-  injection: reading through the browser leaves the same trail as reading through MCP
-  (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing
-  routes that return only a truncated summary do not, but a route that returns full
-  attributes and cannot be audited must not exist.
+- **Any route that returns knowledge attributes writes an audit row — best-effort, after the
+  answer.** A preview is an injection: reading through the browser leaves the same trail as reading
+  through MCP (ENTERPRISE.md's audit targets include "who got what knowledge injected"). Listing
+  routes that return only a truncated summary do not. Every route that returns full attributes MUST
+  attempt the row, but the answer is emitted FIRST and the row written after (68de12e): under lock or
+  IO contention — a concurrent writer holding the write lock, `database is locked` — the write may
+  fail, and a failed trail row is announced on stderr and dropped rather than turned into a failed
+  query. WAL's guarantee that readers never block is not given away for a secondary row; a dropped
+  row is the right thing to lose under contention. This holds across all three front adapters (CLI,
+  MCP, web): the audit is a record OF the read, never a gate ON it.
 
 - **The injection preview is the real `inject()`.** Not a re-implementation with similar
   filters — byte-for-byte what an agent would receive, so the screen cannot drift from
