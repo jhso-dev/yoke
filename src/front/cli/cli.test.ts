@@ -1952,3 +1952,73 @@ describe("--help never runs the command", () => {
     expect(logs.join("\n")).toContain("getting started");
   });
 });
+
+describe("rename-type sees both tables it is about to rewrite", () => {
+  // `renameType` runs one UPDATE over `entities` and one over `relations`. The merge refusal counted
+  // with `listEntities` alone, so it fired for entity→entity and never once for relation→relation —
+  // the half wired into injection. Both cases below were reproduced through this CLI before the fix:
+  // "renamed type … — 2 rows rewritten", exit 0, no refusal.
+  async function twoFacts(db: string): Promise<[string, string]> {
+    const ids: string[] = [];
+    for (const s of ["alpha stands", "beta stands"]) {
+      expect(
+        await runCli([
+          "add",
+          "fact",
+          "--db",
+          db,
+          "--attr",
+          `statement=${s}`,
+          "--json",
+        ]),
+      ).toBe(0);
+      ids.push(JSON.parse(logs.at(-1) as string).id as string);
+    }
+    return [ids[0], ids[1]];
+  }
+
+  function declare(db: string, name: string): Promise<number> {
+    const file = join(dir, `type-${name}.json`);
+    writeFileSync(file, JSON.stringify({ name, kind: "relation", attrs: {} }));
+    return runCli(["ontology", "add-type", file, "--db", db]);
+  }
+
+  it("refuses to merge one relation type into another that has edges", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const [a, b] = await twoFacts(db);
+    expect(await declare(db, "mentions")).toBe(0);
+    expect(await declare(db, "blocks")).toBe(0);
+    expect(await runCli(["link", a, "blocks", b, "--db", db])).toBe(0);
+    expect(await runCli(["link", a, "mentions", b, "--db", db])).toBe(0);
+
+    expect(
+      await runCli(["rename-type", "mentions", "blocks", "--db", db]),
+    ).toBe(1);
+    expect(errs.join("\n")).toMatch(/already exists and has records/);
+  });
+
+  it("refuses a rename ONTO a relation core acts on by name", async () => {
+    // The worst version: every renamed edge becomes a supersession, and the next injection withholds
+    // whatever those edges point at — verified knowledge leaving every answer with no trace but an
+    // audit line.
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const [a, b] = await twoFacts(db);
+    expect(await declare(db, "notes")).toBe(0);
+    expect(await runCli(["link", b, "notes", a, "--db", db])).toBe(0);
+
+    expect(
+      await runCli(["rename-type", "notes", "supersedes", "--db", db]),
+    ).toBe(1);
+    expect(errs.join("\n")).toMatch(/core acts on by name/);
+
+    // And the knowledge is still there.
+    expect(await runCli(["verify", a, b, "--db", db])).toBe(0);
+    expect(await runCli(["inject", "stands", "--db", db, "--json"])).toBe(0);
+    const items = JSON.parse(logs.at(-1) as string) as Array<{
+      entity: { id: string };
+    }>;
+    expect(items.map((i) => i.entity.id).sort()).toEqual([a, b].sort());
+  });
+});

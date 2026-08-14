@@ -1175,6 +1175,32 @@ describe("injection knows what a record contradicts and what replaced it", () =>
     expect(after.withheld?.superseded).toBe(1);
   });
 
+  it("reads the same instant the same way, however the caller wrote the offset", async () => {
+    // `instantFlag` validates the format and returns it unnormalised, so the offset a person typed
+    // reaches core. A lexicographic `<=` then put 2026-08-13T20:00:00-09:00 and 2026-08-14T05:00:00Z —
+    // the same moment — on opposite sides of an edge stamped 01:28Z, so one as-of read answered itself
+    // two ways: withheld under one spelling, served under the other. `versionAsOf` had it right all
+    // along; the edge filter wrote the comparison out again instead of reusing it.
+    const a = await addFact("gamma holds");
+    const b = await addFact("gamma replaced");
+    await verify(port, [a, b], "admin", now);
+    const edgeAt = "2026-08-14T01:28:00Z";
+    await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: b, to: a },
+      { ...prov, occurred_at: edgeAt },
+      edgeAt,
+    );
+    const ids = async (asOf: string) =>
+      (await inject(port, ont, "gamma", "2026-08-14T06:00:00Z", { asOf })).items
+        .map((i) => i.entity.id)
+        .sort();
+    expect(await ids("2026-08-13T20:00:00-09:00")).toEqual(
+      await ids("2026-08-14T05:00:00Z"),
+    );
+  });
+
   it("counts a supersession as withheld, never as a limit truncation", async () => {
     // `omitted` means "your limit cut this many — ask again or raise it", and every front end says so
     // in words. A superseded record is not reachable at any limit, so folding it in made that

@@ -41,8 +41,10 @@ async function findByExternalId(
  * the wrong number as v1, and the appended section arrived as a NEW record contradicting it. No
  * `supersedes`, no conflict flag, nothing saying a stored chunk no longer matched its source.
  *
- * Only the attributes the connector produced are compared. A reviewer who edited a record by hand has
- * changed something the source does not know about, and a re-ingest must not silently revert it.
+ * Only the attributes the connector produced are compared, which is the same boundary the write side
+ * draws (see the merge at the call site): the connector's authority ends at the fields it emits, so a
+ * key it no longer produces is neither compared nor overwritten. Comparing everything stored would make
+ * every run after a mapping change report a difference it cannot resolve.
  */
 function sameContent(stored: Entity, next: Record<string, unknown>): boolean {
   return Object.keys(next).every(
@@ -125,16 +127,20 @@ export async function ingest(
         continue;
       }
       // Stored attributes UNDER the pulled ones, so a re-ingest overwrites what the source owns and
-      // keeps what it does not. `sameContent` already promises this ("a reviewer who edited a record by
-      // hand has changed something the source does not know about, and a re-ingest must not silently
-      // revert it") and only half-kept it: the promise held while nothing had changed, and the moment
-      // any one source field moved, `commit` wrote the pulled attributes WHOLESALE and every hand-added
-      // key vanished from the head version. Reviewer annotations are exactly the attributes a connector
-      // never produces, so they were the ones that disappeared.
+      // keeps what it does not.
       //
-      // A key the source DELETES therefore lingers. That is the right way round: a connector that stops
-      // emitting a field cannot be told apart from a connector that never had it, and dropping a
-      // reviewer's work on that guess is the more expensive mistake.
+      // The case that reaches this is a connector whose FIELD SET narrowed between runs, which is a
+      // configuration change and not a rare one: an `--attr` mapping edited to drop a column, an
+      // `idColumn`/`occurredAtColumn` retargeted, a connector upgraded to emit less. Without the merge,
+      // the next sync of an item whose text also moved rewrote the record with the narrower attribute
+      // set and the dropped fields left the head version — data removed by a mapping edit, on a path
+      // whose whole contract is append-only.
+      //
+      // A key the source stops emitting therefore lingers rather than being deleted. That is the right
+      // way round: a connector that dropped a field is indistinguishable from one that never had it,
+      // and silently deleting stored knowledge on that guess is the more expensive mistake. `sameContent`
+      // compares only the pulled keys for the same reason, so the two agree — the connector's authority
+      // ends at the fields it produces.
       const attributes = stored ? { ...stored.attributes, ...pulled } : pulled;
       await commit(
         port,

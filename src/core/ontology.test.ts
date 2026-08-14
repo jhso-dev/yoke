@@ -188,6 +188,28 @@ describe("validateTypeDef", () => {
       /entity types/,
     ],
     ["not an object at all", "just a string", /must be a JSON object/],
+    [
+      // Accepted before, and listed as ttl=∞: the author asked for a 30-day expiry, got none, and was
+      // told "saved type". A validator that inspects only the keys it knows is a spell-checker for its
+      // own vocabulary.
+      "a misspelled optional field, rather than ignoring it",
+      { name: "policy", kind: "entity", attrs: {}, ttl_dayz: 30 },
+      /unknown field\(s\): ttl_dayz/,
+    ],
+    [
+      // Listed directly beneath `fact`, indistinguishable to a reader, and `list --type fact` never
+      // finds its rows.
+      "a name padded with whitespace, which makes an invisible twin",
+      { name: " fact", kind: "entity", attrs: {} },
+      /whitespace/,
+    ],
+    [
+      // `:` separates the segments of an access scope (rbac.ts), so `teamA:team:note:read` is four
+      // segments, `parseScope` refuses it, and that type can never be granted to anyone.
+      "a name carrying the scope separator",
+      { name: "team:note", kind: "entity", attrs: {} },
+      /can never be granted/,
+    ],
   ])("refuses %s", (_why, def, expected) => {
     expect(validateTypeDef(def)).toMatch(expected);
   });
@@ -252,6 +274,21 @@ describe("renameRefusal", () => {
     // a complete SKILL.md containing nothing, the overview's author ranking went empty, and `backfill`
     // died on "unknown type: authored_by".
     expect(renameRefusal(name, "something", ok)).toMatch(/core reads by name/);
+  });
+
+  it.each([
+    "authored_by",
+    "same_as",
+    "derived_from",
+    "conflicts_with",
+    "supersedes",
+    "relates_to",
+  ])("refuses renaming ONTO %s, which core acts on by name", (name) => {
+    // The list guarded the source only. Renaming away from a name core reads empties an answer, which
+    // is visible; renaming ONTO one fills an answer with edges that never meant it. Measured end to
+    // end: `rename-type notes supersedes` reported "2 rows rewritten", and the next `yoke inject`
+    // withheld a verified record — "1 replaced by newer knowledge" — for a replacement nobody recorded.
+    expect(renameRefusal("notes", name, ok)).toMatch(/core acts on by name/);
   });
 
   it("allows renaming a relation whose behaviour is a FLAG, not a name", () => {

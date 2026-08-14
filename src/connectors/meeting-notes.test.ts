@@ -126,40 +126,45 @@ describe("a corrected transcript is re-versioned, not skipped", () => {
     rmSync(d, { recursive: true, force: true });
   });
 
-  it("a re-ingest keeps what the source does not own, and re-opens what it changed", async () => {
-    const d = scratch("# Weekly\n\nWe cap webhook retries at 5 attempts.\n");
-    await ingest(port, ont, makeNotesConnector({ dir: d }), "alice", now);
+  it("a narrowed mapping does not delete the fields it stopped emitting, and re-opens what it changed", async () => {
+    // The reachable cause is a connector whose FIELD SET narrowed between runs — an `--attr` mapping
+    // edited to drop a column, a connector upgraded to emit less. Driven through `ingest` both times,
+    // because a scenario that needs a direct `putEntity` to set up is a scenario the product cannot
+    // produce, and pinning one of those proves nothing about the product.
+    const item = (statement: string, extra: Record<string, unknown>) => ({
+      name: "narrowing",
+      async *pull() {
+        yield {
+          type: "fact",
+          attributes: { statement, ...extra },
+          externalId: "src:weekly:1",
+        };
+      },
+    });
+    const wide = item("we cap webhook retries at 5 attempts", {
+      title: "retry policy",
+    });
+    await ingest(port, ont, wide, "alice", now);
     const found = (await port.search({ text: "webhook retries" })).filter(
       (e) => typeof e.attributes.external_id === "string",
     );
     expect(found).toHaveLength(1);
     const id = found[0].id;
-
-    // A reviewer promotes it and annotates it — an attribute the connector never produces.
     await verify(port, [id], "reviewer", now);
-    const promoted = (await port.getEntity(id)) as Entity;
-    await port.putEntity({
-      ...promoted,
-      version: promoted.version + 1,
-      attributes: { ...promoted.attributes, reviewer_note: "checked with SRE" },
+
+    // Next run: `title` is no longer mapped, and the statement was corrected at the source.
+    const narrow = item("we cap webhook retries at 3 attempts (CORRECTED)", {});
+    expect(await ingest(port, ont, narrow, "alice", now)).toMatchObject({
+      updated: 1,
     });
 
-    writeFileSync(
-      join(d, "weekly.md"),
-      "# Weekly\n\nWe cap webhook retries at 3 attempts (CORRECTED).\n",
-    );
-    expect(
-      await ingest(port, ont, makeNotesConnector({ dir: d }), "alice", now),
-    ).toMatchObject({ updated: 1 });
-
     const after = (await port.getEntity(id)) as Entity;
-    // The source's field is overwritten; the reviewer's is not collateral damage.
+    // The field the source still owns is overwritten; the one it stopped emitting is not deleted.
     expect(after.attributes.statement).toContain("3 attempts");
-    expect(after.attributes.reviewer_note).toBe("checked with SRE");
+    expect(after.attributes.title).toBe("retry policy");
     // And the promotion does NOT carry across: the text someone vouched for is not the text now
     // stored, so the record goes back through review rather than staying 'verified' about new content.
     expect(after.status).toBe("draft");
-    rmSync(d, { recursive: true, force: true });
   });
 
   it("still skips an unchanged re-ingest, so a cron job is not a version generator", async () => {

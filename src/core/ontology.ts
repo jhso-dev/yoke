@@ -132,12 +132,49 @@ const ATTR_TYPES: ReadonlyArray<AttrSpec["type"]> = [
  * A kind flip on a type that already has rows is refused by the callers, which are the ones that can
  * count them — this function judges the definition alone.
  */
+/**
+ * Every key a type definition may carry. A definition is REJECTED for anything else.
+ *
+ * The validator inspected only the keys it knew, which makes it a spell-checker for its own
+ * vocabulary: `{"name":"policy","kind":"entity","attrs":{…},"ttl_dayz":30}` was accepted and listed as
+ * `ttl=∞`. The author asked for a 30-day expiry, got no expiry, and was told "saved type: policy" —
+ * the same shape of silent wrong behaviour this function was written to stop, one typo further out.
+ * Unknown keys are refused rather than ignored because an ignored key is indistinguishable from an
+ * applied one at every surface afterwards.
+ */
+const TYPE_DEF_KEYS = [
+  "name",
+  "kind",
+  "attrs",
+  "ttl_days",
+  "membership",
+  "structural",
+  "symmetric",
+] as const;
+
 export function validateTypeDef(def: unknown): string | null {
   if (typeof def !== "object" || def === null || Array.isArray(def))
     return "a type definition must be a JSON object";
   const d = def as Record<string, unknown>;
+  const unknown = Object.keys(d).filter(
+    (k) => !(TYPE_DEF_KEYS as readonly string[]).includes(k),
+  );
+  if (unknown.length > 0)
+    return `unknown field(s): ${unknown.join(", ")} — a type definition takes ${TYPE_DEF_KEYS.join(", ")}`;
   if (typeof d.name !== "string" || d.name.trim() === "")
     return "name must be a non-empty string";
+  // Refused, not silently trimmed or slugified: the name is an identity every stored row carries, and
+  // saving something other than what was written is its own surprise the next time someone greps.
+  //
+  // Whitespace makes an invisible twin — `" fact"` listed directly under `fact`, indistinguishable to
+  // a reader, and `list --type fact` never finds its records. A colon collides with the RBAC scope
+  // grammar (`ns:type:action`, rbac.ts): `team:note` makes `teamA:team:note:read` four segments, which
+  // `parseScope` refuses, so that type can never be granted to anyone. It fails closed, and silently —
+  // the deployment where it matters is the one where nobody is reading this file.
+  if (d.name !== d.name.trim())
+    return `name cannot start or end with whitespace (got ${JSON.stringify(d.name)})`;
+  if (/[\s:]/.test(d.name))
+    return `name cannot contain spaces or ":" (got ${JSON.stringify(d.name)}) — ":" separates the segments of an access scope, and a type carrying one can never be granted`;
   if (d.kind !== "entity" && d.kind !== "relation")
     return `kind must be "entity" or "relation" (got ${JSON.stringify(d.kind)})`;
   if (typeof d.attrs !== "object" || d.attrs === null || Array.isArray(d.attrs))
@@ -261,6 +298,14 @@ export function renameRefusal(
   if (from === to) return `${from} and ${to} are the same name`;
   if ((CORE_ANCHORED as readonly string[]).includes(from))
     return `${from} is a relation core reads by name (persona, identity, derivation, conflicts, supersession) — renaming it would silently empty those answers`;
+  // The same list guards the DESTINATION, and it was checked only as a source. Renaming a type AWAY
+  // from a name core reads empties an answer, which is bad and visible; renaming a type ONTO one fills
+  // an answer with edges that never meant it, which is worse and invisible. Measured end to end:
+  // `rename-type notes supersedes` turned every `notes` edge into a supersession, and the next
+  // `yoke inject` withheld a verified record — "1 replaced by newer knowledge" — for a replacement
+  // nobody had recorded. One rename, and knowledge left every answer with no trace but an audit line.
+  if ((CORE_ANCHORED as readonly string[]).includes(to))
+    return `${to} is a relation core acts on by name (persona, identity, derivation, conflicts, supersession) — renaming onto it would make every ${from} edge mean something it was never filed to mean`;
   if (opts.toDeclared && opts.toRows > 0)
     return `${to} already exists and has records: this would merge two types and drop the ${from} declaration, and nothing records which rows were rewritten so it could not be undone`;
   if (opts.ns !== null && opts.fromSharedOnly && !opts.toDeclared)

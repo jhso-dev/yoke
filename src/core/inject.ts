@@ -4,7 +4,7 @@
 
 import { readEntities, type StoragePort } from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
-import { effectiveStatus, versionAsOf } from "./lifecycle.js";
+import { atOrBefore, effectiveStatus, versionAsOf } from "./lifecycle.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity, Status } from "./types.js";
@@ -170,8 +170,9 @@ const STALE_HEADROOM = 3;
  * `asOf` rewinds the edges too. Without it an `--as-of 2020` read was answered with 2026's relation
  * graph: a supersession recorded years after the instant asked about withheld a record that was current
  * then, which is the same mistake `countWithheld` rewinds versions to avoid, one table over. Filtered on
- * `provenance.occurred_at` — when the edge SAYS the link happened — because that is the clock the rest
- * of the as-of path reads.
+ * `provenance.occurred_at` — when the edge SAYS the link happened — through `atOrBefore`, which is
+ * `versionAsOf`'s comparison and has to be: comparing the two clocks differently makes one as-of read
+ * answer itself two ways.
  *
  * ceiling: an edge's `status` is not consulted, and cannot be. Every relation is committed `draft` and
  * no path promotes one (`lifecycle.transition` refuses relation ids), so requiring `verified` here would
@@ -200,7 +201,7 @@ async function meaningEdges(
   const edges = (await port.neighbors(id)).filter(
     (r) =>
       normalizeNs(r.ns) === ns &&
-      (asOf === undefined || r.provenance.occurred_at <= asOf),
+      (asOf === undefined || atOrBefore(r.provenance.occurred_at, asOf)),
   );
   return {
     // The real author, for the citation. Free here: this read already has every edge, and asking for it

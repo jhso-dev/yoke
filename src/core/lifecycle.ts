@@ -232,15 +232,32 @@ export async function listVersions(
  * past date gets the important case exactly backwards — a decision retired last week would report as
  * deprecated for a question about last month, when it was the answer.
  */
+/**
+ * Whether `stamp` is at or before `at`. The one comparison every as-of read makes, in one place.
+ *
+ * By instant, never by string. Both sides are caller-supplied ISO 8601 and `instantFlag` validates the
+ * format without normalising it, so the offset a person typed survives all the way here: measured,
+ * `--as-of 2026-08-13T20:00:00-09:00` and `--as-of 2026-08-14T05:00:00Z` are the same moment and a
+ * lexicographic `<=` puts them on opposite sides of an edge stamped 01:28Z. One read answered itself
+ * two ways.
+ *
+ * It exists as a function because a second caller wrote the comparison out again rather than reuse the
+ * one already here (`inject.meaningEdges`, filtering relations for the same as-of read), and got a
+ * different answer from the same timestamps. A shared operator is small enough to look not worth
+ * extracting, which is exactly how two of them end up disagreeing.
+ */
+export function atOrBefore(stamp: string, at: string): boolean {
+  return Date.parse(stamp) <= Date.parse(at);
+}
+
 export async function versionAsOf(
   port: StoragePort,
   id: string,
   at: string,
 ): Promise<Entity | null> {
-  const ms = Date.parse(at);
   let best: Entity | null = null;
   for (const e of await listVersions(port, id)) {
-    if (Date.parse(e.provenance.occurred_at) > ms) continue;
+    if (!atOrBefore(e.provenance.occurred_at, at)) continue;
     if (!best || e.version > best.version) best = e;
   }
   return best;

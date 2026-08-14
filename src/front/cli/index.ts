@@ -1521,8 +1521,16 @@ async function cmdRenameType(
     const defOf = (list: TypeDef[], name: string) =>
       JSON.stringify(list.find((t) => t.name === name) ?? null);
     const refusal = renameRefusal(from, to, {
-      toRows: (await store.listEntities({ ns, type: to, limit: 1 })).items
-        .length,
+      // BOTH tables, because `renameType` rewrites both: it runs one UPDATE over `entities` and one
+      // over `relations` and does not ask which kind the name was ("the other statement simply matches
+      // nothing"). Counting with `listEntities` alone made the merge refusal blind to every relation
+      // type — the guard fired for entity→entity and never once for relation→relation, which is the
+      // half wired into injection. Measured: `rename-type mentions blocks` with edges already filed
+      // under `blocks` reported "2 rows rewritten" and merged them, and the refusal that exists to say
+      // "nothing records which rows were rewritten so it could not be undone" never printed.
+      toRows:
+        (await store.listEntities({ ns, type: to, limit: 1 })).items.length +
+        (await store.listRelations({ ns, type: to, limit: 1 })).items.length,
       toDeclared: effective.some((t) => t.name === to),
       ns,
       fromSharedOnly:
