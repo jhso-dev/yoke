@@ -21,8 +21,8 @@
  * prefix — that is conformance case 6b, and why this is prefix matching rather than equality.
  * JSON quotes, braces and colons separate, so serialized attributes tokenize into their words.
  *
- * One copy, because every adapter that tokenizes has to tokenize the same way — it was inlined
- * identically in three places before this, and divergent tokenizers are divergent search semantics. */
+ * One copy, because every adapter that tokenizes has to tokenize the same way: divergent tokenizers are
+ * divergent search semantics. */
 export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
@@ -47,8 +47,7 @@ export const AND_TERM_LIMIT = 3;
  * PREFIXES, which is case 6b (Hangul stay attached to their stem, so `parseArgs` must reach
  * `parseArgs로`).
  *
- * Three adapters had this predicate inlined identically. One copy, because two copies of a matching
- * rule is two search semantics — which is exactly how the AND survived unnoticed in five places.
+ * One copy, because two copies of a matching rule is two search semantics.
  */
 export function matchesTokens(
   qTokens: string[],

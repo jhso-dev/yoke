@@ -69,16 +69,13 @@ export type TypeDef = {
  * Whether a required attribute has no value.
  *
  * `""` and `[]` are absent, not present-and-empty: required means a value a reader can use, and an
- * empty string satisfied nothing while passing the check — `--attr statement=""` committed a fact
- * whose knowledge was the empty string, one keystroke away from the rejection it had just been given.
- * `false` and `0` are values and stay values.
+ * empty string or empty array is none. `false` and `0` are values and stay values.
  */
 function isAbsent(value: unknown): boolean {
   if (value === undefined || value === null) return true;
-  // Trimmed, not just empty. `--attr statement=""` was already refused; `--attr statement="   "` was
-  // accepted and produced a record whose knowledge is three spaces — it rendered as a blank cell in the
-  // review queue, a blank link text, an `aria-label` of "Select " and nothing, and an unlabelled node in
-  // the graph. Whitespace is not a value a reader can use, which is what `required` means.
+  // Trimmed, not just empty: a value of only whitespace ("   ") renders as a blank cell in the review
+  // queue, blank link text, an `aria-label` of "Select " and nothing, and an unlabelled node in the
+  // graph. Whitespace is not a value a reader can use, which is what `required` means.
   if (typeof value === "string" && value.trim() === "") return true;
   return Array.isArray(value) && value.length === 0;
 }
@@ -108,26 +105,12 @@ const ATTR_TYPES: ReadonlyArray<AttrSpec["type"]> = [
  * Validate a type DEFINITION before it is stored. Returns a reason, or null when it is well formed.
  *
  * `add-type` is the one write that does not pass the commit gate — it changes the rules the gate applies
- * — and it validated `name` and `kind` and nothing else. Everything below was accepted:
- *
- *   {"name":"junk"}                          → saved. `ontology list` then throws
- *                                              "Cannot convert undefined or null to object" for EVERY
- *                                              type in the database, and `yoke add junk` throws the
- *                                              same. There is no `remove-type`, so the database cannot
- *                                              be repaired from the CLI at all.
- *   {"kind":"wormhole"}                      → saved. Neither entity nor relation; `add` accepts it.
- *   {"attrs":"nope"}                         → saved. `Object.entries("nope")` yields the string's
- *                                              indices, so the type renders four attributes named
- *                                              0, 1, 2, 3.
- *   {"ttl_days":"soon"} / {"ttl_days":-30}    → saved. `last_confirmed + "soon" * DAY_MS` is NaN, so
- *                                              `isFresh` is permanently false: a human-verified record
- *                                              is withheld from injection FOREVER and every surface
- *                                              says only "past its freshness window".
- *   {"attrs":{"x":{"type":"datetime"}}}       → saved. No value can ever satisfy it.
- *   {"name":"fact","kind":"relation"}         → saved, flipping a populated entity type into a relation.
- *
- * The `ttl_days` cases are the ones that cost knowledge rather than crashing: they are silent, permanent,
- * and indistinguishable from a TTL that has genuinely elapsed.
+ * — so a malformed definition is caught nowhere downstream and must be rejected here: a missing `attrs`,
+ * a `kind` that is neither entity nor relation, an `attrs` that is not an object, an attribute type no
+ * value can satisfy, a name flip onto a populated type. The `ttl_days` cases cost knowledge rather than
+ * crashing — a non-numeric or negative TTL makes `isFresh` permanently false, withholding a
+ * human-verified record from injection forever, silent and indistinguishable from a TTL that genuinely
+ * elapsed.
  *
  * A kind flip on a type that already has rows is refused by the callers, which are the ones that can
  * count them — this function judges the definition alone.
@@ -135,12 +118,9 @@ const ATTR_TYPES: ReadonlyArray<AttrSpec["type"]> = [
 /**
  * Every key a type definition may carry. A definition is REJECTED for anything else.
  *
- * The validator inspected only the keys it knew, which makes it a spell-checker for its own
- * vocabulary: `{"name":"policy","kind":"entity","attrs":{…},"ttl_dayz":30}` was accepted and listed as
- * `ttl=∞`. The author asked for a 30-day expiry, got no expiry, and was told "saved type: policy" —
- * the same shape of silent wrong behaviour this function was written to stop, one typo further out.
- * Unknown keys are refused rather than ignored because an ignored key is indistinguishable from an
- * applied one at every surface afterwards.
+ * Enumerating only known keys makes a validator a spell-checker for its own vocabulary — `ttl_dayz: 30`
+ * would be accepted and silently mean no expiry. Unknown keys are refused rather than ignored because an
+ * ignored key is indistinguishable from an applied one at every surface afterwards.
  */
 const TYPE_DEF_KEYS = [
   "name",
@@ -214,9 +194,9 @@ export function validateTypeDef(def: unknown): string | null {
 /**
  * May `name`'s kind be changed from `prior` to `next`? Returns a reason, or null.
  *
- * A kind flip rewrites what the gate demands of a type that already has meaning. `{"name":"fact",
- * "kind":"relation"}` was accepted: stored facts kept being injected as entities while `yoke add fact`
- * started being refused as a relation needing `from` and `to`, and there is no `remove-type` to undo it.
+ * A kind flip rewrites what the gate demands of a type that already has meaning: flipping `fact` to a
+ * relation would leave stored facts injected as entities while `yoke add fact` is refused as a relation
+ * needing `from` and `to`, with no `remove-type` to undo it.
  *
  * `rows` is passed in because counting them belongs to the store, not here.
  *
@@ -264,22 +244,7 @@ const CORE_ANCHORED = [
  *
  * Rewriting a type name rewrites rows in place — deliberately, and SPEC records that history cannot
  * capture it — so every refusal here is about damage nothing can undo. Four adapters implement
- * `renameType`, which is exactly why the rules live in core and the front tier supplies the counts.
- *
- * Each rule is one measured failure:
- *
- * - `rename-type authored_by wrote` exited 0 and reported 15 rows rewritten. `yoke persona <someone>`
- *   then wrote a complete SKILL.md containing nothing ("source knowledge: 0", exit 0), the overview's
- *   author ranking went empty, and `backfill` died on `unknown type: authored_by`.
- * - `rename-type fact decision` exited 0, merged four facts into the decision type, and DELETED the
- *   `fact` declaration — after which `yoke add fact` was an unknown type, `yoke init` said "already
- *   initialized" so it could not be re-seeded, and the persona export rendered `### undefined` /
- *   `- Rationale: undefined` for records missing the target type's attributes. Nothing records WHICH
- *   ids were rewritten, so the audit row cannot reverse it.
- * - `--ns team-b rename-type fact factoid` exited 0 and half-applied: the tenant's rows became
- *   `factoid`, a type declared nowhere, while `ontology list` still showed `fact`. `isFresh` returns
- *   true for a type absent from the ontology, so a record that had been correctly withheld as stale
- *   started being injected as current — an exit-0 command that broke invariant 5.
+ * `renameType`, which is why the rules live in core and the front tier supplies the counts.
  */
 export function renameRefusal(
   from: string,
@@ -298,12 +263,11 @@ export function renameRefusal(
   if (from === to) return `${from} and ${to} are the same name`;
   if ((CORE_ANCHORED as readonly string[]).includes(from))
     return `${from} is a relation core reads by name (persona, identity, derivation, conflicts, supersession) — renaming it would silently empty those answers`;
-  // The same list guards the DESTINATION, and it was checked only as a source. Renaming a type AWAY
-  // from a name core reads empties an answer, which is bad and visible; renaming a type ONTO one fills
-  // an answer with edges that never meant it, which is worse and invisible. Measured end to end:
-  // `rename-type notes supersedes` turned every `notes` edge into a supersession, and the next
-  // `yoke inject` withheld a verified record — "1 replaced by newer knowledge" — for a replacement
-  // nobody had recorded. One rename, and knowledge left every answer with no trace but an audit line.
+  // The same list guards the DESTINATION, not only the source. Renaming a type AWAY from a name core
+  // reads empties an answer, which is bad and visible; renaming a type ONTO one fills an answer with
+  // edges that never meant it, which is worse and invisible — `rename-type notes supersedes` turns every
+  // `notes` edge into a supersession, and the next `yoke inject` withholds a verified record for a
+  // replacement nobody recorded, with no trace but an audit line.
   if ((CORE_ANCHORED as readonly string[]).includes(to))
     return `${to} is a relation core acts on by name (persona, identity, derivation, conflicts, supersession) — renaming onto it would make every ${from} edge mean something it was never filed to mean`;
   if (opts.toDeclared && opts.toRows > 0)
@@ -361,11 +325,10 @@ export function validateInput(
     if (!r.to) return { ok: false, reason: "relation requires non-empty to" };
   }
 
-  // Every failure in one pass, in declared order. One-at-a-time reporting made the required set
-  // discoverable only by committing repeatedly: a `decision` took three rejections to file, and each
-  // one named a single attribute, so the caller learned the shape of the type from its refusals.
-  // Missing is reported before wrong-type because an absent attribute is the commoner mistake and
-  // reporting both at once would bury it.
+  // Every failure in one pass, in declared order — reporting one at a time makes the required set
+  // discoverable only by committing repeatedly, one attribute per refusal. Missing is reported before
+  // wrong-type because an absent attribute is the commoner mistake and reporting both at once would
+  // bury it.
   const missing: string[] = [];
   const wrongType: string[] = [];
   for (const [key, spec] of Object.entries(def.attrs)) {
@@ -390,9 +353,9 @@ export function validateInput(
 export function seedOntology(): TypeDef[] {
   return [
     // `name` is declared because a person is referred to by it everywhere a person appears — record
-    // labels, personas, the stale-owner roster. Undeclared it still worked from the CLI (the gate is
-    // lenient about extra attributes), but the ontology-driven create form offers exactly the
-    // declared fields, so the one type whose records anchor personas had a form with no fields.
+    // labels, personas, the stale-owner roster — and the ontology-driven create form offers exactly the
+    // declared fields, so an undeclared `name` gives the one type whose records anchor personas a form
+    // with no fields.
     {
       name: "person",
       kind: "entity",
@@ -400,8 +363,7 @@ export function seedOntology(): TypeDef[] {
       structural: true,
     },
     // Declared, and in this order, because the ontology is what tells `summarize` which attribute
-    // carries the meaning — undeclared, three types were guessed at, the create form offered zero
-    // fields for them, and an empty record committed cleanly.
+    // carries the meaning; an undeclared type is guessed at and offers zero fields in the create form.
     //
     // `statement` is required and `title` is not, because that is what the capture path can promise:
     // the Slack and meeting-notes connectors turn a message into a statement and have no honest
@@ -455,13 +417,11 @@ export function seedOntology(): TypeDef[] {
     {
       name: "collaboration",
       kind: "entity",
-      // `title` only. The seed also declared a free-text `status` attribute: nothing ever read it,
-      // no document said what it meant, and it collided with the word every record already carries —
-      // a lifecycle status, which is assigned by the gate and moved by verify/deprecate, never typed.
-      // A create form built from the ontology rendered the two side by side and invited exactly that
-      // confusion. Whether the work is under way is what its records and their freshness say; an org
-      // that wants a workflow field declares its own, with a name that does not already mean
-      // something here.
+      // `title` only. A free-text `status` attribute is deliberately absent: it would collide with the
+      // lifecycle status every record already carries — assigned by the gate, moved by verify/deprecate,
+      // never typed — and a create form built from the ontology would render the two side by side.
+      // Whether the work is under way is what its records and their freshness say; an org that wants a
+      // workflow field declares its own, with a name that does not already mean something here.
       attrs: {
         title: { type: "string", required: true },
       },

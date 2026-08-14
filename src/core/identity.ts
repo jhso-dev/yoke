@@ -27,13 +27,12 @@ import { normalizeNs } from "./namespace.js";
  * filed in one tenant would pull another tenant's person into the set. The same reason inject filters
  * the vector half in core.
  *
- * Both ENDS are filtered, not just the edge. The edge's own `ns` was the only check, and an edge is
- * filed with one namespace while its endpoints carry their own: a `same_as` filed in the default
- * namespace naming another tenant's person put that tenant's entity id into the union — printed in the
- * exported SKILL.md's "Identity union" line, which is a foreign id in a document about someone else.
- * No knowledge crossed (inject re-filters candidates one layer down) and the identity did, which is the
- * hole `personaQuery`'s own ns check exists to close, arriving through the other door. Costs one batch
- * read per frontier, and only on the frontiers a union actually has.
+ * Both ENDS are filtered, not just the edge. An edge is filed with one namespace while its endpoints
+ * carry their own, so a `same_as` filed in the default namespace naming another tenant's person would
+ * put that tenant's entity id into the union — a foreign identity crossing the tenant boundary (no
+ * knowledge, since inject re-filters candidates one layer down). This is the hole `personaQuery`'s own
+ * ns check closes, arriving through the other door. Costs one batch read per frontier, and only on the
+ * frontiers a union actually has.
  *
  * Returns breadth-first from `id`, so the queried record comes first and the order is stable across
  * backends (`neighbors` guarantees no ordering, so each frontier is sorted).

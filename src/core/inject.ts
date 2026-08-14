@@ -21,11 +21,8 @@ export interface InjectItem {
    * side would be the database deciding; dropping both would delete the disagreement, which is itself
    * knowledge. So both travel and both say so.
    *
-   * The store already knew. `yoke conflicts` printed the pair; injection — the product's core value —
-   * never mentioned it, so six queries on the demo corpus handed an agent both sides of a live
-   * disagreement as two equal facts: two deploy-freeze windows, three different Critical-patch SLAs, two
-   * refund limits, two mutually exclusive definitions of MAU. Absent on a record with nothing to
-   * declare, so a reader can tell "not disputed" from "we did not look".
+   * Absent on a record with nothing to declare, so a reader can tell "not disputed" from "we did not
+   * look".
    */
   conflictsWith?: string[];
   /**
@@ -57,9 +54,7 @@ export interface WalkStats {
  *
  * An empty injection is the one result a reader cannot interpret: knowledge that is absent, knowledge
  * that is waiting for review, and knowledge that was retired all read as "no results", and the reader
- * has no way to tell which. The CLI had half of this — a second search for drafts, human output only,
- * so `--json` and the MCP tool (the paths an AGENT reads) got the bare "no results" while the terminal
- * got the explanation. Three surfaces, three phrasings, one of them right.
+ * has no way to tell which.
  *
  * `structural` is the reason that misdirects worst if left unsaid: a verified `person` matching the
  * query is withheld by type, so a reader told "draft withheld" verifies it and the answer gets no
@@ -80,11 +75,6 @@ export interface WithheldStats {
    * Withheld rather than marked, unlike a conflict, because the two states mean different things. A
    * conflict is an open disagreement nobody has settled; a supersession is settled — someone recorded
    * that this was replaced. Serving it is serving a decision that was reversed.
-   *
-   * `supersedes` had no lifecycle meaning at all: the only code in the product that understood it was
-   * `checkPersonaSources`, so an exported persona listed both halves of a reversal as live guiding
-   * principles with identical timestamps, and the product's OWN checker then labelled that export
-   * "superseded" and exited 1 while offering a re-export that reproduces it byte for byte.
    */
   superseded: number;
 }
@@ -136,10 +126,9 @@ export const BRIEFING_LIMIT = 50;
  * Two parts, and the first is the one that matters:
  *
  * `status` is pushed DOWN. Injection wants stored-verified rows (plus stored-draft when asked), and
- * `search` can now express that, so deprecated rows never occupy the window. Over-fetching alone was
- * tried and does not work: `verify` rewrites the FTS row, so on tied relevance the verified records
- * sort LAST, and a 4x window over a corpus with a review backlog can contain none of them. The test
- * written to prove over-fetching sufficient is what disproved it.
+ * `search` can express that, so deprecated rows never occupy the window. Over-fetching alone does not
+ * work: `verify` rewrites the FTS row, so on tied relevance the verified records sort LAST, and a 4x
+ * window over a corpus with a review backlog can contain none of them.
  *
  * The multiplier remains for the one filter that cannot be pushed: `stale` is computed from the
  * ontology's TTL at read time and is never stored (lifecycle.ts), so a stored-verified row may still
@@ -152,11 +141,8 @@ export const BRIEFING_LIMIT = 50;
 const STALE_HEADROOM = 3;
 
 /**
- * The two relations that change what a record MEANS to a reader, read in one hop.
- *
- * Both were invisible to injection: `grep conflicts_with src/core/inject.ts` found nothing, and
- * `supersedes` was understood by exactly one function in the product (`checkPersonaSources`). The
- * consequences are recorded on `InjectItem.conflictsWith` and `WithheldStats.superseded`.
+ * The two relations that change what a record MEANS to a reader, read in one hop. The consequences are
+ * recorded on `InjectItem.conflictsWith` and `WithheldStats.superseded`.
  *
  * One `neighbors(id)` per record, unfiltered, then split in memory — two typed calls would double the
  * round trips for the same answer. Namespace-filtered here for the reason `identitySet` and
@@ -167,12 +153,12 @@ const STALE_HEADROOM = 3;
  * the INCOMING edge and B is the record that is no longer current. Reading it the other way would
  * withhold every replacement and serve everything it replaced.
  *
- * `asOf` rewinds the edges too. Without it an `--as-of 2020` read was answered with 2026's relation
- * graph: a supersession recorded years after the instant asked about withheld a record that was current
- * then, which is the same mistake `countWithheld` rewinds versions to avoid, one table over. Filtered on
- * `provenance.occurred_at` — when the edge SAYS the link happened — through `atOrBefore`, which is
- * `versionAsOf`'s comparison and has to be: comparing the two clocks differently makes one as-of read
- * answer itself two ways.
+ * `asOf` rewinds the edges too: without it an `--as-of 2020` read is answered with today's relation
+ * graph, and a supersession recorded years after the instant asked about would withhold a record that
+ * was current then — the same mistake `countWithheld` rewinds versions to avoid, one table over.
+ * Filtered on `provenance.occurred_at` — when the edge SAYS the link happened — through `atOrBefore`,
+ * which is `versionAsOf`'s comparison and has to be: comparing the two clocks differently makes one
+ * as-of read answer itself two ways.
  *
  * ceiling: an edge's `status` is not consulted, and cannot be. Every relation is committed `draft` and
  * no path promotes one (`lifecycle.transition` refuses relation ids), so requiring `verified` here would
@@ -336,17 +322,15 @@ async function vectorHits(
  *
  * The plain form names whoever wrote the version being pointed at, which for a verified record is
  * whoever PROMOTED it: `verify` appends a version whose provenance is the promotion. That is correct
- * about the version and wrong about the knowledge. Measured: a decision authored under Alex's person id
- * and verified by the reviewer was served inside Alex's persona citing `yoke:system`, so an agent
- * quoting yoke names the wrong person. `docs/SPEC.md:682` states the rule this broke —
- * "authorship comes off the `authored_by` edge, never `provenance.actor` … an authors list built from
- * it ranks reviewers, calls them authors". `overview` obeys it and says so in its own output; the
- * citation did not.
+ * about the version and wrong about the knowledge — a decision authored under one person's id and
+ * verified by a reviewer would be served inside that person's persona citing the reviewer, so an agent
+ * quoting yoke names the wrong person. Authorship comes off the `authored_by` edge, never
+ * `provenance.actor` (docs/SPEC.md:682); `overview` obeys that and says so in its own output.
  *
  * Both, rather than swapping one for the other. The promoter is not noise — it is who vouched for this,
  * which is the other half of what makes a citation auditable — and dropping it to fix attribution would
- * trade one missing fact for another. It is invisible on a single-user database because there the two
- * ARE the same actor, which is exactly why this went unnoticed.
+ * trade one missing fact for another. It is invisible on a single-user database, where the two ARE the
+ * same actor.
  */
 export function citation(e: Entity, author?: string): string {
   const promoter = e.provenance.actor;
@@ -381,9 +365,8 @@ export function pointer(e: Entity): string {
  * It lives beside `citation` because it is that function's inverse and the two must not drift.
  *
  * Why it is needed at all: every surface shows a record as its CITATION and never as a bare id, so an
- * agent told to cite "ids that inject returned to you" cites the thing it was shown. Measured on three
- * agents handed the tool and a realistic task — all three cited their basis unprompted, two of the
- * three in a form that resolves to nothing.
+ * agent told to cite "ids that inject returned to you" cites the thing it was shown — often in a form
+ * that resolves to nothing without this.
  */
 export function entityIdCandidates(raw: string): string[] {
   let s = raw.trim();
@@ -507,10 +490,10 @@ export async function inject(
           opts?.scopeRel,
           opts?.scopeDir,
         )) {
-          // An author is metadata about the record, not knowledge in its context. v4.0 dropped this
-          // for the anchor only; at depth 2 that hands over the author of every neighbour, which is
-          // the roster problem `membership` exists to prevent arriving through an unmarked relation
-          // type. Authorship pointing AT a node is still the persona hop and stays.
+          // An author is metadata about the record, not knowledge in its context. Skipping it for the
+          // anchor only would, at depth 2, hand over the author of every neighbour — the roster problem
+          // `membership` exists to prevent, arriving through an unmarked relation type. Authorship
+          // pointing AT a node is still the persona hop and stays.
           if (r.type === "authored_by" && r.from === node) continue;
           if (opts?.scopeRel === undefined && membership.has(r.type)) continue;
           const other: string = r.from === node ? r.to : r.from;
@@ -534,9 +517,9 @@ export async function inject(
       // Full query results, scope-linked ones first (stable partition) — the
       // working context leads, org-wide matches still included.
       //
-      // BOUNDED, and status-filtered. This call used to pass no limit at all, and at 10M entities
-      // it killed the process: the adapter built ten million row objects and the heap ran out
-      // (docs/SCALE.md). See candidateQuery for why the bound is a multiple of the caller's limit.
+      // BOUNDED, and status-filtered. An unbounded call here builds a row object per match, so at 10M
+      // entities the adapter exhausts the heap (docs/SCALE.md). See candidateQuery for why the bound is
+      // a multiple of the caller's limit.
       //
       // The hop partition stays the OUTER order: fusion decides relevance within each half, and the
       // working context still leads. Anchoring is not a relevance signal, it is a priority one.
@@ -552,28 +535,28 @@ export async function inject(
     } else {
       // No query: a briefing of the working context — the hop set only.
       //
-      // ONE batch read, not one per hop id. This loop was the most-run N+1 in the product: every
-      // collaboration screen is a briefing, and against the live OpenSearch demo a single one at
-      // limit 6 cost 55 round trips (v5.5). Ordering does not matter here — the sort below owns it.
+      // ONE batch read, not one per hop id: a briefing is the most-run path (every collaboration screen
+      // is one), and a per-id read makes it an N+1 — 55 round trips for a single limit-6 briefing on the
+      // OpenSearch demo. Ordering does not matter here — the sort below owns it.
       candidates = (await readEntities(port, hopIds)).filter(
         // ns is not a point-read filter (ids are globally unique), so enforce it here to match search().
         (e) => normalizeNs(e.ns) === ns,
       );
     }
   } else {
-    // See candidateQuery. Asking the store for exactly `limit` meant the caller got `limit` minus
-    // however many were draft, stale or deprecated: measured at every corpus size from 10k to 10M, a
-    // request for 50 returned 29 while 589,285 injectable records sat unreturned (docs/SCALE.md).
+    // See candidateQuery. Asking the store for exactly `limit` returns `limit` minus however many are
+    // draft, stale or deprecated — a request for 50 comes back at 29 while injectable records past the
+    // window sit unreturned (docs/SCALE.md).
     candidates = await retrieve();
   }
   // Entity types the ontology marks as structural: a person, a piece of work — the things knowledge
   // is attached TO, rather than things anyone recorded as true.
   //
   // This is the rule `membership` states for relations, applied where that one cannot reach.
-  // `membership` skips the roster EDGE, so a person linked to a collaboration by `relates_to`
-  // instead of `works_on` still arrived as a record to brief an agent with; and on the persona path
-  // the walk IS `authored_by`, so nothing skipped the collaborations its subject had created — they
-  // were handed over as things that person knows, competing for the same limit as real judgments.
+  // `membership` skips the roster EDGE, but a person linked to a collaboration by `relates_to` instead
+  // of `works_on` would still arrive as a record to brief an agent with; and on the persona path the
+  // walk IS `authored_by`, so without this the collaborations its subject created would be handed over
+  // as things that person knows, competing for the same limit as real judgments.
   const structural = new Set(
     ontology
       .filter((t) => t.kind === "entity" && t.structural)
@@ -595,10 +578,10 @@ export async function inject(
     if (!pass) continue;
     items.push({ entity, effectiveStatus: status, citation: citation(entity) });
   }
-  // A briefing (anchor, no query) had NO defined order: candidates came out in whatever order the
-  // backend returned relations in, which is creation order on sqlite and whatever the query planner
-  // chose elsewhere. That made `limit` a "first recorded N" cut rather than a relevance one, and made the same
-  // question answer differently per backend — backend behaviour leaking into core (invariant 2).
+  // A briefing (anchor, no query) has no order of its own: candidates come out in whatever order the
+  // backend returns relations in — creation order on sqlite, the query planner's choice elsewhere.
+  // Without this sort `limit` is a "first recorded N" cut rather than a relevance one, and the same
+  // question answers differently per backend — backend behaviour leaking into core (invariant 2).
   //
   // The query paths are deliberately left alone: their order is search relevance, which is the
   // stronger signal and is theirs to own.
@@ -621,9 +604,9 @@ export async function inject(
         a.entity.id.localeCompare(b.entity.id),
     );
   }
-  // BOTH paths cap here now, after filtering — that is the fix. `search` is asked for a superset and
-  // core cuts to what the caller wanted once only injectable records remain, so `limit` finally means
-  // "up to N records you can use" rather than "N candidates, then however many survive".
+  // BOTH paths cap here, after filtering. `search` is asked for a superset and core cuts to what the
+  // caller wanted once only injectable records remain, so `limit` means "up to N records you can use"
+  // rather than "N candidates, then however many survive".
   const capped = opts?.limit === undefined ? items : items.slice(0, opts.limit);
   // Supersession and contradiction, applied to the page rather than to the window — the cost is one
   // relation read per record actually handed over (see `meaningEdges`). Superseded records drop out and
@@ -634,11 +617,11 @@ export async function inject(
   // short page a reader can see beats a full one assembled by a second pass they cannot.
   //
   // The shortfall is reported by `withheld.superseded`, NOT by `omitted` — those are two different
-  // facts and folding them together made both untrue. `omitted` means "your limit cut this many, ask
-  // again or raise it", which is what every front end says in words: the MCP tool tells an agent the
-  // remainder is "NOT lost … ask a specific question and it searches everything". A superseded record
-  // is not reachable that way at any limit, so counting it there turned an accurate instruction into a
-  // false one, and a caller who passed no `limit` at all was told their limit had dropped records.
+  // facts. `omitted` means "your limit cut this many, ask again or raise it", which every front end says
+  // in words: the MCP tool tells an agent the remainder is "NOT lost … ask a specific question and it
+  // searches everything". A superseded record is not reachable that way at any limit, so counting it
+  // there would make an accurate instruction false, and tell a caller who passed no `limit` that their
+  // limit dropped records.
   let supersededCount = 0;
   const limited: InjectItem[] = [];
   for (const item of capped) {
@@ -661,17 +644,15 @@ export async function inject(
       ...(conflictsWith.length > 0 ? { conflictsWith } : {}),
     });
   }
-  // Say what was held back, whether or not anything came through. It was once computed only for the
-  // empty answer, on the theory that an empty result is the one a reader cannot interpret. A partial
-  // answer is worse: measured on the demo corpus, "why didn't we choose Kafka" returns ten unrelated
-  // records while the decision that answers it — rationale, rejected alternatives and all — sits one
-  // TTL past its window. The reader gets a full page and concludes nothing was ever recorded. An
+  // Say what was held back, whether or not anything came through. A partial answer is the worse case: a
+  // full page of unrelated records reads as "nothing was ever recorded" even when the record that
+  // answers the query — rationale, rejected alternatives and all — sits one TTL past its window. An
   // absence a reader can see beats a filter they cannot, and that argument does not stop at zero.
   //
   // The query path has to re-ask because `candidateQuery` pushes `status` DOWN: a withheld draft never
-  // reached this function to be counted, and over-fetching INSTEAD of pushing was tried and disproven
-  // (see candidateQuery). The anchor path already holds every status (the walk filters none), so it
-  // reuses the candidates it has and costs nothing.
+  // reached this function to be counted, and over-fetching instead of pushing does not work (see
+  // candidateQuery). The anchor path already holds every status (the walk filters none), so it reuses
+  // the candidates it has and costs nothing.
   //
   // The diagnostic asks for the same 3x window the primary retrieval uses, minus the status push-down.
   // At the caller's bare limit it cannot see what it is looking for: the whole point is a record ranked
@@ -706,8 +687,8 @@ export async function inject(
     // is measured against `capped` rather than against the page finally handed over (see the loop
     // above). On the unscoped path it counts within the over-fetched window rather than the whole
     // corpus: `search` is a top-k, so a number for "everything that matched" is not knowable without
-    // materializing it, which is the thing that crashed. Under-reporting a truncation the reader can
-    // see is better than a guess they cannot.
+    // materializing the whole corpus. Under-reporting a truncation the reader can see is better than a
+    // guess they cannot.
     omitted: items.length - capped.length,
     ...(walk ? { walk } : {}),
     ...(withheld ? { withheld } : {}),
@@ -733,9 +714,8 @@ async function countWithheld(
   asOf?: string,
   superseded = 0,
 ): Promise<WithheldStats | undefined> {
-  // What was handed over is not withheld. Only matters now that this runs alongside a non-empty
-  // answer: the anchor path passes the very candidates the items were built from, so without this
-  // every injected record would also be counted as held back.
+  // What was handed over is not withheld: the anchor path passes the very candidates the items were
+  // built from, so without this every injected record would also be counted as held back.
   const handed = new Set(injected.map((i) => i.entity.id));
   const structuralTypes = new Set(
     ontology
@@ -758,9 +738,9 @@ async function countWithheld(
       continue;
     }
     // Classify the version that was current at the instant asked about, the way the returning path
-    // already does. Judging today's row made an as-of read blame a retirement that had not happened
-    // yet: `--as-of 2020-01-01` on a corpus created in 2026 answered "1 retired", and a record that
-    // was a draft then was reported retired because it is retired now.
+    // already does. Judging today's row would make an as-of read blame a retirement that had not
+    // happened yet — a record that was a draft at the instant asked about, reported retired because it
+    // is retired now.
     const entity = asOf ? await versionAsOf(port, found.id, asOf) : found;
     // No version at or before that instant: the record did not exist yet, so nothing was withheld.
     if (!entity) continue;

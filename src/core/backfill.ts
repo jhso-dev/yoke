@@ -7,9 +7,8 @@
 // rather than to whoever runs it.
 //
 // Both live in core rather than in the CLI because neither is a CLI feature: they are repairs, and
-// every front adapter that offers one must offer the same one. Authorship was CLI-only business logic
-// until the web tier needed it, which is exactly the drift WEB-UI.md's "the API is only the HTTP
-// exposure of core functions" rule exists to catch.
+// every front adapter that offers one must offer the same one (WEB-UI.md: "the API is only the HTTP
+// exposure of core functions").
 
 import type { StoragePort } from "../ports/storage.js";
 import { CommitRejected, commit } from "./commit.js";
@@ -22,9 +21,8 @@ import type { TypeDef } from "./ontology.js";
  *
  * `unrepairable` names the versions whose stored provenance the gate will not accept. This function
  * re-commits provenance it READ rather than provenance a caller supplied, so it is the one path where
- * old rows meet today's rules — and when the gate learned to require a real ISO 8601 instant, a single
- * legacy `occurred_at` threw `CommitRejected` out of the loop: the repair command died partway through
- * a database it exists to repair, with edges already written and no report of how many. A row this
+ * old rows meet today's rules, and a legacy `occurred_at` the gate rejects must not throw the loop out
+ * of a database it exists to repair, with edges already written and no report of how many. A row this
  * cannot fix is one row's problem, and naming it is the only actionable form — nobody can repair a
  * count.
  */
@@ -90,10 +88,10 @@ const EMBED_PAGE = 200;
 /**
  * Recompute the vector index for stored entities.
  *
- * Coverage was a function of which interface wrote the row: `.mcp.json` configures the embedder for
- * the MCP server's process only, so anything created through the CLI or the web tier arrived with no
- * vector at all — measured at 1 of 3 entities in this repo's own database. The knowledge was complete;
- * the derived index was not (SPEC "The vector index"), and this is how it is repaired.
+ * Coverage is a function of which interface wrote the row: `.mcp.json` configures the embedder for
+ * the MCP server's process only, so anything created through the CLI or the web tier can arrive with no
+ * vector at all. The knowledge is complete; the derived index is not (SPEC "The vector index"), and this
+ * is how it is repaired.
  *
  * Re-embeds every row it reaches rather than skipping covered ones, because `getEntity` does not
  * return embeddings — the port cannot be asked which rows have a vector. `putEmbedding` is keyed by
