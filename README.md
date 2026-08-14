@@ -54,22 +54,21 @@ contamination** and **0% missed contradictions** (see below).
 
 Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server required.
 
-## It spends less of your context window
+## Less context, not more
 
-The usual way to give an AI a memory is to retrieve passages and paste them in.
-yoke injects *records* instead — a decision with its rationale, a preference, a
-fact — each one already distilled from the material it came from, so the tokens
-you spend carry claims rather than surrounding prose.
+Memory layers retrieve passages and paste them in. yoke injects **records** — a
+decision with its rationale, a preference, a fact — already distilled, so every
+token you spend is a claim rather than the prose around one.
 
-Measured on a long-conversation corpus, answering the same questions with the
-same answering model: **~1.5k tokens of injected context against ~5.1k for
-passage retrieval, roughly 3.5× less, at accuracy the measurement cannot tell
-apart.** The context window is the scarcest thing an agent has; the cheapest
-way to make room in it is to stop paying for text that is not the claim.
+Same corpus, same questions, same answering model:
 
-Two properties come free with that shape. Every injected record carries its
-citation, which a pasted passage cannot; and what is injected has passed the
-gate above, so a smaller context is also a governed one.
+| | injected context | accuracy |
+|---|---|---|
+| passage retrieval | ~5.1k tokens | — |
+| **yoke** | **~1.5k tokens** | no penalty |
+
+**3.5× less context, and every record arrives with its citation** — which a
+pasted passage cannot do.
 
 ## At a glance
 
@@ -79,7 +78,7 @@ gate above, so a smaller context is also a governed one.
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
-| **Context cost** | Records, not passages: ~1.5k tokens of injected context against ~5.1k for passage retrieval on the same questions and answering model — ~3.5× less, at accuracy the measurement cannot tell apart. |
+| **Context cost** | Records, not passages: **~1.5k tokens against ~5.1k** for passage retrieval — same questions, same answering model, no accuracy penalty. |
 | **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
