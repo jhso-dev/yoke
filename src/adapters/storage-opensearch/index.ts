@@ -274,6 +274,13 @@ export class OpenSearchStorage implements StoragePort {
       provenance: JSON.stringify(e.provenance),
       last_confirmed: e.last_confirmed,
     };
+    // ceiling: index-then-demote is two requests with no transaction to join them — OpenSearch has
+    // none — so a crash between leaves TWO docs flagged `latest: true` for one id until the next put
+    // of that id heals it. The ORDER is the deliberate part: demote-then-index would fail the other
+    // way, zero latest docs, a record every read silently loses. Duplication is visible and
+    // self-healing; disappearance is neither. The way out, if a real deployment hits the window, is a
+    // query-time collapse by max version — rejected so far because the stored flag is what lets
+    // `listEntities` paginate without collapsing per page (see the header note).
     await this.index(this.idx(ENTITIES), `${e.id}#${e.version}`, doc);
     await this.demoteOlder(this.idx(ENTITIES), e.id, e.version);
     if (e.embedding) await this.indexEmbedding(e.id, e.embedding);

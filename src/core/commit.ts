@@ -133,12 +133,27 @@ function provenanceOk(p: Provenance): boolean {
  * moment on every runtime — which is the whole test.
  */
 const ISO_8601 =
-  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2}))?$/;
+  /^(\d{4})-(\d{2})-(\d{2})(T(\d{2}):\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2}))?$/;
 function isInstant(v: unknown): v is string {
+  if (typeof v !== "string") return false;
+  const m = ISO_8601.exec(v.trim());
+  if (!m || Number.isNaN(Date.parse(v))) return false;
+  // 4. The date EXISTS. The regex checks digit shape (`\d{2}` passes 30 and 31 in any month) and
+  //    `Date.parse` does not refuse a day the calendar lacks — it rolls over: measured,
+  //    `2026-02-30T00:00:00Z` parsed to March 2nd and `2026-04-31` to May 1st, so the gate stored a
+  //    DIFFERENT day than the one written. Which instant the caller meant is unknowable — rejecting is
+  //    the only answer that is not a guess recorded as provenance. Validated on the wall-clock fields
+  //    (Date.UTC rolls over identically, so the check is whether the fields survive), which is
+  //    offset-independent: an offset moves the instant, never the written day. Hours get the same
+  //    check because `T24:30` rolls into the next day the same way.
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const hour = m[5] === undefined ? 0 : Number(m[5]);
+  const roundTrip = new Date(Date.UTC(y, mo - 1, d, hour));
   return (
-    typeof v === "string" &&
-    ISO_8601.test(v.trim()) &&
-    !Number.isNaN(Date.parse(v))
+    roundTrip.getUTCFullYear() === y &&
+    roundTrip.getUTCMonth() === mo - 1 &&
+    roundTrip.getUTCDate() === d &&
+    roundTrip.getUTCHours() === hour
   );
 }
 

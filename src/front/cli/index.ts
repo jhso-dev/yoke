@@ -652,8 +652,15 @@ async function cmdAdd(
           `stored, but these could not be written:\n  ${unrecorded.join("\n  ")}\n` +
             "authorship is re-derivable with 'yoke backfill'; an attachment must be filed again",
         );
-      // --json emits the entity as-is (preserving the existing contract). Both notices are human text only.
-      emit(v, lines.join("\n"), entity);
+      // --json emits the entity as-is; `unrecorded` joins it ONLY on a partial commit. Without it a
+      // script got exit 1 next to a perfectly normal-looking entity object — a failure signal with no
+      // machine-readable reason, on the one output built for machines. The duplicate notices stay
+      // human-only (contract unchanged on the success path).
+      emit(
+        v,
+        lines.join("\n"),
+        unrecorded ? { ...entity, unrecorded } : entity,
+      );
       return unrecorded ? 1 : 0;
     } catch (e) {
       if (e instanceof CommitRejected) {

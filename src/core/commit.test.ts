@@ -637,6 +637,26 @@ describe("an instant means the same moment on every machine", () => {
   //   "2026-08-14 00:00:00"  UTC 00:00Z · Asia/Seoul 2026-08-13T15:00Z · America/New_York 04:00Z
   // An environment variable on whichever machine ran the write decided when the knowledge was true.
   const local = ["2026-08-14 00:00:00", "2026-08-14T00:00:00"];
+
+  it.each([
+    "2026-02-30T00:00:00Z",
+    "2026-04-31",
+    "2026-08-14T24:00:00Z",
+  ])("refuses %j, a date the calendar does not have", async (occurred_at) => {
+    // The regex checks digit shape and Date.parse does not refuse a missing day — it ROLLS OVER:
+    // measured, Feb 30 parsed to March 2nd and Apr 31 to May 1st, so the gate stored a different
+    // day than the one written. Which instant the caller meant is unknowable; storing a guess as
+    // provenance is worse than refusing.
+    await expect(
+      commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: "rollover probe" } },
+        { ...prov, occurred_at },
+        now,
+      ),
+    ).rejects.toMatchObject({ reason: "provenance" });
+  });
   it.each(local)("refuses %j, which is local time", async (occurred_at) => {
     await expect(
       commit(
