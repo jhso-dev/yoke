@@ -83,11 +83,24 @@ export interface IngestResult {
  * A key that cannot identify anything is not a smaller success. Rejecting is right rather than
  * generating one, because a synthetic key makes the item un-reingestable and un-deduplicable forever.
  */
-export function unusableKey(externalId: string): string | null {
-  const bad = ["undefined", "null", "NaN", ""];
-  const tail = externalId.slice(externalId.lastIndexOf(":") + 1);
-  if (bad.includes(tail.trim()))
-    return `external id has no identifying value: ${externalId} — the source item is missing the field the key is built from`;
+export function unusableKey(externalId: unknown): string | null {
+  const bad = new Set(["undefined", "null", "NaN", ""]);
+  const noValue = (shown: string) =>
+    `external id has no identifying value: ${shown} — the source item is missing the field the key is built from`;
+  // Guard the OPERATION, not the four literals the last colon-segment happened to hold. A key that is
+  // not a non-empty string cannot identify anything — github-pr's `html_url` absent makes `externalId`
+  // itself undefined — and `undefined.slice(...)` threw a TypeError OUT of the per-item try, killing
+  // the ingest loop the caller expects to isolate one bad item. Returned as a message here, it stays a
+  // per-item `CommitRejected` at the call site.
+  if (typeof externalId !== "string" || externalId.trim() === "")
+    return noValue(String(externalId));
+  // The volatile field a connector interpolates is not always the tail: meeting-notes puts it before
+  // `#` (`file:${rel}#${i}`) and slack has two (`slack:${channel}:${ts}`), so `slack:undefined:1699`
+  // and `file:undefined#3` slipped past a tail-only check. Split on both template delimiters and reject
+  // if ANY segment is a sentinel a missing field leaves behind. Not split on `/`, so a github `html_url`
+  // whose path legitimately contains `null` stays one segment and is not a false positive.
+  if (externalId.split(/[:#]/).some((s) => bad.has(s.trim())))
+    return noValue(externalId);
   return null;
 }
 

@@ -174,7 +174,7 @@ function provenanceOk(p: Provenance): boolean {
  */
 const ISO_8601 =
   /^(\d{4})-(\d{2})-(\d{2})(T(\d{2}):\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2}))?$/;
-function isInstant(v: unknown): v is string {
+export function isInstant(v: unknown): v is string {
   if (typeof v !== "string") return false;
   const m = ISO_8601.exec(v.trim());
   if (!m || Number.isNaN(Date.parse(v))) return false;
@@ -195,6 +195,22 @@ function isInstant(v: unknown): v is string {
     roundTrip.getUTCDate() === d &&
     roundTrip.getUTCHours() === hour
   );
+}
+
+/**
+ * The read boundaries' single implementation. `instantFlag` (CLI) and `instantParam` (web) each
+ * reimplemented a laxer `Date.parse`-only check that accepted what the gate rejects — `2026-02-30`
+ * (rolls to Mar 2), `"2026-08-14 00:00:00"` (timezone-dependent), `"0"`. This is the one strict
+ * validator so the front tiers stop parsing the same thing a second, weaker way (CLAUDE.md: the
+ * second place that parses calls the first). Throws an Error naming the ISO-8601 requirement, or
+ * returns the canonical UTC ISO string — the value the front tiers already hand back.
+ */
+export function parseInstant(raw: unknown): string {
+  if (!isInstant(raw))
+    throw new Error(
+      `must be an ISO 8601 instant, e.g. 2026-08-13T00:00:00Z (got ${JSON.stringify(raw)})`,
+    );
+  return new Date(Date.parse(raw)).toISOString();
 }
 
 /**
@@ -274,15 +290,22 @@ export async function commit(
 
   const existingId = opts?.existingId;
   const isRelation = "from" in input;
+  const ns = normalizeNs(opts?.ns);
 
   // (2b) The attachment target, before anything is stored and before the embedder is paid for. An
   // entity plus its attachment is one thing the caller asked for; half of it is not a smaller
   // success. See `attachTo` for what the two-commit version cost.
+  //
+  // Scoped to THIS commit's ns: `getEntity` is an id-based point read (ids are globally unique), so a
+  // `--scope <id-in-another-ns>` resolved to a record and the attachment was filed — a `relates_to`
+  // edge in ns `other` pointing at an id no record in `other` carries, the dangling endpoint the
+  // relation gate refuses. The 4c edge that lands is written in this ns, so its target must live here.
   if (opts?.attachTo !== undefined && !isRelation) {
-    if (!(await port.getEntity(opts.attachTo)))
+    const target = await port.getEntity(opts.attachTo);
+    if (!target || normalizeNs(target.ns ?? null) !== ns)
       throw new CommitRejected(
         "ontology",
-        `nothing to attach to: ${opts.attachTo} is not a record — the record was not created`,
+        `nothing to attach to: ${opts.attachTo} is not a record${ns !== null ? ` in namespace ${ns}` : ""} — the record was not created`,
       );
   }
 
@@ -309,7 +332,6 @@ export async function commit(
   // (5) Assign id/version/status/last_confirmed, then store. (This is stage 5 in the SPEC order,
   // but stage 4's conflicts_with references the new entity id, so we store first.)
   const prev = existingId ? await port.getEntity(existingId) : null;
-  const ns = normalizeNs(opts?.ns);
   const governed = {
     id: existingId ?? ulid(),
     status: "draft" as const,
