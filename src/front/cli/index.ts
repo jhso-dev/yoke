@@ -31,6 +31,7 @@ import {
   groupsFor,
   makeFetchRelater,
   neighbourCount,
+  relateText,
 } from "../../connectors/relate.js";
 import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
@@ -1178,7 +1179,9 @@ async function cmdRelate(v: Values, env: Env): Promise<number> {
     const groups = await groupsFor(
       store,
       records,
-      (e) => summarize(e, ontology),
+      // relateText, NOT summarize: the terminal's 60-character one-liner drops a decision's
+      // rationale, which is the half that says a position changed — see relateText.
+      (e) => relateText(e, ontology),
       ns,
       neighbourCount(env),
     );
