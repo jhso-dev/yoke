@@ -13,7 +13,7 @@
 
 import type { StoragePort } from "../ports/storage.js";
 import { commit } from "./commit.js";
-import { type Embedder, serializeText } from "./embedding.js";
+import { type Embedder, resolveIndexKey, serializeText } from "./embedding.js";
 import { listVersions } from "./lifecycle.js";
 import type { TypeDef } from "./ontology.js";
 
@@ -89,6 +89,8 @@ export async function backfillEmbeddings(
     limit?: number;
     after?: string;
     rebuild?: boolean;
+    /** Only read when the prose index key is on (`serializeText`): it orders the values. */
+    ontology?: TypeDef[];
   },
 ): Promise<{
   scanned: number;
@@ -108,6 +110,12 @@ export async function backfillEmbeddings(
   let skipped = 0;
   let rebuildPending = opts.rebuild === true;
   let after = opts.after;
+  // Read once for the whole walk, from the store rather than the env — same reason as the gate's.
+  const key = await resolveIndexKey(
+    port,
+    async () =>
+      (await port.listEntities({ ns: opts.ns, limit: 1 })).items.length === 0,
+  );
 
   for (;;) {
     const page = await port.listEntities({
@@ -121,7 +129,7 @@ export async function backfillEmbeddings(
       // vector lands in a different place than one written at commit time and duplicate detection
       // starts comparing across two representations.
       const vector = await opts.embedder(
-        serializeText(e.type, JSON.stringify(e.attributes)),
+        serializeText(e.type, JSON.stringify(e.attributes), opts.ontology, key),
       );
       if (!vector) {
         // Provider unconfigured or failing. Counted, never fatal — the same principle as the gate's:

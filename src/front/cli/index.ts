@@ -38,7 +38,11 @@ import type { Connector } from "../../connectors/types.js";
 import { overview } from "../../core/aggregate.js";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
 import { CommitRejected, commit } from "../../core/commit.js";
-import { makeFetchEmbedder } from "../../core/embedding.js";
+import {
+  INDEX_KEY_META,
+  makeFetchEmbedder,
+  proseKeyEnabled,
+} from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
   envKeywordWeight,
@@ -1260,6 +1264,20 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
     // The other repair: the vector index rather than the authorship graph. Same command because both
     // are "re-derive something that was computed from knowledge", and both are idempotent.
     if (v.embeddings) {
+      // `--rebuild` is the ONE command allowed to change what the index is keyed on, so it is where
+      // the env choice is recorded (`YOKE_INDEX_KEY`). Written first, because both halves rebuilt
+      // below read the variant from the store and not from this process's env — everywhere else a
+      // store keeps the variant it was indexed with, whatever the env says.
+      //
+      // ceiling: the meta write is not in a transaction with the two rebuilds, because the vector
+      // half is a sequence of provider round trips and cannot be in one either. An interrupted
+      // --rebuild leaves a partly rebuilt index and is fixed by running it again; on SUCCESS the
+      // store and every row agree.
+      if (v.rebuild)
+        await store.setMeta(
+          INDEX_KEY_META,
+          proseKeyEnabled(env) ? "prose" : "default",
+        );
       const { scanned, embedded, skipped, next } = await backfillEmbeddings(
         store,
         {
@@ -1268,11 +1286,23 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
           limit,
           after: v.after,
           rebuild: v.rebuild,
+          // Read only when the index is keyed on prose (YOKE_INDEX_KEY): it orders the values.
+          ontology,
         },
       );
       const lines = [
         `scanned ${scanned} entities, embedded ${embedded}, skipped ${skipped}`,
       ];
+      // --rebuild means "this index was built on a rule that no longer holds". That is true of the
+      // keyword half too whenever the key changed (YOKE_INDEX_KEY), and rebuilding one half without
+      // the other leaves a hybrid query reading two different indexes. Feature-detected: only the
+      // backend that writes its FTS text from JS needs it (see SqliteStorage.reindexFts).
+      if (v.rebuild && "reindexFts" in store) {
+        const rows = (
+          store as { reindexFts(o?: TypeDef[]): number }
+        ).reindexFts(ontology);
+        lines.push(`rebuilt the keyword index: ${rows} entities`);
+      }
       // Skipped everything means the provider is not configured — the single most likely reason
       // someone runs this and sees nothing happen.
       if (skipped > 0 && embedded === 0)

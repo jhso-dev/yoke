@@ -133,6 +133,14 @@ class CompositeStorage implements YokeStore {
   search(q: TextQuery): Promise<Entity[]> {
     return this.remote.search(q);
   }
+  /** Remote, like the knowledge it describes: the index key belongs to the database holding the rows
+   * it keys, not to this client's local audit file. */
+  getMeta(key: string): Promise<string | null> {
+    return this.remote.getMeta(key);
+  }
+  setMeta(key: string, value: string): Promise<void> {
+    return this.remote.setMeta(key, value);
+  }
   listEntities(q: ListQuery): Promise<Page<Entity>> {
     return this.remote.listEntities(q);
   }

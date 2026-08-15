@@ -16,6 +16,7 @@
 // it got repetitive" — as two unrelated facts, and the store held zero `conflicts_with`. The
 // trajectory was present and unsayable.
 
+import { contentValues } from "../core/embedding.js";
 import type { TypeDef } from "../core/ontology.js";
 import type { Entity } from "../core/types.js";
 import type { StoragePort } from "../ports/storage.js";
@@ -115,18 +116,6 @@ export function rankOf(records: Entity[]): (e: Entity) => number {
   return (e: Entity) => at.get(e.id) ?? 0;
 }
 
-/** Attributes that are bookkeeping rather than what a record says. `sources` is excluded for a
- * different reason than the rest: it is the verbatim span, often longer than the record, and a batch
- * of quotes crowds out the records the model is being asked to compare. */
-const NOT_CONTENT = new Set([
-  "external_id",
-  "sources",
-  "author",
-  "topic",
-  "key",
-  "status",
-]);
-
 /**
  * A record as the RELATER needs to read it: every attribute that carries meaning, in declared order.
  *
@@ -137,6 +126,11 @@ const NOT_CONTENT = new Set([
  * position CHANGED and why, never reached the prompt at all. Handed the full text of the same two
  * records directly, the same 4B model classified the reversal correctly on the first try.
  *
+ * Which attributes carry meaning is `contentValues` in core, shared with the prose index key — the
+ * `sources` quote is dropped HERE rather than there, for a reason that is local to this prompt: it is
+ * the verbatim span, often longer than the record, and a batch of quotes crowds out the records the
+ * model is being asked to compare. An index has no such budget and keeps it.
+ *
  * ceiling: 400 characters per record, joined with " — ". Long enough for a conclusion and its
  * rationale, short enough that a group of ten stays a small prompt (the batch size, not the prompt,
  * is what made a naive relater fail — see the module comment).
@@ -145,21 +139,7 @@ export function relateText(
   entity: { type: string; attributes: Record<string, unknown> },
   ontology: TypeDef[],
 ): string {
-  const def = ontology.find((t) => t.name === entity.type);
-  const declared = def ? Object.keys(def.attrs) : [];
-  const keys = [
-    ...declared,
-    ...Object.keys(entity.attributes).filter((k) => !declared.includes(k)),
-  ];
-  const parts: string[] = [];
-  for (const key of keys) {
-    if (NOT_CONTENT.has(key)) continue;
-    const val = entity.attributes[key];
-    if (typeof val === "string" && val.trim()) parts.push(val.trim());
-    else if (Array.isArray(val))
-      parts.push(val.filter((v) => typeof v === "string").join(", "));
-  }
-  return parts.join(" — ").slice(0, 400);
+  return contentValues(entity, ontology).join(" — ").slice(0, 400);
 }
 
 export function relateSystemPrompt(ontology: TypeDef[]): string {

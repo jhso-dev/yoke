@@ -198,6 +198,18 @@ export class ShardedStorage implements YokeStore {
     return merged.slice(0, q.limit ?? DEFAULT_SEARCH_LIMIT);
   }
 
+  /** The default shard, like audit and tokens: a meta value describes the deployment rather than a
+   * namespace, and one index key across the shards is the only answer a merged search can rank. */
+  getMeta(key: string): Promise<string | null> {
+    return this.defaultShard.store.getMeta(key);
+  }
+
+  /** Written to EVERY member: each shard derives its own index text, so a variant recorded on one
+   * and not the others is the mixed index this meta exists to prevent. */
+  async setMeta(key: string, value: string): Promise<void> {
+    await Promise.all(this.members.map((m) => m.store.setMeta(key, value)));
+  }
+
   listEntities(q: ListQuery): Promise<Page<Entity>> {
     return this.listMerged(q, (m) => m.store.listEntities(q));
   }

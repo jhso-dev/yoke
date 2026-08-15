@@ -15,6 +15,7 @@ import {
 function makeFake(): StoragePort {
   const entities: Entity[] = []; // append-only rows
   const relations: Relation[] = [];
+  const meta = new Map<string, string>();
 
   const latestById = (): Map<string, Entity> => {
     const m = new Map<string, Entity>();
@@ -89,6 +90,13 @@ function makeFake(): StoragePort {
       // implementation — if it can only be met with FTS5, it is not a port contract.
       out = rankByRelevance(out, q.text, textOf);
       return out.slice(0, q.limit ?? DEFAULT_SEARCH_LIMIT);
+    },
+
+    async getMeta(key) {
+      return meta.get(key) ?? null;
+    },
+    async setMeta(key, value) {
+      meta.set(key, value);
     },
 
     async listEntities(q) {
