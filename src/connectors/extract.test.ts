@@ -253,6 +253,40 @@ describe("makeFetchExtractor", () => {
     }
   });
 
+  // Uncapped, a chunk whose generation degenerates into repetition costs the whole timeout and does
+  // it again on every retry — measured at 161 timeouts across a 23-chunk ingest. The cap is what
+  // makes that failure cheap, so it is pinned rather than left to the endpoint's own default.
+  it("caps one completion, and lets YOKE_EXTRACT_MAX_TOKENS move the cap", async () => {
+    const original = globalThis.fetch;
+    const bodies: string[] = [];
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      bodies.push(String(init.body));
+      return { ok: true, body: sse(JSON.stringify(ITEMS)) };
+    }) as unknown as typeof fetch;
+    try {
+      const env = { YOKE_LLM_URL: "https://x", YOKE_LLM_MODEL: "m" };
+      await makeFetchExtractor(env, ont)(source);
+      await makeFetchExtractor(
+        { ...env, YOKE_EXTRACT_MAX_TOKENS: "9000" },
+        ont,
+      )(source);
+      // 0 and a non-number both mean "use the default", as every other knob here reads them.
+      await makeFetchExtractor(
+        { ...env, YOKE_EXTRACT_MAX_TOKENS: "0" },
+        ont,
+      )(source);
+      await makeFetchExtractor(
+        { ...env, YOKE_EXTRACT_MAX_TOKENS: "lots" },
+        ont,
+      )(source);
+      expect(bodies.map((b) => JSON.parse(b).max_tokens)).toEqual([
+        4000, 9000, 4000, 4000,
+      ]);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
   it("gives up on a slow model with a message naming the knob", async () => {
     const original = globalThis.fetch;
     const errs: string[] = [];

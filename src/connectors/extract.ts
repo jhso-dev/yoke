@@ -231,6 +231,31 @@ const DEFAULT_ATTEMPTS = 3;
 const DEFAULT_RETRY_BASE_MS = 2_000;
 
 /**
+ * The ceiling on ONE completion, in tokens. Without it a degenerate generation costs the whole
+ * timeout, every attempt.
+ *
+ * Measured: a 23-chunk ingest against a local endpoint logged 161 timeouts and 0 network errors and
+ * ran 5h24m. The request had `temperature: 0` and `stream: true` and no cap, so a chunk whose
+ * generation fell into repetition streamed until the timeout, then did it again for every retry —
+ * ~35 minutes spent to file nothing. A cap turns that into a bounded, cheap failure.
+ *
+ * 4,000, from what a healthy answer actually costs. A 6,000-character window yields 3–7 records, and
+ * a record is `{"type": …, "attributes": {…}, "quote": …}` where the quote is a verbatim span:
+ * roughly 380 characters each — a statement of ~120, a quote of ~200, keys and punctuation for the
+ * rest — so a full 7-record answer is ~2,700 characters. Korean runs near one token per character
+ * (English is nearer four), which puts a legitimate response at ~2,000 tokens. Double it, so the cap
+ * is only ever reached by output that is no longer an answer.
+ *
+ * Truncation is not a crash: a cut-off array has no closing `]`, `parseItems` returns null, and the
+ * retry ladder above handles it exactly as it handles any other failed call.
+ *
+ * YOKE_EXTRACT_MAX_TOKENS overrides (0, unset or unparseable = this default). Raise it for a
+ * reasoning model that spends its budget in `reasoning_content` before writing any `content` — see
+ * the batch-size note in relate.ts, where a 4,000-token ceiling went entirely to reasoning.
+ */
+const DEFAULT_MAX_TOKENS = 4_000;
+
+/**
  * Concatenate the assistant text out of an OpenAI-compatible SSE stream.
  * Returns null when the stream carried no content at all — the caller reports that as malformed.
  *
@@ -309,6 +334,10 @@ export function makeJsonCaller(
     Number(env.YOKE_LLM_RETRY_BASE_MS) >= 0
       ? Number(env.YOKE_LLM_RETRY_BASE_MS)
       : DEFAULT_RETRY_BASE_MS;
+  const maxTokens =
+    Number(env.YOKE_EXTRACT_MAX_TOKENS) > 0
+      ? Number(env.YOKE_EXTRACT_MAX_TOKENS)
+      : DEFAULT_MAX_TOKENS;
 
   const once = async (
     system: string,
@@ -322,6 +351,9 @@ export function makeJsonCaller(
         body: JSON.stringify({
           model,
           temperature: 0,
+          // The ceiling on one completion — see DEFAULT_MAX_TOKENS. Without it, repetition costs
+          // the whole timeout on every attempt.
+          max_tokens: maxTokens,
           // Streamed, and not for progress: Node's fetch enforces its own 300s headersTimeout —
           // time to the FIRST header — which `AbortSignal.timeout` does not override and no public
           // Node API exposes. A non-streaming endpoint sends no header until the whole completion is

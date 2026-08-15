@@ -292,6 +292,53 @@ describe("makeRawConnector", () => {
     expect(quiet.failures).toBe(0);
   });
 
+  // The hole the sweep exists to fill: a burst outage kills the calls in flight, and the chunk they
+  // were carrying is silently absent from the file afterwards. A chunk nobody read gets one more
+  // offer once the rest of the file is done.
+  it("re-offers the chunks whose call died, and files what comes back", async () => {
+    const seen = new Set<string>();
+    // Dies the first time it sees a chunk, answers the second — the burst, then the recovery.
+    const flaky = async (text: string) => {
+      if (!seen.has(text)) {
+        seen.add(text);
+        return null;
+      }
+      return stub(text);
+    };
+
+    const swept: ExtractStats = { calls: 0, failures: 0 };
+    expect(
+      await ingest(
+        port,
+        ont,
+        makeRawConnector({ dir, extract: flaky, stats: swept }),
+        "tester",
+        now,
+      ),
+    ).toEqual({ added: 2, skipped: 0 });
+    // One call counted per chunk, and nothing left unread.
+    expect(swept.calls).toBe(2);
+    expect(swept.failures).toBe(0);
+
+    seen.clear();
+    const off: ExtractStats = { calls: 0, failures: 0 };
+    expect(
+      await ingest(
+        port,
+        ont,
+        makeRawConnector({
+          dir,
+          extract: flaky,
+          sweep: false,
+          stats: off,
+        }),
+        "tester",
+        now,
+      ),
+    ).toEqual({ added: 0, skipped: 0 });
+    expect(off.failures).toBe(off.calls);
+  });
+
   it("treats an unavailable extractor as 'found nothing', not a crash", async () => {
     const res = await ingest(
       port,
