@@ -13,7 +13,8 @@ Defines only the contract the implementation must follow. For background and rat
   provenance: {
     actor: string     // a person entity id or an agent identifier (required)
     origin: string    // 'cli' | 'mcp' | 'connector:github-pr' | ...
-    occurred_at: string  // ISO 8601 (required)
+    occurred_at: string  // ISO 8601 (required). WHEN THE KNOWLEDGE HAPPENED — carried forward unchanged by verify/deprecate
+    transitioned_at?: string // ISO 8601. when THIS VERSION came into being, written only by a lifecycle transition
   }
   version: number     // starts at 1. an edit appends a new version (no overwrite)
   last_confirmed: string  // ISO 8601. refreshed on verify
@@ -513,7 +514,11 @@ no way to ask: **what would this query have injected at time T.**
 - `asOf` **replaces the read clock** for the whole filter. Freshness is evaluated against `asOf`
   (a record inside its TTL then, expired now, was injectable then), and so is the status.
 - Each candidate is **rewound to the version that was current at `asOf`** — the highest version whose
-  `provenance.occurred_at <= asOf`. This is the clause that matters: a decision deprecated last week
+  *version time* is `<= asOf`. Version time is `provenance.transitioned_at` when a lifecycle
+  transition wrote the row and `provenance.occurred_at` otherwise (a commit-written row is stamped
+  when the caller says it happened), which is also what makes the rewind correct on history written
+  before the two were separated: those rows carry the transition instant in `occurred_at`, so the
+  fallback reads them exactly as it always did. This is the clause that matters: a decision deprecated last week
   was verified a month ago, and without the rewind an as-of read would answer with today's status and
   be wrong in exactly the case the question is asked about. A record with no version at or before
   `asOf` did not exist yet and is excluded.
@@ -530,14 +535,18 @@ no way to ask: **what would this query have injected at time T.**
 - Available on `yoke inject --as-of` and `GET /api/inject?asOf=`. Deliberately **not** on
   `yoke_inject`: it is a governance question a person asks about the record, and every MCP parameter
   is contract surface an agent must be taught. Add it when an agent needs it, not before.
-- **Stated ceiling: `provenance.occurred_at` is carrying two meanings, and the rewind is why.** The
-  rewind needs "when did this version come into being", so `transition` (verify/deprecate/retire)
-  writes a fresh provenance — `{ actor, origin: 'lifecycle', occurred_at: now }`. That is right for
-  as-of and wrong for the field's other reading: **verifying a record overwrites when its source said
-  it**, and a batch verified together comes out sharing one instant, so a corpus whose documents were
-  dated reads as though everything in it happened at once. Nothing depends on the source time today,
-  which is the only reason this is a ceiling and not a bug; separating the two is a change to what
-  `occurred_at` means and belongs with the work that first needs the source time.
+- **Resolved (was a stated ceiling): `provenance.occurred_at` carried two meanings, and the rewind
+  was why.** The rewind needs "when did this version come into being", so `transition`
+  (verify/deprecate) used to write a fresh provenance — `{ actor, origin: 'lifecycle', occurred_at:
+  now }`. That was right for as-of and wrong for the field's other reading: **verifying a record
+  overwrote when its source said it**, and a batch verified together came out sharing one instant, so
+  a corpus whose documents were dated read as though everything in it happened at once (measured:
+  `verify --all-drafts` moved a record from v1 15:26:29 to v2 15:26:41 across the whole batch). The
+  two meanings are now two fields — `occurred_at` is the knowledge's event time and survives every
+  transition, `transitioned_at` is the transition's own instant and is what the rewind reads. **The
+  invariant: a verify/deprecate changes status, never when the knowledge happened.** The field is
+  optional and additive (provenance is stored as a JSON blob on every backend), so no migration; a
+  store restamped before the fix is repaired with `yoke backfill --occurred-at`.
 
 ### The stale queue (v5.2 — implementing a clause that was written and never built)
 
@@ -938,6 +947,7 @@ yoke persona <person>      # generate/export a persona skill (SKILL.md)
 yoke persona --check <file> # audit an exported SKILL.md against the store now; exit 1 if any source moved
 yoke backfill              # derive missing authored_by edges (upgrade path, idempotent)
 yoke backfill --embeddings [--rebuild] [--limit n] [--after id]   # repair vector coverage; --rebuild changes dimension
+yoke backfill --occurred-at [--dry-run]      # restore event times a pre-fix verify overwrote (idempotent)
 yoke rename-type <from> <to>   # rename an ontology type in the declaration AND every stored row
 yoke connect <github-pr|slack|notes|raw|rdb>   # external sources → draft knowledge
                                            # raw extracts via a model — see "Extractor contract"
@@ -1021,6 +1031,19 @@ rather than to the answer. (`backfillAuthorship` is a single unpaged pass — it
 shape and has not needed one, since it runs once per pre-4b database.) `--embeddings` re-embeds every row it reaches rather than skipping ones that
 already have a vector, because `getEntity` does not return embeddings and the port therefore cannot be
 asked which rows are covered; `putEmbedding` is keyed by `id`, so re-running is idempotent.
+
+**The third backfill** (`--occurred-at`) repairs the audit trail rather than something derived from
+it: stores written before `occurred_at` and `transitioned_at` were separated have the verify instant
+on the current version of everything that was ever promoted. The real event time is not lost — it is
+on the version the commit gate wrote — so this walks each record back to its most recent
+commit-written version and puts that `occurred_at` back on the current one. Only records whose
+current version is a lifecycle row are touched: a later edit states its own event time through the
+gate, and rewinding that would be the same defect pointed the other way. Unlike `--embeddings` it
+**appends a version**, because there is no in-place write in the port and no physical delete either;
+the repair row keeps the status, actor, origin and `last_confirmed` of the row it repairs (rewriting
+`last_confirmed` would re-age the TTL and quietly re-verify the corpus) and carries the displaced
+instant in `transitioned_at`, so the as-of rewind sees the same timeline it saw before the repair.
+`--dry-run` reports the per-record `old -> new` without writing. Idempotent.
 
 ### consumption paths
 

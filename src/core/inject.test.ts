@@ -102,9 +102,10 @@ describe("inject", () => {
       "2026-07-13T00:00:00Z",
     );
     expect(items).toHaveLength(1);
-    expect(items[0].citation).toBe(
-      `[fact:${id}@v2] alice, 2026-07-13T00:00:00Z`,
-    );
+    // The date in a citation is when the KNOWLEDGE happened (`now`, what the record was stamped
+    // with), not when it was promoted a day later. This assertion used to read the verify instant,
+    // which is what a citation carrying governance time looks like from the outside.
+    expect(items[0].citation).toBe(`[fact:${id}@v2] alice, ${now}`);
   });
 });
 

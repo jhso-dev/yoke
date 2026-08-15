@@ -258,6 +258,7 @@ yoke connect github-pr|slack|notes|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup | restore | export --until <ts> --out <new.db>   # --shards <file> federates backends
 yoke backfill [--embeddings [--rebuild]]      # repair authorship edges / the vector index
+yoke backfill --occurred-at [--dry-run]      # restore event times a pre-fix verify overwrote
 ```
 
 Common options: `--db` (> `YOKE_DB` env > `./yoke.db`), `--actor`
