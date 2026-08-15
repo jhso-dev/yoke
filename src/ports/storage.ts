@@ -214,6 +214,22 @@ export interface StoragePort {
    */
   search(q: TextQuery): Promise<Entity[]>;
 
+  /**
+   * Per-database key/value metadata — facts about the STORE, not knowledge in it.
+   *
+   * Not namespaced and not versioned: a tenant does not get its own index format, and there is no
+   * history to keep for a value whose only reader is the code that wrote it. `null` for an unset key,
+   * which is how a database written before a key existed answers — so every reader must have a
+   * legacy default rather than treating absence as an error.
+   *
+   * Today it holds exactly one key, `INDEX_KEY_META` (core/embedding): what the search index is keyed
+   * on. That belongs to the database rather than to the process, because a process that guesses wrong
+   * rewrites rows into a second representation and leaves a silently mixed index.
+   */
+  getMeta(key: string): Promise<string | null>;
+  /** Set (or replace) a meta value. Overwriting is the point — see `getMeta`. */
+  setMeta(key: string, value: string): Promise<void>;
+
   /** Enumerate latest-version entities, ascending by id. */
   listEntities(q: ListQuery): Promise<Page<Entity>>;
   /** Enumerate latest-version relations, ascending by id. q.type filters the relation type. */

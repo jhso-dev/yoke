@@ -5,7 +5,13 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
-import { dimensionMismatch, serializeText } from "../../core/embedding.js";
+import {
+  dimensionMismatch,
+  INDEX_KEY_META,
+  type IndexKey,
+  pinIndexKey,
+  serializeText,
+} from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
@@ -92,6 +98,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
   at TEXT NOT NULL,                  -- ISO 8601
   ns TEXT,                           -- tenant namespace; NULL = default shared ns
   note TEXT                          -- why, in the actor's words. Only governance acts carry one
+);
+
+-- Facts about the DATABASE rather than knowledge in it (StoragePort getMeta/setMeta). Not
+-- namespaced and not versioned. Today: index_key — what the search index is keyed on.
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 
 -- API tokens (PLAN-V2 10.3). Only a salted sha256 of the secret is stored — never the plaintext.
@@ -204,8 +217,58 @@ function rowToRelation(r: RelationRow): Relation {
 export class SqliteStorage implements StoragePort {
   private db: Database.Database;
 
+  /** This database's pinned index-key variant, resolved once per process (see `key()`). */
+  private cachedKey: IndexKey | null = null;
+
   constructor(path: string) {
     this.db = new Database(path);
+  }
+
+  // --- meta: facts about the database (StoragePort) ----------------------------------------------
+
+  async getMeta(key: string): Promise<string | null> {
+    return this.readMeta(key);
+  }
+
+  async setMeta(key: string, value: string): Promise<void> {
+    this.writeMeta(key, value);
+  }
+
+  private readMeta(key: string): string | null {
+    const row = this.db
+      .prepare(`SELECT value FROM meta WHERE key = ?`)
+      .get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  private writeMeta(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO meta (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(key, value);
+    // The reindex path changes this key underneath a live store, so the cache follows it rather than
+    // serving what was true when the process opened the file.
+    if (key === INDEX_KEY_META) this.cachedKey = pinIndexKey(value, false);
+  }
+
+  /**
+   * What this database's index is keyed on — recorded in `meta`, never the ambient env.
+   *
+   * Stamped on first use rather than in `init()`: "the store has indexed nothing yet" is the only
+   * moment the env may still choose, and `yoke init` reaches `init()` before anything is written.
+   * Callers on the write path therefore ask BEFORE inserting the row, or the store is no longer empty
+   * when the question is asked.
+   */
+  private key(): IndexKey {
+    if (this.cachedKey === null) {
+      const stored = this.readMeta(INDEX_KEY_META);
+      const empty = !this.db.prepare(`SELECT 1 FROM entities LIMIT 1`).get();
+      this.cachedKey = pinIndexKey(stored, empty);
+      if (stored === null) this.writeMeta(INDEX_KEY_META, this.cachedKey);
+    }
+    return this.cachedKey;
   }
 
   async init(): Promise<void> {
@@ -422,6 +485,10 @@ export class SqliteStorage implements StoragePort {
    */
   async putEntity(e: Entity): Promise<void> {
     this.db.transaction(() => {
+      // Inside the transaction and before the INSERT. Before, because `key()` stamps a store that has
+      // indexed nothing and this row would make it non-empty; inside, because the stamp is a WRITE —
+      // outside it races another writer holding BEGIN IMMEDIATE and waits out busy_timeout (C4).
+      const key = this.key();
       try {
         this.db
           .prepare(
@@ -453,7 +520,10 @@ export class SqliteStorage implements StoragePort {
           `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
         )
         .get(e.id) as { type: string; attributes: string };
-      this.reindexFts(e.id, serializeText(latest.type, latest.attributes));
+      this.reindexFts(
+        e.id,
+        serializeText(latest.type, latest.attributes, undefined, key),
+      );
 
       // Keep only the latest version's vector too (same delete+insert as FTS). Touch it only when an
       // embedding is present — re-putting a version without an embedding leaves the existing vector in
@@ -697,6 +767,49 @@ export class SqliteStorage implements StoragePort {
     });
   }
 
+  /**
+   * Rewrite every FTS row from the latest stored version. Returns rows rewritten.
+   *
+   * The keyword half of the index is written by `putEntity` and nowhere else, so it cannot be
+   * re-derived the way `backfill --embeddings` re-derives the vector half: `putEntity` appends a
+   * version, and re-putting one is a primary-key collision, not a reindex. Without this, changing
+   * what the index is keyed on (`YOKE_INDEX_KEY=prose`) would take effect on the vector half only,
+   * and the two halves of one hybrid query would be reading two different indexes.
+   *
+   * `ontology` orders the values in a prose key; it changes nothing under the default key. WHICH key
+   * is read from the store's meta, not from the env — the caller changing the variant writes the meta
+   * first (see `yoke backfill --embeddings --rebuild`), and every row here is then rewritten to match
+   * it in one transaction.
+   *
+   * Per row it goes through `reindexFts`, so the delete is by the mapped rowid and the fts_docid
+   * mapping stays intact (C6/F2). A raw delete-by-id here would leave the map pointing at rows this
+   * rebuilt, and an unmapped id takes reindexFts's insert branch — a second fts row per id, the old
+   * text still searchable as a ghost.
+   *
+   * ceiling: an adapter extension rather than a port method, feature-detected by the caller, because
+   * sqlite is the only backend whose FTS text is written from JS. Postgres keeps `serializeText`
+   * output in a column and derives the tsvector from it, so it can rebuild in SQL; opensearch
+   * re-indexes documents. Give them each a `rebuildFts` when either needs one.
+   */
+  rebuildFts(ontology?: TypeDef[]): number {
+    const latest = this.db
+      .prepare(
+        `SELECT id, type, attributes FROM entities e
+         WHERE e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)`,
+      )
+      .all() as { id: string; type: string; attributes: string }[];
+    this.db.transaction(() => {
+      // Inside the transaction: `key()` may stamp, and a stamp is a write (see putEntity).
+      const key = this.key();
+      for (const r of latest)
+        this.reindexFts(
+          r.id,
+          serializeText(r.type, r.attributes, ontology, key),
+        );
+    })();
+    return latest.length;
+  }
+
   // --- Adapter extensions outside StoragePort: ontology seed save/load (for CLI init) ---
 
   /** Append-only save of ontology definitions. Accumulates as the next version per name.
@@ -748,6 +861,8 @@ export class SqliteStorage implements StoragePort {
   ): Promise<number> {
     const n = normalizeNs(ns);
     const tx = this.db.transaction(() => {
+      // Inside the transaction: `key()` may stamp, and a stamp is a write (see putEntity).
+      const key = this.key();
       let rows = 0;
       // Collected before the UPDATE: the FTS text is built from type + attributes, so every affected
       // id's index row goes stale the instant the column changes.
@@ -774,7 +889,10 @@ export class SqliteStorage implements StoragePort {
       );
       for (const id of ids) {
         const l = latest.get(id) as { type: string; attributes: string };
-        this.reindexFts(id, serializeText(l.type, l.attributes));
+        this.reindexFts(
+          id,
+          serializeText(l.type, l.attributes, undefined, key),
+        );
       }
       // The declaration. saveOntology appends a version per name, which would leave every `from` row
       // sitting there, so these are rewritten in place — name column and the name inside `def`.
@@ -972,6 +1090,8 @@ export class SqliteStorage implements StoragePort {
    * Columns are listed explicitly so a pre-10.1 source (ns appended last by migration) copies cleanly
    * into a fresh dest (ns mid-row). */
   async exportUntil(ts: string, destPath: string): Promise<void> {
+    // Resolved before the ATTACH so the meta copy below sees it, stamp included.
+    const key = this.key();
     // Fresh dest with the full schema, then attach and row-copy with SQL (simplest — PLAN-V2 11.1).
     const dst = new SqliteStorage(destPath);
     await dst.init();
@@ -1004,6 +1124,12 @@ export class SqliteStorage implements StoragePort {
            WHERE julianday(at) <= julianday(?)`,
         )
         .run(ts);
+      // The index key travels with the export: the rows below are keyed on THIS database's variant,
+      // so a copy that did not carry the meta would be re-keyed by whatever env opened it next.
+      // (The dest was created empty and nothing has stamped it, so a plain INSERT cannot collide.)
+      this.db.exec(
+        `INSERT INTO bak.meta (key, value) SELECT key, value FROM meta`,
+      );
       // Rebuild FTS from the copied latest versions (serializeText is JS, not SQL).
       const latest = this.db
         .prepare(
@@ -1015,7 +1141,7 @@ export class SqliteStorage implements StoragePort {
         `INSERT INTO bak.entities_fts (id, text) VALUES (?, ?)`,
       );
       for (const r of latest)
-        ins.run(r.id, serializeText(r.type, r.attributes));
+        ins.run(r.id, serializeText(r.type, r.attributes, undefined, key));
       // Map the rebuilt FTS rows to their rowids (C6/F2), so a write into the export is O(log n) like
       // any other database. A later open would self-heal this via migrateFtsDocids anyway; doing it
       // here keeps the export internally consistent the moment it is written.

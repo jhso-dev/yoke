@@ -13,7 +13,7 @@ import {
   type StoragePort,
 } from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
-import { serializeText } from "./embedding.js";
+import { resolveIndexKey, serializeText } from "./embedding.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import { validateInput } from "./ontology.js";
@@ -309,7 +309,19 @@ export async function commit(
   let embedding: Float32Array | null = null;
   let duplicateDetection: CommitResult["duplicateDetection"] = "skipped";
   if (!isRelation && opts?.embedder) {
-    const text = serializeText(input.type, JSON.stringify(input.attributes));
+    // The store's key variant, not this process's env — the FTS half of the index is written by the
+    // adapter from the same recorded value, and two halves keyed differently is a mixed index.
+    const text = serializeText(
+      input.type,
+      JSON.stringify(input.attributes),
+      ontology,
+      await resolveIndexKey(
+        port,
+        async () =>
+          (await port.listEntities({ ns: opts?.ns, limit: 1 })).items.length ===
+          0,
+      ),
+    );
     embedding = await opts.embedder(text);
     if (embedding && port.similar) {
       const candidates = await port.similar(embedding, 5);
