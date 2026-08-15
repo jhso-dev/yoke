@@ -297,6 +297,36 @@ describe("makeFetchRelater", () => {
     }
   });
 
+  // The relater shares `makeJsonCaller` with the extractor, so it inherits the completion cap. Pinned
+  // here because the failure it prevents — a degenerate generation burning the whole timeout on every
+  // attempt — costs the same on this path, and a second request body would drift away from it.
+  it("caps its completion the same way the extractor does", async () => {
+    const original = globalThis.fetch;
+    const bodies: string[] = [];
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      bodies.push(String(init.body));
+      return { ok: false, status: 500 };
+    }) as unknown as typeof fetch;
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const env = {
+        YOKE_LLM_URL: "https://x",
+        YOKE_LLM_MODEL: "m",
+        YOKE_LLM_RETRIES: "0",
+      };
+      const relate = (e: Record<string, string>) =>
+        makeFetchRelater(e, ont) as NonNullable<
+          ReturnType<typeof makeFetchRelater>
+        >;
+      await relate(env)(refs);
+      await relate({ ...env, YOKE_EXTRACT_MAX_TOKENS: "9000" })(refs);
+      expect(bodies.map((b) => JSON.parse(b).max_tokens)).toEqual([4000, 9000]);
+    } finally {
+      globalThis.fetch = original;
+      spy.mockRestore();
+    }
+  });
+
   it("returns null rather than [] when the call failed, so 'none' and 'no answer' differ", async () => {
     const original = globalThis.fetch;
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});

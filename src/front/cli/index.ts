@@ -1432,6 +1432,7 @@ async function cmdConnect(
             Number(env.YOKE_EXTRACT_CONCURRENCY) > 0
               ? Number(env.YOKE_EXTRACT_CONCURRENCY)
               : undefined,
+          sweep: env.YOKE_EXTRACT_SWEEP !== "0",
           stats,
         }),
       v,
@@ -1443,6 +1444,12 @@ async function cmdConnect(
       );
       return 1;
     }
+    // Said only when something was lost, because a hole is invisible afterwards: the records that
+    // WOULD have been filed leave no trace, so a partial ingest and a clean one both end "added N".
+    if (stats.failures > 0)
+      console.error(
+        `yoke: ${stats.failures} of ${stats.calls} extraction calls were never read — those spans filed nothing`,
+      );
     return code;
   }
   if (source !== "github-pr" || !v.repo) {

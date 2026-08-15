@@ -240,6 +240,8 @@ export function makeRawConnector(opts: {
   chunkChars?: number;
   /** Chunks extracted at once. Defaults to DEFAULT_CONCURRENCY; see its comment. */
   concurrency?: number;
+  /** Re-offer the chunks whose call died, once, after the rest of the file. Default on; see below. */
+  sweep?: boolean;
   /**
    * Filled in as the pull runs, for a caller that has to tell two different zeroes apart.
    *
@@ -286,11 +288,41 @@ export function makeRawConnector(opts: {
           );
         // Each chunk is grounded against ITSELF inside the extractor, which is what makes the
         // per-chunk quote check meaningful: a model cannot cite a span it was never shown.
-        const per = await mapPool(
-          chunks,
-          opts.concurrency ?? DEFAULT_CONCURRENCY,
-          opts.extract,
-        );
+        const conc = opts.concurrency ?? DEFAULT_CONCURRENCY;
+        const per = await mapPool(chunks, conc, opts.extract);
+        // One deferred re-offer of the chunks nobody read.
+        //
+        // The in-call retry ladder (extract.ts) cannot fill this hole, because the failures do not
+        // arrive one at a time: measured, 59 `fetch failed` in a single ingest, in bursts that took
+        // out every socket in flight at once. So all four workers burn their backoff against the
+        // same dead network and exhaust together, while what comes back seconds later is the NEXT
+        // chunk. Deferring to the end of the file buys minutes of unrelated work as the wait, which
+        // is the one thing the ladder cannot buy at any setting.
+        //
+        // It matters because a dead call is not a chunk with nothing in it, it is a hole invisible
+        // afterwards. Measured on a conversation corpus: 9 of 26 chunks filed zero records, in
+        // CONTIGUOUS runs (one 37k document lost five chunks in a row and two of its user's
+        // benchmark questions with them), while every chunk that did answer filed 3–7 records
+        // spread across its whole span. And two draws of another corpus at temperature 0 lost
+        // complementary halves of the same file — 8 of 23 chunks against 15 of 23, union 20 — which
+        // is transport, not a model deciding twice that the same text carries no claim.
+        //
+        // Free when nothing failed, and it re-offers only what failed rather than the file.
+        // YOKE_EXTRACT_SWEEP=0 turns it off, which is how the two arms get compared.
+        const dead = per.flatMap((r, i) => (r === null ? [i] : []));
+        if (dead.length > 0 && opts.sweep !== false) {
+          console.error(
+            `yoke: ${rel} — ${dead.length} of ${chunks.length} chunks were not read; offering them again`,
+          );
+          const again = await mapPool(dead, conc, (i) =>
+            opts.extract(chunks[i]),
+          );
+          dead.forEach((i, j) => {
+            per[i] = again[j];
+          });
+        }
+        // `calls` stays one per chunk and `failures` counts what is STILL unread, so a re-offer
+        // does not dilute the "every call failed" ratio the CLI refuses on.
         if (opts.stats) {
           opts.stats.calls += per.length;
           opts.stats.failures += per.filter((r) => r === null).length;
