@@ -23,6 +23,7 @@ Two things about this arm are worth stating plainly, because they change what th
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -30,6 +31,65 @@ from pathlib import Path
 
 from .base import MemoryProvider
 from ..models import Document
+
+
+# ── the dated-timeline experiment (YOKE_BENCH_TIMELINE=1) ────────────────────────
+#
+# Module-level and pure so bench/test_timeline.py can assert on them without a store, a model or a
+# subprocess. Everything else in this file needs all three.
+
+# Does the question ask about the CURRENT state?
+#
+# Zep (arXiv 2501.13956) reads a temporally-ordered memory at query time; PersonaMem's own authors
+# (arXiv 2504.14225) report models scoring higher when shown a preference's EVOLUTION than when
+# handed only the latest fact — and on this corpus the distractors ARE the user's outdated
+# preferences, by construction. Both point at the same read-time move: for a question about now,
+# show the trajectory in order and date it, so "which of these is current" stops being a guess.
+#
+# Regex, not a model. LongMemEval measured small models hallucinating temporal cues, and a
+# classifier that invents a recency question is a classifier that reorders the arm that measured a
+# LOSS from reordering (bench/README.md: chronological order costs `recall_user_shared_facts` three
+# questions). Deterministic and narrow is what makes the two arms comparable.
+#
+# English only: PersonaMem is an English corpus.
+RECENCY_RE = re.compile(
+    r"\b("
+    r"now|right now|currently|current|nowadays|these days|at the moment|"
+    r"latest|most recent|recently|lately|still|as of today|up to date|"
+    r"today|this week|this month|this year"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def is_recency_question(query: str) -> bool:
+    """Whether the question asks what is true NOW rather than what happened."""
+    return bool(RECENCY_RE.search(query or ""))
+
+
+def source_order(item: dict) -> tuple[str, str, int]:
+    """(occurred_at, source file, position in it) — the chronology this corpus actually has.
+
+    `occurred_at` alone does not order these records: PersonaMem sessions are ordered but undated, so
+    `sourceTime` fell back to one file mtime per document and every record of a document shares it.
+    What order exists beyond that lives in the connector's `external_id`
+    (`raw:<NNNNN-file>.md#<n>`), so it is the tiebreak. Nothing here invents a time.
+    """
+    e = item.get("entity", item)
+    ext = str(e.get("attributes", {}).get("external_id", ""))
+    path, _, n = ext.rpartition("#")
+    return (
+        e.get("provenance", {}).get("occurred_at") or "",
+        path,
+        int(n) if n.isdigit() else 0,
+    )
+
+
+def dated_body(body: str, occurred_at: str | None) -> str:
+    """`[2025-03-12] …` — the date stated IN the content, which is the one channel the harness leaves
+    standing (`modes/rag.py` renders `## Memory 1..N` and drops every field but the text)."""
+    day = str(occurred_at or "")[:10]
+    return f"[{day}] {body}" if day else body
 
 
 class YokeMemoryProvider(MemoryProvider):
@@ -58,16 +118,24 @@ class YokeMemoryProvider(MemoryProvider):
         # Per-user cache of the whole verified store (YOKE_BENCH_FULL_STORE). The store is frozen
         # once answering starts, and 42 extra `yoke list` subprocesses would say nothing new.
         self._store_cache: dict[str | None, list[dict]] = {}
-        # Per-user cache of the relation graph (YOKE_BENCH_CHAINS): nodes by id + supersedes
-        # adjacency, from one `yoke graph --json` per user. Same freeze argument as above.
-        self._graph_cache: dict[str | None, tuple[dict, dict, dict]] = {}
+        # Per-user cache of the relation graph (YOKE_BENCH_CHAINS): nodes by id + the
+        # change-of-position adjacencies, from one `yoke graph --json` per user. Same freeze
+        # argument as above.
+        self._graph_cache: dict[str | None, tuple[dict, dict, dict, dict]] = {}
 
-    def _graph(self, user_id: str | None) -> tuple[dict, dict, dict]:
-        """(nodes by id, newer_of, older_of) — supersedes edges only, from `yoke graph`.
+    def _graph(self, user_id: str | None) -> tuple[dict, dict, dict, dict]:
+        """(nodes by id, newer_of, older_of, conflicts) from `yoke graph`.
 
         `from -supersedes-> to` is filed newer→older (the connector's rankOf exists to keep it
         that way), so newer_of[to] lists the records that replaced it, older_of[from] what it
         replaced.
+
+        `conflicts_with` is symmetric — it has no direction to ask about — so both ends are
+        filed in one adjacency. It is walked for the same reason `supersedes` is: handed a
+        reversal pair, the model labels it `conflicts_with` at least as often, so a reversal
+        reaches the store under either type and the arm that ignores one sees half of them.
+        `relates_to` and `derived_from` stay unwalked: they are not a change of position, and
+        widening the walk re-balloons the context toward the full-store arm (measured -6).
         """
         if user_id not in self._graph_cache:
             raw = self._run(["graph", "--json", "--limit", "2000"], ns=user_id)
@@ -75,21 +143,29 @@ class YokeMemoryProvider(MemoryProvider):
             nodes = {n["id"]: n for n in g.get("nodes", []) if n.get("type") != "person"}
             newer_of: dict[str, list[str]] = {}
             older_of: dict[str, list[str]] = {}
+            conflicts: dict[str, list[str]] = {}
             for e in g.get("edges", []):
-                if e.get("type") != "supersedes":
+                etype = e.get("type")
+                if etype not in ("supersedes", "conflicts_with"):
                     continue
                 frm, to = e.get("from"), e.get("to")
-                if frm in nodes and to in nodes:
+                if frm not in nodes or to not in nodes:
+                    continue
+                if etype == "supersedes":
                     newer_of.setdefault(to, []).append(frm)
                     older_of.setdefault(frm, []).append(to)
-            self._graph_cache[user_id] = (nodes, newer_of, older_of)
+                else:
+                    conflicts.setdefault(frm, []).append(to)
+                    conflicts.setdefault(to, []).append(frm)
+            self._graph_cache[user_id] = (nodes, newer_of, older_of, conflicts)
         return self._graph_cache[user_id]
 
     @staticmethod
-    def _with_chain_lines(doc: Document, newer_of, older_of, summary) -> Document:
+    def _with_chain_lines(doc: Document, newer_of, older_of, conflicts, summary) -> Document:
         """State the chain in content — the one channel the ordering experiment left standing."""
         lines = [f"later superseded by: {summary(n)}" for n in newer_of.get(doc.id, [])]
         lines += [f"supersedes (replaces): {summary(o)}" for o in older_of.get(doc.id, [])]
+        lines += [f"conflicts with: {summary(c)}" for c in conflicts.get(doc.id, [])]
         if not lines:
             return doc
         return Document(
@@ -224,17 +300,28 @@ class YokeMemoryProvider(MemoryProvider):
         # file), and core parsing that shape would be a connector detail leaking inward. If this probe
         # moves the score, the fix belongs in yoke as something a connector can state.
         if os.environ.get("YOKE_BENCH_PROBE_ORDER") == "1":
-            def _source_order(item: dict) -> tuple[str, str, int]:
-                e = item.get("entity", item)
-                ext = str(e.get("attributes", {}).get("external_id", ""))
-                path, _, n = ext.rpartition("#")
-                return (
-                    e.get("provenance", {}).get("occurred_at") or "",
-                    path,
-                    int(n) if n.isdigit() else 0,
-                )
+            items = sorted(items, key=source_order)
 
-            items = sorted(items, key=_source_order)
+        # EXPERIMENT, off by default (YOKE_BENCH_TIMELINE=1): for a question about NOW, hand over the
+        # hits as a dated timeline — oldest first, each record prefixed with its date — instead of in
+        # relevance order. Every other question keeps the current rendering, and that restriction is
+        # the whole design: the unconditional sort is `YOKE_BENCH_PROBE_ORDER` above and it LOST
+        # (bench/README.md), because the questions that want the single most relevant record pay for
+        # the questions that want an order. Sorting only where order is what was asked for is the
+        # version of that idea that has not been measured.
+        #
+        # Same record count, same tokens, same selection — only the arrangement and a date per record
+        # differ. See `is_recency_question` for why the classifier is a regex.
+        timeline = (
+            os.environ.get("YOKE_BENCH_TIMELINE") == "1"
+            and is_recency_question(query)
+        )
+        if timeline:
+            items = sorted(items, key=source_order)
+            # Printed because the classifier is the experiment's one uncontrolled part: the corpus's
+            # question texts decide its hit rate, and a run that fires on nothing looks exactly like
+            # a run where the timeline did not help.
+            print(f"  yoke[timeline]: recency question, {len(items)} records dated oldest-first: {query[:70]!r}", flush=True)
 
         def _doc(entity: dict, citation=None) -> Document:
             attrs = entity.get("attributes", {})
@@ -253,11 +340,14 @@ class YokeMemoryProvider(MemoryProvider):
                 for key, v in attrs.items()
                 if key != "external_id" and v not in (None, "")
             )
+            occurred_at = entity.get("provenance", {}).get("occurred_at")
+            if timeline:
+                body = dated_body(body, occurred_at)
             return Document(
                 id=entity.get("id", ""),
                 content=body,
                 user_id=user_id,
-                timestamp=entity.get("provenance", {}).get("occurred_at"),
+                timestamp=occurred_at,
                 context=citation,
             )
 
@@ -288,12 +378,12 @@ class YokeMemoryProvider(MemoryProvider):
         # edge is invisible to it. Two rules learned the hard way this session:
         #   - order is stated in CONTENT ("later superseded by: …"), never by reordering the list
         #     (measured net loss), and hits keep their head positions;
-        #   - only `supersedes` is walked. relates_to would re-balloon context toward the
-        #     full-store arm, which measured -6.
+        #   - only the change-of-position types are walked (`supersedes`, `conflicts_with`).
+        #     relates_to would re-balloon context toward the full-store arm, which measured -6.
         # This is provider-side on purpose: it is the cheap measurement docs/RESEARCH.md asks for
         # before graph expansion is built into inject itself.
         if os.environ.get("YOKE_BENCH_CHAINS") == "1":
-            nodes, newer_of, older_of = self._graph(user_id)
+            nodes, newer_of, older_of, conflicts = self._graph(user_id)
 
             def _summary(eid: str) -> str:
                 a = (nodes.get(eid) or {}).get("attributes", {})
@@ -307,7 +397,11 @@ class YokeMemoryProvider(MemoryProvider):
                     if cur in seen:
                         continue
                     seen.add(cur)
-                    todo += newer_of.get(cur, []) + older_of.get(cur, [])
+                    todo += (
+                        newer_of.get(cur, [])
+                        + older_of.get(cur, [])
+                        + conflicts.get(cur, [])
+                    )
                 return sorted(seen)
 
             # BUDGET-NEUTRAL, and that is the whole design. Appending chain members grows the
@@ -320,14 +414,16 @@ class YokeMemoryProvider(MemoryProvider):
             expanded: list[Document] = []
             present = {d.id for d in docs}
             for d in docs:
-                expanded.append(self._with_chain_lines(d, newer_of, older_of, _summary))
+                expanded.append(
+                    self._with_chain_lines(d, newer_of, older_of, conflicts, _summary)
+                )
                 for m in _chain(d.id):
                     if m == d.id or m in present or m not in nodes:
                         continue
                     present.add(m)
                     expanded.append(
                         self._with_chain_lines(
-                            _doc(nodes[m]), newer_of, older_of, _summary
+                            _doc(nodes[m]), newer_of, older_of, conflicts, _summary
                         )
                     )
             # Head order is preserved (the head is what the answering model attends to most), so the

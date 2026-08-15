@@ -158,6 +158,44 @@ Also: 19 questions cannot see a difference this size. On user 1 alone the sort s
 and looked like a win. The second user reversed it 17/23 → 14/23. Nothing here is worth acting on at
 n=19.
 
+**The one version of that sort not yet measured: `YOKE_BENCH_TIMELINE=1`, which sorts only the
+questions that asked about order.** The table above is an UNCONDITIONAL sort, and it reads as one
+effect when it is two: +1 on the trajectory questions, −3 on the ones that want the single most
+relevant record. A regex classifier (`is_recency_question` in the provider — `now`, `currently`,
+`latest`, `still`, `these days`, `recently`, `at the moment`, …) decides which the question is; a
+recency question gets its records oldest-first with each one prefixed `[2025-03-12]`, and every other
+question is rendered exactly as before. Same records, same count, same tokens.
+
+Why it is worth one arm: Zep (arXiv 2501.13956) reads a temporally-ordered memory at query time, and
+PersonaMem's own authors (arXiv 2504.14225) report models doing better shown a preference's evolution
+than handed only the latest fact — which is this corpus exactly, since its distractors are the user's
+outdated preferences. The classifier is deliberately a regex: LongMemEval measured small models
+hallucinating temporal cues, and a classifier that invents a recency question reproduces the losing
+arm above. The provider prints one line per question it fires on, so a run that classified nothing is
+distinguishable from a timeline that did not help.
+
+Read the date prefix with one caveat, and it is a bigger one than it looks: **in this arm every
+record's date is the same instant, and that instant is when `verify` ran.** Two causes stack.
+PersonaMem sessions are ordered but undated, so `sourceTime` falls back to one file mtime per
+document — and then `verify --all-drafts` replaces provenance wholesale on the version it appends
+(`transition` in src/core/lifecycle.ts: `provenance: { actor, origin: "lifecycle", occurred_at: now }`),
+so whatever `occurred_at` the connector recorded is gone from the latest version. Confirmed on a
+scratch store: v1 `occurred_at` 15:26:29 (`origin: cli`), v2 `occurred_at` 15:26:41
+(`origin: lifecycle`).
+
+So the ORDER this arm shows is real — it comes from `external_id`, per document and per position
+within it — while the DATE is a governance timestamp. Making the dates real needs BOTH halves:
+documents written as `.jsonl` carrying their harness timestamp (`sourceTime` reads one out of
+`.jsonl`, and ignores it in `.md`), *and* a decision about whether promoting a draft may restamp when
+the knowledge occurred. The first is an ingest change and re-extraction; the second is a core change.
+Neither belongs in the same run as this one.
+
+Related landmine in the same place: the provider passes `--as-of query_timestamp`, and `inject`
+compares that against `provenance.occurred_at` — the verify clock. On PersonaMem the harness leaves
+the stamp unset so the flag never fires; on a dataset that stamps its queries with dates from before
+the run, every record would be filtered out and the arm would score zero for a reason that looks like
+bad retrieval.
+
 **Field order in a structured-output schema decides what survives truncation.** Grammar-constrained
 decoding emits properties in schema order, so a schema listing `reasoning` before `choice` spends the
 token budget on the explanation and loses the letter being scored. See the section below for the
@@ -391,6 +429,49 @@ Run the arms one at a time. Two runs against one local endpoint reproduce the co
 absolute accuracy should not be quoted as a PersonaMem score. What it supports is the comparison:
 all three arms use the same answerer and the same judge, so the differences between them are real
 even when the level is not.
+
+## Dating an undated corpus — `backfill-ordinal-dates.mjs`
+
+PersonaMem sessions are **ordered but undated**, and the harness writes each one to a temp file
+moments before ingesting it, so `sourceTime` falls back to one mtime per file and every record of a
+run ends up sharing a single `occurred_at`. Anything time-aware — recency ranking, the dated-timeline
+arm, `source_order` in `yoke_provider.py` — has no signal to read. This script restores the order
+that IS recoverable: `attributes.sources` holds the verbatim quote a record came from and
+`external_id` names the file it came from (`raw:<NNNNN>-<doc id>.md#<n>`, NNNNN being the session's
+position in that persona's history), so document index → the day and the quote's character offset
+within the document → the hour.
+
+```bash
+CORPUS=<amb>/.datasets/personamem/shared_contexts_32k.jsonl
+NS=$(sqlite3 store.db "select distinct ns from entities where ns is not null")
+
+cp <run>/_store/32k/all/yoke.db /tmp/dated.db          # never the original
+node bench/backfill-ordinal-dates.mjs /tmp/dated.db --corpus $CORPUS --ns $NS --dry-run
+node bench/backfill-ordinal-dates.mjs /tmp/dated.db --corpus $CORPUS --ns $NS
+```
+
+Measured on the two p1 baseline stores: **30/30 and 68/68 quotes located by exact substring match**,
+one distinct instant per record across 4 and 5 days.
+
+Three things to keep straight before a number produced this way is quoted:
+
+- **The dates are synthetic and encode ORDER, not truth.** `2025-01-03T04:00:00Z` means "third
+  session, a fifth of the way in". No PersonaMem session says when it happened; treating these as
+  event times outside this benchmark is reading a fabrication. Base day is `--base` (default
+  2025-01-01), one day per document, 20 hours of spread within it so the gap between documents
+  survives.
+- **It is an eval tool, not a product feature.** It lives here rather than in `scripts/` for that
+  reason: it knows the harness's file naming and the PersonaMem session split, nothing in `src/`
+  knows it exists, and `yoke backfill` does not offer it. The write itself is not new — it goes through
+  core's `restampOccurredAt`, the same append-a-version mechanism `yoke backfill --occurred-at` uses,
+  which preserves status/actor/origin/`last_confirmed` and parks the displaced ingest instant in
+  `transitioned_at`. Re-running changes nothing.
+- **It does not make `--as-of` rewind further.** `versionAsOf` keys on `transitioned_at ?? occurred_at`
+  — when the VERSION came into being, which is still 2026 — so an as-of read before the ingest still
+  sees nothing. That is correct and unchanged by this: what the dates buy is `occurred_at` ordering
+  and per-record dates in the injected content. (Moot on these two personas anyway: neither carries a
+  date the dataset's `_extract_timestamp` can find, so the harness passes no `query_timestamp` and
+  `--as-of` never fires.)
 
 ## Cost and speed
 

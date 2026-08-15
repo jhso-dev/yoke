@@ -18,3 +18,4 @@ yoke-serve.err.log
 web/.next/
 web/out/
 *.tsbuildinfo
+__pycache__/
