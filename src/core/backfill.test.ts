@@ -9,9 +9,14 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
-import { backfillAuthorship, backfillEmbeddings } from "./backfill.js";
+import {
+  backfillAuthorship,
+  backfillEmbeddings,
+  backfillOccurredAt,
+} from "./backfill.js";
 import { commit } from "./commit.js";
 import { type Embedder, serializeText } from "./embedding.js";
+import { versionAsOf } from "./lifecycle.js";
 import { seedOntology } from "./ontology.js";
 import type { Provenance } from "./types.js";
 
@@ -221,5 +226,101 @@ describe("backfillAuthorship on a database older than the rules", () => {
       1,
     );
     port.close();
+  });
+});
+
+// backfillOccurredAt — the repair for records whose event time a pre-fix verify overwrote.
+// The rows here are written the way the old `transition` wrote them (origin 'lifecycle',
+// occurred_at restamped to the verify instant, no `transitioned_at`), because that is the state
+// every store written before the fix is in — a store repaired by code that only understands the
+// post-fix shape would repair nothing.
+describe("backfillOccurredAt", () => {
+  const said = "2026-01-05T09:00:00Z";
+  const verifiedAt = "2026-08-13T15:26:41Z";
+  /** What the gate stored for `said` — it canonicalizes every instant it writes. */
+  const saidStored = new Date(said).toISOString();
+
+  /** A record ingested with its own event time, then verified the way the bug did it. */
+  async function restamped(statement: string) {
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement } },
+      { actor: "notes", origin: "connector:meeting-notes", occurred_at: said },
+      said,
+    );
+    await port.putEntity({
+      ...entity,
+      status: "verified",
+      version: 2,
+      last_confirmed: verifiedAt,
+      provenance: {
+        actor: "alice",
+        origin: "lifecycle",
+        occurred_at: verifiedAt,
+      },
+    });
+    return entity.id;
+  }
+
+  it("restores the event time from history and reports old -> new", async () => {
+    const id = await restamped("said in january");
+
+    const { scanned, changes } = await backfillOccurredAt(port);
+    expect(scanned).toBe(1);
+    expect(changes).toEqual([{ id, from: verifiedAt, to: saidStored }]);
+
+    const cur = await port.getEntity(id);
+    expect(cur?.provenance.occurred_at).toBe(saidStored);
+    // Status and freshness are untouched — this repairs metadata, it does not re-verify anything.
+    expect(cur?.status).toBe("verified");
+    expect(cur?.last_confirmed).toBe(verifiedAt);
+    // The instant it displaced is the transition's, and it is kept where the as-of rewind reads it,
+    // so the timeline the repair walked past is still the timeline.
+    expect(cur?.provenance.transitioned_at).toBe(verifiedAt);
+    expect((await versionAsOf(port, id, "2026-08-01T00:00:00Z"))?.version).toBe(
+      1,
+    );
+    expect((await versionAsOf(port, id, verifiedAt))?.status).toBe("verified");
+  });
+
+  it("is idempotent and writes nothing on a dry run", async () => {
+    const id = await restamped("said in january");
+
+    const dry = await backfillOccurredAt(port, { dryRun: true });
+    expect(dry.changes).toHaveLength(1);
+    expect((await port.getEntity(id))?.provenance.occurred_at).toBe(verifiedAt);
+    expect((await port.getEntity(id))?.version).toBe(2);
+
+    await backfillOccurredAt(port);
+    const second = await backfillOccurredAt(port);
+    expect(second.changes).toEqual([]);
+    expect((await port.getEntity(id))?.version).toBe(3);
+  });
+
+  it("leaves a record whose latest version is an edit alone", async () => {
+    // An edit states its own event time through the gate. Rewinding that to the first version's is
+    // the same bug pointed the other way.
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "first" } },
+      { actor: "notes", origin: "connector:x", occurred_at: said },
+      said,
+    );
+    const edited = "2026-03-20T14:30:00Z";
+    await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "corrected" } },
+      { actor: "notes", origin: "connector:x", occurred_at: edited },
+      edited,
+      { existingId: entity.id },
+    );
+
+    expect((await backfillOccurredAt(port)).changes).toEqual([]);
+    expect((await port.getEntity(entity.id))?.provenance.occurred_at).toBe(
+      new Date(edited).toISOString(),
+    );
   });
 });

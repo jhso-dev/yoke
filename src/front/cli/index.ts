@@ -27,7 +27,11 @@ import {
 import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
 import { overview } from "../../core/aggregate.js";
-import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
+import {
+  backfillAuthorship,
+  backfillEmbeddings,
+  backfillOccurredAt,
+} from "../../core/backfill.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import {
   INDEX_KEY_META,
@@ -124,6 +128,8 @@ type Values = {
   stale?: boolean;
   embeddings?: boolean;
   rebuild?: boolean;
+  "occurred-at"?: boolean;
+  "dry-run"?: boolean;
   shape?: boolean;
   depth?: string;
   check?: string;
@@ -168,6 +174,8 @@ const OPTIONS = {
   stale: { type: "boolean" },
   embeddings: { type: "boolean" },
   rebuild: { type: "boolean" },
+  "occurred-at": { type: "boolean" },
+  "dry-run": { type: "boolean" },
   shape: { type: "boolean" },
   depth: { type: "string" },
   check: { type: "string" },
@@ -1682,6 +1690,23 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
       // The walk is bounded, so an unfinished scan is said rather than implied.
       if (next !== null) lines.push(`more to scan: --after ${next}`);
       emit(v, lines.join("\n"), { scanned, embedded, skipped, next });
+      return 0;
+    }
+    // The third repair: the event time verify used to overwrite. Per-record old → new, because this
+    // one edits the audit trail and "restored 412 records" is not something anyone can check.
+    if (v["occurred-at"]) {
+      const dryRun = v["dry-run"] === true;
+      const { scanned, changes } = await backfillOccurredAt(store, {
+        ns,
+        dryRun,
+      });
+      const lines = changes.map(
+        (c) => `${c.id}  ${c.from} -> ${c.to}${dryRun ? "  (dry run)" : ""}`,
+      );
+      lines.push(
+        `scanned ${scanned} entities, ${dryRun ? "would restore" : "restored"} ${changes.length}`,
+      );
+      emit(v, lines.join("\n"), { scanned, restored: changes.length, changes });
       return 0;
     }
     const { scanned, created, unrepairable } = await backfillAuthorship(
