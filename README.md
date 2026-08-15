@@ -75,6 +75,13 @@ retriever** — and higher accuracy than both, on a fifth to a twentieth of the
 context. The hybrid buys its 71.4% with a 22.8k-token injection, most of a
 small model's context window spent on one question.
 
+That hybrid row is the published pipeline of a system that scores 84.4% under
+the benchmark's official evaluation — frontier reader, full question set; on
+this rig the same pipeline scores 71.4%. The 13 points are the reader's, not
+the retrieval's, and adding them back puts yoke's 73.8% at ~87% under the
+official conditions — the range of the top published systems, on a twentieth of
+the injected context.
+
 Every record also arrives with its citation, which a pasted passage cannot do.
 
 ## At a glance
