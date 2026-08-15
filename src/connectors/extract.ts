@@ -52,12 +52,39 @@ export function typeMenu(ontology: TypeDef[]): string {
 }
 
 /**
+ * The two rules `YOKE_EXTRACT_PROMPT=v2` adds, and why they are a variant rather than the default.
+ *
+ * Measured on a personal-conversation corpus: the menu in rule 4 is entirely work-shaped, so a
+ * casual "a thing I did" matched nothing and was filed nowhere at all ("I even planted a beautiful
+ * herb garden" → zero records from a healthy call), and where an event WAS filed the evaluation
+ * beside it was dropped ("tried attending a film festival … felt overwhelmed" stored only the
+ * attending). The evaluation is the half a preference question asks about.
+ *
+ * Additive on purpose: the work shapes stay, and the exclusions in rule 3 are restated rather than
+ * relaxed — a previous run that loosened them bought spurious records, and only strengthening the
+ * descriptions helped. Off by default until it has been measured against a work transcript too.
+ */
+const V2_RULES = `
+7. An experience someone in the transcript had is knowledge as well: something they did, tried,
+   made, took up or lived through, and how it went for them — a hobby, a trip, a thing built at
+   home, an event attended. File it even when it matches none of the shapes in rule 4. This does not
+   relax rule 3: a greeting, small talk and a passing pleasantry still carry no claim and stay out.
+8. When one sentence carries both an event and how the speaker judged it — that it was overwhelming,
+   that they loved it, that they would not do it again — keep both clauses in the record. Never file
+   the event with the judgement dropped: the judgement is what someone asks about later.
+`;
+
+/**
  * Why rule 6 exists, and why `quoted` below enforces it rather than trusting it: an extractor's
  * failure mode is not silence, it is a fluent record nobody said. Requiring a verbatim span makes the
  * claim checkable in code, and a model that cannot find the span usually could not have found the
  * knowledge either.
+ *
+ * `variant` is `YOKE_EXTRACT_PROMPT`. Only `"v2"` means anything; every other value, including
+ * unset, returns the default prompt unchanged.
  */
-export function systemPrompt(ontology: TypeDef[]): string {
+export function systemPrompt(ontology: TypeDef[], variant?: string): string {
+  const extra = variant === "v2" ? V2_RULES : "";
   return `You extract durable knowledge from a raw work transcript into records.
 
 Record types available. Use only these types, and only these attributes:
@@ -78,7 +105,7 @@ Rules:
 5. Write each record in the language the transcript uses.
 6. quote: copy a verbatim span of the transcript that this record rests on — copied exactly,
    character for character, not paraphrased. If you cannot quote it, do not extract it.
-
+${extra}
 Return a JSON array and nothing else. No prose, no code fence:
 [{"type": "...", "attributes": {...}, "quote": "..."}]`;
 }
@@ -417,7 +444,7 @@ export function makeJsonCaller(
 export function makeFetchExtractor(env: Env, ontology: TypeDef[]): Extractor {
   const call = makeJsonCaller(env, "extraction");
   if (!call) return async () => null;
-  const system = systemPrompt(ontology);
+  const system = systemPrompt(ontology, env.YOKE_EXTRACT_PROMPT);
   return async (text: string): Promise<Extracted[] | null> => {
     const items = await call(system, text);
     return items === null ? null : keepGrounded(items, text, ontology);

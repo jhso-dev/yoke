@@ -48,6 +48,40 @@ describe("systemPrompt", () => {
     // title is optional on a fact and must not be advertised as required
     expect(p).toContain("- fact — title: string, statement: string (required)");
   });
+
+  // YOKE_EXTRACT_PROMPT=v2 — the personal-conversation variant. Measured defects it answers: a
+  // casual "a thing I did" matched none of rule 4's work shapes and was filed nowhere, and an event
+  // that WAS filed lost the evaluation stated in the same sentence.
+  it("leaves the prompt alone unless v2 is asked for by name", () => {
+    const base = systemPrompt(ont);
+    expect(base).toBe(systemPrompt(ont, undefined));
+    expect(base).toBe(systemPrompt(ont, ""));
+    // An unrecognised value is the default, not a half-applied variant.
+    expect(base).toBe(systemPrompt(ont, "v3"));
+    expect(base).toBe(systemPrompt(ont, "V2"));
+    expect(base).not.toContain("7.");
+    expect(base).toContain(
+      "do not extract it.\n\nReturn a JSON array and nothing else.",
+    );
+  });
+
+  it("v2 adds a slot for an experience and orders the evaluation kept with it", () => {
+    const p = systemPrompt(ont, "v2");
+    expect(p).toContain("An experience someone in the transcript had");
+    expect(p).toContain(
+      "File it even when it matches none of the shapes in rule 4",
+    );
+    expect(p).toContain("keep both clauses in the record");
+    // Additive: the work shapes and the quote requirement are still there, in place.
+    expect(p).toContain("a decision and the reason for it");
+    expect(p).toContain("quote: copy a verbatim span");
+    expect(p).toContain("- fact — title: string, statement: string (required)");
+    // The exclusions are restated, never loosened — loosening them bought spurious records.
+    expect(p).toContain("greetings and chitchat");
+    expect(p).toContain("This does not\n   relax rule 3");
+    // Still the last instruction, so the output contract is not buried mid-prompt.
+    expect(p.trimEnd().endsWith('"quote": "..."}]')).toBe(true);
+  });
 });
 
 describe("parseItems", () => {
@@ -248,6 +282,27 @@ describe("makeFetchExtractor", () => {
       expect(got?.[0].attributes.statement).toBe(
         "chunking is deliberately dumb",
       );
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("sends the v2 prompt only when YOKE_EXTRACT_PROMPT asks for it", async () => {
+    const original = globalThis.fetch;
+    const bodies: string[] = [];
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      bodies.push(String(init.body));
+      return { ok: true, body: sse(JSON.stringify(ITEMS)) };
+    }) as unknown as typeof fetch;
+    try {
+      const env = { YOKE_LLM_URL: "https://x", YOKE_LLM_MODEL: "m" };
+      await makeFetchExtractor(env, ont)(source);
+      await makeFetchExtractor(
+        { ...env, YOKE_EXTRACT_PROMPT: "v2" },
+        ont,
+      )(source);
+      expect(bodies[0]).not.toContain("An experience someone");
+      expect(bodies[1]).toContain("An experience someone");
     } finally {
       globalThis.fetch = original;
     }
