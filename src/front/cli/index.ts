@@ -2034,5 +2034,11 @@ function isMain(): boolean {
 if (isMain()) {
   // Before runCli, so `env = process.env` already carries the file's values.
   loadDotEnv();
-  runCli(process.argv.slice(2)).then((code) => process.exit(code));
+  // exitCode, not process.exit(): exit() drops whatever stdout has buffered but not yet flushed,
+  // and stdout to a PIPE is async. Measured: `yoke graph --json` on a 68-record store wrote 125,169
+  // bytes to a file and exactly 65,536 — one pipe buffer — into `| wc -c`, so every JSON consumer
+  // that pipes got truncated output and a parse error. Letting node exit on its own flushes first.
+  runCli(process.argv.slice(2)).then((code) => {
+    process.exitCode = code;
+  });
 }
