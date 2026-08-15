@@ -205,7 +205,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
   });
 
   it("UI shell (GET /) stays ungated even under auth", async () => {
-    const res = await fetch(run.base + "/");
+    const res = await fetch(`${run.base}/`);
     expect(res.status).toBe(200);
     // Asserted against a fixture bundle: this test is about the shell staying UNGATED, and must not
     // also depend on whether dist/ happens to hold a real build.
@@ -220,7 +220,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     }).token;
     const client = new Client({ name: "t", version: "0" });
     await client.connect(
-      new StreamableHTTPClientTransport(new URL(run.base + "/mcp"), {
+      new StreamableHTTPClientTransport(new URL(`${run.base}/mcp`), {
         requestInit: { headers: { authorization: `Bearer ${writeToken}` } },
       }),
     );
@@ -255,7 +255,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
   // reaches the UI handler's readBody — so it needs its own cap, on the only surface that can face a
   // non-loopback interface.
   it("MCP endpoint caps the request body and validates content-type", async () => {
-    const big = await fetch(run.base + "/mcp", {
+    const big = await fetch(`${run.base}/mcp`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -266,7 +266,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     expect(big.status).toBe(400);
     expect((await big.json()).error).toContain("too large");
 
-    const wrongType = await fetch(run.base + "/mcp", {
+    const wrongType = await fetch(`${run.base}/mcp`, {
       method: "POST",
       headers: {
         "content-type": "text/plain",
@@ -321,7 +321,7 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
   });
 
   const get = (tok: string) =>
-    fetch(run.base + "/api/review", {
+    fetch(`${run.base}/api/review`, {
       headers: { authorization: `Bearer ${tok}` },
     });
 
@@ -445,10 +445,10 @@ describe("read replica (PLAN-V2 11.2)", () => {
     const run = await listen(server);
 
     // GET read works.
-    expect((await fetch(run.base + "/api/ontology")).status).toBe(200);
+    expect((await fetch(`${run.base}/api/ontology`)).status).toBe(200);
 
     // POST /api/verify → 409 with the read-only message.
-    const vres = await fetch(run.base + "/api/verify", {
+    const vres = await fetch(`${run.base}/api/verify`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ids: [d.entity.id] }),
@@ -461,7 +461,7 @@ describe("read replica (PLAN-V2 11.2)", () => {
     // MCP: commit tool rejected (write denied), inject still works (read).
     const client = new Client({ name: "rep", version: "0" });
     await client.connect(
-      new StreamableHTTPClientTransport(new URL(run.base + "/mcp")),
+      new StreamableHTTPClientTransport(new URL(`${run.base}/mcp`)),
     );
     const commitRes = await client.callTool({
       name: "yoke_commit",
@@ -499,7 +499,7 @@ describe("read replica (PLAN-V2 11.2)", () => {
 
     const client2 = new Client({ name: "rep2", version: "0" });
     await client2.connect(
-      new StreamableHTTPClientTransport(new URL(run.base + "/mcp")),
+      new StreamableHTTPClientTransport(new URL(`${run.base}/mcp`)),
     );
     const injectRes2 = await client2.callTool({
       name: "yoke_inject",
@@ -603,12 +603,12 @@ describe("serve smoke (auth off)", () => {
       }),
     );
 
-    const htmlRes = await fetch(run.base + "/");
+    const htmlRes = await fetch(`${run.base}/`);
     expect(await htmlRes.text()).toContain("fixture shell");
 
     const client = new Client({ name: "smoke", version: "0" });
     await client.connect(
-      new StreamableHTTPClientTransport(new URL(run.base + "/mcp")),
+      new StreamableHTTPClientTransport(new URL(`${run.base}/mcp`)),
     );
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([

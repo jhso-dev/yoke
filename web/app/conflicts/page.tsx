@@ -31,7 +31,6 @@ export default function Conflicts() {
   // Which side is being retired, so the OTHER side's button is refused while it happens: two quick
   // clicks used to retire both halves of a contradiction.
   const [busy, setBusy] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<unknown>(null);
   const [downstream, setDownstream] = useState<Knowledge[]>([]);
 
   const side = (s: ConflictPair["from"]) => {
@@ -110,7 +109,7 @@ export default function Conflicts() {
       <h1>{t.conflicts.heading}</h1>
       <p className="lede">{t.conflicts.lede}</p>
       <ErrorBanner
-        error={pairs.error ?? actionError}
+        error={pairs.error}
         onRetry={pairs.error ? pairs.reload : undefined}
       />
       <Downstream rows={downstream} />

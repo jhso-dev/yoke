@@ -84,7 +84,7 @@ describe("resolveAssetPath (trust boundary)", () => {
 
 describe("static handler", () => {
   it("serves the shell with a CSP and no-cache, and hashed chunks as immutable", async () => {
-    const shell = await fetch(base + "/");
+    const shell = await fetch(`${base}/`);
     expect(shell.status).toBe(200);
     expect(shell.headers.get("content-type")).toContain("text/html");
     expect(shell.headers.get("cache-control")).toBe("no-cache");
@@ -94,13 +94,13 @@ describe("static handler", () => {
     expect(shell.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await shell.text()).toContain("shell");
 
-    const chunk = await fetch(base + "/_next/static/chunk.js");
+    const chunk = await fetch(`${base}/_next/static/chunk.js`);
     expect(chunk.headers.get("cache-control")).toContain("immutable");
     expect(chunk.headers.get("content-type")).toContain("text/javascript");
   });
 
   it("gzips a large textual asset when asked, and not otherwise", async () => {
-    const zipped = await fetch(base + "/_next/static/chunk.js", {
+    const zipped = await fetch(`${base}/_next/static/chunk.js`, {
       headers: { "accept-encoding": "gzip" },
     });
     expect(zipped.headers.get("content-encoding")).toBe("gzip");
@@ -109,21 +109,21 @@ describe("static handler", () => {
     expect((await zipped.text()).length).toBeGreaterThan(1024);
 
     // The shell is under 1 KiB → not worth compressing.
-    const small = await fetch(base + "/", {
+    const small = await fetch(`${base}/`, {
       headers: { "accept-encoding": "gzip" },
     });
     expect(small.headers.get("content-encoding")).toBeNull();
   });
 
   it("returns false (caller 404s) for an unresolvable path, and never serves outside root", async () => {
-    expect((await fetch(base + "/nope")).status).toBe(404);
-    const escaped = await fetch(base + "/%2e%2e%2fsecret.txt");
+    expect((await fetch(`${base}/nope`)).status).toBe(404);
+    const escaped = await fetch(`${base}/%2e%2e%2fsecret.txt`);
     expect(escaped.status).toBe(404);
     expect(await escaped.text()).not.toContain("do not serve me");
   });
 
   it("answers HEAD with headers and no body", async () => {
-    const res = await fetch(base + "/", { method: "HEAD" });
+    const res = await fetch(`${base}/`, { method: "HEAD" });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-length")).toBe("14");
     expect(await res.text()).toBe("");

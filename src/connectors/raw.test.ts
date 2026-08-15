@@ -369,7 +369,7 @@ describe("chunkText", () => {
   });
 
   it("covers the whole text", () => {
-    const text = "x".repeat(1000) + "END";
+    const text = `${"x".repeat(1000)}END`;
     expect(chunkText(text, 100, 10).join("")).toContain("END");
   });
 });

@@ -128,7 +128,7 @@ describe("slack connector", () => {
 
   it("retries on 429 honoring Retry-After (seen live: replies rate limit)", async () => {
     let calls = 0;
-    const rateLimitedOnce = (async (url: string | URL) => {
+    const rateLimitedOnce = (async (_url: string | URL) => {
       calls += 1;
       if (calls === 1) {
         return {
