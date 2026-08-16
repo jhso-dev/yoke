@@ -12,7 +12,7 @@
 
 ontology-based knowledge database · governed context injection for AI agents · MCP-native
 
-MIT · feature-complete through v5.9 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
+MIT · feature-complete through v6.1 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
 
 **English** | [한국어](README.ko.md)
 
@@ -60,8 +60,8 @@ Trust isn't a promise here — it's five mechanisms, each enforced in code:
    politest form of misinformation, and yoke treats them that way.
 
 And it's measured, not asserted: the injection-quality eval reports **0%
-contamination** (no draft, stale or retired record reaching an injection) and
-**0% missed contradictions** on its planted pairs (see below). Read it for what
+contamination** (no draft record reaching an injection — drafts are what it
+plants) and **0% missed contradictions** on its planted pairs (see below). Read it for what
 it covers: a synthetic corpus and a stub embedder, so it measures the filter and
 the detection wiring rather than retrieval quality on your data — `npm run
 eval:retrieval` is the one that measures that, against a gold set.
@@ -302,7 +302,8 @@ yoke init | add | get | search | list | link | verify | deprecate
 yoke review [--stale]                         # drafts awaiting review / verified past their TTL
 yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--limit n]             # the corpus at a glance / as edges
-yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
+yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
+yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
 yoke connect github-pr|slack|notes|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
@@ -336,7 +337,7 @@ judgment would be impersonation.
 
 ## Measuring quality
 
-yoke measures two different things, and they answer different questions.
+yoke measures three different things, and they answer different questions.
 
 **Injection quality** (`npm run eval`) — does the filter hold, and is the detection
 wired up:
@@ -346,16 +347,23 @@ wired up:
 | Contamination rate | Share of draft entries among inject results | 0% | **0.0%** (only the 20 verified of 40 candidates were injected) |
 | Missed-contradiction rate | Share of opposing-conclusion decision pairs with no conflicts_with edge | 0% | **0.0%** (5/5 detected) |
 
-Read those two numbers for what they cover: a 45-record synthetic corpus and a stub
+Read those two numbers for what they cover: a 50-record synthetic corpus and a stub
 embedder whose vectors are built from the planted topic word, so the contradiction
 figure measures that stage 4 runs and files the edge — not that a real embedding model
 would notice. Precision is not measured on either axis.
 
+**Persona quality** (`npm run eval:persona`) — does a persona return that person's
+verified judgment and nothing else. Five planted failure modes (a colleague's records on
+the same topics, association without authorship, sources someone else wrote, the
+person's own drafts, their own aged records): impersonation, draft-leak and stale-leak
+rates **0%**, recall **100%** whole and under a topic query.
+
 **Retrieval quality** (`npm run eval:retrieval -- <db>`) — does the right record come
 back, over `eval/gold-set.json` on a loaded corpus. This is the one that measures search
 against real text, and it reports its own weak spots rather than a headline: on the demo
-corpus, keyword-only retrieval scores recall@10 59.2% overall but 52.0% on
-question-shaped queries against 95.5% on keyword-shaped ones.
+corpus, keyword-only retrieval scores recall@10 58.5% overall but 51.1% on
+question-shaped queries against 95.5% on keyword-shaped ones (docs/RESEARCH.md,
+measured 2026-08-05).
 
 ## Docs
 
@@ -366,7 +374,7 @@ question-shaped queries against 95.5% on keyword-shaped ones.
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
 | [WEB-UI](docs/WEB-UI.md) | The governance workbench — the twelve screens and the line we don't cross |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.9 built, in order, each section a record |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v6.1 built, in order, each section a record |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
 | [MARKET](docs/MARKET.md) | Competitive landscape and positioning |

@@ -12,7 +12,7 @@
 
 온톨로지 기반 지식 데이터베이스 · AI 에이전트를 위한 거버넌스 컨텍스트 주입 · MCP 네이티브
 
-MIT · v5.9까지 기능 완성 · [비주얼 소개](https://claude.ai/code/artifact/09d92d76-5eee-453d-ae79-ec40616f6396)
+MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/artifact/09d92d76-5eee-453d-ae79-ec40616f6396)
 
 [English](README.md) | **한국어**
 
@@ -56,8 +56,8 @@ MIT · v5.9까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
    빠집니다. 낡은 진실은 가장 정중한 형태의 허위정보이고, yoke는 그렇게
    취급합니다.
 
-그리고 주장이 아니라 측정입니다: 주입 품질 eval은 **오염률 0%**(draft·stale·폐기
-레코드가 주입에 닿지 않음)와, 심어둔 쌍에 대한 **모순 미탐지율 0%**를
+그리고 주장이 아니라 측정입니다: 주입 품질 eval은 **오염률 0%**(draft 레코드가
+주입에 닿지 않음 — 심는 것이 draft입니다)와, 심어둔 쌍에 대한 **모순 미탐지율 0%**를
 보고합니다(아래 참고). 다만 범위를 그대로 읽으세요: 합성 코퍼스와 스텁 임베더를
 쓰므로 필터와 탐지 배선을 측정하는 것이고, 실제 데이터에서의 검색 품질은
 `npm run eval:retrieval`이 gold set으로 측정합니다.
@@ -253,7 +253,8 @@ yoke init | add | get | search | list | link | verify | deprecate
 yoke review [--stale]                         # 검토 대기 draft / TTL 지난 verified
 yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--limit n]             # 코퍼스 한눈에 보기 / 엣지로 보기
-yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
+yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
+yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
 yoke connect github-pr|slack|notes|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
@@ -298,14 +299,14 @@ recall 벤치마크 대신, yoke는 **주입 품질**을 측정합니다(`npm ru
 | 오염률 | 주입 결과 중 draft 비율 | 0% | **0.0%** (후보 40건 중 verified 20건만 주입) |
 | 모순 미탐지율 | 반대 결론 decision 쌍 중 conflicts_with 미연결 비율 | 0% | **0.0%** (5/5 탐지) |
 
-이 두 숫자의 범위를 그대로 읽으세요: 45건 합성 코퍼스와, 심어둔 주제어로 벡터를 만드는
+이 두 숫자의 범위를 그대로 읽으세요: 50건 합성 코퍼스와, 심어둔 주제어로 벡터를 만드는
 스텁 임베더입니다. 그래서 모순 수치는 게이트 4단계가 돌아 엣지를 만든다는 뜻이고, 실제
 임베딩 모델이 알아챈다는 뜻은 아닙니다. 정밀도는 어느 축에서도 측정하지 않습니다.
 
 **검색 품질**은 `npm run eval:retrieval -- <db>`가 `eval/gold-set.json`으로 따로
 측정합니다 — 실제 텍스트에 대한 검색을 재는 쪽이고, 헤드라인 대신 약점을 그대로
-출력합니다: 데모 코퍼스에서 키워드 검색 recall@10은 전체 59.2%지만 문장형 질의는
-52.0%, 키워드형 질의는 95.5%입니다.
+출력합니다: 데모 코퍼스에서 키워드 검색 recall@10은 전체 58.5%지만 문장형 질의는
+51.1%, 키워드형 질의는 95.5%입니다(docs/RESEARCH.md, 2026-08-05 측정).
 
 ## 문서
 
@@ -316,7 +317,7 @@ recall 벤치마크 대신, yoke는 **주입 품질**을 측정합니다(`npm ru
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | 게이트, 라이프사이클, 주입 필터 규칙 |
 | [SPEC](docs/SPEC.md) | 구현 계약 — 스키마, port, 게이트, MCP 도구, CLI |
 | [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 12개 화면과 넘지 않는 선 |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.9 구현 완료 — 버전 순서대로, 각 절이 기록 |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v6.1 구현 완료 — 버전 순서대로, 각 절이 기록 |
 | [BACKENDS](docs/BACKENDS.md) | 어댑터 확장 + RDB read-mapping (실사용 검증 노트 포함) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 복제, 샤딩 |
 | [MARKET](docs/MARKET.md) | 경쟁 지형과 포지셔닝 |
