@@ -98,6 +98,15 @@ const normalize = (s: string): string =>
     .trim();
 
 /**
+ * The shortest quote that is evidence of anything, after normalization.
+ *
+ * Emptiness has to be judged on the NORMALIZED quote, not the raw one: `***` and a line of
+ * whitespace both survive a `trim()` check and then normalize to "", which every source contains, so
+ * they would ground trivially. A span this short cannot identify a passage either way.
+ */
+const MIN_QUOTE_CHARS = 8;
+
+/**
  * Drop every proposal whose quote is not actually in the source, and everything malformed.
  *
  * The gate revalidates all of this (unknown type, missing required attribute), so this is not
@@ -119,8 +128,10 @@ export function keepGrounded(
     if (typeof type !== "string" || !allowed.has(type)) continue;
     if (typeof attributes !== "object" || attributes === null) continue;
     if (Array.isArray(attributes)) continue;
-    if (typeof quote !== "string" || quote.trim() === "") continue;
-    if (!hay.includes(normalize(quote))) continue;
+    if (typeof quote !== "string") continue;
+    const needle = normalize(quote);
+    if (needle.length < MIN_QUOTE_CHARS) continue;
+    if (!hay.includes(needle)) continue;
     out.push({
       type,
       attributes: attributes as Record<string, unknown>,

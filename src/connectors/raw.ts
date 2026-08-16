@@ -147,6 +147,11 @@ const OVERLAP_CHARS = 600;
  */
 const MAX_CHUNKS = 40;
 
+/** How far one window starts past the last. Shared with the truncation check, which has to know
+ * exactly how far the windows reached and cannot restate this arithmetic without drifting from it. */
+const stepOf = (size: number, overlap = OVERLAP_CHARS): number =>
+  Math.max(1, size - overlap);
+
 /** Split into overlapping windows. One window when the text already fits. */
 export function chunkText(
   text: string,
@@ -154,7 +159,7 @@ export function chunkText(
   overlap = OVERLAP_CHARS,
 ): string[] {
   if (text.length <= size) return [text];
-  const step = Math.max(1, size - overlap);
+  const step = stepOf(size, overlap);
   const out: string[] = [];
   for (let i = 0; i < text.length && out.length < MAX_CHUNKS; i += step) {
     out.push(text.slice(i, i + size));
@@ -269,8 +274,11 @@ export function makeRawConnector(opts: {
         const occurredAt = sourceTime(rel, contents, fs.statSync(path).mtime);
         read++;
         const chunks = chunkText(text, opts.chunkChars);
-        const covered =
-          chunks.length * (opts.chunkChars ?? DEFAULT_CHUNK_CHARS);
+        // Windows STEP by size − overlap, so what they reached is not chunks × size: counting it
+        // that way overstates the coverage by the overlap on every boundary and a file inside that
+        // band is truncated with no warning at all.
+        const size = opts.chunkChars ?? DEFAULT_CHUNK_CHARS;
+        const covered = (chunks.length - 1) * stepOf(size) + size;
         if (chunks.length === MAX_CHUNKS && covered < text.length)
           console.error(
             `yoke: ${rel} is ${text.length} characters and was read to the ${MAX_CHUNKS}-chunk cap — the tail was not extracted`,

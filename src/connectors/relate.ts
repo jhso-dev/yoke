@@ -9,7 +9,7 @@
 //     this affordable at all (extraction of one corpus is hours; relating it is minutes);
 //   - it works on records from any connector, not just raw material a model read.
 
-import type { TypeDef } from "../core/ontology.js";
+import { BOOKKEEPING_ATTRS, type TypeDef } from "../core/ontology.js";
 import type { Entity } from "../core/types.js";
 import type { StoragePort } from "../ports/storage.js";
 import { makeJsonCaller, numEnv } from "./extract.js";
@@ -96,29 +96,27 @@ export function refsFor(
 /**
  * Rank records the way their sources present them: by the time the source gave, then by the
  * external id, which for an ordered source ends in the record's position within it
- * (`raw:<file>#<n>`). Records with neither fall back to insertion order, which claims nothing.
+ * (`raw:<file>#<n>`).
+ *
+ * The rank is the position of the KEY among the distinct keys, not the row's position in a sorted
+ * array — records the source gives no order for have to come out EQUAL, since that equality is what
+ * makes `keepLinkable` drop a directionless `supersedes`. Ranking by row position would number them
+ * 3 and 4 and hand the check a direction nobody claimed.
+ *
+ * Keys compare by code unit rather than through `localeCompare`: the separator is a control
+ * character, and a collation is free to ignore it — which would let a timestamp run into the id
+ * beside it.
  */
 export function rankOf(records: Entity[]): (e: Entity) => number {
   const key = (e: Entity) =>
     `${e.provenance.occurred_at}\u0000${String(
       e.attributes.external_id ?? "",
     ).replace(/#(\d+)$/, (_m, n) => `#${String(n).padStart(9, "0")}`)}`;
-  const ranked = [...records].sort((a, b) => key(a).localeCompare(key(b)));
-  const at = new Map(ranked.map((e, i) => [e.id, i]));
+  const distinct = [...new Set(records.map(key))].sort();
+  const rankOfKey = new Map(distinct.map((k, i) => [k, i]));
+  const at = new Map(records.map((e) => [e.id, rankOfKey.get(key(e)) ?? 0]));
   return (e: Entity) => at.get(e.id) ?? 0;
 }
-
-/** Attributes that are bookkeeping rather than what a record says. `sources` is excluded for a
- * different reason than the rest: it is the verbatim span, often longer than the record, and a batch
- * of quotes crowds out the records the model is being asked to compare. */
-const NOT_CONTENT = new Set([
-  "external_id",
-  "sources",
-  "author",
-  "topic",
-  "key",
-  "status",
-]);
 
 /**
  * A record as the RELATER needs to read it: every attribute that carries meaning, in declared order.
@@ -143,7 +141,7 @@ export function relateText(
   ];
   const parts: string[] = [];
   for (const key of keys) {
-    if (NOT_CONTENT.has(key)) continue;
+    if (BOOKKEEPING_ATTRS.has(key)) continue;
     const val = entity.attributes[key];
     if (typeof val === "string" && val.trim()) parts.push(val.trim());
     else if (Array.isArray(val))
@@ -317,17 +315,43 @@ export function makeFetchRelater(
   };
 }
 
-/** The stored records a relating run considers, oldest first so `supersedes` has a direction to find. */
+/** How many rows one enumeration page holds. Only `limit` of them are ever kept. */
+const SCAN_PAGE = 500;
+
+/**
+ * The stored records a relating run considers: the NEWEST `limit`, returned oldest first so
+ * `supersedes` has a direction to find.
+ *
+ * Newest, because the record that supersedes another is the later one — a window taken from the old
+ * end of a corpus contains the claims that were replaced and none of the replacements, so the run
+ * cannot propose the edge it exists for. Enumerated as keyset pages and trimmed to the window after
+ * each one, so a namespace larger than the window is never materialized whole.
+ */
 export async function candidates(
   port: StoragePort,
   ns: string | null | undefined,
   limit: number,
 ): Promise<Entity[]> {
-  const { items } = await port.listEntities({ ns: ns ?? undefined });
-  return items
-    .filter((e: Entity) => e.status === "verified" || e.status === "draft")
-    .sort((a: Entity, b: Entity) =>
-      a.provenance.occurred_at.localeCompare(b.provenance.occurred_at),
-    )
-    .slice(0, limit);
+  const byTime = (a: Entity, b: Entity) =>
+    a.provenance.occurred_at < b.provenance.occurred_at
+      ? -1
+      : a.provenance.occurred_at > b.provenance.occurred_at
+        ? 1
+        : 0;
+  const kept: Entity[] = [];
+  let after: string | undefined;
+  do {
+    const page = await port.listEntities({
+      ns: ns ?? undefined,
+      after,
+      limit: SCAN_PAGE,
+    });
+    for (const e of page.items)
+      if (e.status === "verified" || e.status === "draft") kept.push(e);
+    // Stable: rows arrive in id order, so records sharing a timestamp keep it.
+    kept.sort(byTime);
+    if (kept.length > limit) kept.splice(0, kept.length - limit);
+    after = page.next ?? undefined;
+  } while (after);
+  return kept;
 }

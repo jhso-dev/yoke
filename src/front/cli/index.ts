@@ -1180,12 +1180,16 @@ async function cmdRelate(v: Values, env: Env): Promise<number> {
     );
     let added = 0;
     let existed = 0;
-    let failed = 0;
+    // A call that never answered and a proposal the gate refused are different failures: the first
+    // says the endpoint is unreachable, the second says the model answered and was wrong. Counted
+    // together, a corpus whose every proposal is a duplicate edge reports an outage.
+    let failedCalls = 0;
+    let rejected = 0;
     const rejections = new Map<string, number>();
     for (const { refs, byRef } of groups) {
       const proposed = await relater(refs);
       if (proposed === null) {
-        failed++;
+        failedCalls++;
         continue;
       }
       for (const p of proposed) {
@@ -1216,13 +1220,13 @@ async function cmdRelate(v: Values, env: Env): Promise<number> {
           // of rejections tells nobody what to change. The reason is the whole value of the number:
           // a model naming an undeclared attribute is a prompt to fix, and a gate refusing a
           // duplicate edge is nothing to fix at all.
-          failed++;
+          rejected++;
           const why = (e as Error).message;
           rejections.set(why, (rejections.get(why) ?? 0) + 1);
         }
       }
     }
-    if (failed > 0 && added === 0 && existed === 0) {
+    if (failedCalls > 0 && added === 0 && existed === 0 && rejected === 0) {
       console.error(
         `yoke: every relating call failed over ${records.length} records — nothing was linked. Check that YOKE_LLM_URL is reachable.`,
       );
@@ -1230,12 +1234,21 @@ async function cmdRelate(v: Values, env: Env): Promise<number> {
     }
     for (const [why, n] of [...rejections].sort((a, b) => b[1] - a[1]))
       console.error(`yoke: ${n} proposal(s) rejected — ${why}`);
-    emit(v, `linked ${added}, already linked ${existed}, rejected ${failed}`, {
-      added,
-      existed,
-      failed,
-      rejections: Object.fromEntries(rejections),
-    });
+    if (failedCalls > 0)
+      console.error(
+        `yoke: ${failedCalls} of ${groups.length} relating call(s) never answered — those records were not considered`,
+      );
+    emit(
+      v,
+      `linked ${added}, already linked ${existed}, rejected ${rejected}`,
+      {
+        added,
+        existed,
+        rejected,
+        failedCalls,
+        rejections: Object.fromEntries(rejections),
+      },
+    );
     return 0;
   });
 }

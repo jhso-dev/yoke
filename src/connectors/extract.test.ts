@@ -150,6 +150,14 @@ describe("keepGrounded", () => {
     expect(keepGrounded([elided], source, ont)).toEqual([]);
   });
 
+  // Emptiness is judged after normalization, not before: `***` survives a trim and then normalizes
+  // to "", which every source contains, so a record resting on nothing would ground perfectly.
+  it("drops a quote that is only formatting, or too short to identify a passage", () => {
+    expect(keepGrounded([item({ quote: "***" })], source, ont)).toEqual([]);
+    expect(keepGrounded([item({ quote: "   " })], source, ont)).toEqual([]);
+    expect(keepGrounded([item({ quote: "we keep" })], source, ont)).toEqual([]);
+  });
+
   it("drops a type the ontology does not offer for extraction", () => {
     expect(keepGrounded([item({ type: "person" })], source, ont)).toEqual([]);
     expect(keepGrounded([item({ type: "nonsense" })], source, ont)).toEqual([]);

@@ -5,9 +5,12 @@
 // is structural, and these tests are that net.
 
 import { describe, expect, it, vi } from "vitest";
+import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
+import { commit } from "../core/commit.js";
 import { seedOntology } from "../core/ontology.js";
 import type { Entity } from "../core/types.js";
 import {
+  candidates,
   keepLinkable,
   linkableTypes,
   makeFetchRelater,
@@ -233,6 +236,41 @@ describe("rankOf", () => {
     ];
     const rank = rankOf(records);
     expect(rank(records[1])).toBeLessThan(rank(records[0]));
+  });
+
+  // Equal has to mean equal: keepLinkable drops a supersedes between records of the same rank, and
+  // a rank read off an array position would number two orderless records 0 and 1 and let it through.
+  it("ranks records the source gave no order for equal", () => {
+    const t = "2026-08-12T13:00:28.878Z";
+    const records = [rec("a", t), rec("b", t), rec("c", t)];
+    const rank = rankOf(records);
+    expect(rank(records[0])).toBe(rank(records[1]));
+    expect(rank(records[1])).toBe(rank(records[2]));
+  });
+});
+
+describe("candidates", () => {
+  // A window taken from the OLD end of a corpus holds the claims that were replaced and none of the
+  // replacements, so the run cannot propose the supersedes it exists for.
+  it("takes the newest records, and returns them oldest first", async () => {
+    const port = new SqliteStorage(":memory:");
+    await port.init();
+    for (let i = 0; i < 6; i++) {
+      const at = `2026-0${i + 1}-01T00:00:00.000Z`;
+      await commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement: `record ${i}` } },
+        { actor: "t", origin: "cli", occurred_at: at },
+        at,
+      );
+    }
+    const got = await candidates(port, undefined, 3);
+    expect(got.map((e) => e.attributes.statement)).toEqual([
+      "record 3",
+      "record 4",
+      "record 5",
+    ]);
   });
 });
 

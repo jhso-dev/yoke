@@ -5,7 +5,7 @@
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { seedOntology } from "../core/ontology.js";
 import type { Extracted } from "./extract.js";
@@ -264,6 +264,25 @@ describe("makeRawConnector", () => {
     rmSync(solo, { recursive: true, force: true });
     expect(offsets.length).toBeGreaterThan(3);
     expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
+  });
+
+  // Windows STEP by size − overlap, so the cap reaches far less text than chunks × size. Counting
+  // it the wrong way leaves a whole band of file sizes truncated with nothing said about it.
+  it("says so when the chunk cap stopped short of the end", async () => {
+    const solo = mkdtempSync(join(tmpdir(), "yoke-cap-"));
+    writeFileSync(join(solo, "long.md"), "x".repeat(5_000));
+    const said: string[] = [];
+    const spy = vi
+      .spyOn(console, "error")
+      .mockImplementation((m: unknown) => void said.push(String(m)));
+    for await (const _ of makeRawConnector({
+      dir: solo,
+      extract: async () => [],
+      chunkChars: 100,
+    }).pull());
+    spy.mockRestore();
+    rmSync(solo, { recursive: true, force: true });
+    expect(said.join("\n")).toContain("the tail was not extracted");
   });
 
   // The two zeroes a caller has to tell apart: an endpoint that went off the network reports the

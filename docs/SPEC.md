@@ -1105,7 +1105,16 @@ property of the material, not a preference.
   whose quote is not present in the source text (whitespace-normalised), which is the one check the
   gate cannot make — only the caller still holds the source to compare against. The surviving quote
   is filed in `attributes.sources`, so a reviewer decides against what was actually said instead of
-  reopening the session.
+  reopening the session. A quote shorter than 8 characters after normalisation is dropped rather than
+  matched: `***` normalises to the empty string, which every source contains.
+- **Quote grounding defends against fabrication, not against a hostile document.** It proves the
+  model did not invent the claim; it cannot prove the SOURCE is honest. Anyone who controls a file in
+  the directory being ingested can write text that says whatever they want and have records proposed
+  that quote it exactly — grounding is satisfied by construction. What contains that is the same
+  thing that contains every other automatic path: everything lands as a `draft`, injection returns
+  verified knowledge by default, and a person has to verify a record before an agent is told it. Read
+  `connect raw` as "a model reading material you already trust", not as a filter that makes untrusted
+  material safe.
 - **In a `.jsonl` transcript, `thinking` blocks, tool calls, tool results and sidechains are dropped
   before the model sees it.** Measured on one 403-record session, 40 records carried prose. Tool results are file
   dumps, so a model handed them extracts the file; a `thinking` block is a model's own reasoning, and

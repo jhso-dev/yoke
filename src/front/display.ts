@@ -6,16 +6,7 @@
 // not — connector-ingested rows summarised as their idempotency key ("rdb:table:1") instead of their
 // knowledge — so every web screen showed the defect the CLI had already fixed. One copy, one fix.
 
-import type { TypeDef } from "../core/ontology.js";
-
-/** Keys that are bookkeeping, never the knowledge. A connector puts external_id first. */
-const NOT_CONTENT = new Set([
-  "external_id",
-  "author",
-  "topic",
-  "key",
-  "status",
-]);
+import { BOOKKEEPING_ATTRS, type TypeDef } from "../core/ontology.js";
 
 /**
  * The compact one-line reading of a record, ≤60 chars.
@@ -32,6 +23,10 @@ const NOT_CONTENT = new Set([
  * 새벽, 주 결제대행사…" instead of its title. What a type declares FIRST is what it wants read.
  *
  * Falls back to the first string that is not bookkeeping, then to "".
+ *
+ * Bookkeeping is skipped in BOTH passes, declared or not: `sources` is a declared attribute (it is
+ * the span a record rests on, and the ontology says so), and a record whose only declared string is
+ * its quote must not read as 60 characters of that quote.
  */
 export function summarize(
   entity: { type: string; attributes: Record<string, unknown> },
@@ -40,13 +35,13 @@ export function summarize(
   const def = ontology.find((t) => t.name === entity.type);
   if (def) {
     for (const [key, spec] of Object.entries(def.attrs)) {
-      if (spec.type !== "string") continue;
+      if (spec.type !== "string" || BOOKKEEPING_ATTRS.has(key)) continue;
       const val = entity.attributes[key];
       if (typeof val === "string" && val) return val.slice(0, 60);
     }
   }
   for (const [key, val] of Object.entries(entity.attributes)) {
-    if (NOT_CONTENT.has(key)) continue;
+    if (BOOKKEEPING_ATTRS.has(key)) continue;
     if (typeof val === "string" && val) return val.slice(0, 60);
   }
   // Everything was bookkeeping: better to show it than to render nothing at all.

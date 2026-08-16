@@ -65,6 +65,24 @@ export type TypeDef = {
   symmetric?: boolean;
 };
 
+/**
+ * Attributes that are bookkeeping rather than what a record says.
+ *
+ * One set, because every surface that reads a record for its meaning needs the same answer: the CLI
+ * and web one-liner (`summarize`), and the text the relater compares records by. `sources` is in it
+ * for a sharper reason than the rest — it holds the verbatim span a record rests on, often longer
+ * than the record itself, so a surface that falls back to it renders a quote dump instead of a
+ * reading, and a batch of them crowds out the records a model is being asked to compare.
+ */
+export const BOOKKEEPING_ATTRS = new Set([
+  "external_id",
+  "sources",
+  "author",
+  "topic",
+  "key",
+  "status",
+]);
+
 /** Whether the actual value matches AttrSpec.type. */
 function matchesType(spec: AttrSpec["type"], value: unknown): boolean {
   switch (spec) {
@@ -128,12 +146,17 @@ export function seedOntology(): TypeDef[] {
     // the Slack and meeting-notes connectors turn a message into a statement and have no honest
     // title to give (inventing one would be writing knowledge nobody recorded). A hand-filed fact
     // adds the title, and then it is what the row reads as.
+    //
+    // `sources` is declared on every type a connector can file, and declared LAST: it is what a
+    // record rests on, so an ontology-driven surface has to offer it — and declared order is what
+    // `summarize` reads, so the quote must never be a type's first declared string.
     {
       name: "fact",
       kind: "entity",
       attrs: {
         title: { type: "string" },
         statement: { type: "string", required: true },
+        sources: { type: "string" },
       },
       ttl_days: 180,
     },
@@ -144,6 +167,7 @@ export function seedOntology(): TypeDef[] {
         conclusion: { type: "string", required: true },
         rationale: { type: "string", required: true },
         rejected_alternatives: { type: "string[]" },
+        sources: { type: "string" },
       },
       ttl_days: 365,
     },
@@ -155,6 +179,7 @@ export function seedOntology(): TypeDef[] {
       attrs: {
         title: { type: "string", required: true },
         statement: { type: "string", required: true },
+        sources: { type: "string" },
       },
     },
     // A resource is a pointer: it needs a name to be referred to, and everything else is optional —
@@ -166,6 +191,7 @@ export function seedOntology(): TypeDef[] {
         title: { type: "string", required: true },
         statement: { type: "string" },
         url: { type: "string" },
+        sources: { type: "string" },
       },
     },
     // One thing being worked on together, for as long as it lasts (v4.0 shared working context). Named
@@ -189,9 +215,27 @@ export function seedOntology(): TypeDef[] {
       structural: true,
     },
     { name: "authored_by", kind: "relation", attrs: {} },
-    { name: "relates_to", kind: "relation", attrs: {}, symmetric: true },
-    { name: "supersedes", kind: "relation", attrs: {} },
-    { name: "conflicts_with", kind: "relation", attrs: {}, symmetric: true },
+    // `rationale` on the three edges a model can propose: what makes the link true, in the words of
+    // whoever (or whatever) claimed it. Declared rather than merely tolerated, because the create
+    // form, the ontology export and every ontology-driven surface offer exactly the declared fields —
+    // undeclared, the one thing a reviewer needs in order to judge an edge had nowhere to be typed.
+    {
+      name: "relates_to",
+      kind: "relation",
+      attrs: { rationale: { type: "string" } },
+      symmetric: true,
+    },
+    {
+      name: "supersedes",
+      kind: "relation",
+      attrs: { rationale: { type: "string" } },
+    },
+    {
+      name: "conflicts_with",
+      kind: "relation",
+      attrs: { rationale: { type: "string" } },
+      symmetric: true,
+    },
     // Links a person to a collaboration they participate in (v4.0). Membership, not knowledge: the
     // roster belongs on the collaboration screen, not in the briefing an agent is handed.
     { name: "works_on", kind: "relation", attrs: {}, membership: true },
