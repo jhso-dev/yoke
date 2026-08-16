@@ -268,6 +268,34 @@ suite("opensearch policies that are contract, not implementation", () => {
     store.close();
     await wipe(prefix);
   });
+
+  it("rebuilds the index key on rename through serializeText, not in Painless", async () => {
+    // The composite case below checks that a renamed row is still FOUND, which both the prose key and
+    // the old `type + ' ' + attributes` script satisfy. These tokens separate them: the prose key
+    // indexes attribute VALUES and the `sources` span, never the attribute NAMES. A rename that
+    // rebuilds the key in a script reverts the row to the json-ish key and fails here.
+    const prefix = "yoketest_renamekey_";
+    await wipe(prefix);
+    const store = make(prefix);
+    await store.init();
+    await store.putEntity({
+      ...base,
+      id: "rk1",
+      type: "fact",
+      version: 1,
+      attributes: { zqattrname: "zqvalue", sources: "zqspanword" },
+    });
+    expect(await store.renameType("fact", "observation")).toBe(1);
+    expect((await store.getEntity("rk1"))?.type).toBe("observation");
+    // The `sources` span is still in the key...
+    expect(
+      (await store.search({ text: "zqspanword" })).map((h) => h.id),
+    ).toEqual(["rk1"]);
+    // ...and the attribute names still are not.
+    expect(await store.search({ text: "zqattrname" })).toEqual([]);
+    store.close();
+    await wipe(prefix);
+  });
 });
 
 suite("composite: knowledge in opensearch, bookkeeping local", () => {

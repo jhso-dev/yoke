@@ -705,7 +705,7 @@ export class OpenSearchStorage implements StoragePort {
    *
    * Rewrites rather than appends, which is the only shape that answers the question — appending would
    * leave the old name in every historical row (ROADMAP v4.0 note). `txt` embeds the type name, so it
-   * is rebuilt from the stored attributes rather than patched.
+   * is rebuilt — see `renameEntityDocs` for why that half cannot be a script.
    */
   async renameType(
     from: string,
@@ -713,29 +713,25 @@ export class OpenSearchStorage implements StoragePort {
     ns?: string | null,
   ): Promise<number> {
     const scope = normalizeNs(ns) ?? "";
-    let changed = 0;
-    for (const name of [this.idx(ENTITIES), this.idx(RELATIONS)]) {
-      await this.ready(name);
-      const res = await this.req<{ updated?: number }>(
-        "POST",
-        `/${name}/_update_by_query?refresh=true`,
-        {
-          query: {
-            bool: {
-              filter: [{ term: { type: from } }, { term: { ns: scope } }],
-            },
-          },
-          script: {
-            lang: "painless",
-            // txt only exists on entities; the guard keeps one script valid for both indices.
-            source:
-              "ctx._source.type = params.to; if (ctx._source.containsKey('txt') && ctx._source.txt != null) { ctx._source.txt = params.to + ' ' + ctx._source.attributes; }",
-            params: { to },
-          },
+    let changed = await this.renameEntityDocs(from, to, scope);
+    // Relations carry no `txt`, so nothing has to leave the cluster to move their name.
+    const rels = this.idx(RELATIONS);
+    await this.ready(rels);
+    const res = await this.req<{ updated?: number }>(
+      "POST",
+      `/${rels}/_update_by_query?refresh=true`,
+      {
+        query: {
+          bool: { filter: [{ term: { type: from } }, { term: { ns: scope } }] },
         },
-      );
-      changed += res.updated ?? 0;
-    }
+        script: {
+          lang: "painless",
+          source: "ctx._source.type = params.to",
+          params: { to },
+        },
+      },
+    );
+    changed += res.updated ?? 0;
     const ont = this.idx(ONTOLOGY);
     await this.ready(ont);
     await this.req("POST", `/${ont}/_update_by_query?refresh=true`, {
@@ -750,5 +746,76 @@ export class OpenSearchStorage implements StoragePort {
       },
     });
     return changed;
+  }
+
+  /**
+   * Move the type on every entity doc, rebuilding each one's `txt` through `serializeText`.
+   *
+   * Read-then-write instead of `_update_by_query`, because the key is prose — the type, the values in
+   * ontology order, the `sources` span, then the identifiers — and Painless cannot build it. The
+   * script that tried was a second copy of the rule that only the rename path ran, so it reverted
+   * every renamed row to whatever the key used to be, silently. One rule, one implementation.
+   */
+  private async renameEntityDocs(
+    from: string,
+    to: string,
+    scope: string,
+  ): Promise<number> {
+    const name = this.idx(ENTITIES);
+    await this.ready(name);
+    // ceiling: one batch, so a rename holds every affected doc's key in memory at once. Flush `lines`
+    // per page if a type outgrows that — `_bulk` is already per-doc.
+    const lines: unknown[] = [];
+    const PAGE = 5000;
+    let after: unknown[] | undefined;
+    for (;;) {
+      const res = await this.req<SearchResponse<EntityDoc>>(
+        "POST",
+        `/${name}/_search`,
+        {
+          size: PAGE,
+          query: {
+            bool: {
+              filter: [{ term: { type: from } }, { term: { ns: scope } }],
+            },
+          },
+          // Every version, so the rename reaches history — hence (id, version) and not `id` alone.
+          sort: [{ id: "asc" }, { version: "asc" }],
+          ...(after ? { search_after: after } : {}),
+        },
+      );
+      const hits = res.hits.hits;
+      for (const h of hits) {
+        lines.push({ update: { _index: name, _id: h._id } });
+        lines.push({
+          doc: { type: to, txt: serializeText(to, h._source.attributes) },
+        });
+      }
+      if (hits.length < PAGE) break;
+      after = hits[hits.length - 1].sort;
+      if (!after) break;
+    }
+    await this.bulk(lines);
+    return lines.length / 2;
+  }
+
+  /** One `_bulk` request. Its own method because the body is NDJSON, which `req` does not speak. */
+  private async bulk(lines: unknown[]): Promise<void> {
+    if (lines.length === 0) return;
+    const res = await this.fetchImpl(`${this.url}/_bulk?refresh=true`, {
+      method: "POST",
+      headers: { ...this.headers, "content-type": "application/x-ndjson" },
+      body: `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`,
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(
+        `opensearch POST /_bulk → ${res.status}: ${text.slice(0, 400)}`,
+      );
+    }
+    // A 200 carrying per-item failures is the shape that loses writes without saying so.
+    if ((JSON.parse(text) as { errors?: boolean }).errors) {
+      throw new Error(`opensearch _bulk item failures: ${text.slice(0, 400)}`);
+    }
   }
 }
