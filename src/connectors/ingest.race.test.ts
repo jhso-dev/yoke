@@ -20,7 +20,6 @@ const dir = mkdtempSync(join(tmpdir(), "yoke-ingest-race-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 const CHILD = join(process.cwd(), "scripts", "ingest-race-child.ts");
-const TSX = join(process.cwd(), "node_modules", ".bin", "tsx");
 const EXTERNAL_ID = "file:race#0";
 
 describe("two concurrent ingests of one source item (C4)", () => {
@@ -35,9 +34,13 @@ describe("two concurrent ingests of one source item (C4)", () => {
     const run = (dbPath: string, actor: string) =>
       new Promise<{ code: number; err: string }>((resolve) => {
         let err = "";
-        const c = spawn(TSX, [CHILD, dbPath, actor], {
-          stdio: ["ignore", "ignore", "pipe"],
-        });
+        // node --import tsx, not node_modules/.bin/tsx: that shim is a .cmd on Windows and spawning
+        // it without an extension is ENOENT. This runs the same loader from the node we are already on.
+        const c = spawn(
+          process.execPath,
+          ["--import", "tsx", CHILD, dbPath, actor],
+          { stdio: ["ignore", "ignore", "pipe"] },
+        );
         c.stderr.on("data", (d) => {
           err += d;
         });

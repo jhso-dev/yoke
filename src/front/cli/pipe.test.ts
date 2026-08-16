@@ -18,6 +18,7 @@ import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
@@ -28,7 +29,9 @@ const run = promisify(execFile);
 const dir = mkdtempSync(join(tmpdir(), "yoke-pipe-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-const ENTRY = new URL("./index.ts", import.meta.url).pathname;
+// fileURLToPath, not `.pathname`: on Windows the latter yields "/D:/…", which node then resolves
+// against the cwd as "D:\D:\…".
+const ENTRY = fileURLToPath(new URL("./index.ts", import.meta.url));
 /** Comfortably past a 64 KiB pipe buffer, so a truncating exit cannot pass by luck. */
 const BIG = 200_000;
 
