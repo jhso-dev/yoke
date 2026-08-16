@@ -51,14 +51,7 @@
 // `=` (and therefore index-usable) and keeps one rule across the three remote adapters.
 
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
-import {
-  dimensionMismatch,
-  INDEX_KEY_META,
-  type IndexKey,
-  pinIndexKey,
-  resolveIndexKey,
-  serializeText,
-} from "../../core/embedding.js";
+import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
@@ -154,8 +147,6 @@ export class PostgresStorage implements StoragePort {
   private vectorDim: number | null = null;
   /** Whether pgvector is usable. Set by `init()`; gates the two optional capabilities below. */
   private vectors = false;
-  /** This database's pinned index-key variant, resolved once per process (see `key()`). */
-  private indexKey: IndexKey | null = null;
 
   /**
    * The two optional capabilities, as PROPERTIES rather than methods (SPEC "The vector index").
@@ -265,12 +256,6 @@ export class PostgresStorage implements StoragePort {
     // Append-only per (name, ns): saveOntology adds the next version, loadOntology reads the max.
     // `seq` preserves declaration order across versions, which is what the tenant overlay needs — the
     // same job sqlite does with MIN(rowid).
-    // Facts about the DATABASE rather than knowledge in it (StoragePort getMeta/setMeta). Not
-    // namespaced and not versioned. Today: index_key — what the search index is keyed on.
-    await this.q(`CREATE TABLE IF NOT EXISTS ${this.t("meta")} (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )`);
     await this.q(`CREATE TABLE IF NOT EXISTS ${this.t("ontology_types")} (
       name    TEXT    NOT NULL,
       ns      TEXT    NOT NULL DEFAULT '',
@@ -328,44 +313,8 @@ export class PostgresStorage implements StoragePort {
 
   // --- writes ---------------------------------------------------------------------------------
 
-  // --- meta: facts about the database ------------------------------------------------------------
-
-  async getMeta(key: string): Promise<string | null> {
-    const rows = await this.q<{ value: string }>(
-      `SELECT value FROM ${this.t("meta")} WHERE key = $1`,
-      [key],
-    );
-    return rows[0]?.value ?? null;
-  }
-
-  async setMeta(key: string, value: string): Promise<void> {
-    await this.q(
-      `INSERT INTO ${this.t("meta")} (key, value) VALUES ($1, $2)
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-      [key, value],
-    );
-    if (key === INDEX_KEY_META) this.indexKey = pinIndexKey(value, false);
-  }
-
-  /** This database's pinned index-key variant, resolved once per process — see `resolveIndexKey`. */
-  private async key(): Promise<IndexKey> {
-    this.indexKey ??= await resolveIndexKey(this, async () => {
-      const rows = await this.q<{ ok: number }>(
-        `SELECT 1 AS ok FROM ${this.t("entities")} LIMIT 1`,
-      );
-      return rows.length === 0;
-    });
-    return this.indexKey;
-  }
-
   async putEntity(e: Entity): Promise<void> {
-    // Before the INSERT: the stamp is only free to follow the env while the store is empty.
-    const txt = serializeText(
-      e.type,
-      JSON.stringify(e.attributes),
-      undefined,
-      await this.key(),
-    );
+    const txt = serializeText(e.type, JSON.stringify(e.attributes));
     // Plain INSERT, not an upsert: re-putting an existing (id, version) is a primary-key conflict and
     // must stay one. That conflict is precisely why `putEmbedding` exists as a separate method (SPEC
     // "The vector index"), so swallowing it here would remove the reason for the design.

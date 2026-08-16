@@ -5,8 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { afterAll, describe, expect, it, vi } from "vitest";
-import { INDEX_KEY_META } from "../../core/embedding.js";
+import { afterAll, describe, expect, it } from "vitest";
 import { seedOntology } from "../../core/ontology.js";
 import { describeStoragePort } from "../../ports/conformance.js";
 import { SqliteStorage } from "./index.js";
@@ -143,77 +142,30 @@ describe("rebuildFts", () => {
     attributes: { statement: "Started writing a blog again" },
   };
 
-  it("rewrites the keyword rows on the key the store records", async () => {
+  // The keyword half cannot be re-derived by re-putting a version (that is a primary-key collision),
+  // so this is the only path that re-keys it — the one `backfill --embeddings --rebuild` calls when a
+  // store was indexed under an older rule.
+  it("rewrites every keyword row from the latest stored version", async () => {
     const store = new SqliteStorage(":memory:");
     await store.init();
     await store.putEntity(row);
-    // The default key indexes the attribute NAMES too, which is the dilution the prose key removes —
-    // and the sharpest observable difference between the two arms.
+    // Attribute NAMES are not in the key — that dilution is what the prose key removed, and it is the
+    // sharpest observable difference from what a pre-prose store holds.
+    expect(await store.search({ text: "statement" })).toEqual([]);
+
+    // Simulate a row written before the key changed, then rebuild it.
+    handleOf(store).exec(
+      `UPDATE entities_fts SET text = 'fact {"statement":"Started writing a blog again"}'`,
+    );
     expect(
       (await store.search({ text: "statement" })).map((e) => e.id),
     ).toEqual(["e1"]);
-
-    // Changing the variant is an explicit act on the store (what `backfill --embeddings --rebuild`
-    // does), not an env var the next command happens to carry.
-    await store.setMeta(INDEX_KEY_META, "prose");
     expect(store.rebuildFts(seedOntology())).toBe(1);
     expect(await store.search({ text: "statement" })).toEqual([]);
     expect((await store.search({ text: "blog" })).map((e) => e.id)).toEqual([
       "e1",
     ]);
     store.close();
-  });
-
-  // The defect this meta exists for: `backfill --occurred-at` appends a repair version, which
-  // re-derives the FTS text. Run without the flag against a prose-keyed store, it used to write the
-  // JSON key for exactly the rows it touched — half the index in one representation and half in the
-  // other, invisible except as degraded ranking.
-  it("keeps a prose-keyed store on prose when a later write has no flag set", async () => {
-    const path = join(dir, `prose-${Math.random().toString(36).slice(2)}.db`);
-    vi.stubEnv("YOKE_INDEX_KEY", "prose");
-    const indexed = new SqliteStorage(path);
-    await indexed.init();
-    await indexed.putEntity(row);
-    expect(await indexed.getMeta(INDEX_KEY_META)).toBe("prose");
-    indexed.close();
-    vi.unstubAllEnvs();
-
-    // A second process with no flag, rewriting the record the way a repair backfill does. A fresh
-    // instance on purpose: an in-process cache would pass this test without the store remembering
-    // anything.
-    const repair = new SqliteStorage(path);
-    await repair.init();
-    await repair.putEntity({
-      ...row,
-      version: 2,
-      attributes: { ...row.attributes, occurred_at_repaired: "yes" },
-    });
-    expect(await repair.search({ text: "statement" })).toEqual([]);
-    expect((await repair.search({ text: "blog" })).map((e) => e.id)).toEqual([
-      "e1",
-    ]);
-    repair.close();
-  });
-
-  it("keeps a legacy store (rows, no meta) on the default key", async () => {
-    const path = join(dir, `legacy-${Math.random().toString(36).slice(2)}.db`);
-    const legacy = new SqliteStorage(path);
-    await legacy.init();
-    await legacy.putEntity(row);
-    // Erase the stamp: this is what a database written before the meta existed looks like.
-    handleOf(legacy).exec("DELETE FROM meta");
-    legacy.close();
-
-    vi.stubEnv("YOKE_INDEX_KEY", "prose");
-    const reopened = new SqliteStorage(path);
-    await reopened.init();
-    await reopened.putEntity({ ...row, version: 2 });
-    expect(await reopened.getMeta(INDEX_KEY_META)).toBe("default");
-    expect(
-      (await reopened.search({ text: "statement" })).map((e) => e.id),
-    ).toEqual(["e1"]);
-    vi.unstubAllEnvs();
-    reopened.close();
   });
 });
 

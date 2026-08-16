@@ -9,118 +9,14 @@ import type { TypeDef } from "./ontology.js";
  * FTS; the commit gate skips duplicate detection rather than approximating it. */
 export type Embedder = (text: string) => Promise<Float32Array | null>;
 
-// Serializes the text that FTS and embeddings index. The adapter (FTS) and core (commit) must
-// share this rule so the embedding and keyword index see the same representation. It lives in
-// core and the adapter imports it (only adapter→core is allowed — core importing the adapter
-// would violate the dependency-direction invariant).
-//
-// `ontology` is optional because the FTS callers are storage adapters, which are constructed with a
-// path and have no ontology in hand. It only affects the ORDER of the values in the prose key, and
-// FTS ranks a bag of words, so the halves still see the same key — see `proseText`.
-//
-// `key` is the variant the STORE is pinned to (`resolveIndexKey`), never the ambient env: a database
-// keyed one way and rewritten by a process configured the other way is a mixed index, and a mixed
-// index is invisible — every row still looks fine and only ranking degrades. Defaulting to "default"
-// means a caller that forgets writes what every legacy database already holds.
-export function serializeText(
-  type: string,
-  attributesJson: string,
-  ontology?: TypeDef[],
-  key: IndexKey = "default",
-): string {
-  if (key === "prose") return proseText(type, attributesJson, ontology ?? []);
-  return `${type} ${attributesJson}`;
-}
-
 type Env = Record<string, string | undefined>;
 
-/** What a store's index is keyed on. Recorded per database — see `resolveIndexKey`. */
-export type IndexKey = "default" | "prose";
-
-/** The meta key holding a database's `IndexKey`. Absent = a database written before it existed. */
-export const INDEX_KEY_META = "index_key";
-
-/** The `getMeta`/`setMeta` half of the storage port, structurally — so this file needs no import
- * from `ports/`, and a caller can pass any store. */
-export interface MetaStore {
-  getMeta(key: string): Promise<string | null>;
-  setMeta(key: string, value: string): Promise<void>;
-}
-
 /**
- * Which key variant a store is pinned to, given what it has RECORDED and whether it holds anything.
- *
- * The env chooses only for a database that has indexed nothing yet. Once a row exists the recorded
- * value decides, and an unrecorded one reads as "default" — which is exactly what a legacy database
- * holds, so nothing already written is re-interpreted.
- *
- * Pure and synchronous because sqlite resolves it inside synchronous code; the async stores use
- * `resolveIndexKey` below, which is this plus the read and the write-back.
+ * Attributes that are bookkeeping rather than what a record says, so they are kept out of the
+ * SENTENCE. Three of them are dropped outright; `sources` and the two `IDENTIFIERS` are re-appended
+ * verbatim at the end of the key — see `serializeText`.
  */
-export function pinIndexKey(
-  stored: string | null,
-  empty: boolean,
-  env: Env = process.env,
-): IndexKey {
-  if (stored === "prose" || stored === "default") return stored;
-  return empty && proseKeyEnabled(env) ? "prose" : "default";
-}
-
-/**
- * Read a store's pinned key variant, stamping it on first use.
- *
- * Called by whoever is about to derive index text — core's commit gate before it embeds, the
- * adapters before they write FTS — so both halves of one hybrid index agree even when the process
- * writing the second half has a different env than the one that wrote the first.
- *
- * `isEmpty` answers "has this store indexed anything yet", and is only consulted when nothing is
- * recorded. Changing a recorded variant is `yoke backfill --embeddings --rebuild`, which writes the
- * meta itself; nothing else here overwrites it.
- */
-export async function resolveIndexKey(
-  store: MetaStore,
-  isEmpty: () => Promise<boolean> | boolean,
-  env: Env = process.env,
-): Promise<IndexKey> {
-  const stored = await store.getMeta(INDEX_KEY_META);
-  if (stored === "prose" || stored === "default") return stored;
-  const key = pinIndexKey(stored, await isEmpty(), env);
-  await store.setMeta(INDEX_KEY_META, key);
-  return key;
-}
-
-/**
- * Whether the index is keyed on prose instead of the attributes JSON (`YOKE_INDEX_KEY=prose`).
- *
- * Why the key is a question at all: LongMemEval (arXiv 2410.10813) measured +9.4% recall@k from
- * expanding the indexed key with a natural-language rendering of the value — and, in the same
- * experiment, no gain from a compressed form alone. The win is prose CONCATENATED with the original
- * value, which is what `proseText` builds.
- *
- * The env only ever chooses for a database that has indexed NOTHING, and the choice is then recorded
- * in the store (`resolveIndexKey`). It used to be read on every serialization, which meant one
- * command run without the flag re-keyed whatever rows it touched and left a mixed index behind —
- * measured, and it invalidated a benchmark run.
- *
- * ceiling: this is the one place in core that reads `process.env` — everywhere else the front
- * adapters pass env in (`envKeywordWeight`). It stays ambient because the stamp can happen inside a
- * storage adapter, which is constructed with a path and no env. Delete this function if the prose
- * key does not outlive the experiment; the stored meta stays either way.
- *
- * `YOKE_EMBED_KEY=prose` is accepted as an alias because that name was asked for, and it is already
- * taken: it is the embedding endpoint's bearer token (see `makeFetchEmbedder`, which ignores the
- * literal "prose" for that reason).
- */
-export function proseKeyEnabled(env: Env = process.env): boolean {
-  return env.YOKE_INDEX_KEY === "prose" || env.YOKE_EMBED_KEY === "prose";
-}
-
-/**
- * Attributes that are bookkeeping rather than what a record says. `sources` is in the set because
- * it is the verbatim span rather than the record's own words — the two callers put it back where it
- * belongs to them (the prose key keeps it, the relater's prompt does not).
- */
-export const NOT_CONTENT = new Set([
+const NOT_CONTENT = new Set([
   "external_id",
   "sources",
   "author",
@@ -129,6 +25,9 @@ export const NOT_CONTENT = new Set([
   "status",
 ]);
 
+/** Bookkeeping that is nonetheless SEARCHED FOR, exactly. See the tail of `serializeText`. */
+const IDENTIFIERS = ["external_id", "key"] as const;
+
 /**
  * The values a record's attributes carry, in declared-ontology order, bookkeeping dropped.
  *
@@ -136,10 +35,11 @@ export const NOT_CONTENT = new Set([
  * what it wants read, and attribute order as written is caller-controlled. Undeclared attributes
  * follow, in written order.
  *
- * Shared by the prose index key (below) and the relater's prompt (`relateText`), which asked the
- * same question of a record — "what does this actually say" — and answered it twice.
+ * Private: `serializeText` below is the only caller. `persona.knowledgeText` and `display.summarize`
+ * ask a similar question of a record and answer it their own way — see the ceiling on
+ * `knowledgeText`.
  */
-export function contentValues(
+function contentValues(
   entity: { type: string; attributes: Record<string, unknown> },
   ontology: TypeDef[],
 ): string[] {
@@ -161,24 +61,33 @@ export function contentValues(
 }
 
 /**
- * The record as a sentence: its type, what its attributes say, then the span it was extracted from.
+ * The text that FTS and embeddings index: the record as a sentence — its type, what its attributes
+ * say, the span it was extracted from, then the identifiers.
  *
- * What the default key looks like is `fact {"statement":"...","external_id":"raw:00007-a.md#3"}` —
- * every attribute NAME is a token, so are the punctuation and the ids, and a three-word record is
+ * The adapter (FTS) and core (commit) must share this rule so the two halves of one hybrid index see
+ * the same representation. It lives in core and the adapter imports it (only adapter→core is
+ * allowed — core importing the adapter would violate the dependency-direction invariant).
+ *
+ * It used to be `type + the attributes JSON`: `fact {"statement":"...","external_id":"raw:7-a.md#3"}`
+ * — every attribute NAME a token, so are the punctuation and the ids, and a three-word record
  * indexed as mostly bookkeeping. That dilutes both halves of retrieval: BM25 pays for the length,
  * and the embedding is of a JSON literal rather than of a claim.
  *
- * `sources` stays, verbatim and last. LongMemEval's gain came from the expansion *plus* the original
- * value, not from the expansion alone, and this is the only attribute holding words the source
- * actually used.
+ * `sources` stays, verbatim and last: the measured gain came from the prose expansion *plus* the
+ * original value, not from the expansion alone, and this is the only attribute holding words the
+ * source actually used.
  *
- * Falls back to the default key when `attributesJson` is not a JSON object, because an index that
- * throws on a malformed row is worse than one that indexes it verbatim.
+ * `ontology` is optional because the FTS callers are storage adapters, which are constructed with a
+ * path and have no ontology in hand. It only affects the ORDER of the values, and FTS ranks a bag of
+ * words, so the halves still see the same key.
+ *
+ * Falls back to `type + the raw text` when `attributesJson` is not a JSON object, because an index
+ * that throws on a malformed row is worse than one that indexes it verbatim.
  */
-export function proseText(
+export function serializeText(
   type: string,
   attributesJson: string,
-  ontology: TypeDef[],
+  ontology: TypeDef[] = [],
 ): string {
   let parsed: unknown;
   try {
@@ -195,6 +104,14 @@ export function proseText(
     type.replace(/_/g, " "),
     ...contentValues({ type, attributes }, ontology),
     quote,
+    // The identifiers, last and verbatim — not prose, but they must stay IN the index because they
+    // are looked up through it: `connectors/ingest.findByExternalId` (every connector's idempotency
+    // check) and `mcp.resolveScope` both retrieve candidates by searching for the literal string and
+    // then match exactly. Dropped from the key, a re-ingest finds nothing and stores a second copy of
+    // every record — silently, since each write is individually valid.
+    ...IDENTIFIERS.map((k) =>
+      typeof attributes[k] === "string" ? (attributes[k] as string) : "",
+    ),
   ]
     .filter((p) => p.trim())
     .join(". ");
@@ -209,9 +126,7 @@ export function proseText(
 export function makeFetchEmbedder(env: Env): Embedder {
   const url = env.YOKE_EMBED_URL;
   const model = env.YOKE_EMBED_MODEL;
-  // "prose" is the index-key selector `proseKeyEnabled` accepts here, not a token — sending
-  // `Bearer prose` would 401 a keyed endpoint for a reason nobody would guess from the message.
-  const key = env.YOKE_EMBED_KEY === "prose" ? undefined : env.YOKE_EMBED_KEY;
+  const key = env.YOKE_EMBED_KEY;
   if (!url || !model) return async () => null;
 
   const headers: Record<string, string> = {

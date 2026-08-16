@@ -283,6 +283,13 @@ const NOT_CONTENT = new Set([
  * Declared order, for the reason `summarize` uses it: what a type declares FIRST is what it wants read,
  * and it is the ontology's opinion rather than the writer's. Undeclared strings follow, because a
  * connector's extra field is still something the record says.
+ *
+ * ceiling: the third copy of "declared order, bookkeeping dropped" — `embedding.contentValues` and
+ * `display.summarize` are the others, each with its own NOT_CONTENT set. They diverge where it
+ * matters: the index key drops `sources` (it re-appends the span verbatim, last), this one keeps it
+ * as something the person said, and `summarize` stops at the first value. Merge them when two of the
+ * three agree on the set AND on the rendering — until then a shared helper would need a flag per
+ * caller, which is the same three copies with more indirection.
  */
 function knowledgeText(e: Entity, ontology: TypeDef[]): string {
   const def = ontology.find((t) => t.name === e.type);

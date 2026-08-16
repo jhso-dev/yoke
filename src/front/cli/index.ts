@@ -33,11 +33,7 @@ import {
   backfillOccurredAt,
 } from "../../core/backfill.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
-import {
-  INDEX_KEY_META,
-  makeFetchEmbedder,
-  proseKeyEnabled,
-} from "../../core/embedding.js";
+import { makeFetchEmbedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
   inject,
@@ -1641,20 +1637,6 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
     // The other repair: the vector index rather than the authorship graph. Same command because both
     // are "re-derive something that was computed from knowledge", and both are idempotent.
     if (v.embeddings) {
-      // `--rebuild` is the ONE command allowed to change what the index is keyed on, so it is where
-      // the env choice is recorded (`YOKE_INDEX_KEY`). Written first, because both halves rebuilt
-      // below read the variant from the store and not from this process's env — everywhere else a
-      // store keeps the variant it was indexed with, whatever the env says.
-      //
-      // ceiling: the meta write is not in a transaction with the two rebuilds, because the vector
-      // half is a sequence of provider round trips and cannot be in one either. An interrupted
-      // --rebuild leaves a partly rebuilt index and is fixed by running it again; on SUCCESS the
-      // store and every row agree.
-      if (v.rebuild)
-        await store.setMeta(
-          INDEX_KEY_META,
-          proseKeyEnabled(env) ? "prose" : "default",
-        );
       const { scanned, embedded, skipped, next } = await backfillEmbeddings(
         store,
         {
@@ -1663,7 +1645,7 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
           limit,
           after: v.after,
           rebuild: v.rebuild,
-          // Read only when the index is keyed on prose (YOKE_INDEX_KEY): it orders the values.
+          // Orders the values in the index key — the same ontology the gate serializes with.
           ontology,
         },
       );
@@ -1671,14 +1653,30 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
         `scanned ${scanned} entities, embedded ${embedded}, skipped ${skipped}`,
       ];
       // --rebuild means "this index was built on a rule that no longer holds". That is true of the
-      // keyword half too whenever the key changed (YOKE_INDEX_KEY), and rebuilding one half without
-      // the other leaves a hybrid query reading two different indexes. Feature-detected: only the
-      // backend that writes its FTS text from JS needs it (see SqliteStorage.rebuildFts).
-      if (v.rebuild && "rebuildFts" in store) {
-        const rows = (
-          store as { rebuildFts(o?: TypeDef[]): number }
-        ).rebuildFts(ontology);
-        lines.push(`rebuilt the keyword index: ${rows} entities`);
+      // keyword half too whenever the rule was the KEY rather than the model, and rebuilding one half
+      // without the other leaves a hybrid query reading two different indexes.
+      //
+      // Feature-detected, because only the backend that writes its FTS text from JS has a rebuild to
+      // call (see SqliteStorage.rebuildFts). Where it is missing this WARNS rather than exiting 1: a
+      // --rebuild for a changed embedding MODEL leaves the keyword half correct, and this command
+      // cannot tell that case from a re-key, so failing it would fail the common one too. The warning
+      // goes to stderr so a `--json` consumer's stdout stays parseable.
+      if (v.rebuild) {
+        if ("rebuildFts" in store) {
+          const rows = (
+            store as { rebuildFts(o?: TypeDef[]): number }
+          ).rebuildFts(ontology);
+          lines.push(`rebuilt the keyword index: ${rows} entities`);
+        } else {
+          console.error(
+            `warning: the keyword index was NOT re-keyed — ${store.constructor.name} ` +
+              `(${storeLabel(v, env)}) has no keyword rebuild.\n` +
+              "  The vectors above were rewritten; the keyword rows still hold the text they were " +
+              "written with.\n" +
+              "  If the index key changed (rather than the embedding model), re-index this backend " +
+              "from a source of truth — the two halves of a hybrid search now disagree.",
+          );
+        }
       }
       // Skipped everything means the provider is not configured — the single most likely reason
       // someone runs this and sees nothing happen.

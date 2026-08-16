@@ -111,27 +111,6 @@ export const conformanceCases: ConformanceCase[] = [
     },
   },
   {
-    // (2b) meta: absent reads as null, and a set value survives and can be replaced.
-    // Absence is the contract clause that matters — it is how a database written before a meta key
-    // existed answers, so every reader needs a legacy default rather than an error. The value under
-    // test here is a case-unique key, not `index_key`: this suite may share one database, and
-    // rewriting the real key mid-run would re-key rows the other cases wrote.
-    name: "getMeta returns null for an unset key; setMeta writes and replaces",
-    async run(port) {
-      const key = `conformance-meta-${nextId()}`;
-      eq(await port.getMeta(key), null);
-      await port.setMeta(key, "one");
-      eq(await port.getMeta(key), "one");
-      await port.setMeta(key, "two");
-      eq(
-        await port.getMeta(key),
-        "two",
-        "setMeta replaces rather than appends",
-      );
-      eq(await port.getMeta(`${key}-absent`), null);
-    },
-  },
-  {
     // (3) No physical-delete API (checked at the interface level).
     name: "exposes no physical-delete API",
     async run(port) {

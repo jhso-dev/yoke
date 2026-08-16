@@ -40,14 +40,7 @@
 // sentinel are different queries in OpenSearch, and `core/namespace.ts` already treats "" and null as
 // the same namespace, so the sentinel needs no translation on the way in.
 
-import {
-  dimensionMismatch,
-  INDEX_KEY_META,
-  type IndexKey,
-  pinIndexKey,
-  resolveIndexKey,
-  serializeText,
-} from "../../core/embedding.js";
+import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
@@ -67,7 +60,6 @@ const ENTITIES = "yoke_entities";
 const RELATIONS = "yoke_relations";
 const ONTOLOGY = "yoke_ontology";
 const VECTORS = "yoke_entity_vec";
-const META = "yoke_meta";
 
 /** Shared by every index: one shard, no replica. A single-node cluster cannot allocate a replica, and
  * a yellow cluster is a confusing thing to hand someone who is just trying the thing out. */
@@ -103,12 +95,6 @@ const RELATION_MAPPING = {
     provenance: { type: "keyword", index: false },
     last_confirmed: { type: "keyword", index: false },
   },
-} as const;
-
-/** Facts about the DATABASE rather than knowledge in it (StoragePort getMeta/setMeta). One doc per
- * key, keyed BY the key, so a read is the realtime GET-by-id API and needs no refresh. */
-const META_MAPPING = {
-  properties: { value: { type: "keyword", index: false } },
 } as const;
 
 const ONTOLOGY_MAPPING = {
@@ -167,8 +153,6 @@ export class OpenSearchStorage implements StoragePort {
   /** Indices written since the last refresh. See policy 1 in the file header. */
   private readonly dirty = new Set<string>();
   private vectorDim: number | null = null;
-  /** This database's pinned index-key variant, resolved once per process (see `key()`). */
-  private indexKey: IndexKey | null = null;
 
   constructor(opts: OpenSearchOptions) {
     this.url = opts.url.replace(/\/$/, "");
@@ -230,7 +214,6 @@ export class OpenSearchStorage implements StoragePort {
     await this.ensureIndex(this.idx(ENTITIES), ENTITY_MAPPING);
     await this.ensureIndex(this.idx(RELATIONS), RELATION_MAPPING);
     await this.ensureIndex(this.idx(ONTOLOGY), ONTOLOGY_MAPPING);
-    await this.ensureIndex(this.idx(META), META_MAPPING);
     // VECTORS is created lazily: its mapping declares the dimension, which is not known until the
     // first vector arrives. Same lazy shape as sqlite's vec0 table.
   }
@@ -300,45 +283,7 @@ export class OpenSearchStorage implements StoragePort {
     });
   }
 
-  // --- meta: facts about the database ------------------------------------------------------------
-  // Read and written by id, which is the one OpenSearch API that is REALTIME — a meta value is
-  // visible to the next read without a refresh, unlike everything the `dirty` set tracks.
-
-  async getMeta(key: string): Promise<string | null> {
-    const res = await this.req<{
-      found?: boolean;
-      _source?: { value: string };
-    }>("GET", `/${this.idx(META)}/_doc/${encodeURIComponent(key)}`);
-    return res.found ? (res._source?.value ?? null) : null;
-  }
-
-  async setMeta(key: string, value: string): Promise<void> {
-    await this.req(
-      "PUT",
-      `/${this.idx(META)}/_doc/${encodeURIComponent(key)}`,
-      {
-        value,
-      },
-    );
-    if (key === INDEX_KEY_META) this.indexKey = pinIndexKey(value, false);
-  }
-
-  /** This database's pinned index-key variant, resolved once per process — see `resolveIndexKey`. */
-  private async key(): Promise<IndexKey> {
-    this.indexKey ??= await resolveIndexKey(this, async () => {
-      await this.ready(this.idx(ENTITIES));
-      const res = await this.req<{ count?: number }>(
-        "GET",
-        `/${this.idx(ENTITIES)}/_count`,
-      );
-      return (res.count ?? 0) === 0;
-    });
-    return this.indexKey;
-  }
-
   async putEntity(e: Entity): Promise<void> {
-    // Before the write: the stamp is only free to follow the env while the store is empty.
-    const key = await this.key();
     const doc: EntityDoc = {
       id: e.id,
       version: e.version,
@@ -346,7 +291,7 @@ export class OpenSearchStorage implements StoragePort {
       status: e.status,
       ns: normalizeNs(e.ns) ?? "",
       latest: true,
-      txt: serializeText(e.type, JSON.stringify(e.attributes), undefined, key),
+      txt: serializeText(e.type, JSON.stringify(e.attributes)),
       attributes: JSON.stringify(e.attributes),
       provenance: JSON.stringify(e.provenance),
       last_confirmed: e.last_confirmed,

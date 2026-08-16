@@ -195,6 +195,10 @@ yoke backfill --embeddings                 # index every record with the current
 yoke backfill --embeddings --rebuild       # after CHANGING model (dimension differs)
 ```
 
+A database written before the index key became prose needs one `yoke backfill --embeddings --rebuild`
+to re-key both halves of its index. Until it runs, that store searches on the old key — nothing
+breaks, results just rank worse.
+
 A database holds one vector space. Switching models without `--rebuild` fails loudly with the
 dimension it found and the command above — a mixed space would return confidently wrong neighbours
 instead.

@@ -14,7 +14,8 @@ Defines only the contract the implementation must follow. For background and rat
     actor: string     // a person entity id or an agent identifier (required)
     origin: string    // 'cli' | 'mcp' | 'connector:github-pr' | ...
     occurred_at: string  // ISO 8601 (required). WHEN THE KNOWLEDGE HAPPENED — carried forward unchanged by verify/deprecate
-    transitioned_at?: string // ISO 8601. when THIS VERSION came into being, written only by a lifecycle transition
+    transitioned_at?: string // ISO 8601. when THIS VERSION came into being. written only by a lifecycle
+                             // transition — the gate STRIPS a caller-supplied one (it is what as-of reads)
   }
   version: number     // starts at 1. an edit appends a new version (no overwrite)
   last_confirmed: string  // ISO 8601. refreshed on verify
@@ -56,11 +57,6 @@ interface StoragePort {
   // enumeration (v5.0) — the read primitive behind browse and the graph explorer
   listEntities(q: ListQuery): Promise<Page<Entity>>
   listRelations(q: ListQuery): Promise<Page<Relation>>
-  // per-database key/value metadata (v5.9) — facts about the STORE, not knowledge in it.
-  // Not namespaced, not versioned. An unset key reads as null, which is how a database written
-  // before that key existed answers, so every reader carries a legacy default.
-  getMeta(key: string): Promise<string | null>
-  setMeta(key: string, value: string): Promise<void>
   // optional capability — if absent, core falls back to keyword search
   similar?(embedding: Float32Array, k: number): Promise<Entity[]>
   // optional (v5.2) — index a vector without writing a version. See "The vector index" below.
@@ -1119,25 +1115,22 @@ type Embedder = (text: string) => Promise<Float32Array | null>
 ```
 
 - The core receives this function type by injection (a fetch-based implementation is provided by core/embedding.ts, while tests inject a deterministic stub).
-- The text to embed uses the same serialization function as FTS (type + attributes).
-- **What that function produces is one of two keys, and both halves of the index must be built on the
-  same one.** The default is `type + attributes JSON`. `YOKE_INDEX_KEY=prose` keys instead on the
-  record as a sentence — the type, its attribute values in declared-ontology order, then the verbatim
-  `sources` span — which is the key expansion LongMemEval (arXiv 2410.10813) measured +9.4% recall@k
-  for; the same experiment found no gain from a compressed rendering that dropped the original value,
-  hence `sources` staying.
-- **The variant is a property of the DATABASE, not of the process.** It is recorded under the
-  `index_key` meta key (`getMeta`/`setMeta`) when a store first indexes anything, and every later
-  write derives its text from the recorded value — the ambient `YOKE_INDEX_KEY` is ignored. A store
-  with no record reads as the default key, which is byte-identical to what every database written
-  before this existed already holds.
-  **Only `yoke backfill --embeddings --rebuild` may change it**: it writes the env's choice to the
-  meta and then rebuilds both halves — the vectors, and the keyword rows via `SqliteStorage.rebuildFts`.
-  Rebuilding one half alone leaves a hybrid query reading two different indexes.
-  This is not hypothetical. When the variant lived only in the env, `backfill --occurred-at` run
-  without the flag against a prose-keyed store appended repair versions keyed as JSON: half the index
-  in each representation, every row still valid, nothing visible but degraded ranking — and one
-  invalidated benchmark run.
+- The text to embed uses the same serialization function as FTS, and **that function keys on prose**:
+  the record as a sentence — its type, its attribute values in declared-ontology order, then the
+  verbatim `sources` span, then the identifiers (`external_id`, `key`). The measured gain is from the
+  prose expansion *concatenated with* the original value, not from the expansion alone, which is why
+  `sources` stays and stays last. The identifiers stay because they are looked up THROUGH the index:
+  connector idempotency (`findByExternalId`) and `yoke_use_scope` search for the literal string and
+  match exactly, so a key without them makes every re-ingest store a second copy. `author`, `topic`
+  and `status` are dropped — nothing searches them, and `status` has a structured filter. A malformed
+  (non-object) attributes blob degrades to `type + the raw text` rather than throwing: an index that
+  refuses a bad row is worse than one that indexes it verbatim.
+- **Both halves of the index must be built on the same key.** The key used to be
+  `type + attributes JSON`, which indexed every attribute NAME, every brace and every external id, so
+  a three-word record was mostly bookkeeping. A store written under that rule is migrated with ONE
+  `yoke backfill --embeddings --rebuild`, which rewrites the vectors and — on sqlite, via
+  `SqliteStorage.rebuildFts` — the keyword rows. On a backend with no keyword rebuild the command
+  says so on stderr rather than half-doing the job.
 - An embedding failure does not block a commit (warn and proceed — it is not a hard rule).
 - **`null` means retrieval falls back to FTS. It does NOT mean duplicate detection falls back to
   anything.** Retrieval has a keyword path to fall back to; duplicate detection does not, and is

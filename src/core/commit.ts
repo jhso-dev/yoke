@@ -13,7 +13,7 @@ import {
   type StoragePort,
 } from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
-import { resolveIndexKey, serializeText } from "./embedding.js";
+import { serializeText } from "./embedding.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import { validateInput } from "./ontology.js";
@@ -229,8 +229,13 @@ export function parseInstant(raw: unknown): string {
  * The instant is unchanged — only its spelling — so "provenance is a record of what happened" holds.
  */
 function normalizeProvenance(p: Provenance): Provenance {
+  // `transitioned_at` is stripped, not validated: it is governance time, written by
+  // `lifecycle.transition` and by nothing else (see types.ts). A caller supplying one through the
+  // gate would move where the as-of rewind places this version — the one provenance field a writer
+  // must not be able to set.
+  const { transitioned_at: _governance, ...rest } = p;
   return {
-    ...p,
+    ...rest,
     occurred_at: new Date(Date.parse(p.occurred_at)).toISOString(),
   };
 }
@@ -309,18 +314,10 @@ export async function commit(
   let embedding: Float32Array | null = null;
   let duplicateDetection: CommitResult["duplicateDetection"] = "skipped";
   if (!isRelation && opts?.embedder) {
-    // The store's key variant, not this process's env — the FTS half of the index is written by the
-    // adapter from the same recorded value, and two halves keyed differently is a mixed index.
     const text = serializeText(
       input.type,
       JSON.stringify(input.attributes),
       ontology,
-      await resolveIndexKey(
-        port,
-        async () =>
-          (await port.listEntities({ ns: opts?.ns, limit: 1 })).items.length ===
-          0,
-      ),
     );
     embedding = await opts.embedder(text);
     if (embedding && port.similar) {
