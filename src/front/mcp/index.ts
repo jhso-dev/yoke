@@ -17,7 +17,6 @@ import {
   entityIdCandidates,
   envKeywordWeight,
   inject,
-  pointer,
   WALK_BUDGET,
 } from "../../core/inject.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
@@ -31,7 +30,13 @@ import {
 } from "../../core/persona.js";
 import type { Entity, EntityInput, RelationInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
-import { describeWithheld, injectDetail } from "../display.js";
+import {
+  citeActors,
+  describeWithheld,
+  injectDetail,
+  makeActorNames,
+  readableCite,
+} from "../display.js";
 import { openStore } from "../store.js";
 
 const ORIGIN = "mcp";
@@ -68,7 +73,7 @@ export interface YokeMcpDeps {
  * restricted to one type. Front-tier only. Returns null when nothing matches. Shared by startup
  * (YOKE_SCOPE) and the yoke_use_scope tool.
  */
-export async function resolveScope(
+async function resolveScope(
   store: Pick<StoragePort, "getEntity" | "search">,
   ns: string | null,
   key: string,
@@ -137,33 +142,6 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         `warning: audit row not written (read succeeded): ${(e as Error).message}\n`,
       );
     }
-  };
-
-  // Resolve a person id to a display name, scoped to THIS request's ns. getEntity is id-based and
-  // global (it takes no ns), so a bare resolve would leak a foreign tenant's person name into an
-  // agent-facing citation. Fall back to the id when it is not a person in this ns (a machine actor
-  // like `yoke:system` reads fine as its own slug).
-  const nameOf = async (id: string): Promise<string> => {
-    const e = await store.getEntity(id);
-    return e && e.type === PERSON_TYPE && normalizeNs(e.ns) === normalizeNs(ns)
-      ? readableName(e)
-      : id;
-  };
-  // A citation with its author (and confirmer) resolved to names — the human half of core's citation
-  // split: `pointer` keeps the entity id (the audit anchor), the who-slot reads as a name. Mirrors
-  // `citation()`'s shape so the two never drift; used by yoke_inject and yoke_persona alike.
-  const readableCite = async (it: {
-    entity: Entity;
-    author?: string;
-  }): Promise<string> => {
-    const promoterId = it.entity.provenance.actor;
-    const authorId = it.author ?? promoterId;
-    const author = await nameOf(authorId);
-    const who =
-      authorId === promoterId
-        ? author
-        : `${author} (confirmed by ${await nameOf(promoterId)})`;
-    return `${pointer(it.entity)} ${who}, ${it.entity.provenance.occurred_at}`;
   };
 
   async function doCommit(
@@ -264,7 +242,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
                 partial:
                   `the record was stored but these could not be written: ${unrecorded.join("; ")}. ` +
                   "Do not report this as fully recorded; authorship is re-derivable by running " +
-                  "'yoke backfill', and an attachment has to be filed again with yoke_link.",
+                  "'yoke backfill', and an attachment has to be filed again with yoke_commit " +
+                  "(type 'relates_to', from this record's id, to the scope id).",
               }
             : {}),
         }),
@@ -372,13 +351,15 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
             ? `no verified knowledge for: ${query} — ${describeWithheld(withheld)}`
             : `no verified knowledge found for: ${query}`,
         );
+      // The author on each citation is resolved to a name, not left a raw ULID (M-AUTHOR): every other
+      // surface names the person, and an agent quoting yoke should too. The id stays on the pointer
+      // half, which is the audit anchor. ONE batch read for the whole answer — see `makeActorNames`.
+      const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+      await prefetch(citeActors(items));
       const blocks = await Promise.all(
         items.map(
           async (it) =>
-            // The author on the citation is resolved to a name, not left a raw ULID (M-AUTHOR): every
-            // other surface names the person, and an agent quoting yoke should too. The id stays on the
-            // pointer half, which is the audit anchor.
-            `${await readableCite(it)} [${it.effectiveStatus}]` +
+            `${await readableCite(it, nameOf)} [${it.effectiveStatus}]` +
             // An agent handed two contradicting records as two equal facts answers with whichever it read
             // first and cites it. The instruction is the mechanism here, as it is for the truncation
             // notice: the model has to be told what to DO with the disagreement, not handed a field.
@@ -678,6 +659,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
             `settled which is right. Do not present this as ${person}'s settled position; say the ` +
             `records disagree and cite both.]`
           : "";
+      // One batch read for every author this persona names, before the lines are rendered.
+      const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+      await prefetch(citeActors([...decisions, ...facts]));
       const blocks: string[] = [];
       for (const i of decisions) {
         const d = i.entity;
@@ -694,13 +678,13 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
             // the `authored_by` edge (docs/SPEC.md:682 — never provenance.actor), but left it a raw ULID.
             // Resolving it to the person's name (M-AUTHOR) is what makes a line of "Alex's judgment"
             // read as Alex's; the id stays on the pointer half, which is the audit anchor.
-            (await readableCite(i)) +
+            (await readableCite(i, nameOf)) +
             marker(i),
         );
       }
       for (const i of facts)
         blocks.push(
-          `[knowledge] ${JSON.stringify(i.entity.attributes)}\n${await readableCite(i)}${marker(i)}`,
+          `[knowledge] ${JSON.stringify(i.entity.attributes)}\n${await readableCite(i, nameOf)}${marker(i)}`,
         );
       // Say when this answer is a union, and that the link behind it is unreviewed. `same_as` is the
       // one input that adds a SECOND person's judgment under this anchor, and no path can promote a

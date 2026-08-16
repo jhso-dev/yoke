@@ -21,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { commit } from "../../core/commit.js";
 import { seedOntology } from "../../core/ontology.js";
 import { conformanceCases } from "../../ports/conformance-cases.js";
+import { DEFAULT_SEARCH_LIMIT } from "../../ports/storage.js";
 import { makeCompositeStore } from "../storage-composite/index.js";
 import { SqliteStorage } from "../storage-sqlite/index.js";
 import { OpenSearchStorage } from "./index.js";
@@ -265,6 +266,67 @@ suite("opensearch policies that are contract, not implementation", () => {
     expect(
       (await store.search({ text: "zqimmediate" })).map((h) => h.id),
     ).toEqual(["rw1"]);
+    store.close();
+    await wipe(prefix);
+  });
+
+  it("returns every edge of a high-degree node, not the first page of them", async () => {
+    // `neighbors` takes no limit and its callers read it as a total. sqlite and postgres are unbounded;
+    // a `size` here made this backend alone stop at DEFAULT_SEARCH_LIMIT, and docs/SCALE.md measures a
+    // 5,000-edge anchor as a real shape — a briefing on one would quietly lose the tail.
+    const prefix = "yoketest_hidegree_";
+    await wipe(prefix);
+    const store = make(prefix);
+    await store.init();
+    const total = DEFAULT_SEARCH_LIMIT + 5;
+    for (let i = 0; i < total; i++) {
+      await store.putRelation({
+        ...base,
+        id: `edge${String(i).padStart(5, "0")}`,
+        version: 1,
+        type: "relates_to",
+        attributes: {},
+        from: "hub",
+        to: `leaf${i}`,
+      });
+    }
+    const edges = await store.neighbors("hub", "relates_to", "out");
+    expect(edges).toHaveLength(total);
+    // Every page, not the first one repeated: distinct ids, and the last edge written is present.
+    expect(new Set(edges.map((e) => e.id)).size).toBe(total);
+    expect(edges.map((e) => e.to)).toContain(`leaf${total - 1}`);
+    store.close();
+    await wipe(prefix);
+  }, 120_000);
+
+  it("overlays a tenant's ontology on the shared base, like every other backend", async () => {
+    // `loadOntology` is not a port method, so no conformance case covers it — and a backend that
+    // returns the tenant scope ALONE refuses every namespaced command: `yoke init` writes the seed
+    // with no ns, so a tenant that declared nothing of its own would load an EMPTY ontology and every
+    // commit would come back "unknown type". Same rule as sqlite, postgres and sharded (core's
+    // `overlayOntology`), asserted here because only a live cluster runs this adapter's version of it.
+    const prefix = "yoketest_ns_ontology_";
+    await wipe(prefix);
+    const store = make(prefix);
+    await store.init();
+    await store.saveOntology(seedOntology());
+    await store.saveOntology(
+      [
+        { name: "runbook", kind: "entity", attrs: {} },
+        // A tenant override of a shared type wins, in the shared type's slot.
+        { name: "fact", kind: "entity", attrs: {}, ttl_days: 7 },
+      ],
+      "teamA",
+    );
+
+    const shared = await store.loadOntology();
+    expect(shared.map((t) => t.name)).not.toContain("runbook");
+    expect(shared.find((t) => t.name === "fact")?.ttl_days).toBe(180);
+
+    const tenant = await store.loadOntology("teamA");
+    expect(tenant.map((t) => t.name)).toContain("person");
+    expect(tenant.map((t) => t.name)).toContain("runbook");
+    expect(tenant.find((t) => t.name === "fact")?.ttl_days).toBe(7);
     store.close();
     await wipe(prefix);
   });

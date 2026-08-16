@@ -43,6 +43,14 @@ import { type Action, allowed, ungrantable } from "./rbac.js";
 
 type Env = Record<string, string | undefined>;
 
+/**
+ * How often a replica re-pulls the primary. A full `.backup()` disk copy per tick, so it is a fixed
+ * constant rather than an operator knob: the interval is the replica's staleness AND its IO cost, and
+ * nothing that reaches this file may make it small. Make it configurable only with a value someone
+ * actually needs, and validate it where it enters.
+ */
+const REFRESH_MS = 30_000;
+
 export interface ServeDeps {
   store: YokeStore;
   /** Actor used when auth is off, and audit fallback. */
@@ -57,9 +65,9 @@ export interface ServeDeps {
   /** Read-only replica mode (PLAN-V2 11.2): deny every write/verify regardless of scopes. Mutating
    * API endpoints answer 409; MCP write tools get a tool error via the authorize hook. */
   readOnly?: boolean;
-  /** Interval-pull snapshot config (11.2). When set, the store is periodically re-copied from the
-   * primary via `.backup()` and exposes refreshNow() on the returned server for manual/test pulls. */
-  replica?: { primaryPath: string; snapshotPath: string; refreshSec?: number };
+  /** Interval-pull snapshot config (11.2). When set, the store is re-copied from the primary via
+   * `.backup()` every REFRESH_MS and exposes refreshNow() on the returned server for manual pulls. */
+  replica?: { primaryPath: string; snapshotPath: string };
   /** Built web bundle directory, passed through to the UI handler (injectable for tests). */
   webRoot?: string | null;
 }
@@ -305,14 +313,11 @@ export function createServeServer(deps: ServeDeps): ServeServer {
 
   if (deps.replica) {
     server.refreshNow = refreshNow;
-    const timer = setInterval(
-      () => {
-        refreshNow().catch(() => {
-          // A failed pull keeps serving the last good snapshot; next tick retries.
-        });
-      },
-      (deps.replica.refreshSec ?? 30) * 1000,
-    );
+    const timer = setInterval(() => {
+      refreshNow().catch(() => {
+        // A failed pull keeps serving the last good snapshot; next tick retries.
+      });
+    }, REFRESH_MS);
     timer.unref(); // never keep the process alive for the refresh timer alone
     server.on("close", () => {
       clearInterval(timer);
@@ -333,7 +338,6 @@ export async function runServe(
     auth?: boolean;
     ns?: string | null;
     replicaOf?: string;
-    refreshSec?: number;
     /** Sharded composite storage (PLAN-V2 12.2). Ignored in replica mode (per-file snapshot). */
     shards?: string;
     /** Bind address. Defaults to loopback — widening is explicit, and requires auth. */
@@ -374,11 +378,7 @@ export async function runServe(
     }
     store = new SqliteStorage(snapshotPath);
     await store.init();
-    replica = {
-      primaryPath: opts.replicaOf,
-      snapshotPath,
-      refreshSec: opts.refreshSec,
-    };
+    replica = { primaryPath: opts.replicaOf, snapshotPath };
     readOnly = true;
   } else {
     store = await openStore({ db, shards: opts.shards }, env);

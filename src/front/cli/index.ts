@@ -47,7 +47,6 @@ import {
   BRIEFING_LIMIT,
   envKeywordWeight,
   inject,
-  pointer,
   WALK_BUDGET,
 } from "../../core/inject.js";
 import {
@@ -76,12 +75,14 @@ import {
 import type { Entity, Relation } from "../../core/types.js";
 import {
   CONSUMPTION_WINDOW,
+  citeActors,
   consumptionCounts,
   describeWithheld,
   injectDetail,
   injectShape,
   makeActorNames,
   rankByConsumption,
+  readableCite,
   refuseKindChange,
   refuseRename,
   retirementOf,
@@ -124,7 +125,6 @@ type Values = {
   until?: string;
   force?: boolean;
   "replica-of"?: string;
-  "refresh-sec"?: string;
   "all-drafts"?: boolean;
   "include-draft"?: boolean;
   relations?: boolean;
@@ -170,7 +170,6 @@ const OPTIONS = {
   reason: { type: "string" },
   force: { type: "boolean" },
   "replica-of": { type: "string" },
-  "refresh-sec": { type: "string" },
   "all-drafts": { type: "boolean" },
   "include-draft": { type: "boolean" },
   relations: { type: "boolean" },
@@ -1309,24 +1308,16 @@ async function cmdInject(
     // The contradiction marker rides the line, not a footnote: injection is the thing an agent
     // actually reads, and handing over both sides of a live disagreement as two equal facts is the
     // failure it prevents.
-    // Assembled from `pointer` rather than printed from `it.citation`, so the people in it can be named.
-    // `pointer` exists for exactly this split: the id half is the audit pointer and stays an id, and who
-    // said it is rendered for a reader. `--json` still carries core's citation string verbatim, so the
-    // machine contract is untouched — this is the human line only.
+    // `readableCite` rather than `it.citation`, so the people in it can be named: the id half is the
+    // audit pointer and stays an id, and who said it is rendered for a reader. `--json` still carries
+    // core's citation string verbatim, so the machine contract is untouched — this is the human line
+    // only, and it is the same line the MCP server prints.
     const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
-    await prefetch(items.map((it) => it.entity));
-    const who = async (it: (typeof items)[number]): Promise<string> => {
-      const promoter = it.entity.provenance.actor;
-      const authorId = it.author ?? promoter;
-      const author = (await nameOf(authorId)) ?? authorId;
-      if (authorId === promoter) return author;
-      const confirmer = (await nameOf(promoter)) ?? promoter;
-      return `${author} (confirmed by ${confirmer})`;
-    };
+    await prefetch(citeActors(items));
     const lines = await Promise.all(
       items.map(
         async (it) =>
-          `${pointer(it.entity)} ${await who(it)}, ${it.entity.provenance.occurred_at}  ${summarize(it.entity, ontology)}` +
+          `${await readableCite(it, nameOf)}  ${summarize(it.entity, ontology)}` +
           (it.conflictsWith
             ? `\n  ! contradicted by ${it.conflictsWith.join(" ")} — both are recorded, neither is settled`
             : ""),
@@ -2346,8 +2337,6 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
     auth: v.auth,
     ns: resolveNs(v.ns, env),
     replicaOf: v["replica-of"],
-    refreshSec:
-      v["refresh-sec"] === undefined ? undefined : Number(v["refresh-sec"]),
     shards: resolveShards(v, env),
     host: v.host ?? env.YOKE_HOST,
   });

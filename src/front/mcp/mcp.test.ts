@@ -2,7 +2,7 @@
 // Uses InMemoryTransport instead of spawn (allowed): server and client are connected as a linked pair,
 // but each connection opens and closes the DB file afresh, preserving the "Client A commits → close → Client B reads" scenario.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -15,7 +15,7 @@ import { downstreamOf } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
 import { runCli } from "../cli/index.js";
-import { createYokeMcpServer, resolveScope } from "./index.js";
+import { createYokeMcpServer } from "./index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-mcp-"));
 const db = join(dir, "yoke.db");
@@ -35,6 +35,7 @@ async function openSession() {
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
   return {
     client,
+    store,
     async close() {
       await client.close();
       await server.close();
@@ -122,6 +123,81 @@ describe("yoke MCP server", () => {
       "yoke_use_scope",
     ]);
     await s.close();
+  });
+
+  it("resolves the authors of one answer in one read, not one per line", async () => {
+    // display.ts records the measured cost of the unbatched form: an anchored graph at depth 3 spent
+    // 1,595 of its 1,715 port calls resolving names, one point read per distinct author. The MCP
+    // server had its own private copy of that loop; both surfaces now go through `makeActorNames`.
+    const port = new SqliteStorage(db);
+    await port.init();
+    const at = "2026-08-02T00:00:00Z";
+    const names = ["Ana", "Ben", "Cai", "Dot"];
+    const facts: string[] = [];
+    for (const name of names) {
+      const person = (
+        await commit(
+          port,
+          seedOntology(),
+          { type: "person", attributes: { name } },
+          { actor: "mcp:seed", origin: "cli", occurred_at: at },
+          at,
+        )
+      ).entity.id;
+      facts.push(
+        (
+          await commit(
+            port,
+            seedOntology(),
+            {
+              type: "fact",
+              // Each fact is authored by a DIFFERENT person, which is the case the memo cannot help
+              // with and a real corpus is made of.
+              attributes: { statement: `zqbatched ledger note from ${name}` },
+            },
+            { actor: person, origin: "cli", occurred_at: at },
+            at,
+          )
+        ).entity.id,
+      );
+    }
+    port.close();
+    expect(await runCli(["verify", ...facts, "--db", db])).toBe(0);
+
+    const s = await openSession();
+    const realGet = s.store.getEntity.bind(s.store);
+    let points = 0;
+    s.store.getEntity = async (id: string, version?: number) => {
+      points++;
+      return realGet(id, version);
+    };
+    const out = text(
+      await s.client.callTool({
+        name: "yoke_inject",
+        arguments: { query: "zqbatched" },
+      }),
+    );
+    await s.close();
+
+    // Every author is named — the point reads are gone, not the names.
+    for (const name of names) expect(out).toContain(name);
+    // Four authors and four confirmers, resolved without a single point read.
+    expect(points).toBe(0);
+  });
+
+  it("never names a tool it does not register", async () => {
+    // An instruction is only as good as the tool it names: "file it again with yoke_link" sent agents
+    // after a tool that has never existed, and a model cannot tell a wrong name from a missing
+    // permission. Scanned over the whole adapter, because the names appear in tool DESCRIPTIONS and in
+    // the text tools return, and both are read by the same reader.
+    const s = await openSession();
+    const registered = new Set(
+      (await s.client.listTools()).tools.map((t) => t.name),
+    );
+    await s.close();
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const named = new Set(source.match(/yoke_[a-z_]+/g) ?? []);
+    expect([...named].filter((n) => !registered.has(n))).toEqual([]);
   });
 
   it("yoke_persona: returns a person's verified decisions with citations; an absent person is a tool error", async () => {
@@ -562,26 +638,40 @@ describe("yoke MCP server", () => {
   });
 });
 
-describe("resolveScope (key/id → collaboration lookup)", () => {
+describe("yoke_use_scope (key/id → collaboration lookup)", () => {
   const now = "2026-07-14T00:00:00Z";
   const prov: Provenance = { actor: "t", origin: "cli", occurred_at: now };
 
-  it("resolves an exact entity id, a matching key attribute, or a matching title; null otherwise", async () => {
-    const port = new SqliteStorage(":memory:");
+  it("resolves an exact entity id, a matching key attribute, or a matching title; says so otherwise", async () => {
+    const port = new SqliteStorage(db);
     await port.init();
     const { entity } = await commit(
       port,
       seedOntology(),
-      { type: "collaboration", attributes: { title: "auth", key: "ABC-123" } },
+      {
+        type: "collaboration",
+        attributes: { title: "zqauth", key: "ZQA-123" },
+      },
       prov,
       now,
     );
-    const want = { id: entity.id, title: "auth" };
-    expect(await resolveScope(port, null, entity.id)).toEqual(want); // exact id
-    expect(await resolveScope(port, null, "ABC-123")).toEqual(want); // by key
-    expect(await resolveScope(port, null, "auth")).toEqual(want); // by title
-    expect(await resolveScope(port, null, "ZZZ-999")).toBeNull(); // no match
     port.close();
+
+    // Through the tool, which is the only way in: an agent reaches the lookup by calling
+    // yoke_use_scope, so that is what the resolution rules are asserted against.
+    const s = await openSession();
+    const use = async (key: string) =>
+      text(
+        await s.client.callTool({ name: "yoke_use_scope", arguments: { key } }),
+      );
+    const want = JSON.stringify({ id: entity.id, title: "zqauth" });
+    expect(await use(entity.id)).toBe(want); // exact id
+    expect(await use("ZQA-123")).toBe(want); // by key
+    expect(await use("zqauth")).toBe(want); // by title
+    expect(await use("ZZZ-999")).toContain(
+      'no collaboration matches "ZZZ-999"',
+    );
+    await s.close();
   });
 });
 

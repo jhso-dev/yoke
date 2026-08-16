@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
-import type { TypeDef } from "../../core/ontology.js";
+import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
@@ -1077,16 +1077,12 @@ export class SqliteStorage implements StoragePort {
     return rows.map((r) => JSON.parse(r.def) as TypeDef);
   }
 
-  /** Load the effective ontology for a namespace (PLAN-V2 10.1): tenant defs overlaid on the
-   * shared (null-ns) base by name. Omitted ns = the shared base alone (backward compatible). */
+  /** The effective ontology for a namespace — see core's `overlayOntology`. Omitted ns = the shared
+   * base alone (backward compatible). */
   loadOntology(ns?: string | null): TypeDef[] {
     const shared = this.loadOntologyScope(null);
     const n = normalizeNs(ns);
     if (n === null) return shared;
-    // Overlay: shared order preserved, tenant defs replace same-name entries in place, tenant-only
-    // types appended (Map keeps insertion order; re-set keeps the original slot).
-    const byName = new Map(shared.map((d) => [d.name, d]));
-    for (const d of this.loadOntologyScope(n)) byName.set(d.name, d);
-    return [...byName.values()];
+    return overlayOntology(shared, this.loadOntologyScope(n));
   }
 }

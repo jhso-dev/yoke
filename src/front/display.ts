@@ -5,7 +5,7 @@
 // One copy of each presentation helper (summarize, actor-name resolution, the refusal guards): two
 // copies drift, and a fix to one is a defect the other still shows.
 
-import type { WithheldStats } from "../core/inject.js";
+import { pointer, type WithheldStats } from "../core/inject.js";
 import { effectiveStatus } from "../core/lifecycle.js";
 import { normalizeNs } from "../core/namespace.js";
 import {
@@ -14,8 +14,9 @@ import {
   renameRefusal,
   type TypeDef,
 } from "../core/ontology.js";
+import { readableName } from "../core/persona.js";
 import type { Entity, Relation, Status } from "../core/types.js";
-import { readEntities } from "../ports/storage.js";
+import { readEntities, type StoragePort } from "../ports/storage.js";
 import type { YokeStore } from "./store.js";
 
 /**
@@ -39,10 +40,14 @@ export function shownStatus(
 
 /** A person's display name: the `name` attribute by convention, else the first string attribute.
  * The seed ontology declares `person` with no required attrs, so this is a convention, not a schema
- * guarantee — hence the fallback and the `undefined` when there is nothing readable. */
-export function personName(e: Entity, ontology: TypeDef[]): string | undefined {
+ * guarantee — hence the fallback and the `undefined` when there is nothing readable.
+ *
+ * Through core's `readableName`, because a name reaches an agent's prompt from here (an injected
+ * citation) as surely as it reaches a skill file: the value is caller-controlled text, and `yoke
+ * connect rdb` maps and auto-verifies an external `name` column. */
+function personName(e: Entity, ontology: TypeDef[]): string | undefined {
   const named = e.attributes.name;
-  if (typeof named === "string" && named) return named;
+  if (typeof named === "string" && named) return readableName(e);
   return summarize(e, ontology) || undefined;
 }
 
@@ -60,7 +65,7 @@ export function personName(e: Entity, ontology: TypeDef[]): string | undefined {
  * 117.
  */
 export function makeActorNames(
-  store: YokeStore,
+  store: StoragePort,
   ontology: TypeDef[],
   ns?: string | null,
 ) {
@@ -104,6 +109,50 @@ export function makeActorNames(
     return seen.get(actorId);
   };
   return { nameOf, prefetch };
+}
+
+/**
+ * Every actor the citations for these items will name, in the shape `prefetch` takes.
+ *
+ * TWO ids per row, not one: the record's own `provenance.actor` (who wrote this version) and the
+ * `authored_by` author, which is a different person exactly when a citation has something to say —
+ * "X, confirmed by Y". Prefetching only the first leaves the author a point read per line, which is
+ * the cost the batch exists to remove.
+ */
+export function citeActors(
+  items: Array<{ entity: Entity; author?: string }>,
+): Array<{ provenance: { actor: string } }> {
+  return items.flatMap((it) =>
+    it.author ? [it.entity, { provenance: { actor: it.author } }] : [it.entity],
+  );
+}
+
+/**
+ * A citation with its author (and confirmer) resolved to names — the human half of core's citation
+ * split: `pointer` keeps the entity id (the audit anchor), the who-slot reads as a name. Mirrors
+ * `citation()`'s shape so the two never drift.
+ *
+ * `author` is the `authored_by` edge (SPEC.md "never provenance.actor"); the record's own actor is
+ * whoever last wrote the version, so when they differ BOTH are named — a record someone else confirmed
+ * is not that person's judgment, and a citation that said only one of them would attribute it wrongly.
+ *
+ * Over the batched `nameOf` from `makeActorNames`, and the caller prefetches: resolving an author per
+ * line is what made one anchored graph read spend 1,595 of its 1,715 port calls on names.
+ */
+export async function readableCite(
+  it: { entity: Entity; author?: string },
+  nameOf: (id: string) => Promise<string | undefined>,
+): Promise<string> {
+  const promoterId = it.entity.provenance.actor;
+  const authorId = it.author ?? promoterId;
+  // The id when there is no name to give: a machine actor ('yoke:system', 'connector:github-pr') reads
+  // fine as its own slug, and a person in another namespace must not be named at all.
+  const author = (await nameOf(authorId)) ?? authorId;
+  const who =
+    authorId === promoterId
+      ? author
+      : `${author} (confirmed by ${(await nameOf(promoterId)) ?? promoterId})`;
+  return `${pointer(it.entity)} ${who}, ${it.entity.provenance.occurred_at}`;
 }
 
 /**
@@ -202,22 +251,6 @@ export function injectShape(detail: string): {
 }
 
 /**
- * id → how many times an agent has received that record: the `inject` and `persona` audit rows,
- * counted over whatever window of events the caller hands in.
- *
- * This is the governance signal the stale queue orders by. A record agents consumed 47 times last
- * month and one nothing has touched since it was verified both age out the same day; the person
- * re-confirming should meet the first one first. The audit trail already held the answer — every
- * inject/persona row names the ids it returned — so this is an aggregation, not new bookkeeping.
- *
- * `inject_preview`, `read` and `search` are deliberately NOT counted: those record a human governing,
- * and the question here is what AGENTS are being told.
- *
- * Structural event type rather than the adapter's AuditEvent, so this file keeps importing only core.
- * The `detail` grammar is `subject -> id id …` (see `injectDetail`); the ids side is taken from the
- * LAST arrow, since a query in the subject may contain anything.
- */
-/**
  * The window a stale-queue consumption count is taken over, in audit rows.
  *
  * F1: `consumptionCounts` materializes every audit row it is handed into JS, so handing it the WHOLE
@@ -233,6 +266,22 @@ export function injectShape(detail: string): {
  */
 export const CONSUMPTION_WINDOW = 50_000;
 
+/**
+ * id → how many times an agent has received that record: the `inject` and `persona` audit rows,
+ * counted over whatever window of events the caller hands in.
+ *
+ * This is the governance signal the stale queue orders by. A record agents consumed 47 times last
+ * month and one nothing has touched since it was verified both age out the same day; the person
+ * re-confirming should meet the first one first. The audit trail already held the answer — every
+ * inject/persona row names the ids it returned — so this is an aggregation, not new bookkeeping.
+ *
+ * `inject_preview`, `read` and `search` are deliberately NOT counted: those record a human governing,
+ * and the question here is what AGENTS are being told.
+ *
+ * Structural event type rather than the adapter's AuditEvent, so this file keeps importing only core.
+ * The `detail` grammar is `subject -> id id …` (see `injectDetail`); the ids side is taken from the
+ * LAST arrow, since a query in the subject may contain anything.
+ */
 export function consumptionCounts(
   events: Array<{ action: string; detail: string }>,
 ): Map<string, number> {
@@ -294,16 +343,6 @@ export function describeWithheld(w: WithheldStats): string {
 }
 
 /**
- * The governance act that retired a record, read back from the trail: who, when, and why if anyone
- * said. The LAST deprecate naming this id wins — a record can be retired, re-verified and retired
- * again, and the current status is explained by the most recent act, not the first.
- *
- * `ceiling:` scans the namespace's audit rows rather than querying by id, because the trail is a log
- * with no index on the records a row mentions. It is bounded by the deprecate rows in one namespace,
- * which is the count of governance acts rather than of knowledge — add an index when a corpus has
- * enough retirements for this to be felt.
- */
-/**
  * The kind-change guard, assembled against the store ONCE — `refuseRename`'s sibling.
  *
  * `kindChangeRefusal` (core) judges a `rows` count it is handed. A type being flipped from `relation`
@@ -364,6 +403,16 @@ export async function refuseRename(
   });
 }
 
+/**
+ * The governance act that retired a record, read back from the trail: who, when, and why if anyone
+ * said. The LAST deprecate naming this id wins — a record can be retired, re-verified and retired
+ * again, and the current status is explained by the most recent act, not the first.
+ *
+ * `ceiling:` scans the namespace's audit rows rather than querying by id, because the trail is a log
+ * with no index on the records a row mentions. It is bounded by the deprecate rows in one namespace,
+ * which is the count of governance acts rather than of knowledge — add an index when a corpus has
+ * enough retirements for this to be felt.
+ */
 export function retirementOf(
   store: YokeStore,
   id: string,

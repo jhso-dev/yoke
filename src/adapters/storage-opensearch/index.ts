@@ -42,7 +42,7 @@
 
 import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
-import type { TypeDef } from "../../core/ontology.js";
+import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
@@ -532,18 +532,33 @@ export class OpenSearchStorage implements StoragePort {
           : [{ term: { from_id: id } }, { term: { to_id: id } }];
     const filter: unknown[] = [{ term: { latest: true } }];
     if (relType !== undefined) filter.push({ term: { type: relType } });
-    const res = await this.req<SearchResponse<RelationDoc>>(
-      "POST",
-      `/${this.idx(RELATIONS)}/_search`,
-      {
-        size: DEFAULT_SEARCH_LIMIT,
-        query: {
-          bool: { filter, should: ends, minimum_should_match: 1 },
+    // Paged to exhaustion, not capped: `neighbors` answers "every edge at this node", and every caller
+    // reads it as a total (the gate's dedup asks whether an edge is already there, injection walks the
+    // whole hop, the rdb sync skips an edge it finds). A default `size` would silently drop the tail on
+    // this backend alone — docs/SCALE.md measures a 5,000-edge anchor as a real shape, so the cap would
+    // hide 4,000 edges from a briefing and duplicate the ones the dedup could no longer see.
+    //
+    // `search_after` on the ascending `id`, which is a total order over the LATEST docs (one row per
+    // edge id under the filter) — a from/size deep page would re-sort the whole result set per page.
+    const out: Relation[] = [];
+    for (let after: string | undefined; ; ) {
+      const res = await this.req<SearchResponse<RelationDoc>>(
+        "POST",
+        `/${this.idx(RELATIONS)}/_search`,
+        {
+          size: DEFAULT_SEARCH_LIMIT,
+          query: {
+            bool: { filter, should: ends, minimum_should_match: 1 },
+          },
+          sort: [{ id: "asc" }],
+          ...(after === undefined ? {} : { search_after: [after] }),
         },
-        sort: [{ id: "asc" }],
-      },
-    );
-    return res.hits.hits.map((h) => this.toRelation(h._source));
+      );
+      const hits = res.hits.hits;
+      for (const h of hits) out.push(this.toRelation(h._source));
+      if (hits.length < DEFAULT_SEARCH_LIMIT) return out;
+      after = hits[hits.length - 1]._source.id;
+    }
   }
 
   async search(q: TextQuery): Promise<Entity[]> {
@@ -681,9 +696,9 @@ export class OpenSearchStorage implements StoragePort {
     }
   }
 
-  async loadOntology(ns?: string | null): Promise<TypeDef[]> {
+  /** Latest version per name within ONE namespace scope ("" = the shared base). */
+  private async ontologyScope(scope: string): Promise<TypeDef[]> {
     const name = this.idx(ONTOLOGY);
-    const scope = normalizeNs(ns) ?? "";
     await this.ready(name);
     const res = await this.req<
       SearchResponse<{ name: string; version: number; json: string }>
@@ -698,6 +713,14 @@ export class OpenSearchStorage implements StoragePort {
         latest.set(h._source.name, JSON.parse(h._source.json) as TypeDef);
     }
     return [...latest.values()];
+  }
+
+  /** The effective ontology for a namespace — see core's `overlayOntology`. */
+  async loadOntology(ns?: string | null): Promise<TypeDef[]> {
+    const shared = await this.ontologyScope("");
+    const scope = normalizeNs(ns);
+    if (scope === null) return shared;
+    return overlayOntology(shared, await this.ontologyScope(scope));
   }
 
   /**

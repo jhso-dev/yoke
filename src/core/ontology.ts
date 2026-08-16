@@ -215,6 +215,28 @@ export function validateTypeDef(def: unknown): string | null {
 }
 
 /**
+ * The effective ontology for a namespace (PLAN-V2 10.1): tenant defs overlaid on the shared (null-ns)
+ * base by name. Shared order is preserved and a tenant def replaces its same-name entry IN PLACE (a Map
+ * keeps insertion order and a re-set keeps the original slot); tenant-only types append.
+ *
+ * Every backend's `loadOntology(ns)` answers with this, and they must all answer alike: a backend that
+ * returned the tenant scope ALONE would make every namespaced command on it refuse to run. `yoke init`
+ * writes the seed with no ns, so a tenant that has declared nothing of its own would load an EMPTY
+ * ontology and every commit would come back "unknown type" — and a tenant holding no copy of the shared
+ * types is the point of the split, not an omission. A backend answering this differently is backend
+ * behaviour leaking through the store surface (invariant 2), which is why the rule is here and each
+ * adapter supplies only the two scope reads.
+ */
+export function overlayOntology(
+  shared: TypeDef[],
+  tenant: TypeDef[],
+): TypeDef[] {
+  const byName = new Map(shared.map((d) => [d.name, d]));
+  for (const d of tenant) byName.set(d.name, d);
+  return [...byName.values()];
+}
+
+/**
  * May `name`'s kind be changed from `prior` to `next`? Returns a reason, or null.
  *
  * A kind flip rewrites what the gate demands of a type that already has meaning: flipping `fact` to a

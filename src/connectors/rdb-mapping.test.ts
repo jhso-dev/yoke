@@ -142,6 +142,105 @@ describe("ingestMapped", () => {
     expect(res).toMatchObject({ added: 0, errors: 3 });
   });
 
+  // The three below are what a COPY of ingest's per-item sequence had lost. They are asserted on the
+  // rdb path specifically: the fixes live in `ingestItem`, and the point is that this path runs it.
+  it("keeps an attribute the mapping stopped producing", async () => {
+    const withNote: MappingSpec[] = [
+      {
+        table: "employees",
+        entityType: "person",
+        idColumn: "id",
+        columns: { name: "name", manager_id: "manager_id" },
+      },
+    ];
+    await ingestMapped(
+      port,
+      ont,
+      makeRdbMappingConnector({ query: query(src), mapping: withNote }),
+      now,
+    );
+
+    // The operator drops a column from the mapping file AND the row changes, so the sync re-versions.
+    // The head must still carry `manager_id`: a mapping edit is a config change, and knowledge does not
+    // leave an append-only store because someone stopped asking for a column.
+    src.prepare("UPDATE employees SET name = ? WHERE id = 2").run("Bobby");
+    const narrowed: MappingSpec[] = [
+      { ...withNote[0], columns: { name: "name" } },
+    ];
+    const res = await ingestMapped(
+      port,
+      ont,
+      makeRdbMappingConnector({ query: query(src), mapping: narrowed }),
+      now,
+    );
+    expect(res).toMatchObject({ updated: 1, errors: 0 });
+
+    const bob = (await port.search({ text: "rdb:employees:2" })).find(
+      (e) => e.attributes.external_id === "rdb:employees:2",
+    );
+    expect(bob?.attributes.name).toBe("Bobby");
+    expect(bob?.attributes.manager_id).toBe(1);
+  });
+
+  it("probes and commits inside one critical section", async () => {
+    // Two concurrent `yoke connect rdb` runs otherwise both read "absent" for a row and both commit it
+    // — the double write ingest.race.test.ts exists to prevent on the capture path.
+    let locked = false;
+    let probeLocked: boolean | undefined;
+    let writeLocked: boolean | undefined;
+    const realSection = port.withCriticalSection.bind(port);
+    const realSearch = port.search.bind(port);
+    const realPut = port.putEntity.bind(port);
+    vi.spyOn(port, "withCriticalSection").mockImplementation(async (fn) => {
+      locked = true;
+      try {
+        return await realSection(fn);
+      } finally {
+        locked = false;
+      }
+    });
+    vi.spyOn(port, "search").mockImplementation(async (q) => {
+      probeLocked ??= locked;
+      return realSearch(q);
+    });
+    vi.spyOn(port, "putEntity").mockImplementation(async (e) => {
+      writeLocked ??= locked;
+      return realPut(e);
+    });
+    await ingestMapped(
+      port,
+      ont,
+      makeRdbMappingConnector({ query: query(src), mapping: EMPLOYEE_MAPPING }),
+      now,
+    );
+    vi.restoreAllMocks();
+    expect({ probeLocked, writeLocked }).toEqual({
+      probeLocked: true,
+      writeLocked: true,
+    });
+  });
+
+  it("asks the probe for every term of the external id", async () => {
+    // An external id is many tokens and SPEC search clause 8 makes a long query a disjunction, so a
+    // probe without `terms: "all"` scores every record sharing the word "rdb". Measured at 1M entities:
+    // 292 ms and 1,000 rows per item, against 3 ms and 0 — and this path probes on the bulk path.
+    const seen: (string | undefined)[] = [];
+    const realSearch = port.search.bind(port);
+    vi.spyOn(port, "search").mockImplementation(async (q) => {
+      seen.push(q.terms);
+      return realSearch(q);
+    });
+    await ingestMapped(
+      port,
+      ont,
+      makeRdbMappingConnector({ query: query(src), mapping: EMPLOYEE_MAPPING }),
+      now,
+    );
+    vi.restoreAllMocks();
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((t) => t === "all")).toBe(true);
+  });
+
   it("emits FK relations to the mapped target entity", async () => {
     const connector = makeRdbMappingConnector({
       query: query(src),

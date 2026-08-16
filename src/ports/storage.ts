@@ -193,7 +193,14 @@ export interface StoragePort {
    * than broken. `neighbors` remains the only way in for adapters that skip it.
    */
   getRelation?(id: string, version?: number): Promise<Relation | null>;
-  /** Relations connected to id. Both directions when dir is omitted; filter type with relType. */
+  /**
+   * Relations connected to id. Both directions when dir is omitted; filter type with relType.
+   *
+   * EVERY edge, with no default cap — unlike `search`, this takes no `limit` and its callers read the
+   * result as a total: the gate asks whether an edge is already there, injection walks the whole hop,
+   * the rdb sync skips an edge it finds. A backend whose engine pages has to page to exhaustion; a
+   * truncating one answers "no such edge" about edges it holds, and writes a duplicate of one it does.
+   */
   neighbors(
     id: string,
     relType?: string,
