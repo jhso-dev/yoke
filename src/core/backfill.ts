@@ -80,6 +80,65 @@ export async function backfillAuthorship(
   };
 }
 
+/**
+ * Restore the event time that `transition` used to overwrite.
+ *
+ * Until the two times were separated, verify/deprecate restamped `provenance.occurred_at` to the
+ * transition instant, so a store that was ever bulk-verified has one event time across everything
+ * promoted in that run. The knowledge's real time is not lost — it is in the version history, on the
+ * rows the commit gate wrote — so this walks each record back to its most recent commit-written
+ * version and puts that `occurred_at` back on the current one.
+ *
+ * Only records whose CURRENT version is a lifecycle row are touched. A later edit stamps its own
+ * event time through the gate, and rewinding that to the first version's would be this same bug in
+ * the other direction.
+ *
+ * Appends a version rather than rewriting one, because there is no in-place write in the port and
+ * there is no physical delete either — knowledge is append-only. The repair row keeps the current
+ * version's status, actor, origin and `last_confirmed` (rewriting `last_confirmed` would re-age the
+ * TTL and quietly re-verify the corpus) and carries the displaced instant in `transitioned_at`, so
+ * the as-of rewind sees exactly the timeline it saw before the repair.
+ *
+ * Idempotent: a second run finds the event time already in place and writes nothing.
+ */
+export async function backfillOccurredAt(
+  port: StoragePort,
+  opts?: { ns?: string | null; dryRun?: boolean },
+): Promise<{
+  scanned: number;
+  changes: { id: string; from: string; to: string }[];
+}> {
+  const changes: { id: string; from: string; to: string }[] = [];
+  let scanned = 0;
+  const latest = (await port.listEntities({ ns: opts?.ns ?? null })).items;
+  for (const e of latest) {
+    scanned++;
+    // Latest-version rows only, so the "was this record's current version written by a transition"
+    // test costs no history walk on a corpus that was never restamped.
+    if (e.provenance.origin !== "lifecycle") continue;
+    // The most recent version the gate wrote — the last time anyone stated when this happened.
+    const stated = (await listVersions(port, e.id))
+      .filter((v) => v.provenance.origin !== "lifecycle")
+      .pop();
+    if (!stated) continue;
+    const to = stated.provenance.occurred_at;
+    const from = e.provenance.occurred_at;
+    if (from === to) continue;
+    changes.push({ id: e.id, from, to });
+    if (opts?.dryRun) continue;
+    await port.putEntity({
+      ...e,
+      version: e.version + 1,
+      provenance: {
+        ...e.provenance,
+        occurred_at: to,
+        transitioned_at: e.provenance.transitioned_at ?? from,
+      },
+    });
+  }
+  return { scanned, changes };
+}
+
 /** How many rows one page of the embedding walk loads. Independent of the caller's `limit`, which
  * bounds how many rows are EMBEDDED — each of those costs a provider round trip, so the two numbers
  * are not the same size. */
@@ -113,6 +172,8 @@ export async function backfillEmbeddings(
     limit?: number;
     after?: string;
     rebuild?: boolean;
+    /** Orders the values in the index key (`serializeText`). */
+    ontology?: TypeDef[];
   },
 ): Promise<{
   scanned: number;
@@ -132,7 +193,6 @@ export async function backfillEmbeddings(
   let skipped = 0;
   let rebuildPending = opts.rebuild === true;
   let after = opts.after;
-
   for (;;) {
     const page = await port.listEntities({
       ns: opts.ns,
@@ -145,7 +205,7 @@ export async function backfillEmbeddings(
       // vector lands in a different place than one written at commit time and duplicate detection
       // starts comparing across two representations.
       const vector = await opts.embedder(
-        serializeText(e.type, JSON.stringify(e.attributes)),
+        serializeText(e.type, JSON.stringify(e.attributes), opts.ontology),
       );
       if (!vector) {
         // Provider unconfigured or failing. Counted, never fatal — the same principle as the gate's:

@@ -18,9 +18,27 @@ const DAY_MS = 86_400_000;
 const MAX_VERSION_RETRIES = 5;
 
 /**
+ * When THIS VERSION came into being — governance time, which is not the knowledge's event time.
+ *
+ * `transitioned_at` when a lifecycle transition wrote the row; otherwise `occurred_at`, which on a
+ * commit-written row is the instant the caller stamped it with. The fallback also reads rows written
+ * before the two times were separated: those carry the transition instant in `occurred_at`, so
+ * as-of over legacy history answers exactly as it did before the split.
+ */
+const versionTime = (e: Entity): string =>
+  e.provenance.transitioned_at ?? e.provenance.occurred_at;
+
+/**
  * Shared transition path. Reads every row in ONE batch, then appends a new version row each
- * (append-only). Provenance is refreshed to record the promote/retire action itself
- * (origin: 'lifecycle').
+ * (append-only). Provenance records the promote/retire action itself (actor, origin 'lifecycle',
+ * `transitioned_at`) on top of the knowledge's own provenance, which is carried forward.
+ *
+ * `occurred_at` SURVIVES the transition. It used to be restamped to the transition instant, which
+ * meant `verify --all-drafts` gave a whole corpus one event time — a batch of dated documents read
+ * as though everything in it happened the moment someone promoted it, and every time-aware read
+ * (as-of, claim ordering, the citation's date) got governance time in place of the knowledge's own.
+ * The transition still needs a time of its own, for the as-of rewind; that is `transitioned_at`.
+ * The invariant: a verify/deprecate changes status, never when the knowledge happened.
  *
  * ONE batch read, not a `getEntity` per id: a bulk verify of 54 rows from the review queue would
  * otherwise be 54 round trips before the first write. Writes stay one call each — the port has no
@@ -95,7 +113,14 @@ async function transition(
     status,
     version: base.version + 1,
     last_confirmed: now,
-    provenance: { actor, origin: "lifecycle", occurred_at: now },
+    // The knowledge's own provenance is carried forward and the ACTION is layered on top:
+    // `occurred_at` survives, and the transition's own instant goes in `transitioned_at`.
+    provenance: {
+      ...base.provenance,
+      actor,
+      origin: "lifecycle",
+      transitioned_at: now,
+    },
   });
   // Retiring what is already retired records nothing: a repeated `deprecate` would otherwise append a
   // second identical-but-for-the-clock version row, `history` would show two retirements of one record,
@@ -267,8 +292,13 @@ export async function listVersions(
 }
 
 /**
- * The version of `id` that was current at `at` — the highest whose provenance timestamp is at or
- * before it. null when the record did not exist yet.
+ * The version of `id` that was current at `at` — the highest whose `versionTime` is at or before it.
+ * null when the record did not exist yet.
+ *
+ * `versionTime`, not `occurred_at`: the rewind asks when a VERSION came into being, and since the
+ * two times were separated a transition no longer answers that with `occurred_at`. Reading
+ * `occurred_at` here after the split would give every version of a record the same timestamp and
+ * collapse the rewind to "always the latest version" — the whole feature.
  *
  * This is the whole of "what was true then". Rows are append-only and a transition writes a new
  * version (see `transition` above), so the status a record had at any past instant is already stored;
@@ -301,7 +331,7 @@ export async function versionAsOf(
 ): Promise<Entity | null> {
   let best: Entity | null = null;
   for (const e of await listVersions(port, id)) {
-    if (!atOrBefore(e.provenance.occurred_at, at)) continue;
+    if (!atOrBefore(versionTime(e), at)) continue;
     if (!best || e.version > best.version) best = e;
   }
   return best;

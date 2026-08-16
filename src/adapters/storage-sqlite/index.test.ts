@@ -127,6 +127,48 @@ describe("the hot reads use an index, not a scan", () => {
   });
 });
 
+describe("rebuildFts", () => {
+  const row = {
+    id: "e1",
+    type: "fact",
+    status: "verified" as const,
+    version: 1,
+    last_confirmed: "2026-01-01T00:00:00Z",
+    provenance: {
+      actor: "yoke:system",
+      origin: "cli",
+      occurred_at: "2026-01-01T00:00:00Z",
+    },
+    attributes: { statement: "Started writing a blog again" },
+  };
+
+  // The keyword half cannot be re-derived by re-putting a version (that is a primary-key collision),
+  // so this is the only path that re-keys it — the one `backfill --embeddings --rebuild` calls when a
+  // store was indexed under an older rule.
+  it("rewrites every keyword row from the latest stored version", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    await store.putEntity(row);
+    // Attribute NAMES are not in the key — that dilution is what the prose key removed, and it is the
+    // sharpest observable difference from what a pre-prose store holds.
+    expect(await store.search({ text: "statement" })).toEqual([]);
+
+    // Simulate a row written before the key changed, then rebuild it.
+    handleOf(store).exec(
+      `UPDATE entities_fts SET text = 'fact {"statement":"Started writing a blog again"}'`,
+    );
+    expect(
+      (await store.search({ text: "statement" })).map((e) => e.id),
+    ).toEqual(["e1"]);
+    expect(store.rebuildFts(seedOntology())).toBe(1);
+    expect(await store.search({ text: "statement" })).toEqual([]);
+    expect((await store.search({ text: "blog" })).map((e) => e.id)).toEqual([
+      "e1",
+    ]);
+    store.close();
+  });
+});
+
 describe("ontology save/load", () => {
   it("round-trips the seed ontology", async () => {
     const store = new SqliteStorage(":memory:");

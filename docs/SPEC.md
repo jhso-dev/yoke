@@ -13,7 +13,9 @@ Defines only the contract the implementation must follow. For background and rat
   provenance: {
     actor: string     // a person entity id or an agent identifier (required)
     origin: string    // 'cli' | 'mcp' | 'connector:github-pr' | ...
-    occurred_at: string  // ISO 8601 (required)
+    occurred_at: string  // ISO 8601 (required). WHEN THE KNOWLEDGE HAPPENED — carried forward unchanged by verify/deprecate
+    transitioned_at?: string // ISO 8601. when THIS VERSION came into being. written only by a lifecycle
+                             // transition — the gate STRIPS a caller-supplied one (it is what as-of reads)
   }
   version: number     // starts at 1. an edit appends a new version (no overwrite)
   last_confirmed: string  // ISO 8601. refreshed on verify
@@ -519,7 +521,11 @@ no way to ask: **what would this query have injected at time T.**
 - `asOf` **replaces the read clock** for the whole filter. Freshness is evaluated against `asOf`
   (a record inside its TTL then, expired now, was injectable then), and so is the status.
 - Each candidate is **rewound to the version that was current at `asOf`** — the highest version whose
-  `provenance.occurred_at <= asOf`. This is the clause that matters: a decision deprecated last week
+  *version time* is `<= asOf`. Version time is `provenance.transitioned_at` when a lifecycle
+  transition wrote the row and `provenance.occurred_at` otherwise (a commit-written row is stamped
+  when the caller says it happened), which is also what makes the rewind correct on history written
+  before the two were separated: those rows carry the transition instant in `occurred_at`, so the
+  fallback reads them exactly as it always did. This is the clause that matters: a decision deprecated last week
   was verified a month ago, and without the rewind an as-of read would answer with today's status and
   be wrong in exactly the case the question is asked about. A record with no version at or before
   `asOf` did not exist yet and is excluded.
@@ -536,6 +542,14 @@ no way to ask: **what would this query have injected at time T.**
 - Available on `yoke inject --as-of` and `GET /api/inject?asOf=`. Deliberately **not** on
   `yoke_inject`: it is a governance question a person asks about the record, and every MCP parameter
   is contract surface an agent must be taught. Add it when an agent needs it, not before.
+- **Two times, and the rewind is why they are separate.** `occurred_at` is when the KNOWLEDGE
+  happened and survives every transition; `transitioned_at` is when that VERSION came into being and
+  is what the rewind reads. **The invariant: a verify/deprecate changes status, never when the
+  knowledge happened** — one `verify --all-drafts` over a batch of dated documents must not leave
+  them all sharing the promoter's clock. `transitioned_at` is optional and additive (provenance is a
+  JSON blob on every backend), so no migration: a row without one carries its version time in
+  `occurred_at`, which is what the fallback reads. A store restamped by an older build is repaired
+  with `yoke backfill --occurred-at`.
 
 ### The stale queue (v5.2 — implementing a clause that was written and never built)
 
@@ -940,6 +954,7 @@ yoke persona <person>      # generate/export a persona skill (SKILL.md)
 yoke persona --check <file> # audit an exported SKILL.md against the store now; exit 1 if any source moved
 yoke backfill              # derive missing authored_by edges (upgrade path, idempotent)
 yoke backfill --embeddings [--rebuild] [--limit n] [--after id]   # repair vector coverage; --rebuild changes dimension
+yoke backfill --occurred-at [--dry-run]      # restore event times a pre-fix verify overwrote (idempotent)
 yoke rename-type <from> <to>   # rename an ontology type in the declaration AND every stored row
 yoke connect <github-pr|slack|notes|rdb>   # external sources → draft knowledge
 yoke mcp                   # start the MCP server (stdio)
@@ -1040,6 +1055,19 @@ shape and has not needed one, since it runs once per pre-4b database.) `--embedd
 already have a vector, because `getEntity` does not return embeddings and the port therefore cannot be
 asked which rows are covered; `putEmbedding` is keyed by `id`, so re-running is idempotent.
 
+**The third backfill** (`--occurred-at`) repairs the audit trail rather than something derived from
+it: stores written before `occurred_at` and `transitioned_at` were separated have the verify instant
+on the current version of everything that was ever promoted. The real event time is not lost — it is
+on the version the commit gate wrote — so this walks each record back to its most recent
+commit-written version and puts that `occurred_at` back on the current one. Only records whose
+current version is a lifecycle row are touched: a later edit states its own event time through the
+gate, and rewinding that would be the same defect pointed the other way. Unlike `--embeddings` it
+**appends a version**, because there is no in-place write in the port and no physical delete either;
+the repair row keeps the status, actor, origin and `last_confirmed` of the row it repairs (rewriting
+`last_confirmed` would re-age the TTL and quietly re-verify the corpus) and carries the displaced
+instant in `transitioned_at`, so the as-of rewind sees the same timeline it saw before the repair.
+`--dry-run` reports the per-record `old -> new` without writing. Idempotent.
+
 ### consumption paths
 
 **Primary path — real-time MCP injection**: the `yoke_persona` tool. At call time it runs a person-anchored injection over the verified knowledge and returns text with citations — the same flow as ordinary knowledge injection. Since every call is a regeneration, the derivative principle is satisfied automatically.
@@ -1087,7 +1115,22 @@ type Embedder = (text: string) => Promise<Float32Array | null>
 ```
 
 - The core receives this function type by injection (a fetch-based implementation is provided by core/embedding.ts, while tests inject a deterministic stub).
-- The text to embed uses the same serialization function as FTS (type + attributes).
+- The text to embed uses the same serialization function as FTS, and **that function keys on prose**:
+  the record as a sentence — its type, its attribute values in declared-ontology order, then the
+  verbatim `sources` span, then the identifiers (`external_id`, `key`). The measured gain is from the
+  prose expansion *concatenated with* the original value, not from the expansion alone, which is why
+  `sources` stays and stays last. The identifiers stay because they are looked up THROUGH the index:
+  connector idempotency (`findByExternalId`) and `yoke_use_scope` search for the literal string and
+  match exactly, so a key without them makes every re-ingest store a second copy. `author`, `topic`
+  and `status` are dropped — nothing searches them, and `status` has a structured filter. A malformed
+  (non-object) attributes blob degrades to `type + the raw text` rather than throwing: an index that
+  refuses a bad row is worse than one that indexes it verbatim.
+- **Both halves of the index must be built on the same key.** The key used to be
+  `type + attributes JSON`, which indexed every attribute NAME, every brace and every external id, so
+  a three-word record was mostly bookkeeping. A store written under that rule is migrated with ONE
+  `yoke backfill --embeddings --rebuild`, which rewrites the vectors and — on sqlite, via
+  `SqliteStorage.rebuildFts` — the keyword rows. On a backend with no keyword rebuild the command
+  says so on stderr rather than half-doing the job.
 - An embedding failure does not block a commit (warn and proceed — it is not a hard rule).
 - **`null` means retrieval falls back to FTS. It does NOT mean duplicate detection falls back to
   anything.** Retrieval has a keyword path to fall back to; duplicate detection does not, and is

@@ -209,6 +209,24 @@ describe("commit gate", () => {
     expect(Date.parse(entity.provenance.occurred_at)).toBe(Date.parse(at));
   });
 
+  it("drops a caller-supplied transitioned_at", async () => {
+    // Governance time is written by `lifecycle.transition` and by nothing else, because it is what
+    // the as-of rewind reads: a writer able to set it could file a version that answers "what was
+    // true then" for an instant it was never current at. Stripped rather than validated — there is
+    // no value a caller could pass that the gate would want.
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "not the promoter" } },
+      { ...prov, transitioned_at: "2020-01-01T00:00:00Z" },
+      now,
+    );
+    expect(entity.provenance.transitioned_at).toBeUndefined();
+    expect((await port.getEntity(entity.id))?.provenance.transitioned_at).toBe(
+      undefined,
+    );
+  });
+
   it("assigns draft, version=1, last_confirmed=now, empty duplicates", async () => {
     const { entity, duplicates } = await commit(
       port,

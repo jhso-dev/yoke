@@ -112,8 +112,11 @@ describe("inject", () => {
       "2026-07-13T00:00:00Z",
     );
     expect(items).toHaveLength(1);
+    // The date is when the KNOWLEDGE happened (`now`, what the record was stamped with), not when it
+    // was promoted a day later. This asserted the verify instant, which is what a citation carrying
+    // governance time looks like from the outside.
     expect(items[0].citation).toBe(
-      `[fact:${id}@v2] yoke:system (confirmed by alice), 2026-07-13T00:00:00.000Z`,
+      `[fact:${id}@v2] yoke:system (confirmed by alice), 2026-07-12T00:00:00.000Z`,
     );
   });
 
@@ -130,7 +133,7 @@ describe("inject", () => {
       "2026-07-13T00:00:00Z",
     );
     expect(items[0].citation).toBe(
-      `[fact:${id}@v2] yoke:system, 2026-07-13T00:00:00.000Z`,
+      `[fact:${id}@v2] yoke:system, 2026-07-12T00:00:00.000Z`,
     );
   });
 });

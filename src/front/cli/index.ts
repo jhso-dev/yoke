@@ -27,7 +27,11 @@ import {
 import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
 import { overview } from "../../core/aggregate.js";
-import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
+import {
+  backfillAuthorship,
+  backfillEmbeddings,
+  backfillOccurredAt,
+} from "../../core/backfill.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import {
@@ -120,6 +124,8 @@ type Values = {
   stale?: boolean;
   embeddings?: boolean;
   rebuild?: boolean;
+  "occurred-at"?: boolean;
+  "dry-run"?: boolean;
   shape?: boolean;
   depth?: string;
   check?: string;
@@ -164,6 +170,8 @@ const OPTIONS = {
   stale: { type: "boolean" },
   embeddings: { type: "boolean" },
   rebuild: { type: "boolean" },
+  "occurred-at": { type: "boolean" },
+  "dry-run": { type: "boolean" },
   shape: { type: "boolean" },
   depth: { type: "string" },
   check: { type: "string" },
@@ -1637,11 +1645,39 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
           limit,
           after: v.after,
           rebuild: v.rebuild,
+          // Orders the values in the index key — the same ontology the gate serializes with.
+          ontology,
         },
       );
       const lines = [
         `scanned ${scanned} entities, embedded ${embedded}, skipped ${skipped}`,
       ];
+      // --rebuild means "this index was built on a rule that no longer holds". That is true of the
+      // keyword half too whenever the rule was the KEY rather than the model, and rebuilding one half
+      // without the other leaves a hybrid query reading two different indexes.
+      //
+      // Feature-detected, because only the backend that writes its FTS text from JS has a rebuild to
+      // call (see SqliteStorage.rebuildFts). Where it is missing this WARNS rather than exiting 1: a
+      // --rebuild for a changed embedding MODEL leaves the keyword half correct, and this command
+      // cannot tell that case from a re-key, so failing it would fail the common one too. The warning
+      // goes to stderr so a `--json` consumer's stdout stays parseable.
+      if (v.rebuild) {
+        if ("rebuildFts" in store) {
+          const rows = (
+            store as { rebuildFts(o?: TypeDef[]): number }
+          ).rebuildFts(ontology);
+          lines.push(`rebuilt the keyword index: ${rows} entities`);
+        } else {
+          console.error(
+            `warning: the keyword index was NOT re-keyed — ${store.constructor.name} ` +
+              `(${storeLabel(v, env)}) has no keyword rebuild.\n` +
+              "  The vectors above were rewritten; the keyword rows still hold the text they were " +
+              "written with.\n" +
+              "  If the index key changed (rather than the embedding model), re-index this backend " +
+              "from a source of truth — the two halves of a hybrid search now disagree.",
+          );
+        }
+      }
       // Skipped everything means the provider is not configured — the single most likely reason
       // someone runs this and sees nothing happen.
       if (skipped > 0 && embedded === 0)
@@ -1652,6 +1688,23 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
       // The walk is bounded, so an unfinished scan is said rather than implied.
       if (next !== null) lines.push(`more to scan: --after ${next}`);
       emit(v, lines.join("\n"), { scanned, embedded, skipped, next });
+      return 0;
+    }
+    // The third repair: the event time verify used to overwrite. Per-record old → new, because this
+    // one edits the audit trail and "restored 412 records" is not something anyone can check.
+    if (v["occurred-at"]) {
+      const dryRun = v["dry-run"] === true;
+      const { scanned, changes } = await backfillOccurredAt(store, {
+        ns,
+        dryRun,
+      });
+      const lines = changes.map(
+        (c) => `${c.id}  ${c.from} -> ${c.to}${dryRun ? "  (dry run)" : ""}`,
+      );
+      lines.push(
+        `scanned ${scanned} entities, ${dryRun ? "would restore" : "restored"} ${changes.length}`,
+      );
+      emit(v, lines.join("\n"), { scanned, restored: changes.length, changes });
       return 0;
     }
     const { scanned, created, unrepairable } = await backfillAuthorship(

@@ -50,10 +50,14 @@ describe("lifecycle", () => {
     expect(v.status).toBe("verified");
     expect(v.version).toBe(2);
     expect(v.last_confirmed).toBe(new Date(later).toISOString());
+    // The promotion is recorded (who, that it was a transition, when) WITHOUT restamping when the
+    // knowledge itself happened. This assertion used to read `occurred_at: later`, which is the bug:
+    // it pinned "verifying a record moves its event time to the verify instant".
     expect(v.provenance).toEqual({
       actor: "alice",
       origin: "lifecycle",
-      occurred_at: new Date(later).toISOString(),
+      occurred_at: new Date(now).toISOString(),
+      transitioned_at: new Date(later).toISOString(),
     });
     // History preserved: v1, which was a draft, is still queryable.
     const v1 = await port.getEntity(id, 1);
@@ -103,6 +107,39 @@ describe("lifecycle", () => {
     expect((await port.getEntity(id))?.status).toBe("deprecated");
   });
 
+  // The defect this pins: `verify --all-drafts` restamped every record's occurred_at to one instant,
+  // so a corpus of dated documents came out claiming it all happened when someone ran the promotion.
+  it("a batch verify leaves each record's own event time alone", async () => {
+    const dated = async (statement: string, at: string) => {
+      const { entity } = await commit(
+        port,
+        ont,
+        { type: "fact", attributes: { statement } },
+        { actor: "notes", origin: "connector:meeting-notes", occurred_at: at },
+        now,
+      );
+      return entity.id;
+    };
+    const jan = await dated("said in january", "2026-01-05T09:00:00Z");
+    const mar = await dated("said in march", "2026-03-20T14:30:00Z");
+
+    const promoted = await verify(port, [jan, mar], "alice", now);
+    // The gate canonicalizes the instant it stores, so these are the normalized spellings of what
+    // the connector supplied — the point is that they are still JANUARY and MARCH, not `now`.
+    expect(promoted.map((e) => e.provenance.occurred_at)).toEqual([
+      "2026-01-05T09:00:00.000Z",
+      "2026-03-20T14:30:00.000Z",
+    ]);
+    // Deprecating later does not move it either, and neither does a second transition.
+    const [retired] = await deprecate(
+      port,
+      [jan],
+      "alice",
+      "2026-08-13T00:00:00Z",
+    );
+    expect(retired.provenance.occurred_at).toBe("2026-01-05T09:00:00.000Z");
+  });
+
   it("throws on unknown id (no silent skip)", async () => {
     await expect(verify(port, ["nope"], "alice", now)).rejects.toThrow(/nope/);
   });
@@ -136,6 +173,34 @@ describe("versionAsOf", () => {
     expect(then?.version).toBe(2);
     // At the boundary the transition has happened — `<=`, not `<`.
     expect((await versionAsOf(port, id, retiredAt))?.status).toBe("deprecated");
+  });
+
+  // The rewind reads the transition's own time, so preserving occurred_at cannot collapse it to
+  // "always the latest version" — and a backdated record still rewinds by version, not by when its
+  // source said it.
+  it("rewinds a backdated record by transition time, not by its event time", async () => {
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "said back in january" } },
+      {
+        actor: "notes",
+        origin: "connector:x",
+        occurred_at: "2026-01-05T00:00:00Z",
+      },
+      now,
+    );
+    await verify(port, [entity.id], "alice", "2026-07-13T00:00:00Z");
+    await deprecate(port, [entity.id], "alice", "2026-07-20T00:00:00Z");
+
+    expect((await versionAsOf(port, entity.id, now))?.status).toBe("draft");
+    expect(
+      (await versionAsOf(port, entity.id, "2026-07-15T00:00:00Z"))?.status,
+    ).toBe("verified");
+    expect(
+      (await versionAsOf(port, entity.id, "2026-07-15T00:00:00Z"))?.provenance
+        .occurred_at,
+    ).toBe("2026-01-05T00:00:00.000Z");
   });
 
   it("returns null before the record existed", async () => {

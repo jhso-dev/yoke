@@ -233,8 +233,8 @@ export class PostgresStorage implements StoragePort {
       attributes     JSONB   NOT NULL,
       provenance     JSONB   NOT NULL,
       last_confirmed TEXT    NOT NULL,
-      -- The exact serializeText() output, kept so the tsvector can be rebuilt (renameType) without
-      -- re-deriving the caller's JSON. Not returned by any read.
+      -- The exact serializeText() output, kept so the tsvector can be rebuilt (reconcileSearchable,
+      -- renameType) without re-deriving the key in SQL. Not returned by any read.
       txt            TEXT    NOT NULL,
       -- Non-null on the latest version only. See decision 2.
       tsv            TSVECTOR,
@@ -746,21 +746,41 @@ export class PostgresStorage implements StoragePort {
     const scope = normalizeNs(ns) ?? "";
     return this.tx(async (c) => {
       let rows = 0;
-      // `txt` is rebuilt from the stored JSONB rather than string-patched. jsonb's text form is
-      // canonical (sorted keys, one space after each colon) and therefore not byte-identical to the
-      // JSON.stringify that wrote it — which does not matter, because `txt` exists only to be
-      // tokenized and both forms tokenize to the same lexemes. The tsvector is recomputed only where
-      // one already lives, so the latest-version-only invariant survives the rename.
-      const ents = await c.query(
-        `UPDATE ${this.t("entities")}
-            SET type = $1,
-                txt = $1 || ' ' || attributes::text,
-                tsv = CASE WHEN tsv IS NULL THEN NULL
-                           ELSE to_tsvector('${REGCONFIG}', $1 || ' ' || attributes::text) END
-          WHERE type = $2 AND ns = $3`,
+      // The type moves in SQL; `txt` is rebuilt in TypeScript, through the same `serializeText` the
+      // write path uses. The key is prose — the type, the values in ontology order, the `sources`
+      // span, then the identifiers — and no SQL expression reproduces that. A transliteration here
+      // would be a second copy of the rule that only the rename path exercises, so it reverts every
+      // renamed row to whatever the key used to be, silently.
+      const ents = await c.query<{
+        id: string;
+        version: number;
+        attributes: Record<string, unknown>;
+      }>(
+        `UPDATE ${this.t("entities")} SET type = $1 WHERE type = $2 AND ns = $3
+          RETURNING id, version, attributes`,
         [to, from, scope],
       );
       rows += ents.rowCount ?? 0;
+      if (ents.rows.length > 0) {
+        // ceiling: one batch, so a rename holds every affected row's key in memory at once. The
+        // statement is already keyed per row, so chunking it is the whole fix if a type outgrows that.
+        const ids = ents.rows.map((r) => r.id);
+        const versions = ents.rows.map((r) => r.version);
+        const txts = ents.rows.map((r) =>
+          serializeText(to, JSON.stringify(r.attributes)),
+        );
+        // The tsvector is recomputed only where one already lives, so the latest-version-only
+        // invariant (decision 2) survives the rename.
+        await c.query(
+          `UPDATE ${this.t("entities")} e
+              SET txt = v.txt,
+                  tsv = CASE WHEN e.tsv IS NULL THEN NULL
+                             ELSE to_tsvector('${REGCONFIG}', v.txt) END
+             FROM unnest($1::text[], $2::int[], $3::text[]) AS v(id, version, txt)
+            WHERE e.id = v.id AND e.version = v.version`,
+          [ids, versions, txts],
+        );
+      }
       // Relations too, without asking the caller which kind it was: one name lives in one ontology,
       // and the other statement simply matches nothing.
       const rels = await c.query(

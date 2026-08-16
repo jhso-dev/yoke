@@ -697,6 +697,43 @@ export class SqliteStorage implements StoragePort {
     });
   }
 
+  /**
+   * Rewrite every FTS row from the latest stored version. Returns rows rewritten.
+   *
+   * The keyword half of the index is written by `putEntity` and nowhere else, so it cannot be
+   * re-derived the way `backfill --embeddings` re-derives the vector half: `putEntity` appends a
+   * version, and re-putting one is a primary-key collision, not a reindex. Without this, a database
+   * written before `serializeText` changed would take a re-key on the vector half only, and the two
+   * halves of one hybrid query would be reading two different indexes.
+   *
+   * `ontology` orders the values in the key; without it the values are in written order, which FTS
+   * ranks identically (a bag of words) but which makes the rebuilt text differ from what `commit`
+   * writes. The caller passes it — `yoke backfill --embeddings --rebuild`.
+   *
+   * Per row it goes through `reindexFts`, so the delete is by the mapped rowid and the fts_docid
+   * mapping stays intact (C6/F2). A raw delete-by-id here would leave the map pointing at rows this
+   * rebuilt, and an unmapped id takes reindexFts's insert branch — a second fts row per id, the old
+   * text still searchable as a ghost.
+   *
+   * ceiling: an adapter extension rather than a port method, feature-detected by the caller, because
+   * sqlite is the only backend whose FTS text is written from JS. Postgres keeps `serializeText`
+   * output in a column and derives the tsvector from it, so it can rebuild in SQL; opensearch
+   * re-indexes documents. Give them each a `rebuildFts` when either needs one.
+   */
+  rebuildFts(ontology?: TypeDef[]): number {
+    const latest = this.db
+      .prepare(
+        `SELECT id, type, attributes FROM entities e
+         WHERE e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)`,
+      )
+      .all() as { id: string; type: string; attributes: string }[];
+    this.db.transaction(() => {
+      for (const r of latest)
+        this.reindexFts(r.id, serializeText(r.type, r.attributes, ontology));
+    })();
+    return latest.length;
+  }
+
   // --- Adapter extensions outside StoragePort: ontology seed save/load (for CLI init) ---
 
   /** Append-only save of ontology definitions. Accumulates as the next version per name.
