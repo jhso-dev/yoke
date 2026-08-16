@@ -240,8 +240,7 @@ export function makeRawConnector(opts: {
    * Filled in as the pull runs, for a caller that has to tell two different zeroes apart.
    *
    * "The model proposed nothing" and "no call reached the model" both yield no records, and the
-   * second is an outage. Measured: an endpoint went off the network mid-run and every file reported
-   * `added 0, skipped 0` and exited 0, so the job carried on filing nothing for twenty minutes.
+   * second is an outage — indistinguishable from a clean run without this.
    */
   stats?: ExtractStats;
 }): Connector {

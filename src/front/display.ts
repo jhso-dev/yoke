@@ -2,9 +2,8 @@
 // reads to a person is a front-tier concern (CLAUDE.md invariant 1 — core imports no adapter, and this
 // imports only core types).
 //
-// This file exists because there were two copies of summarize(). The CLI's had a bug fix the web's did
-// not — connector-ingested rows summarised as their idempotency key ("rdb:table:1") instead of their
-// knowledge — so every web screen showed the defect the CLI had already fixed. One copy, one fix.
+// One copy of each presentation helper: two copies drift, and a fix to one is a defect the other
+// still shows.
 
 import { BOOKKEEPING_ATTRS, type TypeDef } from "../core/ontology.js";
 
