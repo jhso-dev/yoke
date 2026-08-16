@@ -15,7 +15,7 @@ import { downstreamOf } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
 import { runCli } from "../cli/index.js";
-import { createYokeMcpServer, resolveScope } from "./index.js";
+import { createYokeMcpServer } from "./index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-mcp-"));
 const db = join(dir, "yoke.db");
@@ -638,26 +638,40 @@ describe("yoke MCP server", () => {
   });
 });
 
-describe("resolveScope (key/id → collaboration lookup)", () => {
+describe("yoke_use_scope (key/id → collaboration lookup)", () => {
   const now = "2026-07-14T00:00:00Z";
   const prov: Provenance = { actor: "t", origin: "cli", occurred_at: now };
 
-  it("resolves an exact entity id, a matching key attribute, or a matching title; null otherwise", async () => {
-    const port = new SqliteStorage(":memory:");
+  it("resolves an exact entity id, a matching key attribute, or a matching title; says so otherwise", async () => {
+    const port = new SqliteStorage(db);
     await port.init();
     const { entity } = await commit(
       port,
       seedOntology(),
-      { type: "collaboration", attributes: { title: "auth", key: "ABC-123" } },
+      {
+        type: "collaboration",
+        attributes: { title: "zqauth", key: "ZQA-123" },
+      },
       prov,
       now,
     );
-    const want = { id: entity.id, title: "auth" };
-    expect(await resolveScope(port, null, entity.id)).toEqual(want); // exact id
-    expect(await resolveScope(port, null, "ABC-123")).toEqual(want); // by key
-    expect(await resolveScope(port, null, "auth")).toEqual(want); // by title
-    expect(await resolveScope(port, null, "ZZZ-999")).toBeNull(); // no match
     port.close();
+
+    // Through the tool, which is the only way in: an agent reaches the lookup by calling
+    // yoke_use_scope, so that is what the resolution rules are asserted against.
+    const s = await openSession();
+    const use = async (key: string) =>
+      text(
+        await s.client.callTool({ name: "yoke_use_scope", arguments: { key } }),
+      );
+    const want = JSON.stringify({ id: entity.id, title: "zqauth" });
+    expect(await use(entity.id)).toBe(want); // exact id
+    expect(await use("ZQA-123")).toBe(want); // by key
+    expect(await use("zqauth")).toBe(want); // by title
+    expect(await use("ZZZ-999")).toContain(
+      'no collaboration matches "ZZZ-999"',
+    );
+    await s.close();
   });
 });
 

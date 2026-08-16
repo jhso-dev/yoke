@@ -251,22 +251,6 @@ export function injectShape(detail: string): {
 }
 
 /**
- * id → how many times an agent has received that record: the `inject` and `persona` audit rows,
- * counted over whatever window of events the caller hands in.
- *
- * This is the governance signal the stale queue orders by. A record agents consumed 47 times last
- * month and one nothing has touched since it was verified both age out the same day; the person
- * re-confirming should meet the first one first. The audit trail already held the answer — every
- * inject/persona row names the ids it returned — so this is an aggregation, not new bookkeeping.
- *
- * `inject_preview`, `read` and `search` are deliberately NOT counted: those record a human governing,
- * and the question here is what AGENTS are being told.
- *
- * Structural event type rather than the adapter's AuditEvent, so this file keeps importing only core.
- * The `detail` grammar is `subject -> id id …` (see `injectDetail`); the ids side is taken from the
- * LAST arrow, since a query in the subject may contain anything.
- */
-/**
  * The window a stale-queue consumption count is taken over, in audit rows.
  *
  * F1: `consumptionCounts` materializes every audit row it is handed into JS, so handing it the WHOLE
@@ -282,6 +266,22 @@ export function injectShape(detail: string): {
  */
 export const CONSUMPTION_WINDOW = 50_000;
 
+/**
+ * id → how many times an agent has received that record: the `inject` and `persona` audit rows,
+ * counted over whatever window of events the caller hands in.
+ *
+ * This is the governance signal the stale queue orders by. A record agents consumed 47 times last
+ * month and one nothing has touched since it was verified both age out the same day; the person
+ * re-confirming should meet the first one first. The audit trail already held the answer — every
+ * inject/persona row names the ids it returned — so this is an aggregation, not new bookkeeping.
+ *
+ * `inject_preview`, `read` and `search` are deliberately NOT counted: those record a human governing,
+ * and the question here is what AGENTS are being told.
+ *
+ * Structural event type rather than the adapter's AuditEvent, so this file keeps importing only core.
+ * The `detail` grammar is `subject -> id id …` (see `injectDetail`); the ids side is taken from the
+ * LAST arrow, since a query in the subject may contain anything.
+ */
 export function consumptionCounts(
   events: Array<{ action: string; detail: string }>,
 ): Map<string, number> {
@@ -343,16 +343,6 @@ export function describeWithheld(w: WithheldStats): string {
 }
 
 /**
- * The governance act that retired a record, read back from the trail: who, when, and why if anyone
- * said. The LAST deprecate naming this id wins — a record can be retired, re-verified and retired
- * again, and the current status is explained by the most recent act, not the first.
- *
- * `ceiling:` scans the namespace's audit rows rather than querying by id, because the trail is a log
- * with no index on the records a row mentions. It is bounded by the deprecate rows in one namespace,
- * which is the count of governance acts rather than of knowledge — add an index when a corpus has
- * enough retirements for this to be felt.
- */
-/**
  * The kind-change guard, assembled against the store ONCE — `refuseRename`'s sibling.
  *
  * `kindChangeRefusal` (core) judges a `rows` count it is handed. A type being flipped from `relation`
@@ -413,6 +403,16 @@ export async function refuseRename(
   });
 }
 
+/**
+ * The governance act that retired a record, read back from the trail: who, when, and why if anyone
+ * said. The LAST deprecate naming this id wins — a record can be retired, re-verified and retired
+ * again, and the current status is explained by the most recent act, not the first.
+ *
+ * `ceiling:` scans the namespace's audit rows rather than querying by id, because the trail is a log
+ * with no index on the records a row mentions. It is bounded by the deprecate rows in one namespace,
+ * which is the count of governance acts rather than of knowledge — add an index when a corpus has
+ * enough retirements for this to be felt.
+ */
 export function retirementOf(
   store: YokeStore,
   id: string,

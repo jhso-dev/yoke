@@ -17,7 +17,6 @@ const DIM = "\x1b[2m";
 const CYAN = "\x1b[36m";
 const GREEN = "\x1b[32m";
 const YELLOW = "\x1b[33m";
-const RED = "\x1b[31m";
 
 // "YOKE" wordmark in ANSI-Shadow style (solid faces, double-line shadow edges),
 // coloured with a teal → indigo vertical gradient (deliberately not Hermes gold).
@@ -60,10 +59,8 @@ export function banner(): string | null {
 
 // Log-line formatters (return strings; the caller decides when to print them).
 export const log = {
-  info: (s: string): string => `${CYAN}→${RESET} ${s}`,
   ok: (s: string): string => `${GREEN}✓${RESET} ${s}`,
   warn: (s: string): string => `${YELLOW}⚠${RESET} ${s}`,
-  err: (s: string): string => `${RED}✗${RESET} ${s}`,
 };
 
 /** Boxed "get started" block shown after a fresh init. */

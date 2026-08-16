@@ -73,7 +73,7 @@ export interface YokeMcpDeps {
  * restricted to one type. Front-tier only. Returns null when nothing matches. Shared by startup
  * (YOKE_SCOPE) and the yoke_use_scope tool.
  */
-export async function resolveScope(
+async function resolveScope(
   store: Pick<StoragePort, "getEntity" | "search">,
   ns: string | null,
   key: string,
