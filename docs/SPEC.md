@@ -942,7 +942,8 @@ yoke link <from> <relation> <to>   # record a relation — the only creation pat
 yoke list [--type t] [--status s] [--limit n] [--after id]   # enumerate (keyset paging)
 yoke graph [--limit n]     # the entity/relation graph, bounded, truncation reported
 yoke review [--stale] [--type t]   # list drafts; --stale lists verified records past their TTL
-yoke verify <id...>        # promote (batch), refresh last_confirmed — also how a stale record is re-confirmed
+yoke verify <id...> [--all-drafts]   # promote (batch), refresh last_confirmed — also how a stale record is re-confirmed
+                                     # --all-drafts over an empty queue succeeds; no ids and no flag is the usage error
 yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction) — reports what derived_from it
 yoke inject <query> [--include-draft] [--limit n] [--scope id] [--depth n] [--as-of ts]   # retrieve, with citations
 yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
@@ -956,7 +957,9 @@ yoke backfill              # derive missing authored_by edges (upgrade path, ide
 yoke backfill --embeddings [--rebuild] [--limit n] [--after id]   # repair vector coverage; --rebuild changes dimension
 yoke backfill --occurred-at [--dry-run]      # restore event times a pre-fix verify overwrote (idempotent)
 yoke rename-type <from> <to>   # rename an ontology type in the declaration AND every stored row
-yoke connect <github-pr|slack|notes|rdb>   # external sources → draft knowledge
+yoke connect <github-pr|slack|notes|raw|rdb>   # external sources → draft knowledge
+                                           # raw extracts via a model — see "Extractor contract"
+yoke relate [--limit n]    # a model proposes the links BETWEEN stored records — see "Relater contract"
 yoke mcp                   # start the MCP server (stdio)
 yoke ui [--port] [--host]  # local governance workbench (loopback, ungated, single-user)
 yoke serve [--port] [--host] [--auth] [--replica-of <path>]   # UI + JSON API + remote MCP, one port
@@ -1139,6 +1142,176 @@ type Embedder = (text: string) => Promise<Float32Array | null>
   `YOKE_EMBED_URL`/`YOKE_EMBED_MODEL` returns `async () => null`, so a `if (embedder)` guard passes
   and the null arrives one step later. Anything deciding "do we have embeddings" must test the
   returned vector, never the presence of the function.
+
+## Extractor contract (`yoke connect raw`)
+
+```ts
+type Extractor = (text: string) => Promise<Extracted[] | null>
+interface Extracted { type: string; attributes: Record<string, unknown>; quote: string }
+```
+
+The only path in yoke that calls a language model, and the one connector defined by what it does NOT
+know: every other connector names its source (a channel, a PR, a table), while `raw` claims only that
+it was handed text nobody has turned into records yet.
+
+It exists because of where the record boundary comes from. `slack` and `notes` can point at one (a
+message, a heading) and file each chunk verbatim — free, exact, inventing nothing. Material without
+such a boundary has no honest verbatim cut: filing a conversation that way files the process (what
+was tried, what a tool printed) rather than what was learned. Both paths stay; the choice is a
+property of the material, not a preference.
+
+- **Long material is split, and the split is what decides recall.** A document handed over in one
+  call gets summarised, not enumerated: measured on a 39,228-character conversation through a small
+  local model, one call proposed **3** records and 6,000-character windows proposed **13** — same
+  model, same prompt, 4x the records. Across a four-document set the corpus went from 9 records to
+  34. Nothing downstream was discarding them (the grounding check dropped none of the three), so the
+  records were simply never proposed. Windows overlap by 600 characters because a claim straddling a
+  boundary belongs to neither side, and the duplicate that overlap produces is removed by comparing
+  QUOTES — the one field the model was told to copy rather than compose. Cost is linear in chunks
+  (4.6x wall clock on that set) and paid once per source. `YOKE_EXTRACT_CHUNK_CHARS` tunes it,
+  because the right window depends on the model and the way to find it is to measure.
+- **Formats are a dispatch, not a connector each.** `toText` renders `.jsonl` as a transcript and
+  passes `.md`/`.txt`/`.log` through. A new format is a case in that function.
+
+- **A producer, not a writer.** It lives in the connector tier and proposes `EntityInput`s; every one
+  goes through the commit gate as a `draft`. Nothing about review, injection or the gate changes,
+  which is the whole reason this is safe to add: the model gets a say in what is *proposed* and none
+  in what is *known*.
+- **The type menu is the ontology, not a list in the prompt.** Extractable = entity types not marked
+  `structural`. An org that adds `incident` gets it extracted with no code change; `person` and
+  `collaboration` are withheld because they name what knowledge attaches to rather than asserting
+  anything (see "A roster is not knowledge").
+- **Every proposal must quote its source verbatim, and the quote is checked in code.** An extractor's
+  failure mode is not silence, it is a fluent record nobody said. `keepGrounded` drops any proposal
+  whose quote is not present in the source text (whitespace-normalised), which is the one check the
+  gate cannot make — only the caller still holds the source to compare against. The surviving quote
+  is filed in `attributes.sources`, so a reviewer decides against what was actually said instead of
+  reopening the session. A quote shorter than 8 characters after normalisation is dropped rather than
+  matched: `***` normalises to the empty string, which every source contains.
+- **Quote grounding defends against fabrication, not against a hostile document.** It proves the
+  model did not invent the claim; it cannot prove the SOURCE is honest. Anyone who controls a file in
+  the directory being ingested can write text that says whatever they want and have records proposed
+  that quote it exactly — grounding is satisfied by construction. What contains that is the same
+  thing that contains every other automatic path: everything lands as a `draft`, injection returns
+  verified knowledge by default, and a person has to verify a record before an agent is told it. Read
+  `connect raw` as "a model reading material you already trust", not as a filter that makes untrusted
+  material safe.
+- **In a `.jsonl` transcript, `thinking` blocks, tool calls, tool results and sidechains are dropped
+  before the model sees it.** Measured on one 403-record session, 40 records carried prose. Tool results are file
+  dumps, so a model handed them extracts the file; a `thinking` block is a model's own reasoning, and
+  filing that as something a person recorded is the impersonation rule under "persona".
+- **Chunks of one file are extracted concurrently, and filed in source order.** They are independent
+  — each is grounded against itself — so the only reason to do them one at a time was that we did.
+  Measured against a local endpoint, three concurrent calls took 4.0s where three sequential ones
+  took 6.5s. Order is restored before filing, because `dedupeByQuote` keeps the FIRST proposal of a
+  quote: filing in completion order would make one file extract differently on every run, for
+  network reasons rather than model ones. `YOKE_EXTRACT_CONCURRENCY` tunes it (default 4).
+- **A failed call is retried, because it is not a chunk with nothing in it — it is a chunk nobody
+  read.** With a document extracted in pieces, one dropped call is a hole in the middle of what gets
+  filed, and it is invisible afterwards: the records that would have named it are the ones missing.
+  Measured, an endpoint on a LAN box left the network and returned twice inside one run. Three
+  attempts with a 2s exponential backoff, so a genuinely dead endpoint costs six seconds rather than
+  a long wait; `YOKE_LLM_RETRIES` and `YOKE_LLM_RETRY_BASE_MS` tune both, and `0` fails on the first
+  error.
+- **A file's dead chunks are re-offered once after the rest of it, because the retry ladder cannot
+  cover a burst.** Failures do not arrive one at a time — measured, 59 `fetch failed` in a single
+  ingest, in bursts that took out every socket in flight at once, so every worker burnt its backoff
+  against the same dead network and exhausted together. What that costs is invisible afterwards:
+  measured on a conversation corpus, 9 of 26 chunks filed zero records in CONTIGUOUS runs (one 37k
+  document lost five chunks in a row), while every chunk that did answer filed 3–7 records across its
+  whole span; two draws of another corpus at `temperature: 0` lost complementary halves of one file
+  (8 of 23 chunks against 15 of 23, union 20), which is transport rather than a model deciding twice
+  that the same text carries no claim. The deferred pass buys minutes of unrelated work as the wait,
+  which no backoff setting can buy. It is free when nothing failed, and re-offers only what failed.
+- **Unconfigured is a refusal, not a no-op — and so is an endpoint that never answered.** Unlike the
+  Embedder — whose unconfigured form is a function returning `null` so retrieval degrades quietly —
+  `yoke connect raw` exits 1 when `YOKE_LLM_URL`/`YOKE_LLM_MODEL` are unset. A silent no-op would
+  report `added 0, skipped 0`, which is exactly what a working run over material with nothing in it
+  looks like. The same reasoning one step later: the connector counts calls and failures
+  (`ExtractStats`), and a run whose every call failed exits 1 naming the endpoint instead of
+  reporting a clean pass. Measured — an unreachable host produced `added 0, skipped 0` and exit 0
+  across a batch, and the first symptom appeared twenty minutes later in an unrelated command.
+- **Everything a connector commits carries the run's namespace.** `ingest` takes `ns` and passes it
+  to the gate, and its idempotency probe is scoped to it: an external id is unique within a source,
+  not across the tenants that each capture their own `#general`. Unscoped, whichever tenant ingested
+  first silently suppressed the rest — the CLI accepted `--ns` on every `connect` and dropped it.
+- **`--since` is compared against each file's own time, before the model is called.** A transcript's
+  own timestamps beat the filesystem's, since copying one forward would otherwise make it look new;
+  mtime is the fallback for material carrying none.
+  ingest's `external_id` check also makes a re-run idempotent, but it runs *after* extraction and so
+  pays for it; `--since` is what makes a repeat run free. `--limit` caps files read per run.
+- **Stated defect (measured 2026-08-13): extraction is not reproducible, and the identity key assumes
+  it is.** The extractor sends `temperature: 0`, but a chunk is extracted concurrently with three
+  others and batched inference is not bitwise deterministic — batch composition changes the order of
+  floating-point reductions, and a greedy argmax between two near-tied tokens flips. Measured on one
+  39,154-character document, same code, same model, three runs at concurrency 4: **27, 25 and 18
+  records.** Another document went 11 → 3. Zero calls failed in the runs that produced those numbers,
+  so this is output variation, not lost work.
+
+  On its own that is a measurement hazard — a record-count difference between two stores says nothing
+  about a code change, and every benchmark arm answered against one store is a single draw. It becomes
+  a data defect because `external_id` is **positional**: `raw:<file>#<i>`, where `i` is the index in
+  that file's deduped results. `ingest` skips an external id it has already seen, so on a second pass
+  the record at position 3 is skipped for having a taken *position* rather than a known *claim* — and
+  the genuinely new claims that pass found are dropped. Two passes over one corpus therefore cannot
+  accumulate, which is exactly what a corpus of changing preferences needs: two stores built from the
+  same four documents held **disjoint halves of one trajectory** (one had "stopped reading graphic
+  novels altogether", the other "diving into graphic novels is an enriching experience", neither had
+  both), and no re-run can union them.
+
+  The fix is to key identity on the quote — a verbatim span of the source, stable across runs, already
+  normalized by `dedupeByQuote`. It is not made here because position is not only an identity today:
+  `relate`'s `rankOf` parses `#<n>` to order records within a source, and that order is what stops a
+  `supersedes` from being filed backwards. Position has to become its own field before it can stop
+  being the key, and that is a schema decision rather than a rename.
+
+## Relater contract (`yoke relate`)
+
+```ts
+type Relater = (records: Ref[]) => Promise<Proposed[] | null>
+interface Ref      { ref: string; type: string; text: string; at: string }
+interface Proposed { from: string; to: string; type: string; because: string }
+```
+
+A model proposes the EDGES between records already in the store. The second thing in yoke that calls
+a language model, and the first that can produce a relation without a person typing `yoke link`.
+
+- **It is a separate command because of the data, not the design.** A relation names two entities by
+  id, and an id exists only once the gate has accepted the entity — so a connector, whose output *is*
+  the gate's input, cannot make one. The ordering pays for itself twice: relations can be re-derived
+  without paying for extraction again (one corpus is hours to extract and minutes to relate), and it
+  works on records from any connector rather than only material a model read.
+- **Why it exists at all.** "A relation is knowledge in its own right" is this document's own
+  terminology, yet every automatic path could produce only entities. Measured on a corpus of
+  preference histories, where most questions ask how a claim changed and why: yoke filed both halves
+  of a preference reversal — the enthusiasm, and the "I stopped, because it got repetitive" — as two
+  unrelated facts, and the store held zero `conflicts_with`. The trajectory was present and
+  unsayable.
+- **The menu is the ontology minus `membership`.** The same shape as the entity menu one flag over.
+  `membership` already marks the edges this document says are not knowledge, and those are also the
+  two with the worst failure mode: `same_as` merges two people on a guess.
+- **A model never sees an id.** Records are offered as `r1`, `r2`, … and mapped back here. A 26-character
+  ULID is a string the model must copy exactly, and one wrong character is an edge pointing at nothing;
+  a ref that does not resolve is dropped rather than committed.
+- **The safety net is structural, because there is no span to quote.** A relation rests on two records
+  rather than one passage, so `keepLinkable` checks what can be checked: both endpoints were in the
+  batch, the type was offered, no self-link, and **`supersedes` runs newer → older**. That last one
+  earns its place — a backwards supersedes does not read as wrong, it reads as a confident history in
+  which someone returned to what they had already abandoned, so a reviewer sees a plausible sentence
+  instead of an obvious mistake. Equal timestamps carry no direction and are dropped too.
+- **`because` is filed as the edge's `rationale`.** A reviewer deciding whether a link is real should
+  not have to reconstruct why a model thought so — the same reason a record keeps its quote.
+- **Everything is a draft, and one rejection does not end a batch.** A proposal the gate refuses is
+  counted and skipped. A run whose every call failed exits 1 naming the endpoint, rather than
+  reporting a corpus with nothing to connect; unconfigured is refused outright, as `connect raw` is.
+- **Each record is asked about its search neighbours, not about a batch (`YOKE_RELATE_NEIGHBOURS`,
+  default 5).** One call weighing a whole batch weighs pairs that grow with its square, and these are
+  reasoning models: measured on a 26B model, 6 records spent an entire 4,000-token ceiling in
+  `reasoning_content` with `content` still empty, and 30 records timed out three times over. So a
+  record is offered only against the earlier records FTS says resemble it — cheaper, and better
+  targeted, since a `supersedes` holds between records about the same thing. A claim reversed much
+  later than its original is still offered beside it, because the two are neighbours in content
+  rather than in position.
 
 ## Time injection
 

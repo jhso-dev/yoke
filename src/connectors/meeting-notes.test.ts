@@ -74,6 +74,30 @@ describe("meeting-notes connector", () => {
       skipped: 3,
     });
   });
+
+  // Regression: ingest accepted `--ns` all the way down the CLI and then committed to the shared
+  // namespace anyway, so every connector silently put a tenant's capture in everyone's corpus.
+  it("commits into the namespace it was given", async () => {
+    const connector = makeNotesConnector({ dir });
+    await ingest(port, ont, connector, "alice", now, undefined, "team-a");
+
+    expect(await port.search({ text: "audit", ns: "team-a" })).toHaveLength(1);
+    // Not visible from the shared namespace, nor from a different tenant's.
+    expect(await port.search({ text: "audit" })).toHaveLength(0);
+    expect(await port.search({ text: "audit", ns: "team-b" })).toHaveLength(0);
+  });
+
+  // The idempotency probe is scoped too: an external id is unique within a source, not across the
+  // tenants that each capture their own. Unscoped, whoever ingested first suppressed the rest.
+  it("does not let one namespace's external ids suppress another's", async () => {
+    const connector = makeNotesConnector({ dir });
+    expect(
+      await ingest(port, ont, connector, "alice", now, undefined, "team-a"),
+    ).toEqual({ added: 3, updated: 0, skipped: 0 });
+    expect(
+      await ingest(port, ont, connector, "bob", now, undefined, "team-b"),
+    ).toEqual({ added: 3, updated: 0, skipped: 0 });
+  });
 });
 
 // Presence of the key was the whole check, so an EDITED source item was skipped. Measured on a

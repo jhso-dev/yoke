@@ -64,6 +64,31 @@ MIT · v5.9까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 
 로컬·임베디드로 동작합니다 — better-sqlite3 + FTS5 + sqlite-vec, 서버 불필요.
 
+## 컨텍스트를 덜 씁니다
+
+메모리 레이어는 구절을 검색해 붙여넣습니다. yoke는 **레코드**를 주입합니다 — 근거가
+붙은 결정, 선호, 사실. 이미 증류된 형태라 지불하는 토큰이 주장 주변의 산문이 아니라
+주장 자체입니다.
+
+하나의 하네스에서 두 검색 베이스라인과 비교 — 같은 코퍼스, 같은 질문, 같은 답변 모델,
+두 사람의 42문항:
+
+| | 주입 컨텍스트 | 정확도 |
+|---|---|---|
+| 메모리 없음 | 0 | 59.5% |
+| **yoke** | **1.2k 토큰** | 73.8% |
+| 키워드 청크 | 5.1k 토큰 | 61.9% |
+| dense+sparse 하이브리드, 상위 50청크 | 22.8k 토큰 | 71.4% |
+
+**토큰당 정답이 청크 검색의 5.2배, 하이브리드 검색기의 20배**이고, 정확도는 둘 다보다
+높습니다 — 컨텍스트는 5분의 1에서 20분의 1만 씁니다. 하이브리드는 71.4%를 22.8k 토큰
+주입으로 삽니다. 작은 모델의 컨텍스트 창 대부분을 질문 하나에 쓰는 셈입니다.
+
+공식 평가 조건으로 환산하면 yoke는 ~87% — 최상위 공개 시스템들과 같은 구간이며, 주입
+컨텍스트는 20분의 1입니다.
+
+모든 레코드가 인용을 달고 온다는 점도 붙여넣은 구절은 할 수 없는 일입니다.
+
 ## 한눈에 보기
 
 | | |
@@ -71,7 +96,7 @@ MIT · v5.9까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 | **한 줄 요약** | 지식에 최적화된 데이터베이스: 온톨로지로 구조화한 뒤, 지금 맥락에 맞는 검증된 부분집합만 인용과 함께 AI에 주입합니다. |
 | **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
 | **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `postgres`(네이티브 스코어드 FTS + pgvector, 의존성 추가 없음) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 넷 모두 하나의 conformance 스위트를 통과. |
-| **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록) — 외부 소스 → draft 지식, 원본 시각으로 기록. `rdb`(Postgres/MySQL read-mapping)는 이미 system of record인 DB를 매핑하므로 verified로 들어옵니다. |
+| **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `raw`(비정형 자료 — 대화록·문서를 모델이 추출) — 외부 소스 → draft 지식, 원본 시각으로 기록. `rdb`(Postgres/MySQL read-mapping)는 이미 system of record인 DB를 매핑하므로 verified로 들어옵니다. |
 | **앵커 기반 주입** | 하나의 메커니즘, 두 개의 진입점: `collaboration`에 앵커하면 팀의 공유 작업 컨텍스트, `person`에 앵커하면 persona. |
 | **persona** | "이 동료라면 어떻게 판단할까?" → 그 사람의 기록된 검증 판단을 인용과 함께, 실시간 생성으로. 흉내가 아니라 인용. |
 | **공유 작업 컨텍스트** | `collaboration`을 고정하면 팀이 하나의 컨텍스트를 공유 — 스코프는 전사 지식을 가리지 않고 우선순위만 부여. |
@@ -230,7 +255,7 @@ yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--
 yoke overview | graph [--limit n]             # 코퍼스 한눈에 보기 / 엣지로 보기
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
-yoke connect github-pr|slack|notes|rdb ...
+yoke connect github-pr|slack|notes|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup <dest.db> [--force] | restore <src.db> [--force]
 yoke export --until <ts> --out <new.db>       # --shards <file> 로 백엔드 연합

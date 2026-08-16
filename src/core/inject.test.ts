@@ -882,6 +882,49 @@ describe("hybrid retrieval: the vector half of the Embedder contract", () => {
     expect(items[0]).toBe(vectorOnly); // but it does not lead. At weight 1.0 it did
   });
 
+  it("keywordWeight moves the keyword half's rank against the vector half's", async () => {
+    // Deterministic by construction, which the first version of this test was not: it asserted that
+    // the earlier-minted record won a FUSED TIE, and two records committed in the same millisecond
+    // are ordered by a ULID's random suffix, not by creation order. So compare ranks that cannot tie.
+    //
+    //   A  keyword rank 1, absent from the vector list      -> w/61
+    //   B  vector rank 2, absent from the keyword list      -> 1/62
+    //
+    // A beats B at weight 1.0 (0.01639 > 0.01613) and loses to it at the 0.1 default (0.00164), so
+    // the knob is what decides their order — with no tie anywhere in the comparison.
+    const LONG = `${QUERY} hovercraft zeppelin monorail`;
+    const CLOSE = Float32Array.from([1, 0.05]);
+    const graded: Embedder = async (text) =>
+      text === LONG || text.includes("enjambment")
+        ? NEAR
+        : text.includes("sestina")
+          ? CLOSE
+          : FAR;
+    const a = await addFact("hovercraft ferry winter timetable");
+    await addFactWith("quatrain enjambment caesura", graded); // vector rank 1
+    const b = await addFactWith("quatrain sestina volta", graded); // vector rank 2
+    await verify(
+      port,
+      await port.listEntities({}).then((p) => p.items.map((e) => e.id)),
+      "alice",
+      now,
+    );
+
+    const at = async (weight?: number) => {
+      const ids = (
+        await inject(port, ont, LONG, now, {
+          embedder: graded,
+          keywordWeight: weight,
+        })
+      ).items.map((i) => i.entity.id);
+      return { a: ids.indexOf(a), b: ids.indexOf(b) };
+    };
+    const dflt = await at(undefined);
+    const equal = await at(1.0);
+    expect(dflt.b).toBeLessThan(dflt.a); // at 0.1 the keyword hit sits below the vector half
+    expect(equal.a).toBeLessThan(equal.b); // at 1.0 it climbs above it
+  });
+
   it("returns the keyword list untouched when the embedder yields nothing", async () => {
     await corpus();
     const expected = (await inject(port, ont, "form", now)).items.map(

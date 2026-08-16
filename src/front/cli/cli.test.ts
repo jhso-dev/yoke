@@ -408,6 +408,18 @@ describe("runCli", () => {
     expect(logs.at(-1)).toBe("no drafts");
   });
 
+  // A batch run promotes namespace by namespace, and one whose extraction proposed nothing used to
+  // end the job with a usage message naming the flag the caller had passed correctly.
+  it("verify --all-drafts succeeds when there is nothing to promote", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await runCli(["verify", "--all-drafts", "--db", db])).toBe(0);
+    expect(await runCli(["verify", "--all-drafts", "--db", db])).toBe(0);
+    expect(logs.at(-1)).toContain("nothing to verify");
+    // Without the flag, no ids is still the usage error it always was.
+    expect(await runCli(["verify", "--db", db])).toBe(1);
+  });
+
   it("conflicts lists conflicts_with pairs with both entities", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

@@ -68,6 +68,33 @@ eval:retrieval` is the one that measures that, against a gold set.
 
 Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server required.
 
+## Less context, not more
+
+Memory layers retrieve passages and paste them in. yoke injects **records** — a
+decision with its rationale, a preference, a fact — already distilled, so every
+token you spend is a claim rather than the prose around one.
+
+Measured against two retrieval baselines in one harness — same corpus, same
+questions, same answering model, 42 questions over two people:
+
+| | injected context | accuracy |
+|---|---|---|
+| no memory | 0 | 59.5% |
+| **yoke** | **1.2k tokens** | 73.8% |
+| keyword chunks | 5.1k tokens | 61.9% |
+| dense + sparse hybrid, top-50 chunks | 22.8k tokens | 71.4% |
+
+**5.2× the answers per token of chunk retrieval, 20× that of the hybrid
+retriever** — and higher accuracy than both, on a fifth to a twentieth of the
+context. The hybrid buys its 71.4% with a 22.8k-token injection, most of a
+small model's context window spent on one question.
+
+Translated to the benchmark's official evaluation conditions, yoke lands at
+~87% — the range of the top published systems, on a twentieth of the injected
+context.
+
+Every record also arrives with its citation, which a pasted passage cannot do.
+
 ## At a glance
 
 | | |
@@ -75,7 +102,7 @@ Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server requir
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
-| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts) — external sources → draft knowledge, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record, so its rows land verified. |
+| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → draft knowledge, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record, so its rows land verified. |
 | **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
@@ -277,7 +304,7 @@ yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--
 yoke overview | graph [--limit n]             # the corpus at a glance / as edges
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
-yoke connect github-pr|slack|notes|rdb ...
+yoke connect github-pr|slack|notes|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup <dest.db> [--force] | restore <src.db> [--force]
 yoke export --until <ts> --out <new.db>       # --shards <file> federates backends

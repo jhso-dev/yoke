@@ -3,7 +3,7 @@
 // An embedding failure never blocks a commit (returns null → warning only; RETRIEVAL falls back to
 // FTS, duplicate detection is skipped — SPEC "Stage 3 has no FTS fallback").
 
-import type { TypeDef } from "./ontology.js";
+import { BOOKKEEPING_ATTRS, type TypeDef } from "./ontology.js";
 
 /** text → embedding vector. null = unavailable (unconfigured or failed): retrieval falls back to
  * FTS; the commit gate skips duplicate detection rather than approximating it. */
@@ -11,25 +11,16 @@ export type Embedder = (text: string) => Promise<Float32Array | null>;
 
 type Env = Record<string, string | undefined>;
 
-/**
- * Attributes that are bookkeeping rather than what a record says, so they are kept out of the
- * SENTENCE. Three of them are dropped outright; `sources` and the two `IDENTIFIERS` are re-appended
- * verbatim at the end of the key — see `serializeText`.
- */
-const NOT_CONTENT = new Set([
-  "external_id",
-  "sources",
-  "author",
-  "topic",
-  "key",
-  "status",
-]);
-
 /** Bookkeeping that is nonetheless SEARCHED FOR, exactly. See the tail of `serializeText`. */
 const IDENTIFIERS = ["external_id", "key"] as const;
 
 /**
  * The values a record's attributes carry, in declared-ontology order, bookkeeping dropped.
+ *
+ * Bookkeeping is `BOOKKEEPING_ATTRS`, the same set `summarize` and the relater read a record by —
+ * one answer to "is this what the record says", not a private copy per surface. Dropped from the
+ * SENTENCE is not dropped from the key: `serializeText` re-appends `sources` and the two
+ * `IDENTIFIERS` verbatim after it.
  *
  * Declared order, not written order, for the reason `summarize` gives: what a type declares FIRST is
  * what it wants read, and attribute order as written is caller-controlled. Undeclared attributes
@@ -51,7 +42,7 @@ function contentValues(
   ];
   const parts: string[] = [];
   for (const key of keys) {
-    if (NOT_CONTENT.has(key)) continue;
+    if (BOOKKEEPING_ATTRS.has(key)) continue;
     const val = entity.attributes[key];
     if (typeof val === "string" && val.trim()) parts.push(val.trim());
     else if (Array.isArray(val))

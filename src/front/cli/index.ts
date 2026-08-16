@@ -16,14 +16,23 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
+import { makeFetchExtractor, numEnv } from "../../connectors/extract.js";
 import { makeGithubPrConnector } from "../../connectors/github-pr.js";
 import { ingest } from "../../connectors/ingest.js";
 import { makeNotesConnector } from "../../connectors/meeting-notes.js";
+import { type ExtractStats, makeRawConnector } from "../../connectors/raw.js";
 import {
   ingestMapped,
   type MappingSpec,
   makeRdbMappingConnector,
 } from "../../connectors/rdb-mapping.js";
+import {
+  candidates,
+  groupsFor,
+  makeFetchRelater,
+  neighbourCount,
+  relateText,
+} from "../../connectors/relate.js";
 import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
 import { overview } from "../../core/aggregate.js";
@@ -36,6 +45,7 @@ import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
+  envKeywordWeight,
   inject,
   pointer,
   WALK_BUDGET,
@@ -467,6 +477,8 @@ knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, p
   overview                  the shape of the whole corpus: types, hubs, authors (--limit n)
   link <from> <relation> <to>   record a relation (works_on, supersedes, relates_to …)
 capture:    connect github-pr|slack|notes|rdb
+  connect raw <dir>         a model proposes records from unstructured material (needs YOKE_LLM_*)
+  relate                    a model proposes the links BETWEEN stored records (needs YOKE_LLM_*)
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
 data:       backup, restore, export, audit, backfill, rename-type
   audit --shape             workload composition: anchored / briefing / plain injections
@@ -1128,6 +1140,13 @@ async function cmdVerify(
           (e) => e.id,
         )
       : positionals;
+    // "Verify everything" over an empty queue is a queue that is empty, not a mistake. It failed as
+    // a usage error until a batch run hit it: a namespace whose extraction proposed nothing ended
+    // the whole job, and the message named flags the caller had already passed correctly.
+    if (ids.length === 0 && v["all-drafts"]) {
+      emit(v, "nothing to verify: no drafts on this scope", []);
+      return 0;
+    }
     if (ids.length === 0) {
       console.error("usage: yoke verify <id...> [--all-drafts] [--actor a]");
       return 1;
@@ -1271,6 +1290,7 @@ async function cmdInject(
         // Hybrid retrieval (SPEC "Hybrid retrieval"): the same env-configured embedder the gate uses,
         // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
         embedder: makeFetchEmbedder(env),
+        keywordWeight: envKeywordWeight(env),
       },
     );
     // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core
@@ -1624,6 +1644,114 @@ async function cmdRenameType(
   });
 }
 
+// relate — a model proposes the edges between records already in the store (connectors/relate.ts
+// says why that is a command of its own). Everything it proposes is a draft, like every other
+// automatic path; what a reviewer sees is a claim about two records rather than one.
+async function cmdRelate(v: Values, env: Env): Promise<number> {
+  const actor = resolveActor(v, env);
+  const ns = resolveNs(v.ns, env);
+  const limit = v.limit === undefined ? 500 : Number(v.limit);
+  return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
+    const relater = makeFetchRelater(env, ontology);
+    // The same refusal as `connect raw`: an unconfigured run would report "0 links" and look like a
+    // corpus with nothing to connect.
+    if (!relater) {
+      console.error(
+        "relate needs a model: set YOKE_LLM_URL and YOKE_LLM_MODEL (YOKE_LLM_KEY if the endpoint needs auth)",
+      );
+      return 1;
+    }
+    const records = await candidates(store, ns, limit);
+    if (records.length < 2) {
+      emit(v, "nothing to relate: fewer than two records on this scope", []);
+      return 0;
+    }
+    const groups = await groupsFor(
+      store,
+      records,
+      // relateText, NOT summarize: the terminal's 60-character one-liner drops a decision's
+      // rationale, which is the half that says a position changed — see relateText.
+      (e) => relateText(e, ontology),
+      ns,
+      neighbourCount(env),
+    );
+    let added = 0;
+    let existed = 0;
+    // A call that never answered and a proposal the gate refused are different failures: the first
+    // says the endpoint is unreachable, the second says the model answered and was wrong. Counted
+    // together, a corpus whose every proposal is a duplicate edge reports an outage.
+    let failedCalls = 0;
+    let rejected = 0;
+    const rejections = new Map<string, number>();
+    for (const { refs, byRef } of groups) {
+      const proposed = await relater(refs);
+      if (proposed === null) {
+        failedCalls++;
+        continue;
+      }
+      for (const p of proposed) {
+        const from = byRef.get(p.from);
+        const to = byRef.get(p.to);
+        if (!from || !to) continue;
+        const ts = now();
+        try {
+          const res = await commit(
+            store,
+            ontology,
+            {
+              type: p.type,
+              // The sentence that justified the edge, kept beside it for the same reason a record
+              // keeps its quote: a reviewer deciding whether this link is real should not have to
+              // reconstruct why a model thought so.
+              attributes: p.because ? { rationale: p.because } : {},
+              from: from.id,
+              to: to.id,
+            },
+            { actor, origin: "cli", occurred_at: ts },
+            ts,
+            { ns },
+          );
+          res.existed ? existed++ : added++;
+        } catch (e) {
+          // One bad proposal must not end a batch that also contains good ones — but a bare count
+          // of rejections tells nobody what to change. The reason is the whole value of the number:
+          // a model naming an undeclared attribute is a prompt to fix, and a gate refusing a
+          // duplicate edge is nothing to fix at all.
+          rejected++;
+          const why = (e as Error).message;
+          rejections.set(why, (rejections.get(why) ?? 0) + 1);
+        }
+      }
+    }
+    if (failedCalls > 0 && added === 0 && existed === 0 && rejected === 0) {
+      console.error(
+        `yoke: every relating call failed over ${records.length} records — nothing was linked. Check that YOKE_LLM_URL is reachable.`,
+      );
+      return 1;
+    }
+    for (const [why, n] of [...rejections].sort((a, b) => b[1] - a[1]))
+      console.error(`yoke: ${n} proposal(s) rejected — ${why}`);
+    if (failedCalls > 0)
+      console.error(
+        `yoke: ${failedCalls} of ${groups.length} relating call(s) never answered — those records were not considered`,
+      );
+    emit(
+      v,
+      `linked ${added}, already linked ${existed}, rejected ${rejected}`,
+      {
+        added,
+        existed,
+        rejected,
+        failedCalls,
+        rejections: Object.fromEntries(rejections),
+      },
+    );
+    return 0;
+  });
+}
+
 // backfill — the upgrade path for databases written before authorship became a graph edge.
 // Those entities carry provenance only in their stored field, so a person anchor (persona) cannot
 // see them. Re-derives the missing authored_by edges through the gate, attributed to the recorded
@@ -1814,7 +1942,9 @@ async function cmdOntology(
 
 /** Shared connect tail: route any connector through ingest (draft staging, idempotent external_id). */
 async function runIngest(
-  connector: Connector,
+  // A factory, because an extracting connector is built FROM the ontology (the type menu it may
+  // propose into) and the ontology is only in hand once the store is open.
+  connector: Connector | ((ontology: TypeDef[]) => Connector),
   v: Values,
   env: Env,
 ): Promise<number> {
@@ -1829,7 +1959,7 @@ async function runIngest(
     const { added, updated, skipped, rejected } = await ingest(
       store,
       ontology,
-      connector,
+      typeof connector === "function" ? connector(ontology) : connector,
       actor,
       now(),
       instantFlag(v.since, "since"),
@@ -1896,9 +2026,56 @@ async function cmdConnect(
     }
     return runIngest(makeNotesConnector({ dir }), v, env);
   }
+  if (source === "raw") {
+    const dir = positionals[1];
+    if (!dir) {
+      console.error(
+        "usage: yoke connect raw <dir> [--since ts] [--limit n] (YOKE_LLM_URL/YOKE_LLM_MODEL env required)",
+      );
+      return 1;
+    }
+    // Refused rather than run, because the no-op extractor would report "added 0, skipped 0" — a
+    // clean pass that read every session and proposed nothing, which is what a working run looks
+    // like when there is nothing to find.
+    if (!env.YOKE_LLM_URL || !env.YOKE_LLM_MODEL) {
+      console.error(
+        "connect raw needs an extraction model: set YOKE_LLM_URL and YOKE_LLM_MODEL (YOKE_LLM_KEY if the endpoint needs auth)",
+      );
+      return 1;
+    }
+    // The same reasoning as the refusal above, one step later: an endpoint that is configured but
+    // unreachable also proposes nothing, and "added 0, skipped 0" with exit 0 reads as a clean run.
+    const stats: ExtractStats = { calls: 0, failures: 0 };
+    const code = await runIngest(
+      (ontology) =>
+        makeRawConnector({
+          dir,
+          extract: makeFetchExtractor(env, ontology),
+          limit: v.limit === undefined ? undefined : Number(v.limit),
+          chunkChars: numEnv(env, "YOKE_EXTRACT_CHUNK_CHARS"),
+          concurrency: numEnv(env, "YOKE_EXTRACT_CONCURRENCY"),
+          stats,
+        }),
+      v,
+      env,
+    );
+    if (code === 0 && stats.calls > 0 && stats.failures === stats.calls) {
+      console.error(
+        `yoke: all ${stats.calls} extraction calls failed — nothing was read from ${dir}. Check that YOKE_LLM_URL is reachable.`,
+      );
+      return 1;
+    }
+    // Said only when something was lost, because a hole is invisible afterwards: the records that
+    // WOULD have been filed leave no trace, so a partial ingest and a clean one both end "added N".
+    if (stats.failures > 0)
+      console.error(
+        `yoke: ${stats.failures} of ${stats.calls} extraction calls were never read — those spans filed nothing`,
+      );
+    return code;
+  }
   if (source !== "github-pr" || !v.repo) {
     console.error(
-      "usage: yoke connect <github-pr --repo owner/name | slack --channel C123 | notes <dir> | rdb --mapping f.json> [--since ts] [--actor a]",
+      "usage: yoke connect <github-pr --repo owner/name | slack --channel C123 | notes <dir> | raw <dir> | rdb --mapping f.json> [--since ts] [--actor a]",
     );
     return 1;
   }
@@ -2577,6 +2754,8 @@ export async function runCli(
         return await cmdConnect(rest, values, env);
       case "persona":
         return await cmdPersona(rest, values, env);
+      case "relate":
+        return await cmdRelate(values, env);
       case "backfill":
         return await cmdBackfill(values, env);
       case "rename-type":

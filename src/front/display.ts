@@ -9,6 +9,7 @@ import type { WithheldStats } from "../core/inject.js";
 import { effectiveStatus } from "../core/lifecycle.js";
 import { normalizeNs } from "../core/namespace.js";
 import {
+  BOOKKEEPING_ATTRS,
   kindChangeRefusal,
   renameRefusal,
   type TypeDef,
@@ -105,15 +106,6 @@ export function makeActorNames(
   return { nameOf, prefetch };
 }
 
-/** Keys that are bookkeeping, never the knowledge. A connector puts external_id first. */
-const NOT_CONTENT = new Set([
-  "external_id",
-  "author",
-  "topic",
-  "key",
-  "status",
-]);
-
 /**
  * The compact one-line reading of a record, ≤60 chars.
  *
@@ -128,6 +120,10 @@ const NOT_CONTENT = new Set([
  * body instead of its title. What a type declares FIRST is what it wants read.
  *
  * Falls back to the first string that is not bookkeeping, then to "".
+ *
+ * Bookkeeping is skipped in BOTH passes, declared or not: `sources` is a declared attribute (it is
+ * the span a record rests on, and the ontology says so), and a record whose only declared string is
+ * its quote must not read as 60 characters of that quote.
  */
 export function summarize(
   entity: { type: string; attributes: Record<string, unknown> },
@@ -136,13 +132,13 @@ export function summarize(
   const def = ontology.find((t) => t.name === entity.type);
   if (def) {
     for (const [key, spec] of Object.entries(def.attrs)) {
-      if (spec.type !== "string") continue;
+      if (spec.type !== "string" || BOOKKEEPING_ATTRS.has(key)) continue;
       const val = entity.attributes[key];
       if (typeof val === "string" && val) return val.slice(0, 60);
     }
   }
   for (const [key, val] of Object.entries(entity.attributes)) {
-    if (NOT_CONTENT.has(key)) continue;
+    if (BOOKKEEPING_ATTRS.has(key)) continue;
     if (typeof val === "string" && val) return val.slice(0, 60);
   }
   // Everything was bookkeeping: better to show it than to render nothing at all.
