@@ -319,24 +319,6 @@ describe("makeRawConnector", () => {
     // One call counted per chunk, and nothing left unread.
     expect(swept.calls).toBe(2);
     expect(swept.failures).toBe(0);
-
-    seen.clear();
-    const off: ExtractStats = { calls: 0, failures: 0 };
-    expect(
-      await ingest(
-        port,
-        ont,
-        makeRawConnector({
-          dir,
-          extract: flaky,
-          sweep: false,
-          stats: off,
-        }),
-        "tester",
-        now,
-      ),
-    ).toEqual({ added: 0, skipped: 0 });
-    expect(off.failures).toBe(off.calls);
   });
 
   it("treats an unavailable extractor as 'found nothing', not a crash", async () => {

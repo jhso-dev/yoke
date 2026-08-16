@@ -231,8 +231,6 @@ export function makeRawConnector(opts: {
   chunkChars?: number;
   /** Chunks extracted at once. Defaults to DEFAULT_CONCURRENCY; see its comment. */
   concurrency?: number;
-  /** Re-offer the chunks whose call died, once, after the rest of the file. Default on; see below. */
-  sweep?: boolean;
   /**
    * Filled in as the pull runs, for a caller that has to tell two different zeroes apart.
    *
@@ -286,9 +284,8 @@ export function makeRawConnector(opts: {
         // workers burn their backoff against the same dead network and exhaust together. Deferring
         // to the end of the file buys minutes of unrelated work as the wait, which the ladder cannot
         // buy at any setting. Free when nothing failed, and it re-offers only what failed.
-        // YOKE_EXTRACT_SWEEP=0 turns it off, which is how the two arms get compared.
         const dead = per.flatMap((r, i) => (r === null ? [i] : []));
-        if (dead.length > 0 && opts.sweep !== false) {
+        if (dead.length > 0) {
           console.error(
             `yoke: ${rel} — ${dead.length} of ${chunks.length} chunks were not read; offering them again`,
           );

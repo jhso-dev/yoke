@@ -12,7 +12,7 @@
 import type { TypeDef } from "../core/ontology.js";
 import type { Entity } from "../core/types.js";
 import type { StoragePort } from "../ports/storage.js";
-import { makeJsonCaller } from "./extract.js";
+import { makeJsonCaller, numEnv } from "./extract.js";
 
 type Env = Record<string, string | undefined>;
 
@@ -244,9 +244,7 @@ export function keepLinkable(
 const DEFAULT_NEIGHBOURS = 5;
 
 export function neighbourCount(env: Env): number {
-  return Number(env.YOKE_RELATE_NEIGHBOURS) > 0
-    ? Number(env.YOKE_RELATE_NEIGHBOURS)
-    : DEFAULT_NEIGHBOURS;
+  return numEnv(env, "YOKE_RELATE_NEIGHBOURS") ?? DEFAULT_NEIGHBOURS;
 }
 
 /** One record, and the earlier records worth asking about it. `anchor` is always `refs[0]`. */

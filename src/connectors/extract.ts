@@ -200,6 +200,18 @@ export function parseItems(content: string): unknown {
 }
 
 /**
+ * A numeric env override: the value, or undefined when it is unset, unparseable or below `min`.
+ *
+ * One idiom for every knob, so an unset variable and a typo'd one both fall back to the default
+ * rather than to NaN. `min` is 1 for the counts and sizes; the two that accept 0 (a retry ladder
+ * turned off, a zero backoff) pass it.
+ */
+export function numEnv(env: Env, key: string, min = 1): number | undefined {
+  const n = Number(env[key]);
+  return env[key] && Number.isFinite(n) && n >= min ? n : undefined;
+}
+
+/**
  * How long to wait for the model, in ms — the whole call, not the gap between bytes.
  *
  * Ten minutes, because a local model is routinely slower than a hosted one: measured, a 14k-character
@@ -235,7 +247,7 @@ const DEFAULT_RETRY_BASE_MS = 2_000;
  * Truncation is not a crash: a cut-off array has no closing `]`, `parseItems` returns null, and the
  * retry ladder above handles it exactly as it handles any other failed call.
  *
- * YOKE_EXTRACT_MAX_TOKENS overrides (0, unset or unparseable = this default). Raise it for a
+ * YOKE_LLM_MAX_TOKENS overrides (0, unset or unparseable = this default). Raise it for a
  * reasoning model that spends its budget in `reasoning_content` before writing any `content`.
  */
 const DEFAULT_MAX_TOKENS = 4_000;
@@ -304,23 +316,12 @@ export function makeJsonCaller(
     "content-type": "application/json",
   };
   if (key) headers.authorization = `Bearer ${key}`;
-  const timeoutMs =
-    Number(env.YOKE_LLM_TIMEOUT_MS) > 0
-      ? Number(env.YOKE_LLM_TIMEOUT_MS)
-      : DEFAULT_TIMEOUT_MS;
-
+  const timeoutMs = numEnv(env, "YOKE_LLM_TIMEOUT_MS") ?? DEFAULT_TIMEOUT_MS;
   const attempts =
-    Number(env.YOKE_LLM_RETRIES) >= 0
-      ? Number(env.YOKE_LLM_RETRIES) + 1
-      : DEFAULT_ATTEMPTS;
+    (numEnv(env, "YOKE_LLM_RETRIES", 0) ?? DEFAULT_ATTEMPTS - 1) + 1;
   const retryBaseMs =
-    Number(env.YOKE_LLM_RETRY_BASE_MS) >= 0
-      ? Number(env.YOKE_LLM_RETRY_BASE_MS)
-      : DEFAULT_RETRY_BASE_MS;
-  const maxTokens =
-    Number(env.YOKE_EXTRACT_MAX_TOKENS) > 0
-      ? Number(env.YOKE_EXTRACT_MAX_TOKENS)
-      : DEFAULT_MAX_TOKENS;
+    numEnv(env, "YOKE_LLM_RETRY_BASE_MS", 0) ?? DEFAULT_RETRY_BASE_MS;
+  const maxTokens = numEnv(env, "YOKE_LLM_MAX_TOKENS") ?? DEFAULT_MAX_TOKENS;
 
   const once = async (
     system: string,

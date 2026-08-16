@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
-import { makeFetchExtractor } from "../../connectors/extract.js";
+import { makeFetchExtractor, numEnv } from "../../connectors/extract.js";
 import { makeGithubPrConnector } from "../../connectors/github-pr.js";
 import { ingest } from "../../connectors/ingest.js";
 import { makeNotesConnector } from "../../connectors/meeting-notes.js";
@@ -1419,15 +1419,8 @@ async function cmdConnect(
           dir,
           extract: makeFetchExtractor(env, ontology),
           limit: v.limit === undefined ? undefined : Number(v.limit),
-          chunkChars:
-            Number(env.YOKE_EXTRACT_CHUNK_CHARS) > 0
-              ? Number(env.YOKE_EXTRACT_CHUNK_CHARS)
-              : undefined,
-          concurrency:
-            Number(env.YOKE_EXTRACT_CONCURRENCY) > 0
-              ? Number(env.YOKE_EXTRACT_CONCURRENCY)
-              : undefined,
-          sweep: env.YOKE_EXTRACT_SWEEP !== "0",
+          chunkChars: numEnv(env, "YOKE_EXTRACT_CHUNK_CHARS"),
+          concurrency: numEnv(env, "YOKE_EXTRACT_CONCURRENCY"),
           stats,
         }),
       v,

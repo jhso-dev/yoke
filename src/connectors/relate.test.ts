@@ -319,7 +319,7 @@ describe("makeFetchRelater", () => {
           ReturnType<typeof makeFetchRelater>
         >;
       await relate(env)(refs);
-      await relate({ ...env, YOKE_EXTRACT_MAX_TOKENS: "9000" })(refs);
+      await relate({ ...env, YOKE_LLM_MAX_TOKENS: "9000" })(refs);
       expect(bodies.map((b) => JSON.parse(b).max_tokens)).toEqual([4000, 9000]);
     } finally {
       globalThis.fetch = original;
