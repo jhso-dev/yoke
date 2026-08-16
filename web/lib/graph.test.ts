@@ -142,9 +142,9 @@ describe("mergeGraph", () => {
   });
 
   it("counts each offered record once, however many expansions offer it again", () => {
-    // The defect this closes: `offered` was `current.offered + added.offered`, and each expansion's
-    // count included nodes already drawn — so repeatedly expanding an overlapping neighbourhood
-    // announced "showing 300 of 1500+" over a corpus of 340.
+    // What this pins: `offered` is a set, not `current.offered + added.offered` — summing counts a
+    // node already drawn once per expansion, and repeatedly expanding an overlapping neighbourhood
+    // announces "showing 300 of 1500+" over a corpus of 340.
     const many = Array.from({ length: MAX_NODES + 40 }, (_, i) =>
       node(`n${String(i).padStart(4, "0")}`),
     );

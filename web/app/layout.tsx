@@ -19,11 +19,11 @@ export const metadata: Metadata = {
  * Two dark switches have to agree, and only one of them is CSS.
  *
  * theme.css keys its tokens off `prefers-color-scheme` and `[data-theme]`, while Tailwind's `dark:`
- * variant keys off a `.dark` class that ThemeSwitch adds in an effect — i.e. after hydration. So an
- * OS-dark visitor used to get dark TOKENS on the first paint with every `dark:` utility still off:
- * a destructive button painted its full-strength light-theme red (2.77:1 against white), and the
- * checked-checkbox override was inert for that frame. Anyone who pinned a theme against their OS saw
- * a full flash of the other one.
+ * variant keys off a `.dark` class that ThemeSwitch adds in an effect — i.e. after hydration.
+ * Without this, an OS-dark visitor gets dark TOKENS on the first paint with every `dark:` utility
+ * still off (a destructive button at full-strength light-theme red, 2.77:1 against white, and an
+ * inert checked-checkbox override), and anyone who pinned a theme against their OS gets a full flash
+ * of the other one.
  *
  * This runs before first paint and stamps both signals from the same stored value, so CSS and
  * utilities cannot disagree. It is inline and blocking on purpose — that is the only position from

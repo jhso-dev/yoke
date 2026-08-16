@@ -2,7 +2,7 @@
 //
 // Split out from the canvas component so it is testable in the existing vitest with no browser — the
 // layout is d3-force's job, but merging expansions, capping size, colouring by type and describing
-// truncation are ours, and those are where the bugs would be.
+// truncation are ours, and those are where the bugs live.
 
 import { recordLabel } from "./citation";
 import type { Edge, GraphData, Knowledge, Status, TypeDef } from "./types";
@@ -168,10 +168,10 @@ function seed(id: string): { x: number; y: number } {
 /**
  * A colour per ontology type, distinct by construction.
  *
- * Hashing the type name into a fixed palette was the first attempt and it collided immediately on
- * the seeded ontology (`decision` and `fact` landed on the same hue), which makes a legend lie. So
- * hues are spread evenly across the types actually present, sorted for stability — no palette to
- * outgrow, no config, and no two visible types can share a colour.
+ * Not a hash into a fixed palette: that collides on the seeded ontology alone (`decision` and `fact`
+ * on the same hue), and a legend with two identical swatches lies. Hues are spread evenly across the
+ * types actually present, sorted for stability — no palette to outgrow, no config, and no two
+ * visible types can share a colour.
  */
 export function makeTypeColors(types: string[]): (type: string) => string {
   const sorted = [...new Set(types)].sort();
@@ -205,15 +205,13 @@ export function nodeRadius(degree: number): number {
 /**
  * The numbers a truncation notice needs, or null when nothing was cut. Never a silent slice.
  *
- * Numbers and not a sentence: the sentence used to be English prose living here, which meant the
- * Korean UI rendered an English Alert, and it advised narrowing "by type or status" — controls the
- * graph screen does not have (its type badges are a legend, not filters). The wording is
- * `t.graph.truncated` now, and this module stays free of React and of the i18n catalogs.
+ * Numbers and not a sentence: the wording is `t.graph.truncated`, so the notice is translated and
+ * this module stays free of React and of the i18n catalogs.
  *
  * `offered` is what IS known — the distinct ids the server actually handed us — and is deliberately
  * not padded to exceed `shown`. When the server stopped the walk rather than the client cap, how
  * much lies past the stop cannot be known without a second request; `truncated` is that fact, and
- * the old `nodes.length + 1` with a `+` glued on was a guess no reader could check.
+ * `nodes.length + 1` with a `+` glued on would be a guess no reader could check.
  */
 export function truncationCounts(
   g: Graph,

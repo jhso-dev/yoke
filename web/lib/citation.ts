@@ -1,10 +1,8 @@
 // How a record's source is labelled for a human.
 //
-// Split out of the component so it is assertable without a browser. This project has twice shipped a
-// display defect that every test passed: v2.5's client script never parsed, and v5.0 rendered raw
-// ULIDs in the actor and source columns. Both were invisible to assertions over API payloads, because
-// the payloads were correct — the rendering was not. A pure function is the smallest thing that can
-// fail when the label regresses.
+// Split out of the component so it is assertable without a browser. A display defect is invisible to
+// assertions over API payloads — the payload is correct and the rendering is not — so a pure function
+// is the smallest thing that can fail when the label regresses.
 
 import type { Knowledge } from "./types";
 
@@ -28,8 +26,8 @@ export type Cited = Pick<
  */
 export function citationLabel(row: Cited): string {
   // The writer when one is known, never falling through to the promoter: on a verified record
-  // `actor` is whoever approved it, and a label that named them would be the drift this exists to
-  // remove. Without an author edge the promoter is the only actor there is.
+  // `actor` is whoever approved it, and a label naming them credits the wrong person. Without an
+  // author edge the promoter is the only actor there is.
   const who = row.author
     ? (row.authorName ?? shortId(row.author))
     : (row.actorName ?? shortId(row.actor));
@@ -51,9 +49,9 @@ export function shortId(actor: string): string {
  * What to call a record on screen.
  *
  * `summary` is the first string attribute, so it is empty for a record whose attributes hold no
- * text — and every screen used to fall back to `summary || id`, which put a bare ULID in the one
- * cell a person reads for meaning. The type plus a short id at least says WHAT the thing is; the
- * full id stays in the link target and the citation.
+ * text. Falling back to the id puts a bare ULID in the one cell a person reads for meaning; the type
+ * plus a short id at least says WHAT the thing is, and the full id stays in the link target and the
+ * citation.
  */
 export function recordLabel(row: {
   id: string;

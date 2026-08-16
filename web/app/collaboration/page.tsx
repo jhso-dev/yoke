@@ -44,19 +44,6 @@ import {
 } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
-/* `.panel` and `.panel-head` restated as utilities, because globals.css still owns those classes for
-   the screens that have not migrated and this one no longer uses them (see the note at the top of
-   globals.css: each class goes when its last screen moves over).
-
-   Card's own defaults are all wrong for a dense workbench panel — `rounded-xl` where every other
-   panel is 6px, `py-6` where the content is a full-bleed table whose padding comes from its cells,
-   `gap-6` between those children, and a shadow `.panel` never had. The 14px between stacked panels
-   has to be said out loud too: it came from a `.panel + .panel` sibling rule, and a CSS selector
-   keyed on a class cannot follow markup that stopped using it. */
-/* CardTitle's `leading-none` suits a title standing alone in a card. These are one line of 13px text
-   in a fixed strip, and the tighter leading shortened only the heads with no note beside the title —
-   leaving the panels on one screen at two different heights. */
-
 /** How many people the picker offers, and the number `peopleCapped` names — one constant so the
  * request and the message about the request cannot disagree.
  *
@@ -89,9 +76,9 @@ function AddMember({
   // The picked ROW, not just its id: the toast has to name a person and `who` is a ULID, and holding
   // the row also lets the button refuse a selection this list can no longer resolve.
   const picked = candidates.find((p) => p.id === who);
-  // An empty namespace is not "everyone is already added", and the guard below could not tell them
-  // apart: with no person records at all it never fired, so the reader got a Select that opened an
-  // empty popover beside a permanently disabled button, with nothing explaining either.
+  // An empty namespace is not "everyone is already added", and the guard below cannot tell them
+  // apart: with no person records at all it never fires, leaving a Select that opens an empty
+  // popover beside a permanently disabled button, with nothing explaining either.
   if (people.length === 0)
     return <div className="empty">{t.collaboration.noPeople}</div>;
   if (candidates.length === 0)
@@ -123,9 +110,8 @@ function AddMember({
               type: "works_on",
               to,
             });
-            // This was the quietest write in the app: every other action on this screen announces,
-            // and a link whose only trace is a table that redraws leaves the reader guessing whether
-            // the click landed at all.
+            // Every other action on this screen announces, and a link whose only trace is a table
+            // that redraws leaves the reader guessing whether the click landed at all.
             announce(
               existed
                 ? t.collaboration.alreadyOnThisWork(recordLabel(picked))
@@ -157,10 +143,9 @@ function AddMember({
 /**
  * The shared working context, made visible.
  *
- * v4.0 made a collaboration anchor a first-class thing in core, MCP and the CLI, and the web tier shipped
- * without it — the only trace was a placeholder in the inject box, so a collaboration id was something you
- * had to already know. This screen is the missing half: pick the work, see who is on it, and see the
- * briefing an agent actually receives when it anchors there.
+ * A collaboration anchor is first-class in core, MCP and the CLI; this is its face in the browser.
+ * Pick the work, see who is on it, and see the briefing an agent actually receives when it anchors
+ * there — so a collaboration id is something to find rather than something to already know.
  *
  * It adds no endpoint. A collaboration is an entity, its members are relations, and its briefing is
  * `inject(scope)` — so this composes three routes that already exist, which is also why every action
@@ -304,7 +289,7 @@ function CollaborationBody() {
 
   // Every exit from this screen offers the way out, not just the one that succeeded. A collaboration
   // id in the URL is often pasted or stale, so "not found" and the error path are the two states a
-  // reader is MOST likely to arrive in — and both were dead ends with no link to anything.
+  // reader is MOST likely to arrive in, and a dead end there has nothing to click.
   const back = (
     <p className="lede">
       <Link href="/collaboration/">{t.collaboration.all}</Link>
@@ -411,9 +396,9 @@ function CollaborationBody() {
             <CopyCode value={`yoke link <person> works_on ${id}`} />
           </div>
         ) : (
-          /* The pager sits OUTSIDE the table's scroll container. It used to share the `.scroll-x`
-             wrapper with the table, so on a narrow viewport it scrolled sideways out of view along
-             with the columns — the control for reaching page 2 was reachable only by scrolling. */
+          /* The pager sits OUTSIDE the table's scroll container. Sharing it means that on a narrow
+             viewport the pager scrolls sideways out of view along with the columns, leaving the
+             control for reaching page 2 reachable only by scrolling. */
           <>
             <Table>
               <TableBody>

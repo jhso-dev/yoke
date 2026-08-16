@@ -27,9 +27,8 @@ import { ErrorBanner } from "./ErrorBanner";
  * backwards silently reverses which record the ontology considers current.
  *
  * But it is only shown for those. A relation the ontology marks `symmetric` means the same thing read
- * either way, so asking would be asking a question with no answer — and not a free one: the two
- * answers used to produce two rows for one claim. Core now treats either way round as one edge, and
- * this control stops offering the choice.
+ * either way, so asking would be asking a question with no answer — and not a free one: core treats
+ * either way round as one edge, so the two answers name one claim and the control offers no choice.
  *
  * The other end is typed, not picked from a list: a namespace can hold more records than a select
  * should ever contain, and pasting an id is what the graph and every table already hand you. The
@@ -37,10 +36,9 @@ import { ErrorBanner } from "./ErrorBanner";
  *
  * Two things this control deliberately refuses to guess:
  *
- * The relation type has NO default. It used to default to the first declared relation, which in the
- * seed is `authored_by` — so pasting an id and pressing Link recorded "this record was written by
- * that one". Recording a relation is a claim, and the one thing a picker must not do is pick for
- * you.
+ * The relation type has NO default. Defaulting to the first declared relation — `authored_by` in the
+ * seed — turns pasting an id and pressing Link into "this record was written by that one". Recording
+ * a relation is a claim, and the one thing a picker must not do is pick for you.
  *
  * And `authored_by` is not offered at all. The gate creates it from `provenance.actor` on every
  * commit, so a hand-made one is almost always a mistake — and it is the edge a persona walks, so a

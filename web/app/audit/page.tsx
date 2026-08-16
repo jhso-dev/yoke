@@ -64,7 +64,7 @@ const LOAD_LIMIT = 500;
 function Detail({ event }: { event: AuditEntry }) {
   const t = useT();
   // Two shapes: `<subject> -> <id> …` for a read, a bare id list for verify/deprecate. Returning the
-  // raw text when there is no arrow is what made a verify row a column of ULIDs.
+  // raw text when there is no arrow turns a verify row into a column of ULIDs.
   const [head, right] = event.detail.split(" -> ");
   // With an arrow the head is the subject; without one the whole string is the id list, and printing
   // it as a subject would put the ULIDs back beside their resolved form.
@@ -142,10 +142,9 @@ export default function Audit() {
   const sinceIso = isoFromLocalInput(range.from);
   const untilIso = isoFromLocalInput(range.to);
   const [action, setAction] = useState("");
-  // "Filterable by actor, action and time" is what ROADMAP claims this screen does; actor was
-  // missing. It is the axis that answers the question the trail exists for — which agent received
-  // what, and which person changed the trust state — and with one actor per local run its absence
-  // was invisible.
+  // Actor is the axis that answers the question the trail exists for — which agent received what,
+  // and which person changed the trust state. Invisible to miss on a local run with one actor,
+  // which is why it is filterable here and not left to the deployment to notice.
   const [actor, setActor] = useState("");
   const trail = useAsync(
     () =>
@@ -176,8 +175,8 @@ export default function Audit() {
   // A chosen filter outlives the rows that offered it: narrow the range until no `verify` event
   // loads and `verify` is simply not among this window's actions. Radix renders nothing for a value
   // with no matching item and will not fall back to the placeholder while the value is non-empty, so
-  // the trigger went BLANK — an empty table beside an empty filter box, with no way for the reader to
-  // see what was filtering, let alone clear it. The absent value stays on the list, labelled absent.
+  // the trigger goes BLANK — an empty table beside an empty filter box, with no way to see what is
+  // filtering, let alone clear it. The absent value stays on the list, labelled absent.
   const missingAction = !!action && !actions.includes(action);
   const missingActor = !!actor && !actors.some(([id]) => id === actor);
   const orderedRows = [...rows].reverse();
@@ -275,8 +274,8 @@ export default function Audit() {
         {trail.loading ? (
           <div className="empty">{t.common.loading}</div>
         ) : rows.length === 0 ? (
-          // Two different emptinesses, and blaming the clock for a filter sent readers widening a
-          // window that was never the problem.
+          // Two different emptinesses: blaming the clock for a filter sends the reader widening a
+          // window that is not the problem.
           <div className="empty">
             {loaded.length > 0 ? t.audit.noneMatch : t.audit.empty}
           </div>

@@ -11,10 +11,10 @@ const alertVariants = cva(
         default: "bg-card text-card-foreground",
         destructive:
           "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 [&>svg]:text-current",
-        // The page-level notice — what `.banner` was. A tighter box than `default` on purpose: these
-        // are one sentence above a table, whereas `default` is an inline result panel with a title.
-        // The three kinds reuse the lifecycle tones so a warning on any screen is the colour a draft
-        // record already is.
+        // The page-level notice. A tighter box than `default` on purpose: these are one sentence
+        // above a table, whereas `default` is an inline result panel with a title. The three kinds
+        // reuse the lifecycle tones so a warning on any screen is the colour a draft record already
+        // is.
         //
         // `block` is not cosmetic. The base is a two-column GRID sized for an icon and an
         // AlertTitle/AlertDescription pair, and a notice whose child is a plain sentence turns every
@@ -34,9 +34,9 @@ const alertVariants = cva(
 
 /**
  * `role="alert"` is an assertive live region, so it belongs only on the variants that report
- * something that just happened. It used to be on every variant, which made the login screen's
- * standing help panel — two `yoke token create` commands, present from first paint — interrupt a
- * screen reader before the reader had reached the field. A static panel is content, not an alert.
+ * something that just happened. On every variant it would make a standing panel — the login screen's
+ * two `yoke token create` commands, present from first paint — interrupt a screen reader before the
+ * reader has reached the field. A static panel is content, not an alert.
  */
 const ANNOUNCES: Record<string, boolean> = {
   error: true,

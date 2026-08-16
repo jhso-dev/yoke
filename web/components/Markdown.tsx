@@ -12,10 +12,10 @@ import { type Block, type Inline, parseMarkdown } from "../lib/markdown";
  * A stored value rendered as the document its author wrote.
  *
  * Knowledge is not always one line. A postmortem, an ADR or a runbook arrives with headings, a
- * timeline as a list and sometimes a results table — and every one of them used to land in a table
- * cell as raw text, where HTML collapses the newlines. Measured on a real record: a 2,809-character
- * postmortem with 40 line breaks and 6 sections rendered as one unbroken paragraph, so the timeline,
- * the impact numbers and the action items ran together into a wall nobody reads.
+ * timeline as a list and sometimes a results table, and as raw text in a table cell HTML collapses
+ * every newline. Measured on a real record: a 2,809-character postmortem with 40 line breaks and 6
+ * sections renders as one unbroken paragraph, timeline and impact numbers and action items running
+ * together into a wall nobody reads.
  *
  * Rendered to ELEMENTS, never through `dangerouslySetInnerHTML`: the input is stored knowledge that
  * arrived through the commit gate from a connector, an agent or a person, and none of those are

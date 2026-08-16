@@ -68,11 +68,10 @@ export function CreateRecord({
     try {
       // Typed by what the ONTOLOGY declares, not sent as a string whatever the field.
       //
-      // Every attribute used to go out as a string, and the gate type-checks them — so
-      // `decision.rejected_alternatives`, declared `string[]` in the seed, was rejected the moment
-      // anyone typed in it. A decision is the record type this product exists for, and the one field
-      // the entity screen calls the most-read in the model could not be filled from the web at all;
-      // the only way through the form was to leave it blank.
+      // The gate type-checks attributes, so an attribute the seed declares `string[]` —
+      // `decision.rejected_alternatives` — is rejected outright if it arrives as a string. That is
+      // the field on the record type this product exists for, so sending everything as a string
+      // makes the form unable to file a complete decision at all.
       //
       // Empty fields are omitted rather than sent as "": an optional attribute left blank should be
       // absent from the record, not present and empty — those read differently in a briefing. A
@@ -95,8 +94,8 @@ export function CreateRecord({
             ];
           if (kind === "number") {
             const n = Number(raw);
-            // Left to the gate rather than guessed at: sending NaN would arrive as `null` and be
-            // stored as one, which is how the ontology screen came to render "null days".
+            // Left to the gate rather than guessed at: NaN arrives as `null` and is stored as one,
+            // which is what puts "null days" on the ontology screen.
             return Number.isFinite(n) ? [[k, n]] : [];
           }
           return [[k, raw]];

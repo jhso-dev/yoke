@@ -1,11 +1,11 @@
-// W-TOAST: the partial-commit toast used to classify `unrecorded` by `startsWith("relates_to")`
-// alone, collapsed to one boolean. But core emits THREE labels (src/core/commit.ts) —
-// `conflicts_with -> …`, `authored_by -> …`, `relates_to -> …` — each with a DIFFERENT remedy:
+// W-TOAST: the partial-commit toast classifies each `unrecorded` label on its own. Core emits THREE
+// (src/core/commit.ts) — `conflicts_with -> …`, `authored_by -> …`, `relates_to -> …` — each with a
+// DIFFERENT remedy:
 //   - relates_to  → a --scope attachment: must be re-linked
 //   - authored_by → an authorship edge: re-derives with `yoke backfill`
 //   - conflicts_with → a contradiction marker: NO backfill re-derives it
-// So a conflict loss was mislabelled as an authorship loss (sent to backfill, which cannot re-derive
-// a contradiction), and an authorship loss riding alongside an attachment loss was silently dropped.
+// Collapsing them to one boolean sends a conflict loss to backfill, which cannot re-derive a
+// contradiction, and drops an authorship loss riding alongside an attachment loss.
 //
 // Tested at the i18n level with the exact label strings core produces — no React, so it runs in the
 // react-free suite (imports en.ts/ko.ts directly, never the .tsx barrel).
@@ -42,7 +42,7 @@ describe("W-TOAST: partial-commit toast names each remedy", () => {
   });
 
   it("an authorship loss alongside an attachment loss is not dropped", () => {
-    // The old boolean showed ONLY the attachment message; both remedies must now appear.
+    // Both remedies must appear: one boolean would show the attachment message alone.
     const msg = en.create.partial("R", [RELATES, AUTHORED]);
     expect(msg).toContain("link it again");
     expect(msg).toContain("yoke backfill");

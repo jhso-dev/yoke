@@ -789,9 +789,9 @@ endpoint shares it at `POST /mcp`.
 | `POST /api/backfill` | `backfillAuthorship`, or `backfillEmbeddings` with `{embeddings:true, rebuild?}` | write | no — the edges it creates record it, and a vector is not knowledge |
 | `POST /api/ontology` | `saveOntology([def], ns)` | **verify** | no |
 | `POST /api/rename-type` | `renameType(from, to, ns)` | **verify** | **yes** (`rename_type`) |
-| `GET /api/tokens` | `listTokens` (names + scopes, never secrets) | **verify** | no |
-| `POST /api/tokens` | `createToken` — 201 with the plaintext secret, shown once | **verify** | no |
-| `DELETE /api/tokens/:name` | `revokeToken` | **verify** | no |
+| `GET /api/tokens` | `listTokens` (names + scopes, never secrets) | **admin** | no |
+| `POST /api/tokens` | `createToken` — 201 with the plaintext secret, shown once | **admin** | no |
+| `DELETE /api/tokens/:name` | `revokeToken` | **admin** | no |
 
 Rules that hold for every route:
 
@@ -839,8 +839,13 @@ Rules that hold for every route:
   writes is a foot-gun, not a feature), and `mcp` / `ui` / `serve` (process lifecycle, not actions).
 
   **`token` IS exposed** (the three routes in the table above). Minting from a browser is gated on
-  `verify` — the governance scope — the secret is returned once and never listed, and under plain
-  `yoke ui` the routes are as open as the terminal it runs in (invariant 4: same trust boundary).
+  `admin`, NOT on `verify`: this is the credential surface, and every reviewer holds verify —
+  governing knowledge and issuing the credentials that reach it are different powers. An admin
+  scoped to a namespace grants only within it, a token it could not have issued reads as absent
+  rather than forbidden (otherwise one tenant enumerates another's credentials by name), the secret
+  is returned once and never listed, and under plain `yoke ui` the routes are as open as the terminal
+  it runs in (invariant 4: same trust boundary) — except to a non-loopback caller, which is refused
+  all three.
 
   `GET /api/search` exposes the port's `search()` to `browse`, returning summary rows and writing a
   `search` audit row. What stays refused is synthesis, a second ranker, and results framed as an

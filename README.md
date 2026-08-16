@@ -12,7 +12,7 @@
 
 ontology-based knowledge database · governed context injection for AI agents · MCP-native
 
-MIT · feature-complete through v5.9 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
+MIT · feature-complete through v6.1 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
 
 **English** | [한국어](README.ko.md)
 
@@ -60,11 +60,9 @@ Trust isn't a promise here — it's five mechanisms, each enforced in code:
    politest form of misinformation, and yoke treats them that way.
 
 And it's measured, not asserted: the injection-quality eval reports **0%
-contamination** (no draft, stale or retired record reaching an injection) and
-**0% missed contradictions** on its planted pairs (see below). Read it for what
-it covers: a synthetic corpus and a stub embedder, so it measures the filter and
-the detection wiring rather than retrieval quality on your data — `npm run
-eval:retrieval` is the one that measures that, against a gold set.
+contamination** (no draft record reaching an injection — drafts are what it plants) and
+**0% missed contradictions** on its planted pairs. What those numbers cover, and what
+they do not, is in [Measuring quality](#measuring-quality).
 
 Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server required.
 
@@ -103,7 +101,6 @@ Every record also arrives with its citation, which a pasted passage cannot do.
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → draft knowledge, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record, so its rows land verified. |
-| **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
 | **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens · RBAC (the `verify` permission is the governance permission) · read replicas · online backup + point-in-time export. |
@@ -174,9 +171,10 @@ Tools exposed:
 
 ## Embeddings
 
-**No model ships with yoke, and none will.** One provider setting — an OpenAI-compatible
-`/embeddings` endpoint — which is why the same three lines reach OpenAI, Azure, Ollama, vLLM, TEI and
-LiteLLM. Bundling an ONNX runtime would add 258MB of platform binaries and a second cross-platform
+**No model ships with yoke, and none will.** One provider setting — the API **root** of an
+OpenAI-compatible embeddings service — which is why the same three lines reach OpenAI, Azure, Ollama,
+vLLM, TEI and LiteLLM. yoke appends `/embeddings` itself, so a URL that already ends in it requests
+`/v1/embeddings/embeddings` and the embedder breaks silently. Bundling an ONNX runtime would add 258MB of platform binaries and a second cross-platform
 prebuild trap to a CLI people install globally; every practice we surveyed keeps the model out of the
 application process.
 
@@ -196,7 +194,7 @@ search already gave you, which looks like a working setup and is not.
 A hosted provider instead:
 
 ```bash
-export YOKE_EMBED_URL=https://api.openai.com/v1
+export YOKE_EMBED_URL=https://api.openai.com/v1     # the API root — no trailing /embeddings
 export YOKE_EMBED_MODEL=text-embedding-3-large
 export YOKE_EMBED_KEY=sk-...
 ```
@@ -302,14 +300,15 @@ yoke init | add | get | search | list | link | verify | deprecate
 yoke review [--stale]                         # drafts awaiting review / verified past their TTL
 yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--limit n]             # the corpus at a glance / as edges
-yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
+yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
+yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
 yoke connect github-pr|slack|notes|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup <dest.db> [--force] | restore <src.db> [--force]
 yoke export --until <ts> --out <new.db>       # --shards <file> federates backends
 yoke backfill [--embeddings [--rebuild]]      # repair authorship edges / the vector index
-yoke backfill --occurred-at [--dry-run]      # restore event times a pre-fix verify overwrote
+yoke backfill --occurred-at [--dry-run]       # restore event times a pre-fix verify overwrote
 ```
 
 Common options: `--db` (> `YOKE_DB` env > `./yoke.db`), `--actor`
@@ -336,7 +335,7 @@ judgment would be impersonation.
 
 ## Measuring quality
 
-yoke measures two different things, and they answer different questions.
+yoke measures three different things, and they answer different questions.
 
 **Injection quality** (`npm run eval`) — does the filter hold, and is the detection
 wired up:
@@ -346,16 +345,23 @@ wired up:
 | Contamination rate | Share of draft entries among inject results | 0% | **0.0%** (only the 20 verified of 40 candidates were injected) |
 | Missed-contradiction rate | Share of opposing-conclusion decision pairs with no conflicts_with edge | 0% | **0.0%** (5/5 detected) |
 
-Read those two numbers for what they cover: a 45-record synthetic corpus and a stub
+Read those two numbers for what they cover: a 50-record synthetic corpus and a stub
 embedder whose vectors are built from the planted topic word, so the contradiction
 figure measures that stage 4 runs and files the edge — not that a real embedding model
 would notice. Precision is not measured on either axis.
 
+**Persona quality** (`npm run eval:persona`) — does a persona return that person's
+verified judgment and nothing else. Five planted failure modes (a colleague's records on
+the same topics, association without authorship, sources someone else wrote, the
+person's own drafts, their own aged records): impersonation, draft-leak and stale-leak
+rates **0%**, recall **100%** whole and under a topic query.
+
 **Retrieval quality** (`npm run eval:retrieval -- <db>`) — does the right record come
 back, over `eval/gold-set.json` on a loaded corpus. This is the one that measures search
 against real text, and it reports its own weak spots rather than a headline: on the demo
-corpus, keyword-only retrieval scores recall@10 59.2% overall but 52.0% on
-question-shaped queries against 95.5% on keyword-shaped ones.
+corpus, keyword-only retrieval scores recall@10 58.5% overall but 51.1% on
+question-shaped queries against 95.5% on keyword-shaped ones (docs/RESEARCH.md,
+measured 2026-08-05).
 
 ## Docs
 
@@ -366,7 +372,7 @@ question-shaped queries against 95.5% on keyword-shaped ones.
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
 | [WEB-UI](docs/WEB-UI.md) | The governance workbench — the twelve screens and the line we don't cross |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v5.9 built, in order, each section a record |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v6.1 built, in order, each section a record |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
 | [MARKET](docs/MARKET.md) | Competitive landscape and positioning |

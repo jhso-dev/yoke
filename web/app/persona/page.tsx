@@ -155,8 +155,8 @@ function Person({ id }: { id: string }) {
 
   // A disputed row has to LOOK disputed here too. Both sides of a live `conflicts_with` are part of
   // this person's records, and rendering them as two ordinary rows shows an open disagreement as their
-  // settled position — the same defect the inject preview fixed, on the screen where the reader is
-  // most likely to read a row as "this is what they think". Same column, same words as that screen.
+  // settled position — on the screen where the reader is most likely to read a row as "this is what
+  // they think". Same column, same words as the inject preview.
   // Resolved against this person's whole loaded set — a decision may contradict a fact, so both lists
   // are the lookup pool that names the contradicted record.
   const loaded = [...allDecisions, ...allFacts];

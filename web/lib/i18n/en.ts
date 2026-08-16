@@ -57,8 +57,8 @@ export const en = {
     timeOfDay: "time",
     clear: "Clear",
     retry: "Retry",
-    /** A transport failure, not the API refusing: the browser's own "Failed to fetch" used to reach
-     * the reader untranslated, in the middle of an otherwise-translated screen. */
+    /** A transport failure, not the API refusing. Said in our own words because the browser's
+     * "Failed to fetch" is English on every locale and names nothing the reader can act on. */
     requestFailed:
       "Could not reach the server. It may have stopped, or the connection dropped.",
     verifying: "Verifying…",
@@ -165,9 +165,9 @@ export const en = {
     // A partial commit: the record is durable but an edge the gate tried alongside it was not written.
     // Core emits three kinds (commit.ts) and each has a DIFFERENT remedy: a `relates_to` attachment
     // must be re-linked, an `authored_by` edge re-derives with backfill, and a `conflicts_with` marker
-    // has NO backfill (backfill re-derives only authorship). Classifying by `relates_to` alone sent a
-    // conflict loss to `yoke backfill`, which cannot re-derive a contradiction, and silently dropped an
-    // authorship loss when an attachment loss rode alongside it. Each kind present names its own remedy.
+    // has NO backfill (backfill re-derives only authorship). Classifying by `relates_to` alone sends a
+    // conflict loss to `yoke backfill`, which cannot re-derive a contradiction, and drops an
+    // authorship loss riding alongside an attachment one. Each kind present names its own remedy.
     partial: (label: string, unrecorded: string[]) => {
       const has = (prefix: string) =>
         unrecorded.some((u) => u.startsWith(prefix));
@@ -244,12 +244,11 @@ export const en = {
     // inject and persona rows naming this record — not page views.
     injectedHead: "injected",
     injectedTimes: (n: number) => `${n}×`,
-    // The point of the screen: a stale record's fix is a person, so name them.
-    // The number needs a unit. It rendered as "노태경 7, 오태민 5, …" — a name and a naked integer,
-    // which a reader has to guess at, and the heading is the one place to say it once instead of
-    // repeating it thirty times.
+    // The point of the screen: a stale record's fix is a person, so name them. The number needs a
+    // unit — "노태경 7, 오태민 5, …" is a name and a naked integer a reader has to guess at — and the
+    // heading is the one place to say it once instead of repeating it thirty times.
     /** "among the records examined", because the stale walk is bounded (see staleScanned): when
-     * there is a next cursor every count here understates and the panel used to imply otherwise. */
+     * there is a next cursor every count here understates. */
     staleOwners:
       "Ask these people to re-confirm — the number is how many aged-out records each of them recorded, among those examined:",
     staleOwnerCount: (n: number) => `${n}`,

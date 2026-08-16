@@ -54,8 +54,8 @@ function EntityBody() {
   const ontology = useAsync(() => api.ontology(), []);
   const t = useT();
   // Both of this screen's tables paginate, like every other table in the app: a long-lived record's
-  // relations were an unbounded wall, and the one you had just added through the control above it
-  // landed somewhere in that wall with nothing pointing at it. Declared here, above the early
+  // relations are an unbounded wall otherwise, and the one just added through the control above it
+  // lands somewhere in that wall with nothing pointing at it. Declared here, above the early
   // returns, because hooks cannot be called conditionally.
   const historyPage = usePage(detail.data?.history ?? []);
   const edgePage = usePage(
@@ -89,9 +89,9 @@ function EntityBody() {
       </Panel>
     );
   // Only the FIRST load may replace the screen. `useAsync` keeps the previous data while refetching,
-  // and this used to throw it away — so verifying a record swapped the heading, the badge, the
-  // attributes and the provenance for the word "loading", exactly when the reader was waiting to see
-  // that the status had changed.
+  // and throwing it away here would swap the heading, the badge, the attributes and the provenance
+  // for the word "loading" on every verify — exactly when the reader is waiting to see the status
+  // change.
   if (detail.loading && !detail.data)
     return <p className="muted">{t.common.loading}</p>;
   if (detail.error)

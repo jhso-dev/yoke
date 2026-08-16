@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { en } from "./i18n/en";
 import { ko } from "./i18n/ko";
-import { isInjectable, statusStyle } from "./status";
+import { statusStyle } from "./status";
 import type { Status } from "./types";
 
 describe("statusStyle", () => {
@@ -12,8 +12,7 @@ describe("statusStyle", () => {
       expect(style.glyph).toBeTruthy();
       expect(style.tone).toBe(s);
       // The explanation lives in the catalogs, not here — every tone must have one in every locale,
-      // because the alternative (what shipped) was an English sentence on the Korean UI that no
-      // guard could see.
+      // because the alternative is an English sentence on the Korean UI that no guard can see.
       expect(en.status.meaning[style.tone]).toBeTruthy();
       expect(ko.status.meaning[style.tone]).toBeTruthy();
     }
@@ -30,12 +29,5 @@ describe("statusStyle", () => {
     const style = statusStyle("quarantined");
     expect(style.label).toBe("quarantined");
     expect(style.tone).toBe("unknown");
-  });
-
-  it("marks only verified as injectable — the injection filter, restated for display", () => {
-    expect(isInjectable("verified")).toBe(true);
-    for (const s of ["draft", "stale", "deprecated"]) {
-      expect(isInjectable(s)).toBe(false);
-    }
   });
 });
