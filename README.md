@@ -60,11 +60,9 @@ Trust isn't a promise here — it's five mechanisms, each enforced in code:
    politest form of misinformation, and yoke treats them that way.
 
 And it's measured, not asserted: the injection-quality eval reports **0%
-contamination** (no draft record reaching an injection — drafts are what it
-plants) and **0% missed contradictions** on its planted pairs (see below). Read it for what
-it covers: a synthetic corpus and a stub embedder, so it measures the filter and
-the detection wiring rather than retrieval quality on your data — `npm run
-eval:retrieval` is the one that measures that, against a gold set.
+contamination** (no draft record reaching an injection — drafts are what it plants) and
+**0% missed contradictions** on its planted pairs. What those numbers cover, and what
+they do not, is in [Measuring quality](#measuring-quality).
 
 Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server required.
 
@@ -103,7 +101,6 @@ Every record also arrives with its citation, which a pasted passage cannot do.
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → draft knowledge, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record, so its rows land verified. |
-| **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
 | **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens · RBAC (the `verify` permission is the governance permission) · read replicas · online backup + point-in-time export. |
@@ -174,9 +171,10 @@ Tools exposed:
 
 ## Embeddings
 
-**No model ships with yoke, and none will.** One provider setting — an OpenAI-compatible
-`/embeddings` endpoint — which is why the same three lines reach OpenAI, Azure, Ollama, vLLM, TEI and
-LiteLLM. Bundling an ONNX runtime would add 258MB of platform binaries and a second cross-platform
+**No model ships with yoke, and none will.** One provider setting — the API **root** of an
+OpenAI-compatible embeddings service — which is why the same three lines reach OpenAI, Azure, Ollama,
+vLLM, TEI and LiteLLM. yoke appends `/embeddings` itself, so a URL that already ends in it requests
+`/v1/embeddings/embeddings` and the embedder breaks silently. Bundling an ONNX runtime would add 258MB of platform binaries and a second cross-platform
 prebuild trap to a CLI people install globally; every practice we surveyed keeps the model out of the
 application process.
 
@@ -196,7 +194,7 @@ search already gave you, which looks like a working setup and is not.
 A hosted provider instead:
 
 ```bash
-export YOKE_EMBED_URL=https://api.openai.com/v1
+export YOKE_EMBED_URL=https://api.openai.com/v1     # the API root — no trailing /embeddings
 export YOKE_EMBED_MODEL=text-embedding-3-large
 export YOKE_EMBED_KEY=sk-...
 ```

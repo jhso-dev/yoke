@@ -58,9 +58,8 @@ MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 
 그리고 주장이 아니라 측정입니다: 주입 품질 eval은 **오염률 0%**(draft 레코드가
 주입에 닿지 않음 — 심는 것이 draft입니다)와, 심어둔 쌍에 대한 **모순 미탐지율 0%**를
-보고합니다(아래 참고). 다만 범위를 그대로 읽으세요: 합성 코퍼스와 스텁 임베더를
-쓰므로 필터와 탐지 배선을 측정하는 것이고, 실제 데이터에서의 검색 품질은
-`npm run eval:retrieval`이 gold set으로 측정합니다.
+보고합니다. 이 숫자들이 무엇을 덮고 무엇을 덮지 않는지는 [품질 측정](#품질-측정)에
+있습니다.
 
 로컬·임베디드로 동작합니다 — better-sqlite3 + FTS5 + sqlite-vec, 서버 불필요.
 
@@ -97,7 +96,6 @@ MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 | **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
 | **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `postgres`(네이티브 스코어드 FTS + pgvector, 의존성 추가 없음) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 넷 모두 하나의 conformance 스위트를 통과. |
 | **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `raw`(비정형 자료 — 대화록·문서를 모델이 추출) — 외부 소스 → draft 지식, 원본 시각으로 기록. `rdb`(Postgres/MySQL read-mapping)는 이미 system of record인 DB를 매핑하므로 verified로 들어옵니다. |
-| **앵커 기반 주입** | 하나의 메커니즘, 두 개의 진입점: `collaboration`에 앵커하면 팀의 공유 작업 컨텍스트, `person`에 앵커하면 persona. |
 | **persona** | "이 동료라면 어떻게 판단할까?" → 그 사람의 기록된 검증 판단을 인용과 함께, 실시간 생성으로. 흉내가 아니라 인용. |
 | **공유 작업 컨텍스트** | `collaboration`을 고정하면 팀이 하나의 컨텍스트를 공유 — 스코프는 전사 지식을 가리지 않고 우선순위만 부여. |
 | **엔터프라이즈** | 네임스페이스 멀티테넌시 · OIDC/SSO + API 토큰 · RBAC(`verify` 권한이 곧 거버넌스 권한) · 읽기 레플리카 · 온라인 백업 + 시점 복원. |
@@ -166,18 +164,16 @@ yoke를 에이전트(Claude Code 등)에 stdio MCP 서버로 붙입니다. 프�
 - `yoke_overview` — 코퍼스 한눈에 보기: 타입별 수, 최다 연결 레코드, 저자별 검증 지식
 - `yoke_use_scope` — 현재 collaboration을 고정해 세션 전체가 하나의 작업 컨텍스트를 공유
 
-임베딩 provider(중복·모순 탐지와 하이브리드 검색을 활성화)는 환경 변수로 설정합니다.
-**미설정 시 중복·모순 탐지는 실행되지 않고 "skipped"로 보고됩니다** — FTS로 대신하지
-않습니다(비슷한 문장은 키워드가 다르기 마련이라, 흉내내면 "검사했는데 없더라"라는
-거짓 답이 됩니다). 검색만 키워드로 동작합니다:
+## 임베딩 (Embeddings)
 
-```bash
-export YOKE_EMBED_URL=https://api.example.com/v1   # OpenAI 호환 API 루트 (뒤에 /embeddings 붙이지 않음)
-export YOKE_EMBED_MODEL=text-embedding-3-small
-export YOKE_EMBED_KEY=sk-...
-```
+**yoke에는 모델이 딸려 오지 않고, 앞으로도 그렇습니다.** provider 설정은 하나 — OpenAI 호환
+임베딩 서비스의 **API 루트** — 그래서 같은 세 줄로 OpenAI, Azure, Ollama, vLLM, TEI, LiteLLM에
+모두 닿습니다. `/embeddings`는 yoke가 직접 붙이므로, 뒤에 이미 붙은 URL은
+`/v1/embeddings/embeddings`를 요청하며 임베더가 조용히 깨집니다. ONNX 런타임을 번들하면 전역
+설치되는 CLI에 플랫폼 바이너리 258MB와 크로스 플랫폼 프리빌드 함정이 하나 더 붙습니다 —
+조사한 모든 관행이 모델을 애플리케이션 프로세스 밖에 둡니다.
 
-무료·로컬·키 불필요로는 [Ollama](https://ollama.com)를 쓸 수 있습니다:
+무료·로컬·키 불필요로는 [Ollama](https://ollama.com):
 
 ```bash
 ollama pull bge-m3
@@ -185,18 +181,45 @@ export YOKE_EMBED_URL=http://localhost:11434/v1
 export YOKE_EMBED_MODEL=bge-m3                      # 키 불필요
 ```
 
-**한국어 코퍼스에는 `nomic-embed-text`를 쓰지 마세요.** 영어 중심 모델이라 비영어
-지식에서는 벡터 검색 절반이 조용히 무용지물이 됩니다 — 이 문서의 이전 판이 권했던
-모델이고, 그래서 이 경고가 여기 있습니다. 권장은 `bge-m3` (다국어).
+`bge-m3`가 권장 기본값입니다: 한 모델로 100개 이상 언어, 8192 토큰 컨텍스트, 1024 차원, MIT.
+**지식이 대부분 영어가 아니라면 `nomic-embed-text`를 쓰지 마세요** — 영어 중심 모델이라 다른
+언어의 의미 매칭이 조용히 키워드 검색 수준으로 퇴화합니다. 설정된 것처럼 보이지만 아닙니다.
 
-세 가지 더 (자세한 내용은 영어 README의 Embeddings 절):
+호스팅 provider를 쓴다면:
 
-- 한 데이터베이스의 벡터 공간은 하나입니다. **모델을 바꾸면**
-  `yoke backfill --embeddings --rebuild`로 전체 재임베딩 — 차원이 다른 쓰기는
-  복구 명령과 함께 거부됩니다.
-- CLI·웹으로 만든 레코드에 벡터를 채우려면 `yoke backfill --embeddings`.
-- `.mcp.json`의 `env`는 MCP 서버 프로세스에만 적용됩니다. **셸에도 export**
-  해야 CLI 쓰기가 임베딩됩니다.
+```bash
+export YOKE_EMBED_URL=https://api.openai.com/v1     # API 루트 — 뒤에 /embeddings 붙이지 않음
+export YOKE_EMBED_MODEL=text-embedding-3-large
+export YOKE_EMBED_KEY=sk-...
+```
+
+**`.mcp.json`에만 두지 말고 셸에 설정하세요.** MCP 서버의 `env`는 그 프로세스에만 적용되므로,
+`.mcp.json`에만 넣으면 `yoke add`, `yoke ui`와 모든 커넥터가 벡터 없는 레코드를 씁니다 — 고치기
+전 이 저장소의 데이터베이스에서 엔티티 3건 중 1건으로 측정됐습니다.
+
+### 임베딩이 하는 일과, 없을 때 벌어지는 일
+
+| | provider 있음 | 없음 |
+|---|---|---|
+| 지식 저장 | 예 | **예** — provider가 죽어도 레코드가 거절되는 일은 없습니다 |
+| commit 시 중복 후보 | 예 | **아니오, 그리고 `yoke add`가 그렇게 말합니다** — FTS 폴백은 없습니다. 모든 FTS 히트를 중복으로 치면 대부분 오탐이기 때문입니다 |
+| `conflicts_with` 자동 탐지 | 예 | 아니오 |
+| 키워드 검색 / 주입 | 예 | 예, 영향 없음 |
+
+커버리지는 언제든 복구할 수 있습니다 — 벡터는 지식이 아니라 파생 인덱스라서, 새 버전을 쓰지도
+인용을 바꾸지도 않습니다:
+
+```bash
+yoke backfill --embeddings                 # 현재 모델로 전체 인덱싱
+yoke backfill --embeddings --rebuild       # 모델을 바꾼 뒤 (차원이 다름)
+```
+
+인덱스 키가 산문으로 바뀌기 전에 쓰인 데이터베이스는 `yoke backfill --embeddings --rebuild` 한
+번으로 인덱스 양쪽을 다시 키잉해야 합니다. 그전까지는 옛 키로 검색합니다 — 깨지지는 않고 순위만
+나빠집니다.
+
+한 데이터베이스의 벡터 공간은 하나입니다. `--rebuild` 없이 모델을 바꾸면 발견한 차원과 위 복구
+명령을 함께 알리며 요란하게 실패합니다 — 섞인 공간은 자신 있게 틀린 이웃을 돌려주기 때문입니다.
 
 ## 회사가 이미 운영하는 서버에 연결
 
@@ -261,6 +284,7 @@ yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup <dest.db> [--force] | restore <src.db> [--force]
 yoke export --until <ts> --out <new.db>       # --shards <file> 로 백엔드 연합
 yoke backfill [--embeddings [--rebuild]]      # 저작 엣지 / 벡터 인덱스 복구
+yoke backfill --occurred-at [--dry-run]       # 이전 verify가 덮어쓴 이벤트 시각 복원
 ```
 
 공통 옵션: `--db`(> `YOKE_DB` env > `./yoke.db`), `--actor`(> `YOKE_ACTOR` env
@@ -270,7 +294,7 @@ yoke backfill [--embeddings [--rebuild]]      # 저작 엣지 / 벡터 인덱스
 필요한 줄의 주석을 해제하면 됩니다. Node 내장 파서가 읽으므로 의존성도, 우리만의
 형식도 없습니다. 우선순위는 **CLI 플래그 > 실제 환경변수 > `.env` > 기본값** —
 셸 export나 CI 시크릿이 항상 파일을 이깁니다. `.env`는 gitignore되고, 커밋되는
-`.env.example`이 `YOKE_*` 변수의 유일한 전체 목록입니다.
+`.env.example`은 yoke 자신이 읽는 `YOKE_*` 변수를 전부 나열합니다.
 
 ## 공유 작업 컨텍스트
 
@@ -292,7 +316,9 @@ persona는 앵커를 collaboration 대신 사람에 둔 **같은 메커니즘**�
 
 ## 품질 측정
 
-recall 벤치마크 대신, yoke는 **주입 품질**을 측정합니다(`npm run eval`):
+yoke는 세 가지를 측정하며, 각각 다른 질문에 답합니다.
+
+**주입 품질**(`npm run eval`) — 필터가 버티는가, 탐지가 배선되어 있는가:
 
 | 지표 | 정의 | 목표 | 측정값 |
 |---|---|---|---|
@@ -303,10 +329,16 @@ recall 벤치마크 대신, yoke는 **주입 품질**을 측정합니다(`npm ru
 스텁 임베더입니다. 그래서 모순 수치는 게이트 4단계가 돌아 엣지를 만든다는 뜻이고, 실제
 임베딩 모델이 알아챈다는 뜻은 아닙니다. 정밀도는 어느 축에서도 측정하지 않습니다.
 
-**검색 품질**은 `npm run eval:retrieval -- <db>`가 `eval/gold-set.json`으로 따로
-측정합니다 — 실제 텍스트에 대한 검색을 재는 쪽이고, 헤드라인 대신 약점을 그대로
-출력합니다: 데모 코퍼스에서 키워드 검색 recall@10은 전체 58.5%지만 문장형 질의는
-51.1%, 키워드형 질의는 95.5%입니다(docs/RESEARCH.md, 2026-08-05 측정).
+**persona 품질**(`npm run eval:persona`) — persona가 그 사람의 검증된 판단만 돌려주는가.
+심어둔 실패 모드 다섯 가지(같은 주제에 대한 동료의 기록, 저작이 아닌 연결, 남이 쓴 출처,
+본인의 draft, 본인의 오래된 기록)에 대해 사칭·draft 누출·stale 누출률 **0%**, recall은
+전체와 주제 질의 모두 **100%**입니다.
+
+**검색 품질**(`npm run eval:retrieval -- <db>`) — 올바른 레코드가 돌아오는가. 적재된
+코퍼스 위에서 `eval/gold-set.json`으로 측정합니다. 실제 텍스트에 대한 검색을 재는 쪽이고,
+헤드라인 대신 약점을 그대로 출력합니다: 데모 코퍼스에서 키워드 검색 recall@10은 전체
+58.5%지만 문장형 질의는 51.1%, 키워드형 질의는 95.5%입니다(docs/RESEARCH.md,
+2026-08-05 측정).
 
 ## 문서
 
