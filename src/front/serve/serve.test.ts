@@ -440,7 +440,7 @@ describe("read replica (PLAN-V2 11.2)", () => {
       auth: false,
       now,
       readOnly: true,
-      replica: { primaryPath: primary, snapshotPath, refreshSec: 3600 },
+      replica: { primaryPath: primary, snapshotPath },
     });
     const run = await listen(server);
 

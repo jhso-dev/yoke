@@ -124,7 +124,6 @@ type Values = {
   until?: string;
   force?: boolean;
   "replica-of"?: string;
-  "refresh-sec"?: string;
   "all-drafts"?: boolean;
   "include-draft"?: boolean;
   relations?: boolean;
@@ -170,7 +169,6 @@ const OPTIONS = {
   reason: { type: "string" },
   force: { type: "boolean" },
   "replica-of": { type: "string" },
-  "refresh-sec": { type: "string" },
   "all-drafts": { type: "boolean" },
   "include-draft": { type: "boolean" },
   relations: { type: "boolean" },
@@ -2346,8 +2344,6 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
     auth: v.auth,
     ns: resolveNs(v.ns, env),
     replicaOf: v["replica-of"],
-    refreshSec:
-      v["refresh-sec"] === undefined ? undefined : Number(v["refresh-sec"]),
     shards: resolveShards(v, env),
     host: v.host ?? env.YOKE_HOST,
   });
