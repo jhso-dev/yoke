@@ -86,12 +86,10 @@ Return a JSON array and nothing else. No prose, no code fence:
 /**
  * The form a quote is compared in: whitespace collapsed, markdown emphasis dropped.
  *
- * Both are cases of the model reproducing the words and not the typography, which is not the thing
- * being checked — the claim is that somebody said this, and `` `compact` `` versus `compact` is not a
- * different claim. Reflowing came first; the emphasis rule was added on measurement, when a 26B local
- * model over this repo's own transcripts returned four parseable quotes of which three matched only
- * after stripping backticks and asterisks. The fourth had elided its middle with an ellipsis and is
- * still dropped, which is the line: normalising away formatting is not the same as tolerating a gap.
+ * Both are the model reproducing the words and not the typography, which is not what is being
+ * checked — the claim is that somebody said this, and `` `compact` `` versus `compact` is not a
+ * different claim. A quote whose middle is elided stays dropped: normalising away formatting is not
+ * the same as tolerating a gap.
  */
 const normalize = (s: string): string =>
   s
@@ -174,14 +172,10 @@ function objectSpans(body: string): string[] {
  * than treated as failures.
  *
  * **One malformed record must not cost the others.** `JSON.parse` on the whole array is
- * all-or-nothing, and the way a model breaks this format is an unescaped quote inside one string —
- * measured on a 26B local model over Korean material, which returned five well-formed records and
- * one `"conclusion": "번역 규칙을 "사람에게…"로 수정함."`, and the array parse discarded all six. That
- * is minutes of local inference thrown away over one record, reported as "added 0".
- *
- * So: parse the array (the fast path, and correct whenever the model behaved), and only on failure
- * fall back to parsing each top-level object alone and keeping the ones that survive. The result is
- * an array either way, and `keepGrounded` — which is already per-item tolerant — decides the rest.
+ * all-or-nothing, and the way a model breaks this format is an unescaped quote inside one string. So
+ * the array parse is the fast path, and only on failure is each top-level object parsed alone and
+ * the survivors kept. The result is an array either way, and `keepGrounded` — already per-item
+ * tolerant — decides the rest.
  */
 export function parseItems(content: string): unknown {
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -219,39 +213,30 @@ const DEFAULT_TIMEOUT_MS = 600_000;
  *
  * A failed call is not a chunk with nothing in it, it is a chunk nobody read — and since a document
  * is extracted in pieces, one dropped call is a hole in the middle of what gets filed, invisible
- * afterwards because the records that would have named it are the ones missing. Measured: an
- * endpoint on a LAN box went off the network and came back twice within one run.
+ * afterwards because the records that would have named it are the ones missing.
  *
- * Three is the number that covers a restart without turning a genuinely dead endpoint into a long
- * wait: with a 2s base the whole sequence gives up after six seconds of retrying. Set
- * YOKE_LLM_RETRIES=0 to fail on the first error. The base is operational too — a box coming back up
- * and a rate-limited hosted API want different waits — via YOKE_LLM_RETRY_BASE_MS.
+ * Three attempts covers an endpoint restarting without turning a genuinely dead one into a long
+ * wait: with a 2s base the whole sequence gives up after six seconds. YOKE_LLM_RETRIES=0 fails on
+ * the first error; YOKE_LLM_RETRY_BASE_MS moves the base, since a box coming back up and a
+ * rate-limited hosted API want different waits.
  */
 const DEFAULT_ATTEMPTS = 3;
 const DEFAULT_RETRY_BASE_MS = 2_000;
 
 /**
- * The ceiling on ONE completion, in tokens. Without it a degenerate generation costs the whole
- * timeout, every attempt.
+ * The ceiling on ONE completion, in tokens. Without it a generation that falls into repetition
+ * streams until the timeout, and does it again on every retry.
  *
- * Measured: a 23-chunk ingest against a local endpoint logged 161 timeouts and 0 network errors and
- * ran 5h24m. The request had `temperature: 0` and `stream: true` and no cap, so a chunk whose
- * generation fell into repetition streamed until the timeout, then did it again for every retry —
- * ~35 minutes spent to file nothing. A cap turns that into a bounded, cheap failure.
- *
- * 4,000, from what a healthy answer actually costs. A 6,000-character window yields 3–7 records, and
- * a record is `{"type": …, "attributes": {…}, "quote": …}` where the quote is a verbatim span:
- * roughly 380 characters each — a statement of ~120, a quote of ~200, keys and punctuation for the
- * rest — so a full 7-record answer is ~2,700 characters. Korean runs near one token per character
- * (English is nearer four), which puts a legitimate response at ~2,000 tokens. Double it, so the cap
- * is only ever reached by output that is no longer an answer.
+ * 4,000 is twice what a healthy answer costs: a 6,000-character window yields 3–7 records of roughly
+ * 380 characters each — a statement of ~120, a quote of ~200, keys and punctuation for the rest — so
+ * a full answer is ~2,700 characters, and Korean runs near one token per character (English is
+ * nearer four). The cap is only ever reached by output that is no longer an answer.
  *
  * Truncation is not a crash: a cut-off array has no closing `]`, `parseItems` returns null, and the
  * retry ladder above handles it exactly as it handles any other failed call.
  *
  * YOKE_EXTRACT_MAX_TOKENS overrides (0, unset or unparseable = this default). Raise it for a
- * reasoning model that spends its budget in `reasoning_content` before writing any `content` — see
- * the batch-size note in relate.ts, where a 4,000-token ceiling went entirely to reasoning.
+ * reasoning model that spends its budget in `reasoning_content` before writing any `content`.
  */
 const DEFAULT_MAX_TOKENS = 4_000;
 
@@ -300,10 +285,8 @@ async function readStream(res: Response): Promise<string | null> {
  * No SDK — fetch is called directly. Returns null when `YOKE_LLM_URL`/`YOKE_LLM_MODEL` are unset,
  * which is how a caller decides whether to refuse or degrade.
  *
- * Shared with `relate.ts` rather than copied: everything below the prompt is the same problem twice
- * — the streaming workaround, the timeout that names its knob, the retry that keeps a transient
- * failure from reading as "nothing found", and the salvage for a model that breaks one string. A
- * second copy of that would drift, and the half that drifted would be the half nobody measured.
+ * Shared with `relate.ts` rather than copied: everything below the prompt — the streaming, the
+ * timeout, the retry ladder, the salvage — is the same problem for both callers.
  *
  * `null` means the call did not happen or could not be read. An empty array means the model answered
  * and found nothing — the caller has to tell those apart.

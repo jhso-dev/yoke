@@ -62,14 +62,7 @@ export async function ingest(
       {
         actor,
         origin: `connector:${connector.name}`,
-        // WHEN IT WAS SAID, not when we heard it. `now` is the fallback for a source that carries no
-        // time of its own, and it used to be the only option — which made every record from one run
-        // share a timestamp to the millisecond. That is wrong twice over. `--as-of` rewinds each
-        // record to the version whose `occurred_at <= T`, so a corpus stamped with its ingest time
-        // answers "what did we know last March" with everything or nothing. And a claim reversed
-        // later in the same transcript lands at the same instant as the claim it reversed, so
-        // nothing downstream can tell which came first — measured on 34 records extracted from one
-        // conversation, every one carried 2026-08-12T13:00:28.878Z.
+        // `occurred_at` is when it was said; `now` is the fallback for a source that carries none.
         occurred_at: occurredAt ?? now,
       },
       now,

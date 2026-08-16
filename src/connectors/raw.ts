@@ -33,12 +33,10 @@ type Line = {
 /**
  * A JSONL agent transcript, as conversation text — user and assistant prose only.
  *
- * A transcript is mostly not conversation: in a measured 403-record session, 40 records carried prose
- * and the other 363 were tool calls, tool results, thinking blocks and editor bookkeeping. Dropping
- * them is not only cost. Tool results are file dumps, so a model handed them extracts the FILE, and
- * a `thinking` block is a model's own draft reasoning — filing that as something a person recorded is
- * the impersonation this corpus exists to prevent. Sidechains (subagent turns) go for the same
- * reason: nobody said them to anybody.
+ * A transcript is mostly not conversation, and dropping the rest is not only cost. Tool results are
+ * file dumps, so a model handed them extracts the FILE, and a `thinking` block is a model's own
+ * draft reasoning — filing that as something a person recorded is the impersonation this corpus
+ * exists to prevent. Sidechains (subagent turns) go for the same reason: nobody said them to anybody.
  *
  * Shaped after the Claude Code transcript, and tolerant rather than strict — an unreadable line is
  * skipped, so a format that disagrees degrades to "less text" instead of an error. A format that
@@ -131,16 +129,13 @@ export function sourceTime(
  * before.
  *
  * A long document in one call is not a cost problem, it is a RECALL problem: a model handed the
- * whole thing summarises it. Measured on a 39,228-character conversation, a small model proposed
- * three records and returned two kilobytes of output; the same model over the same material in
- * pieces has far more room to enumerate. Nothing was being dropped downstream — the grounding check
- * discarded none of those three — so the records simply were not being proposed.
+ * whole thing summarises it instead of enumerating it.
  *
  * The overlap exists because a claim that straddles a boundary belongs to neither side. It costs one
  * duplicate proposal per boundary, which `dedupeByQuote` below removes.
  *
- * Both are operational parameters rather than constants: the right chunk size depends on the model,
- * and the way to find it is to measure. YOKE_EXTRACT_CHUNK_CHARS overrides.
+ * The right chunk size depends on the model, and the way to find it is to measure —
+ * YOKE_EXTRACT_CHUNK_CHARS overrides.
  */
 const DEFAULT_CHUNK_CHARS = 6_000;
 const OVERLAP_CHARS = 600;
@@ -171,9 +166,7 @@ export function chunkText(
  * How many chunks of one file are extracted at once.
  *
  * The chunks of a file are independent — each is grounded against itself and nothing downstream
- * reads them in order — so the only reason to do them one at a time is that we were. Measured
- * against a local endpoint: three concurrent calls finished in 4.0s where three sequential ones took
- * 6.5s, a 1.6x saving that grows with the file. Four is a floor on politeness rather than a tuned
+ * reads them in order — so they go out together. Four is a floor on politeness rather than a tuned
  * number: an endpoint serving one model has a queue, and past a handful of requests the wait moves
  * into it instead of disappearing. YOKE_EXTRACT_CONCURRENCY overrides.
  */
@@ -206,12 +199,10 @@ async function mapPool<T, R>(
 }
 
 /**
- * Drop proposals whose quote was already proposed for this file.
- *
- * The overlap makes duplicates expected rather than exceptional: a claim inside the repeated span is
- * offered by both neighbours. Compared on the quote and not on the attributes, because the quote is
- * the one field the model was told to copy rather than compose — two windows paraphrase a statement
- * differently and cite the same sentence.
+ * Drop proposals whose quote was already proposed for this file. The overlap makes duplicates
+ * expected: a claim inside the repeated span is offered by both neighbours. Compared on the quote
+ * and not on the attributes, because the quote is the one field the model was told to copy rather
+ * than compose — two windows paraphrase a statement differently and cite the same sentence.
  */
 export function dedupeByQuote<T extends { quote: string }>(items: T[]): T[] {
   const seen = new Set<string>();
@@ -290,24 +281,11 @@ export function makeRawConnector(opts: {
         // per-chunk quote check meaningful: a model cannot cite a span it was never shown.
         const conc = opts.concurrency ?? DEFAULT_CONCURRENCY;
         const per = await mapPool(chunks, conc, opts.extract);
-        // One deferred re-offer of the chunks nobody read.
-        //
-        // The in-call retry ladder (extract.ts) cannot fill this hole, because the failures do not
-        // arrive one at a time: measured, 59 `fetch failed` in a single ingest, in bursts that took
-        // out every socket in flight at once. So all four workers burn their backoff against the
-        // same dead network and exhaust together, while what comes back seconds later is the NEXT
-        // chunk. Deferring to the end of the file buys minutes of unrelated work as the wait, which
-        // is the one thing the ladder cannot buy at any setting.
-        //
-        // It matters because a dead call is not a chunk with nothing in it, it is a hole invisible
-        // afterwards. Measured on a conversation corpus: 9 of 26 chunks filed zero records, in
-        // CONTIGUOUS runs (one 37k document lost five chunks in a row and two of its user's
-        // benchmark questions with them), while every chunk that did answer filed 3–7 records
-        // spread across its whole span. And two draws of another corpus at temperature 0 lost
-        // complementary halves of the same file — 8 of 23 chunks against 15 of 23, union 20 — which
-        // is transport, not a model deciding twice that the same text carries no claim.
-        //
-        // Free when nothing failed, and it re-offers only what failed rather than the file.
+        // One deferred re-offer of the chunks nobody read. The in-call retry ladder (extract.ts)
+        // cannot fill this hole: a burst outage takes out every socket in flight at once, so all
+        // workers burn their backoff against the same dead network and exhaust together. Deferring
+        // to the end of the file buys minutes of unrelated work as the wait, which the ladder cannot
+        // buy at any setting. Free when nothing failed, and it re-offers only what failed.
         // YOKE_EXTRACT_SWEEP=0 turns it off, which is how the two arms get compared.
         const dead = per.flatMap((r, i) => (r === null ? [i] : []));
         if (dead.length > 0 && opts.sweep !== false) {

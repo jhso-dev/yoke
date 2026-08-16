@@ -1145,14 +1145,9 @@ async function cmdRenameType(
   });
 }
 
-// relate — a model proposes the edges between records already in the store.
-//
-// Separate from `connect raw` because a relation names two entities by id, and an id exists only
-// after the gate accepted the entity. That ordering also makes this the cheap half to iterate on:
-// re-relating a corpus costs minutes where re-extracting it costs hours.
-//
-// Everything it proposes is a draft, like every other automatic path. What a reviewer now sees is a
-// claim about two records rather than one — see docs/KNOWLEDGE-POLICY.md.
+// relate — a model proposes the edges between records already in the store (connectors/relate.ts
+// says why that is a command of its own). Everything it proposes is a draft, like every other
+// automatic path; what a reviewer sees is a claim about two records rather than one.
 async function cmdRelate(v: Values, env: Env): Promise<number> {
   const actor = resolveActor(v, env);
   const ns = resolveNs(v.ns, env);

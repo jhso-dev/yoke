@@ -1,20 +1,13 @@
 // relate: a model proposes the EDGES between records that are already stored.
 //
-// Why this is not part of `connect raw`. A relation names two entities by id, and an id only exists
-// after the gate has accepted the entity — so a connector, whose whole job is to produce input for
-// the gate, cannot make one. Running afterwards over what landed is not a workaround for that; it is
-// the only order the data allows, and it buys two things:
+// Not part of `connect raw`, because a relation names two entities by id and an id only exists after
+// the gate has accepted the entity — a connector, whose whole job is to produce input for the gate,
+// cannot make one. Running afterwards over what landed is the only order the data allows, and it
+// buys two things:
 //
 //   - relations can be re-derived without paying for extraction again, which is what makes tuning
 //     this affordable at all (extraction of one corpus is hours; relating it is minutes);
 //   - it works on records from any connector, not just raw material a model read.
-//
-// Why it is worth doing. "A relation is knowledge in its own right" is in this project's own
-// terminology, and until now the only path that could produce one was a person typing `yoke link`.
-// Measured on a corpus of preference histories, where most questions ask how a claim changed and
-// why: yoke filed both halves of a preference reversal — the enthusiasm and the "I stopped, because
-// it got repetitive" — as two unrelated facts, and the store held zero `conflicts_with`. The
-// trajectory was present and unsayable.
 
 import type { TypeDef } from "../core/ontology.js";
 import type { Entity } from "../core/types.js";
@@ -130,16 +123,13 @@ const NOT_CONTENT = new Set([
 /**
  * A record as the RELATER needs to read it: every attribute that carries meaning, in declared order.
  *
- * Not `summarize`, and that distinction is the whole point of this function existing. `summarize` is
- * the terminal's one-line reading — the first declared string attribute, cut at 60 characters — and
- * feeding it to a model was measured as the reason `relate` could not see a change of position. A
- * decision's `conclusion` fits in 60 characters; its `rationale`, which is the half that says the
- * position CHANGED and why, never reached the prompt at all. Handed the full text of the same two
- * records directly, the same 4B model classified the reversal correctly on the first try.
+ * Not `summarize`, and that distinction is why this function exists. `summarize` is the terminal's
+ * one-line reading — the first declared string attribute, cut at 60 characters — which fits a
+ * decision's `conclusion` and drops its `rationale`, the half that says the position CHANGED and
+ * why. A model handed only the conclusion cannot see a reversal.
  *
  * ceiling: 400 characters per record, joined with " — ". Long enough for a conclusion and its
- * rationale, short enough that a group of ten stays a small prompt (the batch size, not the prompt,
- * is what made a naive relater fail — see the module comment).
+ * rationale, short enough that a group of ten stays a small prompt.
  */
 export function relateText(
   entity: { type: string; attributes: Record<string, unknown> },
@@ -192,17 +182,15 @@ export function relateSystemPrompt(ontology: TypeDef[]): string {
  * Drop proposals that cannot be committed, before anything is written.
  *
  * The entity extractor's safety net is the quote check — a record nobody said is dropped. A relation
- * has no single source span to quote, so the equivalent has to be structural, and there are three
- * checks worth having:
+ * has no single source span to quote, so the equivalent is structural: three checks.
  *
  *   - **both endpoints exist**, which is what makes a model's ref a real id rather than a wish;
  *   - **the type was offered**, so a run cannot invent an edge the ontology does not declare;
  *   - **`supersedes` runs later → earlier**, against the caller's ranking rather than the stored
- *     timestamps (see `Ref.order`). This is the one that earns its place. A backwards supersedes
- *     does not read as wrong — it reads as a confident history in which the person went back to
- *     what they had already abandoned, and that is worse than a missing edge, because a reviewer
- *     sees a plausible sentence rather than an obvious mistake. The order is already known, so the
- *     direction is checkable in code and does not need to be trusted.
+ *     timestamps (see `Ref.order`). A backwards supersedes does not read as wrong — it reads as a
+ *     confident history in which the person went back to what they had already abandoned, which is
+ *     worse than a missing edge, because a reviewer sees a plausible sentence rather than an obvious
+ *     mistake. The order is already known, so the direction is checked rather than trusted.
  */
 export function keepLinkable(
   raw: unknown,
@@ -240,19 +228,16 @@ export function keepLinkable(
 /**
  * How many earlier records one newer record is asked about.
  *
- * A first version handed the model thirty records and asked which of them were linked. It does not
- * work, and the reason is worth writing down: the models doing this are reasoning models, and the
- * pairs they have to consider grow with the square of the batch. Measured on `gemma-4-26b-a4b-qat`
- * — 2 records: 437 tokens, a correct answer in 7s. 6 records with a 4,000-token ceiling: every one
- * of those tokens spent in `reasoning_content`, `content` still empty, 61s. 30 records unbounded:
- * fifteen minutes to a timeout, three times over, nothing returned. The cost was never the prompt,
- * which is a kilobyte; it was asking one call to weigh 435 pairs.
+ * Asking one call about a whole batch does not work: the models doing this reason before answering,
+ * and the pairs they have to weigh grow with the square of the batch. Measured on a 26B model, 6
+ * records spent an entire 4,000-token ceiling in `reasoning_content` with `content` still empty, and
+ * 30 records timed out three times over. The cost is never the prompt, which is a kilobyte.
  *
- * So the question is asked the other way round. Each record is offered against the handful of
- * earlier records that FTS says resemble it, which is both cheaper and better targeted — a
- * `supersedes` holds between records about the same thing, and that is exactly what search finds.
- * It also removes the ceiling the batch version had: a claim reversed much later than its original
- * is now still offered beside it, because they are neighbours in content rather than in position.
+ * So the question is asked the other way round: each record against the handful of earlier records
+ * that FTS says resemble it, which is cheaper and better targeted — a `supersedes` holds between
+ * records about the same thing, and that is exactly what search finds. A claim reversed much later
+ * than its original is still offered beside it, because they are neighbours in content rather than
+ * in position.
  *
  * YOKE_RELATE_NEIGHBOURS overrides.
  */

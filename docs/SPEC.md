@@ -1123,6 +1123,16 @@ property of the material, not a preference.
   attempts with a 2s exponential backoff, so a genuinely dead endpoint costs six seconds rather than
   a long wait; `YOKE_LLM_RETRIES` and `YOKE_LLM_RETRY_BASE_MS` tune both, and `0` fails on the first
   error.
+- **A file's dead chunks are re-offered once after the rest of it, because the retry ladder cannot
+  cover a burst.** Failures do not arrive one at a time — measured, 59 `fetch failed` in a single
+  ingest, in bursts that took out every socket in flight at once, so every worker burnt its backoff
+  against the same dead network and exhausted together. What that costs is invisible afterwards:
+  measured on a conversation corpus, 9 of 26 chunks filed zero records in CONTIGUOUS runs (one 37k
+  document lost five chunks in a row), while every chunk that did answer filed 3–7 records across its
+  whole span; two draws of another corpus at `temperature: 0` lost complementary halves of one file
+  (8 of 23 chunks against 15 of 23, union 20), which is transport rather than a model deciding twice
+  that the same text carries no claim. The deferred pass buys minutes of unrelated work as the wait,
+  which no backoff setting can buy. It is free when nothing failed, and re-offers only what failed.
 - **Unconfigured is a refusal, not a no-op — and so is an endpoint that never answered.** Unlike the
   Embedder — whose unconfigured form is a function returning `null` so retrieval degrades quietly —
   `yoke connect raw` exits 1 when `YOKE_LLM_URL`/`YOKE_LLM_MODEL` are unset. A silent no-op would
@@ -1204,11 +1214,14 @@ a language model, and the first that can produce a relation without a person typ
 - **Everything is a draft, and one rejection does not end a batch.** A proposal the gate refuses is
   counted and skipped. A run whose every call failed exits 1 naming the endpoint, rather than
   reporting a corpus with nothing to connect; unconfigured is refused outright, as `connect raw` is.
-- **Batching is positional (`YOKE_RELATE_BATCH`, default 30).** Records are ordered oldest-first so
-  `supersedes` has a direction to find, and only pairs inside one batch can be linked.
-  `ceiling:` a claim reversed much later than its original is never offered beside it. Lifting this
-  needs candidate selection (retrieve each record's near-duplicates and relate those), which is worth
-  building once a measurement shows the misses are out-of-batch rather than out-of-reach.
+- **Each record is asked about its search neighbours, not about a batch (`YOKE_RELATE_NEIGHBOURS`,
+  default 5).** One call weighing a whole batch weighs pairs that grow with its square, and these are
+  reasoning models: measured on a 26B model, 6 records spent an entire 4,000-token ceiling in
+  `reasoning_content` with `content` still empty, and 30 records timed out three times over. So a
+  record is offered only against the earlier records FTS says resemble it — cheaper, and better
+  targeted, since a `supersedes` holds between records about the same thing. A claim reversed much
+  later than its original is still offered beside it, because the two are neighbours in content
+  rather than in position.
 
 ## Time injection
 
