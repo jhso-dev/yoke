@@ -1,11 +1,16 @@
 // RDB read-mapping connector (PLAN 8.3, BACKENDS "Traditional-DB read-mapping") — the enterprise wedge.
 // Exposes an existing RDB as ontology entities with no migration and no bidirectional sync (read-only).
 //
-// DESIGN EXCEPTION vs ingest(): the capture connectors (github-pr, slack, notes) stage everything as a
+// DESIGN EXCEPTION vs the capture connectors (github-pr, slack, notes), which stage everything as a
 // draft and let a human verify it. Read-mapping does NOT — the source RDB is already the org's system of
 // record, so mapped rows bypass draft staging and land status='verified' directly. They STILL pass
-// ontology validation (commit gate step 1); only the human-review step is skipped. This is why it is a
-// separate function, not a Connector fed to ingest().
+// ontology validation (commit gate step 1); only the human-review step is skipped.
+//
+// That auto-verify, and the second pass below, are the WHOLE difference from `ingest`: every row goes
+// through `ingestItem`, the one probe/compare/merge/commit sequence. A copy of that sequence here would
+// be a second set of the things it has to get right — the merge that keeps an attribute a mapping edit
+// dropped, the critical section that keeps two concurrent syncs from double-writing a row, the probe's
+// `terms: "all"` (292 ms per item at 1M records, against 3 ms).
 //
 // Single-write-path invariant preserved: we never touch putEntity. We commit() (draft) then
 // lifecycle.verify() (verified) — the exact pattern cmdInit uses to seed yoke:system. Reaching 'verified'
@@ -20,8 +25,8 @@ import { CommitRejected, commit } from "../core/commit.js";
 import type { Embedder } from "../core/embedding.js";
 import { verify } from "../core/lifecycle.js";
 import type { TypeDef } from "../core/ontology.js";
-import type { Entity, Provenance } from "../core/types.js";
 import type { StoragePort } from "../ports/storage.js";
+import { findByExternalId, ingestItem } from "./ingest.js";
 
 /** A foreign key → relation. Target rows live in `fkTable` (defaults to the same table for self-referential FKs, e.g. manager_id). */
 export interface RelationSpec {
@@ -69,25 +74,6 @@ export function makeRdbMappingConnector(
 const externalId = (table: string, pk: unknown): string =>
   `rdb:${table}:${String(pk)}`;
 
-/** Find an already-ingested entity by its external_id (FTS candidates, then exact match — same as ingest.ts). */
-async function findByExternalId(
-  port: StoragePort,
-  extId: string,
-  ns?: string | null,
-): Promise<Entity | null> {
-  // Tenant-scoped, like ingest.ts's probe: two namespaces may map the same source table, and an
-  // unscoped lookup would treat one tenant's row as the other's and re-version it.
-  const hits = await port.search({ text: extId, ns });
-  return hits.find((e) => e.attributes.external_id === extId) ?? null;
-}
-
-/** True when every mapped attribute (incl. external_id) already matches the stored entity — nothing to re-version. */
-function unchanged(existing: Entity, next: Record<string, unknown>): boolean {
-  return Object.keys(next).every(
-    (k) => JSON.stringify(existing.attributes[k]) === JSON.stringify(next[k]),
-  );
-}
-
 /**
  * Ingest mapped RDB rows as verified entities (+ FK relations). See file header for the design exception.
  * @param now ISO 8601 — injected (core does not create time).
@@ -106,12 +92,9 @@ export async function ingestMapped(
   let errors = 0;
   const idByExtId = new Map<string, string>();
 
-  /** `at` is the row's own instant when the mapping names a column for it, else the import clock. */
-  const prov = (table: string, at?: string): Provenance => ({
-    actor: "rdb",
-    origin: `rdb:${table}`,
-    occurred_at: at ?? now,
-  });
+  /** Who a mapped row is recorded as coming from. The table is in the origin, so a reader can tell
+   * which mapping filed a record without opening the mapping file. */
+  const prov = (table: string) => ({ actor: "rdb", origin: `rdb:${table}` });
 
   /** A source column's value as an ISO instant, or undefined when it is not one. */
   const rowInstant = (row: Record<string, unknown>, col?: string) => {
@@ -162,33 +145,37 @@ export async function ingestMapped(
         continue;
       }
       const extId = externalId(spec.table, row[spec.idColumn]);
-      const attributes: Record<string, unknown> = { external_id: extId };
+      const attributes: Record<string, unknown> = {};
       for (const [col, attr] of Object.entries(spec.columns)) {
         attributes[attr] = row[col];
       }
-      const existing = await findByExternalId(port, extId, ns);
-      if (existing && unchanged(existing, attributes)) {
-        idByExtId.set(extId, existing.id);
-        skipped++;
-        continue;
-      }
+      const at = rowInstant(row, spec.occurredAtColumn);
       try {
-        const at = rowInstant(row, spec.occurredAtColumn);
-        const { entity } = await commit(
+        const { outcome, id } = await ingestItem(
           port,
           ontology,
-          { type: spec.entityType, attributes },
-          prov(spec.table, at),
-          // Freshness is measured from `last_confirmed`, so the row's own instant has to reach it too.
-          at ?? now,
-          existing
-            ? { existingId: existing.id, ns, embedder }
-            : { ns, embedder },
+          {
+            type: spec.entityType,
+            attributes,
+            externalId: extId,
+            ...(at ? { occurredAt: at } : {}),
+          },
+          prov(spec.table),
+          now,
+          { ns, embedder },
         );
-        await verify(port, [entity.id], "rdb", at ?? now, ns);
-        idByExtId.set(extId, entity.id);
-        if (existing) updated++;
-        else added++;
+        idByExtId.set(extId, id);
+        // The design exception, and the only thing this loop adds to `ingestItem`. NOT on the skipped
+        // path: verify appends a version whose whole content is a fresh `last_confirmed`, so promoting
+        // an unchanged row would grow its history by one version per sync and reset the freshness clock
+        // on knowledge nobody re-read.
+        if (outcome === "skipped") skipped++;
+        else {
+          // Freshness is measured from `last_confirmed`, so the row's own instant has to reach it too.
+          await verify(port, [id], "rdb", at ?? now, ns);
+          if (outcome === "updated") updated++;
+          else added++;
+        }
       } catch (e) {
         if (e instanceof CommitRejected) {
           // Ontology-invalid row: surface it, keep going (one bad row must not abort the whole sync).
@@ -231,7 +218,7 @@ export async function ingestMapped(
             port,
             ontology,
             { type: rel.relType, attributes: {}, from: fromId, to: toId },
-            prov(spec.table),
+            { ...prov(spec.table), occurred_at: now },
             now,
             { ns },
           );
