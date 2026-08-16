@@ -85,6 +85,16 @@ export async function overview(
    * defect docs/SCALE.md holds five of. The hubs are re-read by id at the end instead, in one batch
    * call, because only `top` of them are ever returned. */
   const injectable = new Set<string>();
+  /** Entity types the ontology marks structural (`person`, `collaboration`, …): a person or a piece of
+   * work is what knowledge attaches to, never injectable knowledge itself. `inject` and `personaQuery`
+   * both withhold them by TYPE; the authors ranking credits authorship off `injectable`, so keeping
+   * these out of that set is what makes "verified knowledge by author" agree with the injection
+   * surfaces instead of crediting a verified person + collaboration as two knowledge records. */
+  const structuralTypes = new Set(
+    ontology
+      .filter((t) => t.kind === "entity" && t.structural)
+      .map((t) => t.name),
+  );
   /** Relation types that are structurally metadata rather than connection between knowledge:
    * `authored_by` (every record has exactly one, so it adds a constant) and anything the ontology
    * marks `membership` (a roster). Excluded from DEGREE only — `relations.byType` still counts them,
@@ -106,7 +116,8 @@ export async function overview(
       const status = effectiveStatus(e, ontology, now);
       byType[e.type] ??= { ...EMPTY };
       byType[e.type][status]++;
-      if (status === "verified") injectable.add(e.id);
+      if (status === "verified" && !structuralTypes.has(e.type))
+        injectable.add(e.id);
     }
     if (page.next === null) break;
     after = page.next;

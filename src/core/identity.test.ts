@@ -20,8 +20,28 @@ beforeEach(async () => {
   await port.init();
 });
 
+/**
+ * A person record for each endpoint — the gate rejects an edge to an id that is not a record.
+ * Idempotent, because these ids are linked into chains and re-putting (id, version) conflicts.
+ */
+async function node(id: string, ns?: string) {
+  if (await port.getEntity(id)) return;
+  await port.putEntity({
+    id,
+    type: "person",
+    attributes: { name: id },
+    status: "verified",
+    version: 1,
+    last_confirmed: now,
+    provenance: prov,
+    ...(ns ? { ns } : {}),
+  });
+}
+
 /** alias --same_as--> canonical, through the ordinary gate: the link is knowledge, not config. */
 async function link(from: string, to: string, ns?: string) {
+  await node(from, ns);
+  await node(to, ns);
   await commit(
     port,
     ont,
@@ -80,5 +100,40 @@ describe("identitySet", () => {
       "mine",
       "theirs",
     ]);
+  });
+
+  it("does not follow an edge to a person in another namespace", async () => {
+    // The edge's own ns was the only thing checked, and an edge carries its own namespace while its
+    // ENDPOINTS carry theirs: a `same_as` filed here naming another tenant's person put that tenant's
+    // entity id in the union, which the exported persona prints under "Identity union". No knowledge
+    // crossed (inject re-filters candidates), and the identity did.
+    await node("local");
+    await node("foreign", "acme");
+    await commit(
+      port,
+      ont,
+      { type: "same_as", attributes: {}, from: "local", to: "foreign" },
+      prov,
+      now,
+    );
+    expect(await identitySet(port, "local")).toEqual(["local"]);
+  });
+
+  it("drops an endpoint that resolves to no record at all", async () => {
+    // A dangling endpoint is not a record of this person in this namespace, which is the question the
+    // set answers. It reaches the same read as the ns filter, so it costs nothing extra.
+    await node("here");
+    await port.putRelation({
+      id: "01DANGLING",
+      type: "same_as",
+      from: "here",
+      to: "01NOSUCHRECORD",
+      attributes: {},
+      status: "draft",
+      version: 1,
+      last_confirmed: now,
+      provenance: prov,
+    });
+    expect(await identitySet(port, "here")).toEqual(["here"]);
   });
 });

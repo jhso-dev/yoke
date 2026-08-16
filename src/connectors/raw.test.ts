@@ -174,7 +174,7 @@ describe("makeRawConnector", () => {
       "tester",
       now,
     );
-    expect(res).toEqual({ added: 2, skipped: 0 });
+    expect(res).toEqual({ added: 2, updated: 0, skipped: 0 });
 
     const [e] = await port.search({ text: "Redis" });
     expect(e.status).toBe("draft");
@@ -190,6 +190,7 @@ describe("makeRawConnector", () => {
     await ingest(port, ont, c, "tester", now);
     expect(await ingest(port, ont, c, "tester", now)).toEqual({
       added: 0,
+      updated: 0,
       skipped: 2,
     });
   });
@@ -334,7 +335,7 @@ describe("makeRawConnector", () => {
         "tester",
         now,
       ),
-    ).toEqual({ added: 2, skipped: 0 });
+    ).toEqual({ added: 2, updated: 0, skipped: 0 });
     // One call counted per chunk, and nothing left unread.
     expect(swept.calls).toBe(2);
     expect(swept.failures).toBe(0);
@@ -348,7 +349,7 @@ describe("makeRawConnector", () => {
       "tester",
       now,
     );
-    expect(res).toEqual({ added: 0, skipped: 0 });
+    expect(res).toEqual({ added: 0, updated: 0, skipped: 0 });
   });
 });
 

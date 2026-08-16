@@ -36,13 +36,18 @@ import {
 import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
 import { overview } from "../../core/aggregate.js";
-import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
-import { CommitRejected, commit } from "../../core/commit.js";
+import {
+  backfillAuthorship,
+  backfillEmbeddings,
+  backfillOccurredAt,
+} from "../../core/backfill.js";
+import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
   envKeywordWeight,
   inject,
+  pointer,
   WALK_BUDGET,
 } from "../../core/inject.js";
 import {
@@ -53,9 +58,16 @@ import {
   verify,
 } from "../../core/lifecycle.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
-import { seedOntology, type TypeDef } from "../../core/ontology.js";
 import {
+  seedOntology,
+  type TypeDef,
+  validateTypeDef,
+} from "../../core/ontology.js";
+import {
+  checkPersonaAnchor,
   checkPersonaSources,
+  NotAPerson,
+  type PersonaResult,
   parsePersonaSources,
   personaQuery,
   renderPersonaSkill,
@@ -63,14 +75,22 @@ import {
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
+  CONSUMPTION_WINDOW,
   consumptionCounts,
+  describeWithheld,
   injectDetail,
   injectShape,
+  makeActorNames,
   rankByConsumption,
+  refuseKindChange,
+  refuseRename,
+  retirementOf,
+  shownStatus,
   summarize,
 } from "../display.js";
 import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
+import { parseScope } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
 import { runUi } from "../ui/server.js";
 import { banner, decorated, getStartedBlock, log, version } from "./banner.js";
@@ -114,6 +134,8 @@ type Values = {
   stale?: boolean;
   embeddings?: boolean;
   rebuild?: boolean;
+  "occurred-at"?: boolean;
+  "dry-run"?: boolean;
   shape?: boolean;
   depth?: string;
   check?: string;
@@ -158,6 +180,8 @@ const OPTIONS = {
   stale: { type: "boolean" },
   embeddings: { type: "boolean" },
   rebuild: { type: "boolean" },
+  "occurred-at": { type: "boolean" },
+  "dry-run": { type: "boolean" },
   shape: { type: "boolean" },
   depth: { type: "string" },
   check: { type: "string" },
@@ -172,6 +196,136 @@ const resolveDb = (v: Values, env: Env): string =>
 
 const resolveActor = (v: Values, env: Env): string =>
   v.actor ?? env.YOKE_ACTOR ?? "yoke:system";
+
+/** The `--db`/`--ns` the user actually passed, echoed back so a copy-paste paging hint reads the SAME
+ * store — otherwise "yoke list --after <id>" pages the default ./yoke.db, not the db being read. */
+const passthroughFlags = (v: Values): string =>
+  (v.db ? ` --db ${v.db}` : "") + (v.ns ? ` --ns ${v.ns}` : "");
+
+/**
+ * A caller error, as distinct from a failure. Thrown by the argument readers below and caught once at
+ * the dispatcher, which prints the message and exits 1.
+ *
+ * Named so that one catch can tell "you typed something I cannot act on" from "something broke",
+ * because the two deserve different sentences and only one of them is the reader's to fix.
+ */
+class UsageError extends Error {}
+
+/**
+ * A numeric flag, or a refusal naming what was wrong with it.
+ *
+ * `Number(v.x)` answers a DIFFERENT question rather than declining the one asked: NaN compares false
+ * against everything, so an unparseable number does not fail — it quietly changes the answer (a
+ * `--limit` that reaches SQL as a datatype mismatch, a `--depth` that walks zero hops). A count is
+ * written in digits, so `0x10` parsing as 16 while `3.7` errors is the same objection: reject
+ * anything that is not all digits.
+ */
+function intFlag(
+  raw: string | undefined,
+  name: string,
+  min = 1,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!/^\d+$/.test(raw.trim()) || raw.trim() === "")
+    throw new UsageError(`--${name} must be a whole number (got "${raw}")`);
+  const n = Number(raw);
+  if (n < min)
+    throw new UsageError(`--${name} must be at least ${min} (got ${n})`);
+  return n;
+}
+
+/**
+ * A timestamp flag, or a refusal — returned NORMALIZED to UTC ISO 8601, never as typed.
+ *
+ * An unvalidated instant reaches `Date.parse`, which yields NaN on garbage; every comparison against
+ * NaN is false, so `versionAsOf` keeps the latest version while `isFresh` reports everything expired
+ * — a plausible-looking history of a moment that does not exist. A question about the past is the one
+ * whose answer a reader cannot sanity-check, so the instant has to be real before it is used.
+ *
+ * Normalized here, at the boundary, because the comparisons below do not agree on how to read offset
+ * notation: TS paths parse it, but the SQL paths (`exportUntil`, `listAudit`) compare strings against
+ * stored `...Z` stamps, where `2026-08-13T20:00:00-09:00` sorts BEFORE every 2026-08-14 row it is
+ * actually after. Canonicalizing once is the only way the two agree.
+ */
+function instantFlag(
+  raw: string | undefined,
+  name: string,
+): string | undefined {
+  if (raw === undefined) return undefined;
+  // Delegate to the core parser — the ONE strict ISO-8601 instant reader (CLAUDE.md: the second place
+  // that parses calls the first). `Date.parse` accepts `2026-02-30`, `"2026-08-14 00:00:00"` and `"0"`,
+  // which a strict reader must not. `parseInstant` rejects them and returns the canonical UTC string;
+  // its Error is rethrown as a UsageError naming the flag.
+  try {
+    return parseInstant(raw);
+  } catch {
+    throw new UsageError(
+      `--${name} must be an ISO 8601 instant, e.g. 2026-08-13T00:00:00Z (got "${raw}")`,
+    );
+  }
+}
+
+/**
+ * Refuse the arguments a command cannot use, naming them.
+ *
+ * An extra positional a command silently drops is worse than an error: `yoke inject cache sessions`
+ * would answer the query "cache" and write "cache" into the audit trail, so the reader believes they
+ * asked something they did not, and the trail agrees with them. Quote a phrase to pass it as one value.
+ */
+function noExtra(positionals: string[], keep: number, usage: string): void {
+  if (positionals.length > keep)
+    throw new UsageError(
+      `unexpected argument: ${positionals
+        .slice(keep)
+        .map((p) => `"${p}"`)
+        .join(" ")}` + `\nquote a phrase to pass it as one value\n${usage}`,
+    );
+}
+
+/** The four stored values of `status`. `stale` is NOT among them — see `statusFilter`. */
+const STORED_STATUSES = ["draft", "verified", "deprecated"] as const;
+
+/**
+ * A `--status` filter, or a refusal that names why the value cannot match.
+ *
+ * `stale` is computed at read time and never stored, so pushing it to SQL matches no row and reads as
+ * "none are stale" — the opposite of the truth. An unregistered value (`bogus`, `DRAFT`) is equally
+ * silent and indistinguishable from an empty corpus, so both are refused rather than answered with
+ * emptiness. The stale case gets the command that does answer it; the others get the values that exist.
+ */
+function statusFilter(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "stale")
+    throw new UsageError(
+      "stale is computed at read time, not stored, so no filter can match it — " +
+        "'yoke review --stale' is the queue of verified records past their TTL",
+    );
+  if (!STORED_STATUSES.includes(raw as (typeof STORED_STATUSES)[number]))
+    throw new UsageError(
+      `--status must be one of ${STORED_STATUSES.join(", ")} (got "${raw}")`,
+    );
+  return raw;
+}
+
+/**
+ * A `--type` filter, or a refusal listing the types that exist.
+ *
+ * An unregistered name is refused, not answered with "nothing to list": a typo and an empty corpus
+ * must not produce identical output. The ontology knows every valid name.
+ */
+function typeFilter(
+  raw: string | undefined,
+  ontology: TypeDef[],
+): string | undefined {
+  if (raw === undefined) return undefined;
+  if (!ontology.some((t) => t.name === raw))
+    throw new UsageError(
+      `unknown type: ${raw}\ndeclared types: ${ontology
+        .map((t) => t.name)
+        .join(", ")}`,
+    );
+  return raw;
+}
 
 /** --attr k=v list → attributes. A repeated key becomes a string[]. */
 function parseAttrs(attrs: string[]): Record<string, unknown> {
@@ -197,8 +351,34 @@ function emit(v: Values, human: string, data: unknown): void {
   console.log(v.json ? JSON.stringify(data) : human);
 }
 
-function formatEntity(e: Entity | Relation): string {
-  return `${e.id}  ${e.type}  ${e.status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
+/**
+ * Write a READ command's audit row AFTER its answer is already out, best-effort.
+ *
+ * C7: `search`, `inject`, `get` and `overview` compute their answer, then record a trail row. WAL
+ * guarantees readers never block, so a secondary trail row must not take that away: a `database is
+ * locked` from a concurrent writer is noted on stderr (a dropped trail row is the right thing to lose
+ * under contention) but never turned into a failed query. Write commands (add/verify/deprecate/link/
+ * rename) do NOT use this: there the audit row is part of the mutation's record and stays inline.
+ */
+function auditRead(store: YokeStore, event: AuditEvent): void {
+  try {
+    store.logAudit(event);
+  } catch (err) {
+    console.error(
+      `warning: audit row not written (read succeeded): ${(err as Error).message}`,
+    );
+  }
+}
+
+function formatEntity(
+  e: Entity | Relation,
+  ontology?: TypeDef[],
+  at?: string,
+): string {
+  // With the ontology, the column is what injection would decide; without it, the stored value. The two
+  // callers that omit it print a record they have just committed, and a fresh commit is a draft.
+  const status = ontology && at ? shownStatus(e, ontology, at) : e.status;
+  return `${e.id}  ${e.type}  ${status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
 }
 
 /**
@@ -223,10 +403,9 @@ const resolveShards = (v: Values, env: Env): string | undefined =>
 
 /** What the store a command just opened is, for messages and `--json`.
  *
- * `resolveDb` alone names the LOCAL sqlite whatever the store actually is, so `yoke init --shards
- * cfg.json` reported `initialized: ./yoke.db` — a file it had not touched — and put that path in its
- * JSON. Under a remote backend it is half true (the local db holds this client's audit + tokens), so
- * this reports both halves rather than picking one. */
+ * `resolveDb` alone names the LOCAL sqlite whatever the store actually is; under `--shards` that is
+ * wrong, and under a remote backend it is half true (the local db still holds this client's audit +
+ * tokens), so this reports both halves rather than picking one. */
 function storeLabel(v: Values, env: Env): string {
   const shards = resolveShards(v, env);
   if (shards) return `shards ${shards}`;
@@ -237,6 +416,54 @@ function storeLabel(v: Values, env: Env): string {
 }
 
 /** Compact grouped usage — one source for --help, no-args, and unknown-command. */
+/** Every dispatchable command name, for the did-you-mean below. */
+const COMMANDS = [
+  "init",
+  "link",
+  "add",
+  "get",
+  "list",
+  "graph",
+  "search",
+  "review",
+  "verify",
+  "deprecate",
+  "inject",
+  "history",
+  "conflicts",
+  "overview",
+  "ontology",
+  "persona",
+  "connect",
+  "backfill",
+  "rename-type",
+  "audit",
+  "backup",
+  "restore",
+  "export",
+  "mcp",
+  "ui",
+  "serve",
+  "token",
+  "help",
+];
+
+/** Levenshtein distance, iterative two-row. Small enough not to be worth a dependency. */
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++)
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
 function usage(): string {
   return `yoke — knowledge your AI can trust
 
@@ -279,11 +506,30 @@ function requireOntology(
 }
 
 // Open the resolved store (ShardedStorage under --shards, else SqliteStorage), run fn, always close.
+//
+// `create` is the opt-out for the two commands that bootstrap a store from nothing — `init` and
+// `ontology add-type` (which seeds a fresh tenant ontology). For everything else a read or write on a
+// store that was never `yoke init`ed must REFUSE, and must not bring the file into existence doing it:
+// `openStore` opens a better-sqlite3 Database, which creates the path, so the guard runs BEFORE it —
+// otherwise a read on a typo'd `--db` prints "nothing", exits 0, and leaves a stray db behind. This
+// matches the refusal `requireOntology` prints for `add`/`inject`/`overview`. Only the local
+// single-file path is judged by file existence; a sharded or remote store initializes elsewhere.
 async function withStore<T>(
   v: Values,
   env: Env,
   fn: (s: YokeStore) => Promise<T>,
+  opts?: { create?: boolean },
 ): Promise<T> {
+  const remote = env.YOKE_OPENSEARCH_URL ?? env.YOKE_POSTGRES_URL;
+  if (
+    !opts?.create &&
+    !resolveShards(v, env) &&
+    !remote &&
+    !existsSync(resolveDb(v, env))
+  )
+    throw new UsageError(
+      `not initialized: ${storeLabel(v, env)} — run 'yoke init' first`,
+    );
   const store = await openStore(
     { db: resolveDb(v, env), shards: resolveShards(v, env) },
     env,
@@ -300,9 +546,8 @@ async function withStore<T>(
  *
  * `bge-m3` covers 100+ languages in one 1024-dimension model (MIT, 8192-token context) and lives in
  * Ollama's shared cache — 0 bytes in this package, which is why no model ships with yoke (SPEC "Tech
- * stack"). `nomic-embed-text` was suggested here before and is English-centric: on a corpus with
- * substantial non-English knowledge it makes the vector half of retrieval quietly useless, which is
- * indistinguishable from having no embedder at all. */
+ * stack"). An English-centric model (e.g. `nomic-embed-text`) makes the vector half of retrieval
+ * useless on a corpus with substantial non-English knowledge — indistinguishable from no embedder. */
 const SUGGESTED_EMBED_MODEL = "bge-m3";
 
 // Ollama auto-detect (TTY init only): a reachable local Ollama with no embedder
@@ -351,54 +596,60 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
   // Decorate only on an interactive stdout (never under --json), so non-TTY and
   // machine output stay byte-identical to the plain path.
   const deco = decorated() && !v.json;
-  return withStore(v, env, async (store) => {
-    // Idempotent re-run: if yoke:system already exists, do not re-seed.
-    if (await store.getEntity("yoke:system")) {
+  return withStore(
+    v,
+    env,
+    async (store) => {
+      // Idempotent re-run: if yoke:system already exists, do not re-seed.
+      if (await store.getEntity("yoke:system")) {
+        if (deco) {
+          const b = banner();
+          if (b) console.log(`\n${b}\n`);
+        }
+        emit(v, `already initialized: ${store_}`, {
+          db,
+          store: store_,
+          seeded: false,
+        });
+        return 0;
+      }
+      const ontology = seedOntology();
+      await store.saveOntology(ontology);
+      // Seed the yoke:system person — no gate bypass (putEntity). Use commit with a well-known id.
+      // A nonexistent id creates version 1, so it passes the gate normally (bootstrap).
+      const ts = now();
+      await commit(
+        store,
+        ontology,
+        { type: "person", attributes: { name: "system" } },
+        { actor: "yoke:system", origin: "cli", occurred_at: ts },
+        ts,
+        { existingId: "yoke:system" },
+      );
+      // Leaving the system person as a draft would keep it in the review queue forever — promote right after seeding.
+      await verify(store, ["yoke:system"], "yoke:system", ts);
       if (deco) {
         const b = banner();
         if (b) console.log(`\n${b}\n`);
+        const entityTypes = ontology.filter((d) => d.kind === "entity").length;
+        const relTypes = ontology.filter((d) => d.kind === "relation").length;
+        console.log(log.ok(`database created: ${db}`));
+        console.log(
+          log.ok(
+            `ontology seeded: ${entityTypes} entity types, ${relTypes} relation types`,
+          ),
+        );
+        console.log(log.ok("system actor ready"));
+        console.log(getStartedBlock());
+        await suggestOllamaIfIdle(env);
+      } else {
+        emit(v, `initialized: ${store_}`, { db, store: store_, seeded: true });
       }
-      emit(v, `already initialized: ${store_}`, {
-        db,
-        store: store_,
-        seeded: false,
-      });
       return 0;
-    }
-    const ontology = seedOntology();
-    await store.saveOntology(ontology);
-    // Seed the yoke:system person — no gate bypass (putEntity). Use commit with a well-known id.
-    // A nonexistent id creates version 1, so it passes the gate normally (bootstrap).
-    const ts = now();
-    await commit(
-      store,
-      ontology,
-      { type: "person", attributes: { name: "system" } },
-      { actor: "yoke:system", origin: "cli", occurred_at: ts },
-      ts,
-      { existingId: "yoke:system" },
-    );
-    // Leaving the system person as a draft would keep it in the review queue forever — promote right after seeding.
-    await verify(store, ["yoke:system"], "yoke:system", ts);
-    if (deco) {
-      const b = banner();
-      if (b) console.log(`\n${b}\n`);
-      const entityTypes = ontology.filter((d) => d.kind === "entity").length;
-      const relTypes = ontology.filter((d) => d.kind === "relation").length;
-      console.log(log.ok(`database created: ${db}`));
-      console.log(
-        log.ok(
-          `ontology seeded: ${entityTypes} entity types, ${relTypes} relation types`,
-        ),
-      );
-      console.log(log.ok("system actor ready"));
-      console.log(getStartedBlock());
-      await suggestOllamaIfIdle(env);
-    } else {
-      emit(v, `initialized: ${store_}`, { db, store: store_, seeded: true });
-    }
-    return 0;
-  });
+      // `init` is one of the two commands that legitimately bring a fresh db into existence.
+    },
+    { create: true },
+  );
 }
 
 async function cmdAdd(
@@ -407,6 +658,12 @@ async function cmdAdd(
   env: Env,
 ): Promise<number> {
   const type = positionals[0];
+  noExtra(
+    positionals,
+    1,
+    "usage: yoke add <type> [--actor id] [--attr k=v ...] [--scope entity-id]\n" +
+      "  values go in --attr, not after the type",
+  );
   if (!type) {
     console.error(
       "usage: yoke add <type> [--actor id] [--attr k=v ...] [--scope entity-id]",
@@ -422,42 +679,52 @@ async function cmdAdd(
     const ts = now();
     try {
       const prov = { actor, origin: "cli", occurred_at: ts };
-      const { entity, duplicates, duplicateDetection } = await commit(
-        store,
-        ontology,
-        { type, attributes },
-        prov,
-        ts,
-        { embedder: makeFetchEmbedder(env), ns },
-      );
-      // Capture-side linking (v4.0): --scope <entity-id> links the new knowledge to that entity via
-      // relates_to, through the same gate (a second commit at the front tier — core commit untouched).
-      if (v.scope) {
-        await commit(
-          store,
-          ontology,
-          { type: "relates_to", attributes: {}, from: entity.id, to: v.scope },
-          prov,
-          ts,
-          { ns },
-        );
-      }
+      const { entity, duplicates, duplicateDetection, unrecorded } =
+        await commit(store, ontology, { type, attributes }, prov, ts, {
+          embedder: makeFetchEmbedder(env),
+          ns,
+          // Capture-side linking (v4.0): --scope <entity-id> attaches the new knowledge to that
+          // record. One commit, not two — passed into the gate so a bad --scope refuses before the
+          // record is stored, not after (see `attachTo` in core/commit.ts).
+          ...(v.scope ? { attachTo: v.scope } : {}),
+        });
       const lines = [formatEntity(entity)];
       if (duplicates.length > 0)
         lines.push(
           `similar knowledge (${duplicates.length}): ${duplicates.map((d) => d.id).join(" ")}`,
         );
-      // The gate returns WHY duplicates is empty, and nothing read it — so a person adding a record
-      // with no embedder configured was told nothing and reasonably assumed it had been checked.
-      // "no similar knowledge" and "nobody looked" are different facts (SPEC gate stage 3).
+      // The gate returns WHY duplicates is empty: "no similar knowledge" and "nobody looked" are
+      // different facts (SPEC gate stage 3), and with no embedder configured nothing was compared.
       else if (duplicateDetection === "skipped")
         lines.push(
-          "no duplicate check ran: no embedding provider configured. " +
-            "Set YOKE_EMBED_URL and YOKE_EMBED_MODEL (see README), then: yoke backfill --embeddings",
+          // No "(see README)": a notice printed by a CLI has to be actionable from the CLI, and this one
+          // is the only line in a first session that sends the reader out of the terminal.
+          "no duplicate check ran: set YOKE_EMBED_URL and YOKE_EMBED_MODEL " +
+            "(any OpenAI-compatible /embeddings endpoint), then: yoke backfill --embeddings",
         );
-      // --json emits the entity as-is (preserving the existing contract). Both notices are human text only.
-      emit(v, lines.join("\n"), entity);
-      return 0;
+      // The record is durable and part of what was asked for is not. Saying so beats an exit 0 that
+      // reads as "all of it landed" — and an authorship edge missing here is invisible afterwards:
+      // the record simply never appears in a persona or an author ranking.
+      if (unrecorded)
+        lines.push(
+          `stored, but these could not be written:\n  ${unrecorded.join("\n  ")}\n` +
+            "authorship is re-derivable with 'yoke backfill'; an attachment must be filed again",
+        );
+      // --json emits the entity as-is; `unrecorded` joins it ONLY on a partial commit, so a script
+      // getting exit 1 has a machine-readable reason rather than a normal-looking entity object. The
+      // duplicate notices stay human-only (contract unchanged on the success path).
+      // `duplicateDetection` rides the --json object because SPEC requires every adapter that can
+      // create a record to surface "skipped" — MCP `yoke_commit` does (as `duplicate_check`), and this
+      // is the CLI's create path: a scripted reader must be able to tell "checked, nothing similar"
+      // from "no embedder configured, so nothing was compared".
+      emit(
+        v,
+        lines.join("\n"),
+        unrecorded
+          ? { ...entity, duplicateDetection, unrecorded }
+          : { ...entity, duplicateDetection },
+      );
+      return unrecorded ? 1 : 0;
     } catch (e) {
       if (e instanceof CommitRejected) {
         console.error(`rejected (${e.reason}): ${e.message}`);
@@ -469,9 +736,8 @@ async function cmdAdd(
 }
 
 // link — the creation path for relations. `yoke add <relation>` cannot work: a relation needs
-// endpoints and `add` has nowhere to put them, so it fails with "relation requires non-empty from".
-// That left `relates_to` reachable only through `add --scope`, and `works_on`/`supersedes` reachable
-// not at all — a collaboration whose roster could never be recorded. Reads as a sentence on purpose:
+// endpoints and `add` has nowhere to put them. Without link, `works_on`/`supersedes` would be
+// unreachable and a collaboration's roster could never be recorded. Reads as a sentence on purpose:
 // `yoke link <person> works_on <collaboration>`.
 async function cmdLink(
   positionals: string[],
@@ -479,6 +745,11 @@ async function cmdLink(
   env: Env,
 ): Promise<number> {
   const [from, type, to] = positionals;
+  noExtra(
+    positionals,
+    3,
+    "usage: yoke link <from-id> <relation> <to-id> [--actor id] [--attr k=v ...]",
+  );
   if (!from || !type || !to) {
     console.error(
       "usage: yoke link <from-id> <relation> <to-id> [--actor id] [--attr k=v ...]\n" +
@@ -506,8 +777,8 @@ async function cmdLink(
       );
       emit(v, formatEntity(entity), entity);
       // Said out loud, because the exit code and the printed row are identical either way: a second
-      // `link` of the same edge is now a no-op, and reporting it as a link would credit the caller
-      // with a change they did not make. Human output only — --json stays the record.
+      // `link` of the same edge is a no-op, and reporting it as a link would credit the caller with a
+      // change they did not make. Human output only — --json stays the record.
       if (existed) console.error("already linked — no new relation recorded");
       return 0;
     } catch (e) {
@@ -520,38 +791,88 @@ async function cmdLink(
   });
 }
 
+const GET_USAGE = "usage: yoke get <id> [--version n] [--relations]";
+
 async function cmdGet(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const id = positionals[0];
+  noExtra(positionals, 1, GET_USAGE);
   if (!id) {
-    console.error("usage: yoke get <id> [--version n] [--relations]");
+    console.error(GET_USAGE);
     return 1;
   }
-  const version = v.version === undefined ? undefined : Number(v.version);
+  const version = intFlag(v.version, "version");
   const actor = resolveActor(v, env);
   const getNs = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const e = await store.getEntity(id, version);
+    // Filtered after the read, because ids are globally unique and the port's `getEntity` takes no ns.
+    // Without it, `yoke --ns teamA get <teamB id>` would print another tenant's knowledge in full.
+    const inNs = <T extends { ns?: string | null }>(r: T | null): T | null =>
+      r && normalizeNs(r.ns) === getNs ? r : null;
+    const e = inNs(await store.getEntity(id, version));
     if (!e) {
+      // An id `link` handed back is an edge id. A relation is knowledge in its own right, so it
+      // answers a read like everything else.
+      const rel = inNs((await store.getRelation?.(id, version)) ?? null);
+      if (rel) {
+        emit(
+          v,
+          `${formatEntity(rel)}\n  ${rel.from} -${rel.type}-> ${rel.to}`,
+          rel,
+        );
+        // Audited AFTER the answer is out (C7): a read must not be discarded by a locked trail row.
+        auditRead(store, {
+          actor,
+          action: "read",
+          detail: rel.id,
+          at: now(),
+          ns: getNs,
+        });
+        return 0;
+      }
+      // "not found" is a claim about the corpus, and with `--version` it can be false: `--version 99`
+      // on a record that exists at v1 and v2 is a missing VERSION, not a missing id. Ask again without
+      // the pin before answering — the two are different answers.
+      if (version !== undefined) {
+        const latest =
+          inNs(await store.getEntity(id)) ??
+          inNs((await store.getRelation?.(id)) ?? null);
+        if (latest) {
+          console.error(
+            `${id} has no version ${version} — the latest is ${latest.version} (omit --version for it)`,
+          );
+          return 1;
+        }
+      }
       console.error(`not found: ${id}`);
       return 1;
     }
     // A read of full attributes, which is where SPEC draws the audit line — and the twin of
     // `GET /api/entity/:id`. The rule is per front ADAPTER: if only the browser wrote this row,
-    // "who read this record" would be unanswerable for every read done the normal way, which is
-    // exactly how `verify` drifted before v5.0.
-    store.logAudit({
+    // "who read this record" would be unanswerable for every read done the normal way. Written AFTER
+    // the answer is out (C7), so a locked trail cannot discard a `get` that already printed the record.
+    const readAt = now();
+    const readEvent: AuditEvent = {
       actor,
       action: "read",
       detail: e.id,
-      at: now(),
+      at: readAt,
       ns: getNs,
-    });
+    };
+    const ontology = store.loadOntology(getNs);
+    // A retired record raises exactly one question, and the answer is on the audit row (see history).
+    const retired =
+      e.status === "deprecated" ? retirementOf(store, e.id, getNs) : undefined;
+    const head =
+      retired?.reason !== undefined
+        ? `${formatEntity(e, ontology, readAt)}\n  retired: ${retired.reason}`
+        : formatEntity(e, ontology, readAt);
     if (!v.relations) {
-      emit(v, formatEntity(e), e);
+      emit(v, head, retired ? { ...e, retired } : e);
+      auditRead(store, readEvent);
       return 0;
     }
     // Relations are reachable from no other command — the entity-detail screen needs them, so the
@@ -569,12 +890,10 @@ async function cmdGet(
     );
     emit(
       v,
-      [
-        formatEntity(e),
-        lines.length ? lines.join("\n") : "  (no relations)",
-      ].join("\n"),
-      { ...e, relations: edges },
+      [head, lines.length ? lines.join("\n") : "  (no relations)"].join("\n"),
+      { ...e, relations: edges, ...(retired ? { retired } : {}) },
     );
+    auditRead(store, readEvent);
     return 0;
   });
 }
@@ -582,34 +901,81 @@ async function cmdGet(
 // list / graph — the CLI half of the browse and graph screens. WEB-UI's rule is that every action
 // the web tier performs stays achievable here, so these exist for parity, and --json emits the same
 // shape the endpoints do (byte-for-byte, so parity is checkable and not just claimed).
-async function cmdList(v: Values, env: Env): Promise<number> {
+const LIST_USAGE =
+  "usage: yoke list [--type t] [--status s] [--limit n] [--after cursor]\n" +
+  "  a whole-namespace listing; to search by words use 'yoke search <query>'";
+
+async function cmdList(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  // A positional here is refused, not dropped: `yoke list cache` has no filter to be, and silently
+  // returning the whole namespace reads as a filter that matched everything.
+  if (positionals.length > 0) {
+    console.error(`list takes no arguments\n${LIST_USAGE}`);
+    return 1;
+  }
+  if (v.help) {
+    console.log(LIST_USAGE);
+    return 0;
+  }
   const ns = resolveNs(v.ns, env);
+  const listedAt = now();
   return withStore(v, env, async (store) => {
     const ontology = store.loadOntology(ns);
     const p = await store.listEntities({
       ns,
-      type: v.type,
-      status: v.status,
+      type: typeFilter(v.type, ontology),
+      status: statusFilter(v.status),
       after: v.after,
-      limit: v.limit === undefined ? undefined : Number(v.limit),
+      limit: intFlag(v.limit, "limit"),
     });
     if (p.items.length === 0) {
       emit(v, "nothing to list", p);
       return 0;
     }
-    const lines = p.items.map(
-      (e) =>
-        `${e.id}  ${e.type}  ${e.status}  ${summarize(e, ontology)}  ${e.provenance.actor}`,
+    // Names, not ids, in the column a person reads to know whose record this is: a corpus whose
+    // authors are person records (what `--actor <person-id>` and every seeded corpus produce) is
+    // otherwise a wall of ULIDs. The id stays reachable through `get` and the citation.
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+    await prefetch(p.items);
+    const lines = await Promise.all(
+      p.items.map(
+        async (e) =>
+          `${e.id}  ${e.type}  ${shownStatus(e, ontology, listedAt)}  ${summarize(e, ontology)}  ${
+            (await nameOf(e.provenance.actor)) ?? e.provenance.actor
+          }`,
+      ),
     );
-    if (p.next) lines.push(`-- more: yoke list --after ${p.next}`);
+    if (p.next)
+      lines.push(`-- more: yoke list${passthroughFlags(v)} --after ${p.next}`);
     emit(v, lines.join("\n"), p);
     return 0;
   });
 }
 
-async function cmdGraph(v: Values, env: Env): Promise<number> {
+const GRAPH_USAGE =
+  "usage: yoke graph [--limit n]\n" +
+  "  the whole namespace; for one record's neighbourhood use 'yoke get <id> --relations'";
+
+async function cmdGraph(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  // graph is not anchored: an anchored view that silently answers about everything (the whole graph
+  // for `graph <id>` or `--scope`) is worse than not offering one.
+  if (positionals.length > 0 || v.scope !== undefined) {
+    console.error(`graph is not anchored\n${GRAPH_USAGE}`);
+    return 1;
+  }
+  if (v.help) {
+    console.log(GRAPH_USAGE);
+    return 0;
+  }
   const ns = resolveNs(v.ns, env);
-  const limit = v.limit === undefined ? 300 : Number(v.limit);
+  const limit = intFlag(v.limit, "limit") ?? 300;
   return withStore(v, env, async (store) => {
     const [nodes, edges] = await Promise.all([
       store.listEntities({ ns, limit }),
@@ -633,59 +999,72 @@ async function cmdGraph(v: Values, env: Env): Promise<number> {
   });
 }
 
+const SEARCH_USAGE =
+  "usage: yoke search <query> [--type t] [--status s] [--limit n]\n" +
+  '  quote a phrase: yoke search "retry budget"';
+
 async function cmdSearch(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const query = positionals[0];
+  noExtra(positionals, 1, SEARCH_USAGE);
   if (!query) {
-    console.error(
-      "usage: yoke search <query> [--type t] [--status s] [--limit n]",
-    );
+    console.error(SEARCH_USAGE);
     return 1;
   }
-  const limit = v.limit === undefined ? undefined : Number(v.limit);
+  const limit = intFlag(v.limit, "limit");
   const ns = resolveNs(v.ns, env);
   const actor = resolveActor(v, env);
+  const searchedAt = now();
   return withStore(v, env, async (store) => {
+    const ontology = store.loadOntology(ns);
     const results = await store.search({
       text: query,
-      type: v.type,
+      type: typeFilter(v.type, ontology),
       // `--status` exists so this command and `/api/search` can express the same query. Without it
       // the browser could ask a question the CLI could not, which is the parity rule broken.
-      status: v.status,
+      status: statusFilter(v.status),
       limit,
       ns,
     });
-    // The query is the subject, not just the ids: `search` records what someone was looking for,
-    // which is the fact an enumeration row does not carry.
-    store.logAudit({
+    // `inject` says "no results"; this must too, or a search that found nothing looks like a command
+    // that did nothing. --json is unchanged (an empty array is already unambiguous).
+    emit(
+      v,
+      results.length
+        ? results.map((e) => formatEntity(e, ontology, searchedAt)).join("\n")
+        : "no results",
+      results,
+    );
+    // Audited AFTER the answer is out (C7). The query is the subject, not just the ids: `search`
+    // records what someone was looking for, which is the fact an enumeration row does not carry.
+    auditRead(store, {
       actor,
       action: "search",
       detail: `${query} -> ${results.map((e) => e.id).join(" ")}`,
       at: now(),
       ns,
     });
-    emit(v, results.map(formatEntity).join("\n"), results);
     return 0;
   });
 }
 
 async function cmdReview(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
-  const limit = v.limit === undefined ? undefined : Number(v.limit);
+  const limit = intFlag(v.limit, "limit");
   return withStore(v, env, async (store) => {
     const ontology = store.loadOntology(ns);
-    // --stale is the OTHER queue: verified records past their type's TTL. SPEC has said since v1 that
-    // viewing stale is review's job, and this command listed drafts only — so knowledge left injection
-    // with nobody told. The rows carry the owner because the fix is a person, not a flag.
+    // --stale is the OTHER queue: verified records past their type's TTL. SPEC makes viewing stale
+    // review's job — otherwise knowledge leaves injection with nobody told. The rows carry the owner
+    // because the fix is a person, not a flag.
     if (v.stale) {
       const { items, next, scanned } = await staleEntities(
         store,
         ontology,
         now(),
-        { ns, type: v.type, limit, after: v.after },
+        { ns, type: typeFilter(v.type, ontology), limit, after: v.after },
       );
       if (items.length === 0) {
         emit(v, `no stale records (scanned ${scanned} verified)`, []);
@@ -693,34 +1072,55 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
       }
       // Most-consumed first: re-confirmation effort goes to the knowledge agents are actually being
       // fed. The count is this store's audit trail — under `serve` that is the team's central trail;
-      // pointed straight at a shared remote backend it is this client's own reads only.
+      // pointed straight at a shared remote backend it is this client's own reads only. Bounded to the
+      // most recent CONSUMPTION_WINDOW rows (F1): the whole trail materialized every audit row into JS,
+      // and the recent window is the meaningful signal anyway. Named on the summary line below.
       const ranked = rankByConsumption(
         items,
-        consumptionCounts(store.listAudit({ ns })),
+        consumptionCounts(store.listAudit({ ns, limit: CONSUMPTION_WINDOW })),
       );
-      const lines = ranked.map(
-        (e) =>
-          `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${e.provenance.actor}  injected ${e.injections}x  last confirmed ${e.last_confirmed}`,
+      // This queue exists to name a person to go and ask, so an unresolved id is the column doing the
+      // opposite of its job.
+      const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+      await prefetch(ranked);
+      const lines = await Promise.all(
+        ranked.map(
+          async (e) =>
+            `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${
+              (await nameOf(e.provenance.actor)) ?? e.provenance.actor
+            }  injected ${e.injections}x  last confirmed ${e.last_confirmed}`,
+        ),
       );
       // The scan is bounded, so say what it covered — "3 stale" alone reads as "3 stale in the whole
       // corpus", which is a claim this walk did not make.
       lines.push(
         `-- ${ranked.length} stale among ${scanned} verified records scanned` +
+          `; injection counts over the last ${CONSUMPTION_WINDOW.toLocaleString()} audit rows` +
           (next === null ? "" : `; more to scan: --after ${next}`),
       );
       emit(v, lines.join("\n"), ranked);
       return 0;
     }
     const drafts = (
-      await store.listEntities({ status: "draft", ns, type: v.type })
+      await store.listEntities({
+        status: "draft",
+        ns,
+        type: typeFilter(v.type, ontology),
+      })
     ).items;
     if (drafts.length === 0) {
       emit(v, "no drafts", []);
       return 0;
     }
-    const lines = drafts.map(
-      (e) =>
-        `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${e.provenance.actor}  ${e.provenance.occurred_at}`,
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+    await prefetch(drafts);
+    const lines = await Promise.all(
+      drafts.map(
+        async (e) =>
+          `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${
+            (await nameOf(e.provenance.actor)) ?? e.provenance.actor
+          }  ${e.provenance.occurred_at}`,
+      ),
     );
     emit(v, lines.join("\n"), drafts);
     return 0;
@@ -752,11 +1152,10 @@ async function cmdVerify(
       return 1;
     }
     const ts = now();
-    const promoted = await verify(store, ids, actor, ts);
+    const promoted = await verify(store, ids, actor, ts, ns);
     // Verify is THE governance act — ENTERPRISE.md calls it the most important axis in this
-    // product's permission model — and the CLI is its primary interface (ROADMAP v0.2). Auditing it
-    // in the web tier and not here meant the trail could not answer "who promoted this" for any
-    // promotion done the normal way.
+    // product's permission model — and the CLI is its primary interface (ROADMAP v0.2), so the trail
+    // must be able to answer "who promoted this" for a promotion done the normal way.
     store.logAudit({
       actor,
       action: "verify",
@@ -790,7 +1189,7 @@ async function cmdDeprecate(
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
     const ts = now();
-    const done = await deprecate(store, positionals, actor, ts);
+    const done = await deprecate(store, positionals, actor, ts, ns);
     // Retiring knowledge changes what every future injection returns, so it belongs in the trail
     // for the same reason verify does.
     // `--reason` rides on the audit row, not on the record: verify/deprecate change status, never
@@ -826,61 +1225,112 @@ async function cmdDeprecate(
   });
 }
 
+const INJECT_USAGE =
+  "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]\n" +
+  '  quote a phrase: yoke inject "retry budget"\n' +
+  "       yoke inject --scope <id>            briefing of that working context\n" +
+  "       yoke inject --scope <id> --depth 2  and what that context's context knows\n" +
+  "       yoke inject <query> --as-of <ts>    what this would have injected then";
+
 async function cmdInject(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const query = positionals[0] ?? "";
+  noExtra(positionals, 1, INJECT_USAGE);
+  const asOf = instantFlag(v["as-of"], "as-of");
   // `--scope <id>` with no query is a briefing of that working context — the MCP tool and the web
-  // route have always allowed it, and the CLI's require-a-query guard silently made the one front
-  // adapter a human uses unable to reproduce what an agent receives (the CLI-achievable rule).
+  // route allow it, and the CLI must too, so a human can reproduce what an agent receives (the
+  // CLI-achievable rule).
   if (!query && v.scope === undefined) {
-    console.error(
-      "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]\n" +
-        "       yoke inject --scope <id>            briefing of that working context\n" +
-        "       yoke inject --scope <id> --depth 2  and what that context's context knows\n" +
-        "       yoke inject <query> --as-of <ts>    what this would have injected then",
-    );
+    console.error(INJECT_USAGE);
     return 1;
   }
-  const limit = v.limit === undefined ? undefined : Number(v.limit);
+  // `--depth` only means anything with an anchor to walk from, and core ignores it otherwise. A flag
+  // that silently does nothing is a wrong answer to a question the caller thought they asked, so
+  // require --scope alongside it.
+  if (v.depth !== undefined && v.scope === undefined) {
+    console.error("--depth walks from an anchor: pass --scope <id> as well");
+    return 1;
+  }
+  const limit = intFlag(v.limit, "limit");
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
+    // An anchor that is not a record cannot be prioritized, and the empty answer that follows looks
+    // exactly like a corpus with nothing in it. The scope is the caller's own id — telling them it did
+    // not resolve costs one point read.
+    if (v.scope !== undefined && !(await store.getEntity(v.scope))) {
+      console.error(
+        `--scope is not a record: ${v.scope} — 'yoke list' shows what can be anchored on`,
+      );
+      return 1;
+    }
     const ts = now();
     // Same default as the MCP tool and the web route: an anchored briefing is capped, a query is not.
     // Without it, `yoke inject --scope <collaboration>` dumps every record ever attached to that work.
     const briefing = v.scope !== undefined && !query;
-    const { items, omitted, walk } = await inject(store, ontology, query, ts, {
-      includeDraft: v["include-draft"],
-      limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
-      ns,
-      // The MCP tool has always passed a scope; the CLI never did, so the two front ends could not
-      // reproduce each other's results (WEB-UI's CLI-achievable rule).
-      scope: v.scope,
-      // Relation hops the anchor walk takes (SPEC "Multi-hop"). 1 = the v4.0 behaviour.
-      depth: v.depth === undefined ? undefined : Number(v.depth),
-      asOf: v["as-of"],
-      // Hybrid retrieval (SPEC "Hybrid retrieval"): the same env-configured embedder the gate uses,
-      // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
-      embedder: makeFetchEmbedder(env),
-      keywordWeight: envKeywordWeight(env),
-    });
-    // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core stays pure.
-    store.logAudit({
+    const { items, omitted, walk, withheld } = await inject(
+      store,
+      ontology,
+      query,
+      ts,
+      {
+        includeDraft: v["include-draft"],
+        limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
+        ns,
+        // The scope the MCP tool passes, so the two front ends reproduce each other's results
+        // (WEB-UI's CLI-achievable rule).
+        scope: v.scope,
+        // Relation hops the anchor walk takes (SPEC "Multi-hop"). 1 = the v4.0 behaviour.
+        depth: intFlag(v.depth, "depth"),
+        asOf,
+        // Hybrid retrieval (SPEC "Hybrid retrieval"): the same env-configured embedder the gate uses,
+        // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
+        embedder: makeFetchEmbedder(env),
+        keywordWeight: envKeywordWeight(env),
+      },
+    );
+    // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core
+    // stays pure. Built here, but written AFTER emit (C7) so a locked trail cannot discard an
+    // injection the agent already received.
+    const injectEvent: AuditEvent = {
       actor: resolveActor(v, env),
       action: "inject",
       detail: injectDetail(
         items.map((it) => it.entity.id),
-        { query, scope: v.scope, asOf: v["as-of"] },
+        { query, scope: v.scope, asOf },
       ),
       at: ts,
       ns,
-    });
-    const lines = items.map(
-      (it) => `${it.citation}  ${summarize(it.entity, ontology)}`,
+    };
+    // The contradiction marker rides the line, not a footnote: injection is the thing an agent
+    // actually reads, and handing over both sides of a live disagreement as two equal facts is the
+    // failure it prevents.
+    // Assembled from `pointer` rather than printed from `it.citation`, so the people in it can be named.
+    // `pointer` exists for exactly this split: the id half is the audit pointer and stays an id, and who
+    // said it is rendered for a reader. `--json` still carries core's citation string verbatim, so the
+    // machine contract is untouched — this is the human line only.
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+    await prefetch(items.map((it) => it.entity));
+    const who = async (it: (typeof items)[number]): Promise<string> => {
+      const promoter = it.entity.provenance.actor;
+      const authorId = it.author ?? promoter;
+      const author = (await nameOf(authorId)) ?? authorId;
+      if (authorId === promoter) return author;
+      const confirmer = (await nameOf(promoter)) ?? promoter;
+      return `${author} (confirmed by ${confirmer})`;
+    };
+    const lines = await Promise.all(
+      items.map(
+        async (it) =>
+          `${pointer(it.entity)} ${await who(it)}, ${it.entity.provenance.occurred_at}  ${summarize(it.entity, ontology)}` +
+          (it.conflictsWith
+            ? `\n  ! contradicted by ${it.conflictsWith.join(" ")} — both are recorded, neither is settled`
+            : ""),
+      ),
     );
     // Never a silent slice. --json keeps the raw items array (contract unchanged), so the count goes
     // in the human output only; a script wanting everything raises --limit.
@@ -898,29 +1348,44 @@ async function cmdInject(
             ? `; the walk hit its ${WALK_BUDGET}-node budget, so the outermost hop is incomplete`
             : ""),
       );
-    // Draft-invisibility fix: zero verified hits, but drafts match → say so, don't imply the
-    // knowledge simply isn't there. --json output stays the raw items array (contract unchanged).
-    let human = items.length ? lines.join("\n") : "no results";
-    if (items.length === 0 && !v.json) {
-      const drafts = await store.search({ text: query, status: "draft", ns });
-      if (drafts.length > 0) {
-        human = `no verified knowledge (${drafts.length} draft match(es) withheld — review with 'yoke review')`;
-      }
-    }
+    // Zero hits: say why, don't imply the knowledge simply isn't there. The counts and the reasons come
+    // from core (`withheld`), so the terminal, `--json` and the MCP tool explain the same emptiness.
+    // The one next action this surface can name is kept: it is the sentence that teaches readers the
+    // gate exists ("review with 'yoke review'").
+    //
+    // The same sentence rides a PARTIAL answer, where it matters more: a full page of loosely related
+    // records reads as "that is everything we know", and the record that answered the question can be
+    // one day past its TTL. The lead-in differs because the reader's next move does — "no verified
+    // knowledge" is the answer; "also held back" is a footnote on an answer they already have.
+    const reasonLine = withheld
+      ? `${items.length ? "-- also held back:" : "no verified knowledge —"} ` +
+        describeWithheld(withheld) +
+        (withheld.draft > 0 ? " — review with 'yoke review'" : "")
+      : "no results";
+    if (items.length && withheld) lines.push(reasonLine);
+    const human = items.length ? lines.join("\n") : reasonLine;
+    // Under --json stdout stays the raw items array (contract unchanged, and a shape that alternates
+    // between array and object is worse than a silent one). The reason goes to stderr, where a script
+    // ignores it and the person debugging the script reads it.
+    if (v.json && withheld) console.error(reasonLine);
     emit(v, human, items);
+    auditRead(store, injectEvent);
     return 0;
   });
 }
 
 // history (PLAN 8.4): the append-only version rows ARE the change audit — this just exposes them.
+const HISTORY_USAGE = "usage: yoke history <id>";
+
 async function cmdHistory(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const id = positionals[0];
+  noExtra(positionals, 1, HISTORY_USAGE);
   if (!id) {
-    console.error("usage: yoke history <id>");
+    console.error(HISTORY_USAGE);
     return 1;
   }
   return withStore(v, env, async (store) => {
@@ -933,11 +1398,37 @@ async function cmdHistory(
       console.error(`not found: ${id}`);
       return 1;
     }
-    const lines = versions.map(
-      (e) =>
-        `v${e.version}  ${e.status}  ${e.provenance.actor}  ${e.last_confirmed}  ${summarize(e, ontology)}`,
+    // The retirement reason belongs on the version that IS the retirement. `deprecate --reason` stores
+    // it on the audit row rather than the record (a governance act's property, not knowledge content),
+    // and the question "why is this deprecated" is asked here.
+    const retired = retirementOf(store, id, resolveNs(v.ns, env));
+    // A version's actor is who wrote THAT version — the author on v1, the promoter on a verify. Both
+    // are people, so both resolve to names on the one screen whose job is "who changed what, when".
+    // Resolved in one batch, then read synchronously so the row builder below stays a plain map.
+    const { nameOf, prefetch } = makeActorNames(
+      store,
+      ontology,
+      resolveNs(v.ns, env),
     );
-    emit(v, lines.join("\n"), versions);
+    await prefetch(versions);
+    const names = new Map(
+      await Promise.all(
+        [...new Set(versions.map((e) => e.provenance.actor))].map(
+          async (a) => [a, await nameOf(a)] as const,
+        ),
+      ),
+    );
+    const lines = versions.map((e) => {
+      const base = `v${e.version}  ${e.status}  ${names.get(e.provenance.actor) ?? e.provenance.actor}  ${e.last_confirmed}  ${summarize(e, ontology)}`;
+      return e.status === "deprecated" && retired?.reason
+        ? `${base}\n    reason: ${retired.reason}`
+        : base;
+    });
+    emit(
+      v,
+      lines.join("\n"),
+      retired?.reason ? { versions, retired: { ...retired } } : versions,
+    );
     return 0;
   });
 }
@@ -946,11 +1437,11 @@ async function cmdAudit(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     const events = store.listAudit({
-      since: v.since,
+      since: instantFlag(v.since, "since"),
       // The same flag `export` uses, here as the closed end of a window. Both bounds inclusive.
-      until: v.until,
+      until: instantFlag(v.until, "until"),
       ns,
-      limit: v.limit === undefined ? undefined : Number(v.limit),
+      limit: intFlag(v.limit, "limit"),
     });
     if (v.shape) return emitShapes(v, events);
     const lines = events.map(
@@ -1006,19 +1497,19 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
-    const top = v.limit === undefined ? undefined : Number(v.limit);
+    const top = intFlag(v.limit, "limit");
     const ts = now();
     const o = await overview(store, ontology, ts, { ns, top });
     // Same audit row the MCP tool writes: a hub line carries a record's own text, and SPEC's audit
-    // table says "the same actions are written wherever the act happens" — this adapter was the one
-    // place `overview` happened silently.
-    store.logAudit({
+    // table says "the same actions are written wherever the act happens". Built here, written AFTER
+    // emit (C7) so a locked trail cannot discard an overview a person already read.
+    const overviewEvent: AuditEvent = {
       actor: resolveActor(v, env),
       action: "overview",
       detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
       at: ts,
       ns,
-    });
+    };
     // Types with nothing in them are noise on a screen whose job is showing what IS here.
     const typeRows = Object.entries(o.entities.byType)
       .sort((a, b) => a[0].localeCompare(b[0]))
@@ -1056,6 +1547,7 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
       ...(authorRows.length ? authorRows : ["  (none)"]),
     ].join("\n");
     emit(v, human, o);
+    auditRead(store, overviewEvent);
     return 0;
   });
 }
@@ -1102,6 +1594,7 @@ async function cmdRenameType(
   env: Env,
 ): Promise<number> {
   const [from, to] = positionals;
+  noExtra(positionals, 2, "usage: yoke rename-type <from> <to>");
   if (!from || !to) {
     console.error(
       "usage: yoke rename-type <from> <to>\n" +
@@ -1109,23 +1602,29 @@ async function cmdRenameType(
     );
     return 1;
   }
-  if (from === to) {
-    console.error("rename-type: from and to are the same name");
-    return 1;
-  }
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
     if (!requireOntology(store, ns, v, env)) return 1;
+    // The judgment lives in core, and the EVIDENCE is gathered in one shared place (`refuseRename`):
+    // assembling it per caller is how a count of only entities slips in, when `renameType` rewrites
+    // relations too.
+    const refusal = await refuseRename(store, from, to, ns);
+    if (refusal) {
+      console.error(refusal);
+      return 1;
+    }
     const rows = await store.renameType(from, to, ns);
     if (rows === 0) {
-      // Not an error: nothing carried that name, so the database is already where the caller wants
-      // it. Saying so beats an exit code that reads like a failure.
+      // renameType counts the ontology declaration in `rows` (see SqliteStorage.renameType — "2
+      // versions + 1 declaration"), so `rows === 0` means the source exists in NEITHER the records NOR
+      // the declaration: a typo, not a completed migration. Exit 1 so a migration script checking $?
+      // stops instead of proceeding as though the rename happened.
       emit(v, `no rows carried type "${from}" — nothing to rename`, {
         from,
         to,
         rows: 0,
       });
-      return 0;
+      return 1;
     }
     // The one mutation the append-only version history cannot record, because it rewrites those
     // very rows (see SqliteStorage.renameType). This row is the only trace it leaves.
@@ -1259,7 +1758,7 @@ async function cmdRelate(v: Values, env: Env): Promise<number> {
 // author rather than whoever runs the backfill. Idempotent: a second run creates nothing.
 async function cmdBackfill(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
-  const limit = v.limit === undefined ? undefined : Number(v.limit);
+  const limit = intFlag(v.limit, "limit");
   return withStore(v, env, async (store) => {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
@@ -1274,11 +1773,39 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
           limit,
           after: v.after,
           rebuild: v.rebuild,
+          // Orders the values in the index key — the same ontology the gate serializes with.
+          ontology,
         },
       );
       const lines = [
         `scanned ${scanned} entities, embedded ${embedded}, skipped ${skipped}`,
       ];
+      // --rebuild means "this index was built on a rule that no longer holds". That is true of the
+      // keyword half too whenever the rule was the KEY rather than the model, and rebuilding one half
+      // without the other leaves a hybrid query reading two different indexes.
+      //
+      // Feature-detected, because only the backend that writes its FTS text from JS has a rebuild to
+      // call (see SqliteStorage.rebuildFts). Where it is missing this WARNS rather than exiting 1: a
+      // --rebuild for a changed embedding MODEL leaves the keyword half correct, and this command
+      // cannot tell that case from a re-key, so failing it would fail the common one too. The warning
+      // goes to stderr so a `--json` consumer's stdout stays parseable.
+      if (v.rebuild) {
+        if ("rebuildFts" in store) {
+          const rows = (
+            store as { rebuildFts(o?: TypeDef[]): number }
+          ).rebuildFts(ontology);
+          lines.push(`rebuilt the keyword index: ${rows} entities`);
+        } else {
+          console.error(
+            `warning: the keyword index was NOT re-keyed — ${store.constructor.name} ` +
+              `(${storeLabel(v, env)}) has no keyword rebuild.\n` +
+              "  The vectors above were rewritten; the keyword rows still hold the text they were " +
+              "written with.\n" +
+              "  If the index key changed (rather than the embedding model), re-index this backend " +
+              "from a source of truth — the two halves of a hybrid search now disagree.",
+          );
+        }
+      }
       // Skipped everything means the provider is not configured — the single most likely reason
       // someone runs this and sees nothing happen.
       if (skipped > 0 && embedded === 0)
@@ -1291,19 +1818,45 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
       emit(v, lines.join("\n"), { scanned, embedded, skipped, next });
       return 0;
     }
-    const { scanned, created } = await backfillAuthorship(
+    // The third repair: the event time verify used to overwrite. Per-record old → new, because this
+    // one edits the audit trail and "restored 412 records" is not something anyone can check.
+    if (v["occurred-at"]) {
+      const dryRun = v["dry-run"] === true;
+      const { scanned, changes } = await backfillOccurredAt(store, {
+        ns,
+        dryRun,
+      });
+      const lines = changes.map(
+        (c) => `${c.id}  ${c.from} -> ${c.to}${dryRun ? "  (dry run)" : ""}`,
+      );
+      lines.push(
+        `scanned ${scanned} entities, ${dryRun ? "would restore" : "restored"} ${changes.length}`,
+      );
+      emit(v, lines.join("\n"), { scanned, restored: changes.length, changes });
+      return 0;
+    }
+    const { scanned, created, unrepairable } = await backfillAuthorship(
       store,
       ontology,
       now(),
       { ns },
     );
-    emit(v, `scanned ${scanned} entities, added ${created} authorship edges`, {
-      scanned,
-      created,
-    });
-    return 0;
+    // A repair that skipped rows and said only how many it fixed reads as "done". These are the
+    // versions whose stored provenance today's gate refuses — the ones a person has to go and look at,
+    // so they are named rather than counted, and the exit code says the repair is incomplete.
+    emit(
+      v,
+      `scanned ${scanned} entities, added ${created} authorship edges` +
+        (unrepairable
+          ? `\ncould not re-derive ${unrepairable.length}:\n  ${unrepairable.join("\n  ")}`
+          : ""),
+      { scanned, created, ...(unrepairable ? { unrepairable } : {}) },
+    );
+    return unrepairable ? 1 : 0;
   });
 }
+
+const ONTOLOGY_USAGE = "usage: yoke ontology <list|add-type <json-file>>";
 
 async function cmdOntology(
   positionals: string[],
@@ -1311,13 +1864,26 @@ async function cmdOntology(
   env: Env,
 ): Promise<number> {
   const [sub, file] = positionals;
+  // Per subcommand: `list` takes none, `add-type` takes one. A single allowance of 2 would let
+  // `ontology list extra` through — the same silent drop this guard exists to stop.
+  noExtra(positionals, sub === "list" ? 1 : 2, ONTOLOGY_USAGE);
   const ns = resolveNs(v.ns, env);
   if (sub === "list") {
     return withStore(v, env, async (store) => {
       const defs = store.loadOntology(ns);
-      const lines = defs.map(
-        (d) => `${d.name}  ${d.kind}  ttl=${d.ttl_days ?? "∞"}`,
-      );
+      // The attributes, not just the type names: this is the one screen whose job is "what can I
+      // record", and a record needs its schema. Name, kind and TTL alone leave the attributes
+      // reachable only through `--json`.
+      const lines = defs.map((d) => {
+        const attrs = Object.entries(d.attrs);
+        const req = attrs.filter(([, a]) => a.required).map(([k]) => k);
+        const opt = attrs.filter(([, a]) => !a.required).map(([k]) => k);
+        return (
+          `${d.name}  ${d.kind}  ttl=${d.ttl_days ?? "∞"}` +
+          (req.length ? `  requires: ${req.join(", ")}` : "") +
+          (opt.length ? `  optional: ${opt.join(", ")}` : "")
+        );
+      });
       emit(v, lines.join("\n"), defs);
       return 0;
     });
@@ -1334,17 +1900,43 @@ async function cmdOntology(
       console.error(`cannot read type def: ${(e as Error).message}`);
       return 1;
     }
-    return withStore(v, env, async (store) => {
-      // No initialized-ontology requirement here: add-type IS how a fresh
-      // (e.g. shard tenant) ontology gets seeded — requiring one is a chicken-and-egg.
-      // An existing name means a new version = a migration (same append-only model as entities).
-      // ns targets a tenant ontology (overlaid on the shared base); omitted = shared.
-      await store.saveOntology([def], ns);
-      emit(v, `saved type: ${def.name}`, def);
-      return 0;
-    });
+    // `attrs` may be omitted in the file — a type with no attributes is legitimate (the seed's `term`
+    // and `resource` both are) — so it is defaulted before validation rather than demanded by it.
+    const withAttrs = { ...(def as TypeDef), attrs: def.attrs ?? {} };
+    const bad = validateTypeDef(withAttrs);
+    if (bad) {
+      console.error(`not a valid type definition: ${bad}`);
+      return 1;
+    }
+    def = withAttrs;
+    return withStore(
+      v,
+      env,
+      async (store) => {
+        // No initialized-ontology requirement here: add-type IS how a fresh
+        // (e.g. shard tenant) ontology gets seeded — requiring one is a chicken-and-egg.
+        // An existing name means a new version = a migration (same append-only model as entities).
+        // ns targets a tenant ontology (overlaid on the shared base); omitted = shared.
+        //
+        // A kind flip on a POPULATED type is refused, and the evidence is gathered in the one shared
+        // place (`refuseKindChange`) rather than here: a flip like fact→relation would leave stored
+        // facts injected as entities while `add fact` is refused as a relation, and a per-caller count
+        // that looks only at entities cannot see the flip that has stored rows to lose.
+        const refusal = await refuseKindChange(store, def as TypeDef, ns);
+        if (refusal) {
+          console.error(refusal);
+          return 1;
+        }
+        await store.saveOntology([def], ns);
+        emit(v, `saved type: ${def.name}`, def);
+        return 0;
+        // add-type is the other bootstrap path: it IS how a fresh (e.g. shard tenant) ontology gets
+        // seeded, so it must be allowed to create the store — see the comment above.
+      },
+      { create: true },
+    );
   }
-  console.error("usage: yoke ontology <list|add-type <json-file>>");
+  console.error(ONTOLOGY_USAGE);
   return 1;
 }
 
@@ -1357,20 +1949,48 @@ async function runIngest(
   env: Env,
 ): Promise<number> {
   const actor = resolveActor(v, env);
+  // The namespace is threaded through this whole path: it is the tenant isolation unit (ENTERPRISE.md)
+  // and this is the bulk entry point, so dropping it would be the largest way to file knowledge in the
+  // wrong tenant — and would consult the shared schema instead of the tenant's.
+  const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const ontology = requireOntology(store, undefined, v, env);
+    const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
-    const { added, skipped } = await ingest(
+    const { added, updated, skipped, rejected } = await ingest(
       store,
       ontology,
       typeof connector === "function" ? connector(ontology) : connector,
       actor,
       now(),
-      v.since,
-      resolveNs(v.ns, env),
+      instantFlag(v.since, "since"),
+      ns,
+      // The same embedder every other write path gets, so the gate's duplicate and contradiction stages
+      // are not weaker on the bulk path than on `yoke add`.
+      makeFetchEmbedder(env),
     );
-    emit(v, `added ${added}, skipped ${skipped}`, { added, skipped });
-    return 0;
+    // `updated` is its own count: a re-ingest that re-versions a corrected paragraph must be visible,
+    // not folded into `skipped`.
+    const lines = [
+      `added ${added}` +
+        (updated > 0 ? `, updated ${updated}` : "") +
+        `, skipped ${skipped}`,
+    ];
+    // Named, and a non-zero exit. Silently counting a refused source item is a failure the other way —
+    // "added 24" reads as complete.
+    if (rejected)
+      lines.push(
+        `${rejected.length} could not be recorded:`,
+        ...rejected.map((r) => `  ${r}`),
+      );
+    // Absent rather than empty in --json, for the same reason `withheld` is: a caller can tell "nothing
+    // was refused" from "this version does not report refusals".
+    emit(v, lines.join("\n"), {
+      added,
+      updated,
+      skipped,
+      ...(rejected ? { rejected } : {}),
+    });
+    return rejected ? 1 : 0;
   });
 }
 
@@ -1501,22 +2121,28 @@ async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
 
   const connector = makeRdbMappingConnector({ query, mapping });
   try {
+    const ns = resolveNs(v.ns, env);
     return await withStore(v, env, async (store) => {
-      const ontology = requireOntology(store, undefined, v, env);
+      const ontology = requireOntology(store, ns, v, env);
       if (!ontology) return 1;
-      const { added, updated, skipped } = await ingestMapped(
+      const { added, updated, skipped, errors } = await ingestMapped(
         store,
         ontology,
         connector,
         now(),
-        resolveNs(v.ns, env),
+        ns,
+        makeFetchEmbedder(env),
       );
-      emit(v, `mapped ${added} added, ${updated} updated, ${skipped} skipped`, {
-        added,
-        updated,
-        skipped,
-      });
-      return 0;
+      // `errors` rides the summary and --json: without it a scheduled sync in which EVERY row failed is
+      // indistinguishable from a no-op success. The count and the exit code are the only things a cron
+      // job can read.
+      emit(
+        v,
+        `mapped ${added} added, ${updated} updated, ${skipped} skipped` +
+          (errors > 0 ? `, ${errors} failed (see the messages above)` : ""),
+        { added, updated, skipped, errors },
+      );
+      return errors > 0 ? 1 : 0;
     });
   } finally {
     closeSrc();
@@ -1541,22 +2167,33 @@ async function cmdPersona(
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
     const person = await store.getEntity(id);
-    if (!person) {
-      console.error(`not found: ${id}`);
-      return 1;
-    }
     const ts = now();
-    const result = await personaQuery(store, ontology, id, ts, { ns });
-    const md = renderPersonaSkill(person, result, ts);
+    // The anchor check lives in core, so both refusals — not found, and not a person — arrive as one
+    // exception.
+    let result: PersonaResult;
+    try {
+      result = await personaQuery(store, ontology, id, ts, { ns });
+    } catch (e) {
+      if (e instanceof NotAPerson) {
+        console.error(
+          `${e.message} — 'yoke list --type person' lists the anchors`,
+        );
+        return 1;
+      }
+      throw e;
+    }
+    if (!person) return 1;
+    const md = renderPersonaSkill(person, result, ts, ontology);
     // fs lives only in the CLI tier (core produces only a string).
     const outDir = join(v.out ?? ".", `persona-${safeName(id)}`);
     mkdirSync(outDir, { recursive: true });
     const file = join(outDir, "SKILL.md");
     writeFileSync(file, md);
-    const injected = [...result.decisions, ...result.facts];
+    const injected = [...result.decisions, ...result.facts].map(
+      (i) => i.entity,
+    );
     // A persona read IS an injection — same knowledge, same citations — and this one also writes a
-    // SKILL.md that goes into someone's prompt. Its MCP and web twins both audit it; this path was
-    // the hole left when that was fixed in the web tier and the CLI was never checked.
+    // SKILL.md that goes into someone's prompt, so it leaves the same trail as its MCP and web twins.
     store.logAudit({
       actor: resolveActor(v, env),
       action: "persona",
@@ -1575,7 +2212,7 @@ async function cmdPersona(
 
 /**
  * `yoke persona --check <SKILL.md>` — audit an exported snapshot against the store now (SPEC persona
- * "Identifying one"). The export has recorded its source versions since v1 and nothing read them back.
+ * "Identifying one"). Reads back the source versions the export records.
  *
  * Exit 1 when any source moved, so this works as a CI or pre-commit gate: the point of a snapshot that
  * names its sources is that something other than a person can read them. fs stays in this tier — core
@@ -1621,25 +2258,73 @@ async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
       lines.push(
         `unreadable  ${header.unparsed.join(", ")} — hand-edited header?`,
       );
+    // The ANCHOR, not only the sources. `--check` reads the source list, and the anchor person is not
+    // among it — so a SKILL.md whose person was `deprecate`d AFTER export audited green ("all current")
+    // on a document about someone the org has retired. Gate on the anchor's current status too.
+    //
+    // `header.anchor` is `safeName(person.id)` (see PersonaHeader.anchor), which is lossless for the
+    // ids in use (ULIDs) but mangles a punctuated id — `yoke:system` becomes `yoke-system`, which
+    // resolves to nothing. So "missing" is ambiguous (a lossily-encoded anchor vs a truly absent one)
+    // and is NOT treated as a failure; the governance defect this gate exists to catch — a retired or
+    // non-person anchor — only arises from an anchor that DID resolve, so those are the fatal verdicts.
+    // Null anchor = a hand-edited file with no `name: persona-<id>` line (already covered by `unparsed`).
+    let anchorBad = 0;
+    let anchorVerdict: string | null = null;
+    if (header.anchor) {
+      anchorVerdict = await checkPersonaAnchor(
+        store,
+        ontology,
+        header.anchor,
+        now(),
+        { ns },
+      );
+      if (anchorVerdict === "retired" || anchorVerdict === "not-a-person") {
+        anchorBad = 1;
+        lines.push(`anchor      ${header.anchor} — ${anchorVerdict}`);
+      }
+    }
+    // Counted against what the header DECLARED, not against what parsed: a header that says three and
+    // whose list holds one must not report "1 of 1 — all current" and hide the two it no longer names.
+    // `Math.max` keeps it truthful the other way round too, if a hand-edited header undercounts its
+    // own list.
+    const total = Math.max(
+      header.declared,
+      checks.length + header.unparsed.length,
+    );
+    const absent = total - checks.length - header.unparsed.length;
+    if (absent > 0)
+      lines.push(
+        `unlisted    ${absent} source(s) the header counts are not in the list — hand-edited header?`,
+      );
+    const bad = moved.length + header.unparsed.length + absent + anchorBad;
     lines.push(
-      moved.length === 0
-        ? `${checks.length} sources, all current`
-        : `${moved.length} of ${checks.length} sources moved — re-export with: yoke persona <person> --out <dir>`,
+      bad === 0
+        ? `${total} sources, all current`
+        : `${bad} of ${total} sources${anchorBad ? " (and the anchor)" : ""} moved or unreadable — re-export with: yoke persona <person> --out <dir>`,
     );
     emit(v, lines.join("\n"), {
       file,
       sources: checks,
       unparsed: header.unparsed,
+      // What the header claimed and how many of those never reached a verdict — a JSON consumer
+      // (this is meant to be a CI gate) needs the denominator the human line is counted against.
+      declared: total,
+      unlisted: absent,
       moved: moved.length,
+      // The anchor verdict a CI gate needs alongside the sources: the retired-anchor case is invisible
+      // in `sources` because the anchor is not one of them.
+      anchor: header.anchor
+        ? { id: header.anchor, verdict: anchorVerdict }
+        : null,
     });
     // Unparsed tokens are a failure too: a source that cannot be read is not a source that is fine.
-    return moved.length > 0 || header.unparsed.length > 0 ? 1 : 0;
+    return bad > 0 ? 1 : 0;
   });
 }
 
 // ui (PLAN 9.x): the governance workbench. Server keeps the process alive until SIGINT.
 async function cmdUi(v: Values, env: Env): Promise<number> {
-  const port = v.port === undefined ? 4800 : Number(v.port);
+  const port = intFlag(v.port, "port", 0) ?? 4800;
   const server = await runUi(
     resolveDb(v, env),
     port,
@@ -1656,7 +2341,7 @@ async function cmdUi(v: Values, env: Env): Promise<number> {
 
 // serve (PLAN-V2 10.2): UI + JSON API + remote MCP on one port. Auth (10.3/10.4) is opt-in.
 async function cmdServe(v: Values, env: Env): Promise<number> {
-  const port = v.port === undefined ? 4800 : Number(v.port);
+  const port = intFlag(v.port, "port", 0) ?? 4800;
   const server = await runServe(resolveDb(v, env), port, env, {
     auth: v.auth,
     ns: resolveNs(v.ns, env),
@@ -1673,6 +2358,12 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
 }
 
 // token (PLAN-V2 10.3): API tokens for serve-mode Bearer auth. Secret is shown once on create.
+const TOKEN_CREATE_USAGE =
+  'usage: yoke token create --name <n> --scopes "<ns>:read,<ns>:write[,<ns>:<type>:verify,<ns>:admin]"\n' +
+  "  scope = action | namespace:action | namespace:type:action\n" +
+  "  actions: read, write, verify (promote/retire), admin (issue credentials)\n" +
+  "  an action with NO namespace grants every tenant — name the namespace unless you mean that";
+
 async function cmdToken(
   positionals: string[],
   v: Values,
@@ -1681,15 +2372,25 @@ async function cmdToken(
   const [sub] = positionals;
   if (sub === "create") {
     if (!v.name || !v.scopes) {
-      console.error(
-        'usage: yoke token create --name <n> --scopes "read,write[,ns:type:verify...]"',
-      );
+      console.error(TOKEN_CREATE_USAGE);
       return 1;
     }
     const scopes = v.scopes
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+    // Validated at issue time, because a token whose scopes are nonsense is indistinguishable from a
+    // working one until someone tries to use it — it authenticates, then 403s on everything. The
+    // parser that decides what a scope MEANS is the right thing to ask what one IS.
+    const bad = scopes.filter((raw) => parseScope(raw) === null);
+    if (bad.length > 0 || scopes.length === 0) {
+      const why =
+        scopes.length === 0
+          ? "--scopes is empty: a credential with no scope can do nothing"
+          : `not a scope: ${bad.join(", ")}`;
+      console.error(`${why}\n${TOKEN_CREATE_USAGE}`);
+      return 1;
+    }
     return withStore(v, env, async (store) => {
       const { token } = store.createToken({
         name: v.name as string,
@@ -1697,15 +2398,40 @@ async function cmdToken(
         created_at: now(),
       });
       // The plaintext secret is only ever returned here — store it now (only the hash is persisted).
-      emit(v, token, { name: v.name, scopes, token });
+      // This is the one moment an admin can record what the credential is for, so its name, scopes and
+      // the shown-once notice ride with it. A wildcard-ns scope is called out, because `read` reads
+      // EVERY tenant and both the usage string and `serve`'s own refusal teach exactly that spelling.
+      const wildcard = scopes.filter((raw) => parseScope(raw)?.ns === null);
+      emit(
+        v,
+        [
+          token,
+          `  shown once — this is the only time the secret is printed`,
+          `  name: ${v.name}   scopes: ${scopes.join(", ")}`,
+          ...(wildcard.length > 0
+            ? [
+                `  note: ${wildcard.join(", ")} ${wildcard.length === 1 ? "has" : "have"} no namespace, ` +
+                  `so ${wildcard.length === 1 ? "it grants" : "they grant"} every tenant — ` +
+                  `write '<namespace>:${parseScope(wildcard[0])?.action}' to scope it to one`,
+              ]
+            : []),
+        ].join("\n"),
+        { name: v.name, scopes, token },
+      );
       return 0;
     });
   }
   if (sub === "list") {
     return withStore(v, env, async (store) => {
       const toks = store.listTokens();
+      // A wildcard-ns scope is marked: it is the difference between a credential for one tenant and one
+      // for all of them, and this listing is the only answer to "who can reach what right now".
       const lines = toks.map(
-        (t) => `${t.name}  ${t.scopes.join(",")}  ${t.created_at}`,
+        (t) =>
+          `${t.name}  ${t.scopes.join(",")}  ${t.created_at}` +
+          (t.scopes.some((raw) => parseScope(raw)?.ns === null)
+            ? "  [all namespaces]"
+            : ""),
       );
       emit(v, toks.length ? lines.join("\n") : "no tokens", toks);
       return 0;
@@ -1732,18 +2458,43 @@ async function cmdToken(
 }
 
 // backup (PLAN-V2 11.1): online WAL-safe snapshot to a fresh file.
+const BACKUP_USAGE =
+  "usage: yoke backup <dest.db>\n" +
+  "  --out belongs to 'yoke export'; backup takes the destination as its argument";
+
 async function cmdBackup(
   positionals: string[],
   v: Values,
   env: Env,
 ): Promise<number> {
   const dest = positionals[0];
+  noExtra(positionals, 1, BACKUP_USAGE);
   if (!dest) {
-    console.error("usage: yoke backup <dest.db>");
+    console.error(BACKUP_USAGE);
     return 1;
   }
   const db = resolveDb(v, env);
+  // The same guard `restore` has, for the same destruction: overwriting an existing destination is
+  // unconfirmed and unrecoverable, so it is refused without `--force`. Named with the destination and
+  // the flag, because the ordinary case is a typo'd path rather than a change of mind.
+  if (existsSync(dest) && !v.force) {
+    console.error(
+      `refusing to overwrite existing file: ${dest} (use --force to replace it)`,
+    );
+    return 1;
+  }
   return withStore(v, env, async (store) => {
+    // A backup of a damaged database is not a backup: a copy of corruption passes `restore`'s
+    // validation and tells the operator they are safe. Refuse to back up a file that fails
+    // integrity_check.
+    const check = store.integrityCheck?.();
+    if (check !== undefined && check !== "ok") {
+      console.error(
+        `${db} is damaged and was not backed up: ${check}\n` +
+          "a copy of a damaged database is not a backup — recover this file first",
+      );
+      return 1;
+    }
     await store.backupTo(dest);
     emit(v, `backed up ${db} -> ${dest}`, { db, dest });
     return 0;
@@ -1759,6 +2510,7 @@ async function cmdRestore(
   env: Env,
 ): Promise<number> {
   const src = positionals[0];
+  noExtra(positionals, 1, "usage: yoke restore <src.db> [--force]");
   if (!src) {
     console.error("usage: yoke restore <src.db> [--force]");
     return 1;
@@ -1780,6 +2532,23 @@ async function cmdRestore(
   try {
     const s = new Database(src, { readonly: true });
     try {
+      // Structure first. The two checks below read `ontology_types` and one `entities` row, and on a
+      // damaged file those pages are usually intact — so without this a corrupt backup passes
+      // validation, is copied over a healthy database, and reports success.
+      //
+      // `quick_check` rather than `integrity_check`: it verifies page structure without the full index
+      // cross-check, which is the part that costs O(database) on a large file. What it catches is the
+      // class that matters here — a file that cannot be read correctly at all.
+      const check = (
+        s.pragma("quick_check", { simple: true }) as string
+      ).toLowerCase();
+      if (check !== "ok") {
+        console.error(
+          `${src} is damaged and was not restored: ${check}\n` +
+            "restoring it would destroy the database it was meant to repair",
+        );
+        return 1;
+      }
       const { n } = s
         .prepare("SELECT COUNT(*) AS n FROM ontology_types")
         .get() as { n: number };
@@ -1824,15 +2593,61 @@ async function cmdExport(v: Values, env: Env): Promise<number> {
     console.error("usage: yoke export --until <iso-ts> --out <new.db>");
     return 1;
   }
+  // Checked before the copy, not inside the report of it: an unparseable instant compares false
+  // against every row, so `exportUntil("yesterday")` writes a file and calls it a point in time.
+  const until = instantFlag(v.until, "until") as string;
   return withStore(v, env, async (store) => {
-    await store.exportUntil(v.until as string, v.out as string);
-    emit(v, `exported state as of ${v.until} -> ${v.out}`, {
-      until: v.until,
+    await store.exportUntil(until, v.out as string);
+    emit(v, `exported state as of ${until} -> ${v.out}`, {
+      until,
       out: v.out,
     });
     return 0;
   });
 }
+
+/**
+ * `yoke <command> --help`. Five commands take no required argument, so the "run it with missing
+ * arguments" convention never fires for them and their flags need documenting somewhere a reader looks.
+ *
+ * Anything absent here falls back to the top-level usage, which is a worse answer than a specific one and
+ * a much better one than executing the command.
+ */
+const COMMAND_USAGE: Record<string, string> = {
+  get: GET_USAGE,
+  list: LIST_USAGE,
+  graph: GRAPH_USAGE,
+  search: SEARCH_USAGE,
+  inject: INJECT_USAGE,
+  history: HISTORY_USAGE,
+  ontology: ONTOLOGY_USAGE,
+  backup: BACKUP_USAGE,
+  review:
+    "usage: yoke review [--stale] [--type t] [--limit n] [--after cursor]\n" +
+    "  no flags   drafts awaiting review\n" +
+    "  --stale    verified records past their type's TTL, most-injected first",
+  audit:
+    "usage: yoke audit [--since ts] [--until ts] [--limit n] [--shape]\n" +
+    "  --shape    workload composition: anchored / briefing / plain injections",
+  overview: "usage: yoke overview [--limit n]",
+  conflicts: "usage: yoke conflicts",
+  backfill:
+    "usage: yoke backfill [--embeddings] [--rebuild] [--limit n] [--after cursor]\n" +
+    "  no flags       re-derive missing authorship edges\n" +
+    "  --embeddings   embed records that have no vector\n" +
+    "  --rebuild      re-embed records that already have one",
+  verify: "usage: yoke verify <id...> [--all-drafts] [--actor a]",
+  deprecate:
+    'usage: yoke deprecate <id...> [--actor a] [--reason "why it was retired"]',
+  add: "usage: yoke add <type> [--actor id] [--attr k=v ...] [--scope entity-id]",
+  link: "usage: yoke link <from-id> <relation> <to-id> [--actor id] [--attr k=v ...]",
+  persona:
+    "usage: yoke persona <person-id> [--out dir]\n       yoke persona --check <SKILL.md>",
+  restore: "usage: yoke restore <src.db> [--force]",
+  export: "usage: yoke export --until <iso-ts> --out <new.db>",
+  "rename-type": "usage: yoke rename-type <from> <to>",
+  token: "usage: yoke token <create|list|revoke> ...",
+};
 
 export async function runCli(
   argv: string[],
@@ -1853,13 +2668,52 @@ export async function runCli(
       strict: true,
     }) as { values: Values; positionals: string[] };
   } catch (e) {
-    console.error((e as Error).message);
+    // node's own parser messages, translated into this tool's voice where they are unhelpful. Two are
+    // worth the lines: a negative number reads as "Option '--limit' argument is ambiguous", which names
+    // no fix; and an unknown flag reads as a paragraph about `--` that suggests passing the typo as a
+    // positional argument. `--dept` for `--depth` deserves the same near-miss correction a mistyped
+    // COMMAND already gets.
+    const msg = (e as Error).message;
+    const flag = /'(--[\w-]+)'/.exec(msg)?.[1];
+    const bare = flag?.replace(/^--/, "");
+    if (/ambiguous/i.test(msg) && flag) {
+      console.error(
+        `${flag} looks like it was given a negative value. Counts are positive; ` +
+          `write ${flag} <n>, and use '${flag}=-1' only if you really mean a literal "-1".`,
+      );
+      return 1;
+    }
+    if (/[Uu]nknown option/.test(msg) && bare) {
+      const near = Object.keys(OPTIONS).filter(
+        (o) => editDistance(o, bare) <= (bare.length <= 4 ? 1 : 2),
+      );
+      console.error(
+        `unknown option: ${flag}` +
+          (near.length > 0
+            ? ` — did you mean ${near.map((o) => `'--${o}'`).join(" or ")}?`
+            : `\nrun 'yoke help' for the options every command takes`),
+      );
+      return 1;
+    }
+    console.error(msg);
     return 1;
   }
   const { values, positionals } = parsed;
   const [command, ...rest] = positionals;
-  if (values.help || command === "help" || command === undefined) {
+  // `--help` with no command is the overview; WITH a command it is that command's usage. For a command
+  // with no required arguments the "run it with missing args" convention never fires, so `--type` and
+  // `--status` would be documented nowhere a reader would look.
+  if (command === "help" || command === undefined) {
     console.log(usage());
+    return 0;
+  }
+  // `--help` never reaches a command: for a command with no required arguments the convention that
+  // saves it ("run it with missing arguments to see its usage") does not fire, so without this
+  // `<cmd> --help` would EXECUTE the command — and `backfill` writes. Those five commands are also
+  // why the table below exists: their flags (`review --stale`, `audit --since`, `overview --limit`,
+  // `backfill --embeddings`) are documented at no point the convention reaches.
+  if (values.help) {
+    console.log(COMMAND_USAGE[command] ?? usage());
     return 0;
   }
   try {
@@ -1873,9 +2727,9 @@ export async function runCli(
       case "get":
         return await cmdGet(rest, values, env);
       case "list":
-        return await cmdList(values, env);
+        return await cmdList(rest, values, env);
       case "graph":
-        return await cmdGraph(values, env);
+        return await cmdGraph(rest, values, env);
       case "search":
         return await cmdSearch(rest, values, env);
       case "review":
@@ -1923,11 +2777,42 @@ export async function runCli(
         await runMcp(resolveDb(values, env), env, resolveShards(values, env));
         return 0;
       default:
-        console.error(`unknown command: ${command}\n\n${usage()}`);
+        // A near miss gets the correction instead of 25 lines of overview. Every mistyped command in a
+        // usability pass was one edit away (`inejct`, `ad`, `lst`), and a full help dump for a
+        // transposition buries the answer in the noise it caused.
+        {
+          const near = COMMANDS.filter(
+            (c) => editDistance(c, command) <= (command.length <= 4 ? 1 : 2),
+          );
+          console.error(
+            near.length > 0
+              ? `unknown command: ${command} — did you mean ${near.map((c) => `'${c}'`).join(" or ")}?`
+              : `unknown command: ${command}\n\n${usage()}`,
+          );
+        }
         return 1;
     }
   } catch (e) {
-    console.error((e as Error).message);
+    // A caller error is already a sentence addressed to the reader — print it and nothing else.
+    if (e instanceof UsageError) {
+      console.error((e as Error).message);
+      return 1;
+    }
+    // Everything else reaching here is a failure, and the bare message is usually the storage engine's:
+    // "datatype mismatch", "database disk image is malformed", "file is not a database", "NOT NULL
+    // constraint failed: ontology_types.name". None of them names the file it happened to or what to do
+    // next, in a tool whose own style is "not initialized: <path> — run 'yoke init' first". Naming the
+    // database is the one piece of context this layer always has, and the corruption case gets the
+    // command that exists for it.
+    const msg = (e as Error).message;
+    const db = resolveDb(values, env);
+    const corrupt =
+      /malformed|not a database|file is encrypted|disk image/i.test(msg);
+    console.error(
+      corrupt
+        ? `${db}: ${msg}\nthis file is not a readable yoke database — restore a backup with 'yoke restore <backup.db> --force'`
+        : `${command ?? "yoke"} failed on ${db}: ${msg}`,
+    );
     return 1;
   }
 }
@@ -1978,5 +2863,12 @@ function isMain(): boolean {
 if (isMain()) {
   // Before runCli, so `env = process.env` already carries the file's values.
   loadDotEnv();
-  runCli(process.argv.slice(2)).then((code) => process.exit(code));
+  runCli(process.argv.slice(2)).then((code) => {
+    // `process.exitCode`, never `process.exit()`. When stdout is a PIPE node buffers writes and
+    // flushes them asynchronously; `process.exit()` tears the process down and discards whatever is
+    // still in that buffer, so a scripted reader of `--json | jq` silently gets a truncated prefix with
+    // exit 0 and no error (a redirect to a file is synchronous, which is why this hides). Setting the
+    // code lets node exit on its own once the streams have drained.
+    process.exitCode = code;
+  });
 }

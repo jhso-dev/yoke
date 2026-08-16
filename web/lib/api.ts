@@ -168,6 +168,11 @@ export const api = {
         /** Why `duplicates` is empty. `"skipped"` means nothing was compared — no embedding
          * provider — which is a different fact from "nothing similar was found". */
         duplicateDetection: "embedding" | "skipped";
+        /** Present only on a PARTIAL commit: the record is durable, but some edge the gate tried to
+         * write alongside it was not — a `authored_by` mirror (re-derivable with backfill) or the
+         * caller's own `--scope` attachment (must be filed again). Each entry is `"<what>: <error>"`.
+         * A form that ignored it would render a partial write as an unqualified success. */
+        unrecorded?: string[];
       }
     >("/api/entity", {
       method: "POST",

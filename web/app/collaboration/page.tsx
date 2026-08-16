@@ -27,6 +27,7 @@ import { Citation } from "../../components/Citation";
 import { CopyCode } from "../../components/CopyCode";
 import { CreateButton } from "../../components/CreateButton";
 import { DirectionIcon } from "../../components/DirectionIcon";
+import { DisputedLinks } from "../../components/DisputedLinks";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { Pagination, usePage } from "../../components/Pagination";
@@ -36,7 +37,11 @@ import { api } from "../../lib/api";
 import { recordLabel } from "../../lib/citation";
 import { useT } from "../../lib/i18n";
 import { announce } from "../../lib/toast";
-import { isMissing, type Knowledge } from "../../lib/types";
+import {
+  type InjectedKnowledge,
+  isMissing,
+  type Knowledge,
+} from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /* `.panel` and `.panel-head` restated as utilities, because globals.css still owns those classes for
@@ -467,6 +472,18 @@ function CollaborationBody() {
                 )}
               </Alert>
             )}
+            {/* What was linked here but held back, and why — the exact reason the server already
+                ships (draft/stale/deprecated/superseded/structural). Without it this panel guessed
+                the empty-state from the linked-record count and named none of these on a partial
+                briefing. Same sentence as the inject preview, since it is the same inject(). */}
+            {briefing.data?.withheld && (
+              <Alert variant="warn" className="mx-3">
+                {t.inject.withheld(
+                  briefing.data.withheld,
+                  briefing.data.items.length,
+                )}
+              </Alert>
+            )}
             {/* An empty briefing is not an unlinked collaboration. This is `inject(scope)`, which
                 returns VERIFIED records only, so a collaboration whose attached records are all draft
                 or stale read as "no knowledge is linked to this collaboration" — contradicted by the
@@ -480,6 +497,18 @@ function CollaborationBody() {
                   : t.collaboration.briefingEmpty
               }
               paginate
+              // A disputed briefing row has to look disputed, the same as on the inject preview: an
+              // agent anchoring here receives both sides of a live contradiction, and two rows that
+              // flatly disagree must not read as two ordinary facts.
+              trailing={{
+                head: t.inject.disputedHead,
+                cell: (r) => (
+                  <DisputedLinks
+                    ids={(r as InjectedKnowledge).conflictsWith}
+                    rows={briefing.data?.items ?? []}
+                  />
+                ),
+              }}
             />
           </>
         )}

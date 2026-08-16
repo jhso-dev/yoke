@@ -12,7 +12,7 @@
 // claim. No fuzzy name matching anywhere — see the SPEC clause for why a heuristic merge is the one
 // mistake this design will not make on a person's behalf.
 
-import type { StoragePort } from "../ports/storage.js";
+import { readEntities, type StoragePort } from "../ports/storage.js";
 import { normalizeNs } from "./namespace.js";
 
 /**
@@ -26,6 +26,13 @@ import { normalizeNs } from "./namespace.js";
  * Namespace-filtered before following, because `neighbors` takes no `ns` — without this, a `same_as`
  * filed in one tenant would pull another tenant's person into the set. The same reason inject filters
  * the vector half in core.
+ *
+ * Both ENDS are filtered, not just the edge. An edge is filed with one namespace while its endpoints
+ * carry their own, so a `same_as` filed in the default namespace naming another tenant's person would
+ * put that tenant's entity id into the union — a foreign identity crossing the tenant boundary (no
+ * knowledge, since inject re-filters candidates one layer down). This is the hole `personaQuery`'s own
+ * ns check closes, arriving through the other door. Costs one batch read per frontier, and only on the
+ * frontiers a union actually has.
  *
  * Returns breadth-first from `id`, so the queried record comes first and the order is stable across
  * backends (`neighbors` guarantees no ordering, so each frontier is sorted).
@@ -43,11 +50,19 @@ export async function identitySet(
     // biome-ignore lint/style/noNonNullAssertion: guarded by queue.length
     const current = queue.shift()!;
     const edges = await port.neighbors(current, "same_as");
-    const next = edges
+    const candidates = edges
       .filter((r) => normalizeNs(r.ns) === wantNs)
       .map((r) => (r.from === current ? r.to : r.from))
       .filter((other) => !seen.has(other))
       .sort();
+    // The endpoint records themselves, filtered by ns. An id that resolves to nothing drops out too:
+    // a dangling endpoint is not a record of this person in this namespace, which is the question.
+    const inNs = new Set(
+      (await readEntities(port, candidates))
+        .filter((e) => normalizeNs(e.ns) === wantNs)
+        .map((e) => e.id),
+    );
+    const next = candidates.filter((id) => inNs.has(id));
     for (const other of next) {
       seen.add(other);
       out.push(other);

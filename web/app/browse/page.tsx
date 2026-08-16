@@ -241,8 +241,9 @@ function BrowseBody() {
 }
 
 export default function Browse() {
+  const t = useT();
   return (
-    <Suspense fallback={<p className="muted">loading…</p>}>
+    <Suspense fallback={<p className="muted">{t.common.loading}</p>}>
       <BrowseBody />
     </Suspense>
   );

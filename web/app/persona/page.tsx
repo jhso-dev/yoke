@@ -4,12 +4,14 @@ import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Citation } from "../../components/Citation";
 import { CopyCode } from "../../components/CopyCode";
 import { CreateButton } from "../../components/CreateButton";
+import { DisputedLinks } from "../../components/DisputedLinks";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { Panel, PanelHead } from "../../components/Panel";
@@ -17,6 +19,7 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel } from "../../lib/citation";
 import { useT } from "../../lib/i18n";
+import type { InjectedKnowledge, Knowledge } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /**
@@ -150,6 +153,23 @@ function Person({ id }: { id: string }) {
 
   const name = who.data ? recordLabel(who.data.entity) : "";
 
+  // A disputed row has to LOOK disputed here too. Both sides of a live `conflicts_with` are part of
+  // this person's records, and rendering them as two ordinary rows shows an open disagreement as their
+  // settled position — the same defect the inject preview fixed, on the screen where the reader is
+  // most likely to read a row as "this is what they think". Same column, same words as that screen.
+  // Resolved against this person's whole loaded set — a decision may contradict a fact, so both lists
+  // are the lookup pool that names the contradicted record.
+  const loaded = [...allDecisions, ...allFacts];
+  const disputedColumn = {
+    head: t.inject.disputedHead,
+    cell: (r: Knowledge) => (
+      <DisputedLinks
+        ids={(r as InjectedKnowledge).conflictsWith}
+        rows={loaded}
+      />
+    ),
+  };
+
   return (
     <>
       <h1>{name || t.persona.headingOne}</h1>
@@ -164,6 +184,31 @@ function Person({ id }: { id: string }) {
           persona.reload();
         }}
       />
+
+      {/* A same_as union ADDS a second person's judgment under this name, and the link is an
+          unreviewed claim (relations cannot be verified) — so the screen has to disclose the merge,
+          exactly as the exported SKILL.md does. Names in text, ids kept on hover for checking. */}
+      {persona.data?.identities && (
+        <Alert variant="warn">
+          {t.persona.identityUnion(persona.data.identities.length)}{" "}
+          {persona.data.identities.map((p, i) => (
+            <span key={p.id}>
+              {i > 0 ? ", " : ""}
+              <span title={p.id}>{p.name}</span>
+            </span>
+          ))}
+          {". "}
+          {t.persona.identityUnionNote(name || t.persona.headingOne)}
+        </Alert>
+      )}
+      {/* What this person has on record that this document does NOT contain. Without it, a person
+          whose every record is in review renders identically to one with nothing on record — the
+          same absence the inject preview and the SKILL.md refuse to be silent about. */}
+      {persona.data?.withheld && (
+        <Alert variant="warn">
+          {t.persona.withheld(persona.data.withheld)}
+        </Alert>
+      )}
 
       <div className="controls">
         <Input
@@ -206,6 +251,7 @@ function Person({ id }: { id: string }) {
               rows={decisions}
               paginate
               empty={query ? t.persona.noMatch : t.persona.noDecisions}
+              trailing={disputedColumn}
             />
           </Panel>
           <Panel>
@@ -217,6 +263,7 @@ function Person({ id }: { id: string }) {
               rows={facts}
               paginate
               empty={query ? t.persona.noMatch : t.common.none}
+              trailing={disputedColumn}
             />
           </Panel>
         </>

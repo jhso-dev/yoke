@@ -14,18 +14,24 @@ import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
-  citation,
   entityIdCandidates,
   envKeywordWeight,
   inject,
+  pointer,
   WALK_BUDGET,
 } from "../../core/inject.js";
-import { resolveNs } from "../../core/namespace.js";
+import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
-import { personaQuery } from "../../core/persona.js";
-import type { Entity, EntityInput } from "../../core/types.js";
+import {
+  NotAPerson,
+  PERSON_TYPE,
+  type PersonaResult,
+  personaQuery,
+  readableName,
+} from "../../core/persona.js";
+import type { Entity, EntityInput, RelationInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
-import { injectDetail } from "../display.js";
+import { describeWithheld, injectDetail } from "../display.js";
 import { openStore } from "../store.js";
 
 const ORIGIN = "mcp";
@@ -72,7 +78,10 @@ export async function resolveScope(
     title: String(e.attributes.title ?? e.id),
   });
   const byId = await store.getEntity(key);
-  if (byId) return asEntity(byId);
+  // id-based reads must still ns-check: getEntity takes no ns, so an unscoped id read crosses the
+  // tenant boundary (and doubles as an existence oracle for ids in any namespace). The search
+  // fallback holds the line on its own, because search takes the ns.
+  if (byId && normalizeNs(byId.ns) === normalizeNs(ns)) return asEntity(byId);
   const hits = await store.search({ text: key, ns });
   const named = hits.filter(
     (e) => e.attributes.key === key || e.attributes.title === key,
@@ -117,8 +126,48 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   // Input actor > server startup env (defaultActor) > 'yoke:system' (already folded into defaultActor).
   const resolveActor = (actor?: string) => actor ?? defaultActor;
 
+  // A read's audit row is best-effort: on a locked DB logAudit throws, and a dropped trail row must
+  // not turn an already-computed read into a failed query. stderr, not stdout: stdout is the protocol
+  // channel. WRITE tools keep the audit inline; only reads are best-effort.
+  const bestEffortAudit = (event: AuditEvent): void => {
+    try {
+      store.logAudit?.(event);
+    } catch (e) {
+      process.stderr.write(
+        `warning: audit row not written (read succeeded): ${(e as Error).message}\n`,
+      );
+    }
+  };
+
+  // Resolve a person id to a display name, scoped to THIS request's ns. getEntity is id-based and
+  // global (it takes no ns), so a bare resolve would leak a foreign tenant's person name into an
+  // agent-facing citation. Fall back to the id when it is not a person in this ns (a machine actor
+  // like `yoke:system` reads fine as its own slug).
+  const nameOf = async (id: string): Promise<string> => {
+    const e = await store.getEntity(id);
+    return e && e.type === PERSON_TYPE && normalizeNs(e.ns) === normalizeNs(ns)
+      ? readableName(e)
+      : id;
+  };
+  // A citation with its author (and confirmer) resolved to names — the human half of core's citation
+  // split: `pointer` keeps the entity id (the audit anchor), the who-slot reads as a name. Mirrors
+  // `citation()`'s shape so the two never drift; used by yoke_inject and yoke_persona alike.
+  const readableCite = async (it: {
+    entity: Entity;
+    author?: string;
+  }): Promise<string> => {
+    const promoterId = it.entity.provenance.actor;
+    const authorId = it.author ?? promoterId;
+    const author = await nameOf(authorId);
+    const who =
+      authorId === promoterId
+        ? author
+        : `${author} (confirmed by ${await nameOf(promoterId)})`;
+    return `${pointer(it.entity)} ${who}, ${it.entity.provenance.occurred_at}`;
+  };
+
   async function doCommit(
-    input: EntityInput,
+    input: EntityInput | RelationInput,
     actor?: string,
     scope?: string,
     derivedFrom?: string[],
@@ -131,21 +180,18 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       occurred_at: ts,
     };
     try {
-      const { entity, duplicates } = await commit(
-        store,
-        ontology,
-        input,
-        prov,
-        ts,
-        { embedder, ns },
-      );
       // Capture-side linking (v4.0): attach the new knowledge to the scope entity via relates_to.
-      // A second gate-passing commit at the front tier — core commit stays untouched (like conflicts_with,
-      // but that lives inside commit for decisions; this is caller-driven so it belongs here).
+      // Passed INTO the gate, not filed as a second commit — otherwise a bad endpoint refuses AFTER
+      // the entity is durable, telling the agent "rejected" about a record that exists (see `attachTo`
+      // in core/commit.ts).
       const linkTo = effectiveScope(scope);
-      const edges: Array<[string, string]> = linkTo
-        ? [["relates_to", linkTo]]
-        : [];
+      const { entity, duplicates, duplicateDetection, unrecorded } =
+        await commit(store, ontology, input, prov, ts, {
+          embedder,
+          ns,
+          ...(linkTo ? { attachTo: linkTo } : {}),
+        });
+      const edges: Array<[string, string]> = [];
       // Derivation (v5.8) travels this same road for the same reason: the caller declares its basis, so
       // the edge belongs where the caller is. Deduped and self-edge-free — citing one record twice, or
       // citing the record being written, files one edge and none respectively.
@@ -158,10 +204,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         for (const raw of new Set(derivedFrom ?? [])) {
           // The one place a relation endpoint is checked, and only because of what the caller can see:
           // every surface renders a record as `[fact:01K…@v2]`, so an agent citing "what inject
-          // returned" cites that. Measured: 3 of 3 agents populated the field unprompted and 2 of 3
-          // passed a citation rather than an id. Unresolvable is reported, never filed — an edge
-          // pointing at nothing makes `downstreamOf` answer "nothing rests on this", which is the
-          // silent wrong answer the whole feature exists to prevent.
+          // returned" cites that, not a bare id. Unresolvable is reported, never filed — an edge
+          // pointing at nothing makes `downstreamOf` answer "nothing rests on this", the silent wrong
+          // answer the whole feature exists to prevent.
           let src: string | undefined;
           for (const cand of entityIdCandidates(raw)) {
             if (cand === entity.id) break; // self-citation: not an error, just nothing to file
@@ -190,6 +235,14 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           status: entity.status,
           // Similar-knowledge candidates — no auto-merge. Included in the result for the agent to judge.
           duplicates: duplicates.map((d) => ({ id: d.id, type: d.type })),
+          // WHY the list is empty. `[]` reads as "checked, nothing similar", and with no embedder
+          // configured nothing was checked at all. It matters twice over: conflict detection consumes
+          // the same candidates, so on a keyless install an agent recording a contradiction is told
+          // nothing about either.
+          duplicate_check:
+            duplicateDetection === "skipped"
+              ? "not run — this deployment has no embedding provider configured, so nothing was compared and no contradiction could be detected"
+              : "compared against similar records",
           // How many derivation edges were actually filed. Reported rather than assumed: on a DB that
           // never migrated the type this is 0 while the commit succeeded, and an agent told nothing
           // would believe it had recorded a basis that is not there.
@@ -202,6 +255,18 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           // What was passed and could not be resolved, verbatim. Named rather than counted: the caller
           // has to see the string it sent to learn that a citation is not an id.
           ...(ignored.length ? { derived_from_ignored: ignored } : {}),
+          // The record is durable and part of the commit is not. An agent reading only `id` would
+          // report success, and a missing `authored_by` edge is silent afterwards — the record never
+          // shows up in a persona or an author ranking. Phrased as the instruction, like the other
+          // agent-facing notices: a model has to be told what to do, not handed a field.
+          ...(unrecorded
+            ? {
+                partial:
+                  `the record was stored but these could not be written: ${unrecorded.join("; ")}. ` +
+                  "Do not report this as fully recorded; authorship is re-derivable by running " +
+                  "'yoke backfill', and an attachment has to be filed again with yoke_link.",
+              }
+            : {}),
         }),
       );
     } catch (e) {
@@ -262,11 +327,11 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       if (!authorize("read")) return forbidden();
       const ts = now();
       const anchor = effectiveScope(scope);
-      // A briefing (anchored, no query) had no cap at all: a collaboration with 300 records attached
-      // returned all 300 in full, ~15k tokens, because someone pinned a scope. Default it, and let an
-      // explicit limit override. Only the briefing — a query is already narrowed by its own terms.
+      // A briefing (anchored, no query) is capped: uncapped, a collaboration with 300 records attached
+      // returns all 300 in full (~15k tokens). An explicit limit overrides; a query is already
+      // narrowed by its own terms.
       const briefing = anchor !== undefined && !query;
-      const { items, omitted, walk } = await inject(
+      const { items, omitted, walk, withheld } = await inject(
         store,
         ontology,
         query,
@@ -277,8 +342,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           ns,
           scope: anchor,
           depth,
-          // The same embedder the commit gate gets (SPEC "Hybrid retrieval"). Without it an agent's
-          // query was keyword-only while its writes were being embedded — half a vector index.
+          // The same embedder the commit gate gets (SPEC "Hybrid retrieval"): without it a query would
+          // be keyword-only while writes are embedded — half a vector index.
           embedder,
           keywordWeight,
         },
@@ -287,7 +352,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
       // unscoped one, and which of the two agents actually do is the measurement that decides whether
       // graph expansion is worth investing in at all (docs/RESEARCH.md).
-      store.logAudit?.({
+      bestEffortAudit({
         actor: defaultActor,
         action: "inject",
         detail: injectDetail(
@@ -297,12 +362,44 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         at: ts,
         ns,
       });
+      // An agent that reads "no verified knowledge" as "there is none" answers from nothing and says
+      // so confidently. Knowledge awaiting review, retired, or of a type that is not injectable are
+      // three different situations and none of them is absence — so the reason travels, phrased by the
+      // same helper the CLI and the web use.
       if (items.length === 0)
-        return ok(`no verified knowledge found for: ${query}`);
-      const blocks = items.map(
-        (it) =>
-          `${it.citation} [${it.effectiveStatus}]\n${JSON.stringify(it.entity.attributes)}`,
+        return ok(
+          withheld
+            ? `no verified knowledge for: ${query} — ${describeWithheld(withheld)}`
+            : `no verified knowledge found for: ${query}`,
+        );
+      const blocks = await Promise.all(
+        items.map(
+          async (it) =>
+            // The author on the citation is resolved to a name, not left a raw ULID (M-AUTHOR): every
+            // other surface names the person, and an agent quoting yoke should too. The id stays on the
+            // pointer half, which is the audit anchor.
+            `${await readableCite(it)} [${it.effectiveStatus}]` +
+            // An agent handed two contradicting records as two equal facts answers with whichever it read
+            // first and cites it. The instruction is the mechanism here, as it is for the truncation
+            // notice: the model has to be told what to DO with the disagreement, not handed a field.
+            (it.conflictsWith
+              ? `\n[CONTRADICTED by ${it.conflictsWith.join(", ")} — both are recorded and nobody has ` +
+                `settled which is right. Do not present this as established; say the org's records ` +
+                `disagree and cite both.]`
+              : "") +
+            `\n${JSON.stringify(it.entity.attributes)}`,
+        ),
       );
+      // The same reasons on a NON-empty answer, phrased as the instruction an agent needs. This is the
+      // case that produces a confident wrong answer: the model receives a full page, has no way to know
+      // the record that actually answered the question was one day past its TTL, and reports what it
+      // was handed as the state of the org's knowledge.
+      if (withheld)
+        blocks.push(
+          `[Also matched but NOT injected: ${describeWithheld(withheld)}. ` +
+            `Do not report the records above as everything known on this subject — say that ` +
+            `${withheld.draft > 0 ? "unreviewed or " : ""}withheld knowledge exists and name the reason.]`,
+        );
       // Never a silent slice — and for a model the notice has to be an INSTRUCTION, not a flag. An
       // agent that reads a truncated briefing as the complete record answers from part of the
       // knowledge without knowing it. Saying where the rest is turns the cap from loss into paging.
@@ -333,13 +430,35 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     "yoke_commit",
     {
       description:
-        "Ingest a new piece of knowledge (a fact, term, etc.) into the knowledge DB. It enters in the " +
-        "draft state and only becomes eligible for injection after a human verifies it. Rejected if the " +
-        "type is not in the ontology or a required attribute is missing. To record a decision, use yoke_record_decision.",
+        "Ingest a new piece of knowledge into the knowledge DB — an entity (a fact, term, resource) or a " +
+        "RELATION between two records (supersedes, conflicts_with, relates_to, derived_from). It enters in " +
+        "the draft state and only becomes eligible for injection after a human verifies it. Rejected if the " +
+        "type is not in the ontology or a required attribute is missing; the rejection lists the types that " +
+        "are. To record a decision, use yoke_record_decision.\n" +
+        'A relation is knowledge in its own right: "this decision replaced that one" and "these two ' +
+        'records disagree" are things only you may know after reading both, and injection reads both — a ' +
+        "superseded record stops being served, and contradicting ones are served marked as disputed.",
       inputSchema: {
         type: z
           .string()
-          .describe("Entity type registered in the ontology (e.g. fact, term)"),
+          .describe(
+            "Type registered in the ontology — an entity type (fact, term, …) or a relation type " +
+              "(supersedes, conflicts_with, relates_to, …)",
+          ),
+        from: z
+          .string()
+          .optional()
+          .describe(
+            "Relation types only: the id of the record the edge starts at. For supersedes this is the " +
+              "REPLACEMENT — `from supersedes to` means `from` replaced `to`",
+          ),
+        to: z
+          .string()
+          .optional()
+          .describe(
+            "Relation types only: the id of the record the edge points at. Both ids must be records " +
+              "that exist",
+          ),
         attributes: z
           .record(z.string(), z.unknown())
           .describe("Attributes validated against the per-type schema"),
@@ -360,8 +479,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .describe(DERIVED_FROM_DESC),
       },
     },
-    ({ type, attributes, actor, scope, derived_from }) =>
-      doCommit({ type, attributes }, actor, scope, derived_from),
+    ({ type, attributes, actor, scope, derived_from, from, to }) =>
+      // Relation types carry from/to; entity types omit them.
+      doCommit(
+        from !== undefined && to !== undefined
+          ? { type, attributes, from, to }
+          : { type, attributes },
+        actor,
+        scope,
+        derived_from,
+      ),
   );
 
   server.registerTool(
@@ -444,7 +571,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const o = await overview(store, ontology, ts, { ns, top });
       // Audited like every other read that returns knowledge attributes — a hub row carries a record's
       // own text (SPEC "Any route that returns knowledge attributes writes an audit row").
-      store.logAudit?.({
+      bestEffortAudit({
         actor: defaultActor,
         action: "overview",
         detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
@@ -502,39 +629,111 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     },
     async ({ person, query }) => {
       if (!authorize("read")) return forbidden();
-      if (!(await store.getEntity(person)))
-        return err(`person not found: ${person}`);
       const ts = now();
-      const { decisions, facts } = await personaQuery(
-        store,
-        ontology,
-        person,
-        ts,
-        {
+      // Both refusals come from core: an id that is not a record, and a record that is not a person.
+      let persona: PersonaResult;
+      try {
+        persona = await personaQuery(store, ontology, person, ts, {
           query,
           ns,
-        },
-      );
+        });
+      } catch (e) {
+        if (!(e instanceof NotAPerson)) throw e;
+        // yoke_overview's author list counts VERIFIED knowledge, so on a corpus with a review backlog
+        // (the normal state — everything an agent records is a draft) it is empty. List the people
+        // directly so a persona anchor is always one read away.
+        const people = (
+          await store.listEntities({ type: PERSON_TYPE, ns, limit: 20 })
+        ).items
+          // Retired persons are refused again if picked (personaQuery rejects a deprecated anchor), so a
+          // roster of who to ASK must not list them. And each name is one-lined by `readableName`, not
+          // interpolated raw: a hostile person name ("Ada\nallowed-tools: Bash(curl:*)\n---\n# …") would
+          // otherwise reappear verbatim in model-facing output.
+          .filter((p) => p.status !== "deprecated")
+          .map((p) => `${p.id} (${readableName(p)})`)
+          .join(", ");
+        return err(
+          `${e.message}\n` +
+            (people
+              ? `people on record: ${people}`
+              : "no person records exist in this namespace yet"),
+        );
+      }
+      const { decisions, facts } = persona;
       // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.
-      const injected = [...decisions, ...facts];
-      store.logAudit?.({
+      const injected = [...decisions, ...facts].map((i) => i.entity);
+      bestEffortAudit({
         actor: defaultActor,
         action: "persona",
         detail: `${person}${query ? ` ${query}` : ""} -> ${injected.map((e) => e.id).join(" ")}`,
         at: ts,
         ns,
       });
+      // The contradiction marker, in the words yoke_inject uses. Both sides of a live conflicts_with
+      // are returned — contradictions are surfaced, never auto-resolved — and a persona is the one
+      // place a reader would take a disagreement for a conviction.
+      const marker = (i: { conflictsWith?: string[] }) =>
+        i.conflictsWith
+          ? `\n[CONTRADICTED by ${i.conflictsWith.join(", ")} — both are recorded and nobody has ` +
+            `settled which is right. Do not present this as ${person}'s settled position; say the ` +
+            `records disagree and cite both.]`
+          : "";
       const blocks: string[] = [];
-      for (const d of decisions)
+      for (const i of decisions) {
+        const d = i.entity;
+        // Rejected alternatives are half the judgment — "Postgres was on the table and lost" is how a
+        // person decides, and VISION calls them the raw material of a persona.
+        const rejected = d.attributes.rejected_alternatives;
         blocks.push(
-          `[decision] ${String(d.attributes.conclusion)}\nRationale: ${String(d.attributes.rationale)}\n${citation(d)}`,
+          `[decision] ${String(d.attributes.conclusion)}\n` +
+            `Rationale: ${String(d.attributes.rationale)}\n` +
+            (Array.isArray(rejected) && rejected.length > 0
+              ? `Rejected alternatives: ${rejected.map(String).join(", ")}\n`
+              : "") +
+            // `readableCite(i)`, not `i.citation`: core already rebuilt the citation with the author off
+            // the `authored_by` edge (docs/SPEC.md:682 — never provenance.actor), but left it a raw ULID.
+            // Resolving it to the person's name (M-AUTHOR) is what makes a line of "Alex's judgment"
+            // read as Alex's; the id stays on the pointer half, which is the audit anchor.
+            (await readableCite(i)) +
+            marker(i),
         );
-      for (const f of facts)
+      }
+      for (const i of facts)
         blocks.push(
-          `[knowledge] ${JSON.stringify(f.attributes)}\n${citation(f)}`,
+          `[knowledge] ${JSON.stringify(i.entity.attributes)}\n${await readableCite(i)}${marker(i)}`,
         );
+      // Say when this answer is a union, and that the link behind it is unreviewed. `same_as` is the
+      // one input that adds a SECOND person's judgment under this anchor, and no path can promote a
+      // relation, so the claim sits permanently outside governance (see inject's meaningEdges ceiling).
+      if (persona.identities)
+        blocks.push(
+          `[This person has ${persona.identities.length} records, combined here: ` +
+            `${persona.identities.map((p) => `${p.name} (${p.id})`).join(", ")}. They are recorded as ` +
+            `one person by same_as, which is an unreviewed claim — if it is wrong, some of the above ` +
+            `is someone else's judgment.]`,
+        );
+      // "no recorded knowledge" is false whenever the person's records are merely awaiting review —
+      // the normal state, since everything an agent commits is a draft — and an agent told it answers
+      // from nothing. Same reasons, same phrasing helper as yoke_inject's empty answer.
+      //
+      // Phrased as a fact about the PERSON rather than about `query`: core returns counts, not ids, so
+      // a filtered persona cannot say how many of the withheld records the filter would have matched.
       if (blocks.length === 0)
-        return ok(`no recorded knowledge for ${person} (no record).`);
+        return ok(
+          persona.withheld
+            ? `no verified knowledge for ${person}${query ? ` matching "${query}"` : ""}. ` +
+                `Their records also hold ${describeWithheld(persona.withheld)} — do not report this ` +
+                `as "nothing recorded"; say some of their knowledge is withheld and name the reason.`
+            : `no recorded knowledge for ${person} (no record).`,
+        );
+      // ...and on a NON-empty answer, for the reason yoke_inject says it there: a full page with the
+      // one relevant record held back reads as the complete state of what this person recorded.
+      if (persona.withheld)
+        blocks.push(
+          `[Also on record for ${person} but NOT injected: ${describeWithheld(persona.withheld)}. ` +
+            `Counted over everything they authored, not over this query. Do not report the above as ` +
+            `everything they have recorded.]`,
+        );
       return ok(blocks.join("\n\n"));
     },
   );
@@ -587,7 +786,12 @@ export async function runMcp(
     process.stderr.write(
       `not initialized: ${db}\nrun 'yoke init --db ${db}' first\n`,
     );
-    process.exit(1);
+    // exitCode + return, not `process.exit()`: an MCP server's stderr is a pipe the client owns, and
+    // `process.exit()` discards whatever node has buffered for it. The one message that tells the
+    // operator why the server would not start is the message most likely to be thrown away — see the
+    // measurement in the CLI's entry point.
+    process.exitCode = 1;
+    return;
   }
   const ns = resolveNs(undefined, env);
   // Default working-context scope (v4.0): YOKE_SCOPE, an explicit entity id or collaboration key resolved

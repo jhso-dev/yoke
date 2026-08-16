@@ -381,6 +381,29 @@ suite("postgres ontology (the RemoteStore half)", () => {
       expect((await store.neighbors(e1.id))[0].type).toBe("references");
     });
   });
+
+  // The case above cannot see WHICH key the rename left behind: it searches for words that both the
+  // prose key and the old `type || attributes::text` one carry. This one picks tokens that separate
+  // them — the prose key indexes attribute VALUES and the `sources` span, never the attribute NAMES —
+  // so a rename that rebuilds the key in SQL instead of through `serializeText` fails here.
+  it("rebuilds the index key through serializeText, not from the raw JSON", async () => {
+    await withStore(URL_ as string, "yoketest_rename_key", async (store) => {
+      await store.saveOntology([def("fact")]);
+      const e = makeEntity({
+        type: "fact",
+        attributes: { zqattrname: "zqvalue", sources: "zqspanword" },
+      });
+      await store.putEntity(e);
+      // One entity version + the declaration.
+      expect(await store.renameType("fact", "observation")).toBe(2);
+      // The `sources` span is still in the key...
+      expect(
+        (await store.search({ text: "zqspanword" })).map((x) => x.id),
+      ).toEqual([e.id]);
+      // ...and the attribute names still are not.
+      expect(await store.search({ text: "zqattrname" })).toEqual([]);
+    });
+  });
 });
 
 suite("postgres vectors (pgvector present)", () => {

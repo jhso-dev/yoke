@@ -92,7 +92,17 @@ describe("inject", () => {
     expect(items).toEqual([]);
   });
 
-  it("produces the exact citation format for one verified item", async () => {
+  it("names the author and the person who confirmed it, when they differ", async () => {
+    // This asserted `alice` alone — the PROMOTER, because `verify` appends a version whose provenance is
+    // the promotion. The fixture's author is `yoke:system`, so the citation named someone who never
+    // wrote the record. SPEC:682 states the rule ("authorship comes off the `authored_by` edge, never
+    // `provenance.actor` … an authors list built from it ranks reviewers, calls them authors"), and
+    // `overview` obeys it while the citation did not. Measured on the real shape: a decision authored
+    // under a person's id and verified by a reviewer was served inside that person's persona citing
+    // `yoke:system`, so an agent quoting yoke named the wrong person.
+    //
+    // Both, rather than swapping one for the other — who vouched for this is the other half of what
+    // makes a citation auditable.
     const id = await addFact("citable");
     await verify(port, [id], "alice", "2026-07-13T00:00:00Z");
     const { items } = await inject(
@@ -102,8 +112,28 @@ describe("inject", () => {
       "2026-07-13T00:00:00Z",
     );
     expect(items).toHaveLength(1);
+    // The date is when the KNOWLEDGE happened (`now`, what the record was stamped with), not when it
+    // was promoted a day later. This asserted the verify instant, which is what a citation carrying
+    // governance time looks like from the outside.
     expect(items[0].citation).toBe(
-      `[fact:${id}@v2] alice, 2026-07-13T00:00:00Z`,
+      `[fact:${id}@v2] yoke:system (confirmed by alice), 2026-07-12T00:00:00.000Z`,
+    );
+  });
+
+  it("stays the plain format when the author confirmed their own record", async () => {
+    // The single-user local path, which is every ungated install: one actor, so there is nothing to
+    // distinguish and the citation reads exactly as it always has. This is also why the defect above
+    // went unnoticed — it is invisible until a second person exists.
+    const id = await addFact("self-confirmed");
+    await verify(port, [id], "yoke:system", "2026-07-13T00:00:00Z");
+    const { items } = await inject(
+      port,
+      ont,
+      "self-confirmed",
+      "2026-07-13T00:00:00Z",
+    );
+    expect(items[0].citation).toBe(
+      `[fact:${id}@v2] yoke:system, 2026-07-12T00:00:00.000Z`,
     );
   });
 });
@@ -190,7 +220,20 @@ describe("inject scoped (v4.0)", () => {
 
   it("never returns the scope entity itself (self-loop is skipped)", async () => {
     const s = await scene();
-    await link(s.ws, s.ws); // self relation
+    // Written straight through the port, because the gate refuses a self-edge now — and a row from before
+    // that guard is exactly what this reader-side check is for. Defence in depth: the writer stops new
+    // ones, the reader survives old ones.
+    await port.putRelation({
+      id: "self-edge",
+      type: "relates_to",
+      from: s.ws,
+      to: s.ws,
+      attributes: {},
+      status: "verified",
+      version: 1,
+      last_confirmed: now,
+      provenance: prov,
+    });
     const { items } = await inject(port, ont, "", now, { scope: s.ws });
     expect(items.map((i) => i.entity.id)).not.toContain(s.ws);
   });
@@ -914,7 +957,7 @@ describe("hybrid retrieval: the vector half of the Embedder contract", () => {
       semantic,
       "tenant-b",
     );
-    await verify(port, [theirs], "alice", now);
+    await verify(port, [theirs], "alice", now, "tenant-b");
 
     const items = (await inject(port, ont, QUERY, now, { embedder: semantic }))
       .items;
@@ -935,5 +978,358 @@ describe("hybrid retrieval: the vector half of the Embedder contract", () => {
         embedder: async () => Float32Array.from([1, 0, 0, 0]),
       }),
     ).rejects.toThrow(/dimension changed.*backfill --embeddings --rebuild/s);
+  });
+});
+
+// An empty answer used to be one word for four situations. The three surfaces then each guessed:
+// the CLI explained drafts only, the MCP tool said "no verified knowledge found", the web said
+// nothing. Core now says which, so all three say the same thing.
+describe("an empty injection says why it is empty", () => {
+  it("names drafts awaiting review", async () => {
+    await addFact("the pool drains at midnight");
+    const res = await inject(port, ont, "pool", now);
+    expect(res.items).toEqual([]);
+    expect(res.withheld).toEqual({
+      draft: 1,
+      stale: 0,
+      deprecated: 0,
+      structural: 0,
+      superseded: 0,
+    });
+  });
+
+  it("names a retired record, which the draft-only version could not", async () => {
+    const f = await addFact("we deploy on fridays");
+    await verify(port, [f], "admin", now);
+    await deprecate(port, [f], "admin", now);
+    const res = await inject(port, ont, "fridays", now);
+    expect(res.items).toEqual([]);
+    expect(res.withheld?.deprecated).toBe(1);
+    expect(res.withheld?.draft).toBe(0);
+  });
+
+  it("names a stale record rather than implying it was never recorded", async () => {
+    const f = await addFact("the gateway retries twice");
+    await verify(port, [f], "admin", now);
+    // fact TTL = 180 days.
+    const res = await inject(port, ont, "gateway", "2027-06-01T00:00:00Z");
+    expect(res.items).toEqual([]);
+    expect(res.withheld?.stale).toBe(1);
+  });
+
+  // The reason that misdirects worst: a verified person matching the query is withheld by TYPE, so a
+  // reader told "draft withheld" verifies it and the answer does not improve.
+  it("distinguishes a structural match from one awaiting review", async () => {
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "person", attributes: { name: "Mina" } },
+      prov,
+      now,
+    );
+    await verify(port, [entity.id], "admin", now);
+    const res = await inject(port, ont, "Mina", now);
+    expect(res.items).toEqual([]);
+    expect(res.withheld).toEqual({
+      draft: 0,
+      stale: 0,
+      deprecated: 0,
+      structural: 1,
+      superseded: 0,
+    });
+  });
+
+  it("is absent when the query matched nothing at all — a different answer", async () => {
+    const f = await addFact("the pool drains at midnight");
+    await verify(port, [f], "admin", now);
+    const res = await inject(port, ont, "kubernetes", now);
+    expect(res.items).toEqual([]);
+    expect(res.withheld).toBeUndefined();
+  });
+
+  it("is absent when everything that matched was handed over", async () => {
+    const f = await addFact("the pool drains at midnight");
+    await verify(port, [f], "admin", now);
+    const res = await inject(port, ont, "pool", now);
+    expect(res.items).toHaveLength(1);
+    expect(res.withheld).toBeUndefined();
+  });
+});
+
+// The dangerous case, and the one the empty-only version could not reach: a full page of answers with
+// the record that actually answers the question filtered out of it. The reader concludes nothing was
+// recorded, having been shown proof that the corpus is not silent.
+describe("a partial injection says what it held back", () => {
+  it("reports a stale record alongside the records it did return", async () => {
+    const fresh = await addFact("the pool drains at midnight");
+    const stale = await addFact("the pool drains at noon");
+    await verify(port, [fresh], "admin", now);
+    // Verified long before the read, so only this one is past the 180-day fact TTL.
+    await verify(port, [stale], "admin", "2026-01-01T00:00:00Z");
+    const res = await inject(port, ont, "pool", now);
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0].entity.id).toBe(fresh);
+    expect(res.withheld?.stale).toBe(1);
+  });
+
+  it("does not count the records it injected as withheld", async () => {
+    const a = await addFact("the gateway retries twice");
+    const b = await addFact("the gateway retries three times");
+    await verify(port, [a, b], "admin", now);
+    const res = await inject(port, ont, "gateway", now);
+    expect(res.items).toHaveLength(2);
+    expect(res.withheld).toBeUndefined();
+  });
+
+  it("reports drafts held back from an answer that was not empty", async () => {
+    const v = await addFact("the gateway retries twice");
+    await addFact("the gateway retries three times");
+    await verify(port, [v], "admin", now);
+    const res = await inject(port, ont, "gateway", now);
+    expect(res.items).toHaveLength(1);
+    expect(res.withheld?.draft).toBe(1);
+  });
+});
+
+// A reason computed from today's row is a reason about the wrong record. `--as-of 2020` on a corpus
+// created in 2026 answered "1 retired": nothing existed then, and the retirement it named had not
+// happened yet.
+describe("as-of withheld reasons are about the version that existed then", () => {
+  it("says nothing was withheld for an instant before the record existed", async () => {
+    const f = await addFact("we deploy on fridays");
+    await verify(port, [f], "admin", now);
+    await deprecate(port, [f], "admin", now);
+    const res = await inject(port, ont, "fridays", now, {
+      asOf: "2020-01-01T00:00:00Z",
+    });
+    expect(res.items).toEqual([]);
+    expect(res.withheld).toBeUndefined();
+  });
+
+  it("names the status the record actually had then, not the one it has now", async () => {
+    const f = await addFact("we deploy on fridays");
+    // Still a draft at this instant; verified and retired afterwards.
+    const whileDraft = "2026-07-12T00:00:01Z";
+    await verify(port, [f], "admin", "2026-07-13T00:00:00Z");
+    await deprecate(port, [f], "admin", "2026-07-14T00:00:00Z");
+    const res = await inject(port, ont, "fridays", now, { asOf: whileDraft });
+    expect(res.items).toEqual([]);
+    expect(res.withheld?.draft).toBe(1);
+    expect(res.withheld?.deprecated).toBe(0);
+  });
+});
+
+// The store knew both of these and injection asked neither. `grep conflicts_with src/core/inject.ts`
+// found nothing, and `supersedes` was understood by exactly one function in the product
+// (checkPersonaSources) — so a persona exported both halves of a reversal as live guiding principles,
+// and six queries on the demo corpus handed an agent both sides of a live disagreement as equal facts.
+describe("injection knows what a record contradicts and what replaced it", () => {
+  /** Two verified facts, and the edge between them. */
+  async function pair(
+    aText: string,
+    bText: string,
+    relType: string,
+  ): Promise<{ a: string; b: string }> {
+    const a = await addFact(aText);
+    const b = await addFact(bText);
+    await verify(port, [a, b], "admin", now);
+    await commit(
+      port,
+      ont,
+      { type: relType, attributes: {}, from: a, to: b },
+      prov,
+      now,
+    );
+    return { a, b };
+  }
+
+  it("marks both sides of a contradiction and withholds neither", async () => {
+    // "Contradictions are surfaced, never auto-resolved" — dropping a side would be the database
+    // deciding the winner, and dropping both would delete the disagreement.
+    const { a, b } = await pair(
+      "the gateway rejects retries within 2s",
+      "the gateway accepts retries immediately",
+      "conflicts_with",
+    );
+    const res = await inject(port, ont, "gateway retries", now);
+    expect(res.items).toHaveLength(2);
+    for (const item of res.items) {
+      const other = item.entity.id === a ? b : a;
+      expect(item.conflictsWith).toEqual([other]);
+    }
+    expect(res.withheld).toBeUndefined();
+  });
+
+  it("marks a contradiction recorded from either end, since the relation is symmetric", async () => {
+    const { a, b } = await pair(
+      "freeze on friday",
+      "freeze on thursday",
+      "conflicts_with",
+    );
+    // Filed a -> b; b must still learn about it.
+    const res = await inject(port, ont, "freeze", now);
+    const forB = res.items.find((i) => i.entity.id === b);
+    expect(forB?.conflictsWith).toEqual([a]);
+  });
+
+  it("is absent on a record with nothing to declare", async () => {
+    // "Not disputed" and "we did not look" have to read differently.
+    const f = await addFact("the pool drains at midnight");
+    await verify(port, [f], "admin", now);
+    const res = await inject(port, ont, "pool", now);
+    expect(res.items[0].conflictsWith).toBeUndefined();
+  });
+
+  it("withholds a superseded record and says which reason it was", async () => {
+    // `a supersedes b`, so b is the one no longer current — the direction is the whole correctness of
+    // this: read the other way round it would withhold every replacement and serve what they replaced.
+    const { a } = await pair(
+      "internal calls use HTTP/JSON with an OpenAPI contract",
+      "internal calls use gRPC",
+      "supersedes",
+    );
+    const res = await inject(port, ont, "internal calls", now);
+    expect(res.items.map((i) => i.entity.id)).toEqual([a]);
+    expect(res.withheld?.superseded).toBe(1);
+    expect(res.withheld?.stale).toBe(0);
+  });
+
+  it("does not let a supersession withhold a record from before it was recorded", async () => {
+    // An as-of read rewinds versions; it has to rewind the edges too. Otherwise today's relation graph
+    // answers a question about a past instant, and a record that was current then is withheld by a
+    // replacement nobody had recorded yet — the same mistake `countWithheld` rewinds versions to avoid.
+    const a = await addFact("internal calls use gRPC");
+    const b = await addFact("internal calls use HTTP/JSON");
+    await verify(port, [a, b], "admin", now);
+    const later = "2027-01-01T00:00:00Z";
+    await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: b, to: a },
+      { ...prov, occurred_at: later },
+      later,
+    );
+    // Asked about today, before the supersession happened: both stand.
+    const then = await inject(port, ont, "internal calls", now, { asOf: now });
+    expect(then.items.map((i) => i.entity.id).sort()).toEqual([a, b].sort());
+    expect(then.withheld?.superseded ?? 0).toBe(0);
+    // Asked about after it: the replaced one drops out.
+    const after = await inject(port, ont, "internal calls", later, {
+      asOf: later,
+    });
+    expect(after.items.map((i) => i.entity.id)).not.toContain(a);
+    expect(after.withheld?.superseded).toBe(1);
+  });
+
+  it("reads the same instant the same way, however the caller wrote the offset", async () => {
+    // `instantFlag` validates the format and returns it unnormalised, so the offset a person typed
+    // reaches core. A lexicographic `<=` then put 2026-08-13T20:00:00-09:00 and 2026-08-14T05:00:00Z —
+    // the same moment — on opposite sides of an edge stamped 01:28Z, so one as-of read answered itself
+    // two ways: withheld under one spelling, served under the other. `versionAsOf` had it right all
+    // along; the edge filter wrote the comparison out again instead of reusing it.
+    const a = await addFact("gamma holds");
+    const b = await addFact("gamma replaced");
+    await verify(port, [a, b], "admin", now);
+    const edgeAt = "2026-08-14T01:28:00Z";
+    await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: b, to: a },
+      { ...prov, occurred_at: edgeAt },
+      edgeAt,
+    );
+    const ids = async (asOf: string) =>
+      (await inject(port, ont, "gamma", "2026-08-14T06:00:00Z", { asOf })).items
+        .map((i) => i.entity.id)
+        .sort();
+    expect(await ids("2026-08-13T20:00:00-09:00")).toEqual(
+      await ids("2026-08-14T05:00:00Z"),
+    );
+  });
+
+  it("counts a supersession as withheld, never as a limit truncation", async () => {
+    // `omitted` means "your limit cut this many — ask again or raise it", and every front end says so
+    // in words. A superseded record is not reachable at any limit, so folding it in made that
+    // instruction false; a caller passing no limit at all was told their limit had dropped records.
+    await pair(
+      "the new limit is 300 rpm",
+      "the limit is 1000 rpm",
+      "supersedes",
+    );
+    const res = await inject(port, ont, "rpm limit", now);
+    expect(res.items).toHaveLength(1);
+    expect(res.omitted).toBe(0);
+    expect(res.withheld?.superseded).toBe(1);
+  });
+
+  it("does not withhold the record that supersedes", async () => {
+    const { a } = await pair(
+      "the new limit is 300 rpm",
+      "the limit is 1000 rpm",
+      "supersedes",
+    );
+    const res = await inject(port, ont, "rpm limit", now);
+    expect(res.items.map((i) => i.entity.id)).toContain(a);
+  });
+
+  it("does not let an edge in another namespace mark or withhold a record", async () => {
+    // `neighbors` takes no ns, which is why this filter lives in core — the same hole identitySet and
+    // downstreamOf each had to close.
+    const mine = await addFact("the retry budget is three attempts");
+    const theirs = await addFact("the retry budget is one attempt");
+    await verify(port, [mine, theirs], "admin", now);
+    await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: theirs, to: mine },
+      prov,
+      now,
+      { ns: "other-tenant" },
+    );
+    const res = await inject(port, ont, "retry budget", now);
+    expect(res.items.map((i) => i.entity.id).sort()).toEqual(
+      [mine, theirs].sort(),
+    );
+    expect(res.withheld).toBeUndefined();
+  });
+});
+
+describe("freshest-first means the latest instant, not the highest string", () => {
+  it("orders a legacy stamp against a canonicalized one by when they happened", async () => {
+    // The gate canonicalizes every stamp it writes, but a database that predates that holds both
+    // vintages — and `Z` (0x5A) sorts after `.` (0x2E), so 00:00:00.500Z collated as OLDER than
+    // 00:00:00Z, half a second before it. The last collating timestamp comparison in the product.
+    // The anchored briefing is the path that orders by freshness ("the freshest knowledge about this
+    // work leads"); the query path orders by relevance, so the anchor is what exercises the sort.
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "ordering" } },
+      prov,
+      now,
+    );
+    await verify(port, [ws.id], "admin", now);
+    const older = "2026-07-13T00:00:00Z"; // legacy shape, earlier instant
+    const newer = "2026-07-13T00:00:00.500Z"; // canonical shape, later instant
+    for (const [id, at] of [
+      ["legacy-older", older],
+      ["canon-newer", newer],
+    ] as const) {
+      await port.putEntity({
+        id,
+        type: "fact",
+        attributes: { statement: `ordering probe ${id}` },
+        status: "verified",
+        version: 1,
+        last_confirmed: at,
+        provenance: { ...prov, occurred_at: at },
+      });
+      await link(id, ws.id);
+    }
+    const { items } = await inject(port, ont, "", now, { scope: ws.id });
+    expect(items.map((i) => i.entity.id)).toEqual([
+      "canon-newer",
+      "legacy-older",
+    ]);
   });
 });

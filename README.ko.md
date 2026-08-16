@@ -34,22 +34,33 @@ MIT · v5.9까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
    소문은 못 들어옵니다.
 2. **사람이 검증하기 전엔 믿지 않는다.** 새 지식은 `draft`로 진입해 주입에서
    격리됩니다. AI 에이전트는 MCP로 *기록*만 할 수 있고 승격은 못 합니다 —
-   검증은 의도적으로 사람의 행위입니다(`yoke verify`). `verified`만 AI의
-   컨텍스트에 닿습니다.
+   검증은 의도적으로 사람의 행위이며(`yoke verify`), 그걸 하는 MCP 도구는
+   없습니다. 기본적으로 `verified`만 AI의 컨텍스트에 닿고, 에이전트가 명시적으로
+   요청하면(`includeDraft`) draft도 `[draft]` 표시와 함께 받습니다. 문서화된
+   예외 하나: `connect rdb`는 이미 조직의 system of record인 DB를 매핑하므로
+   매핑된 행은 verified로 들어옵니다 — docs/BACKENDS.md 참고.
 3. **아무것도 조용히 덮이지 않는다.** 저장은 append-only입니다 — 수정은 새 버전이고,
    삭제는 아예 없습니다(폐기는 `deprecated` 상태). 임의 시점의 믿음을 언제든 재구성할 수 있고, 주입되는 모든
-   항목에 인용이 붙습니다 — `[type:id@vN] actor, occurred_at` — 그래서 모든
-   주장이 감사 가능합니다.
+   항목에 인용이 붙습니다 — `[type:id@vN] 저자 (confirmed by 승격자), occurred_at` —
+   그래서 모든 주장이 감사 가능하고, 누가 썼는지와 누가 보증했는지가 둘 다 남습니다.
+   이력이 담을 수 없는 변경은 `rename-type` 하나입니다: 기존 버전 행의 타입을
+   다시 쓰며, 그 사실을 감사 행으로 남깁니다.
 4. **모순은 드러내되 자동 해소하지 않는다.** 새 지식이 검증된 기록과 충돌하면
-   yoke는 둘 다 보존하고 `conflicts_with` 관계로 묶어 사람이 판단하게 합니다.
-   불일치의 존재 자체가 지식이며, 승자를 고르는 건 DB의 일이 아닙니다.
+   yoke는 둘 다 보존하고 `conflicts_with` 관계로 묶어 사람이 판단하게 하며,
+   주입도 양쪽을 "상충" 표시와 함께 넘깁니다. 불일치의 존재 자체가 지식이며,
+   승자를 고르는 건 DB의 일이 아닙니다. 자동 *탐지*는 임베딩을 비교하므로
+   임베딩 제공자 설정이 필요합니다(아래) — 없으면 직접 연결한 모순은 그대로
+   드러나지만, 대신 찾아주지는 않습니다.
 5. **지식은 만료된다.** `verified`가 영원하진 않습니다 — 타입별 TTL을 넘기면
    읽기 시점에 `stale`로 강등되어, 누군가 재확인하기 전까지 주입 경로에서
    빠집니다. 낡은 진실은 가장 정중한 형태의 허위정보이고, yoke는 그렇게
    취급합니다.
 
-그리고 주장이 아니라 측정입니다: 주입 품질 eval은 **오염률 0%**, **모순 미탐지율
-0%**를 보고합니다(아래 참고).
+그리고 주장이 아니라 측정입니다: 주입 품질 eval은 **오염률 0%**(draft·stale·폐기
+레코드가 주입에 닿지 않음)와, 심어둔 쌍에 대한 **모순 미탐지율 0%**를
+보고합니다(아래 참고). 다만 범위를 그대로 읽으세요: 합성 코퍼스와 스텁 임베더를
+쓰므로 필터와 탐지 배선을 측정하는 것이고, 실제 데이터에서의 검색 품질은
+`npm run eval:retrieval`이 gold set으로 측정합니다.
 
 로컬·임베디드로 동작합니다 — better-sqlite3 + FTS5 + sqlite-vec, 서버 불필요.
 
@@ -85,7 +96,7 @@ MIT · v5.9까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 | **한 줄 요약** | 지식에 최적화된 데이터베이스: 온톨로지로 구조화한 뒤, 지금 맥락에 맞는 검증된 부분집합만 인용과 함께 AI에 주입합니다. |
 | **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
 | **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `postgres`(네이티브 스코어드 FTS + pgvector, 의존성 추가 없음) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 넷 모두 하나의 conformance 스위트를 통과. |
-| **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `raw`(비정형 자료 — 대화록·문서를 모델이 추출), `rdb`(Postgres/MySQL read-mapping) — 외부 소스 → draft 지식. |
+| **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `raw`(비정형 자료 — 대화록·문서를 모델이 추출) — 외부 소스 → draft 지식, 원본 시각으로 기록. `rdb`(Postgres/MySQL read-mapping)는 이미 system of record인 DB를 매핑하므로 verified로 들어옵니다. |
 | **앵커 기반 주입** | 하나의 메커니즘, 두 개의 진입점: `collaboration`에 앵커하면 팀의 공유 작업 컨텍스트, `person`에 앵커하면 persona. |
 | **persona** | "이 동료라면 어떻게 판단할까?" → 그 사람의 기록된 검증 판단을 인용과 함께, 실시간 생성으로. 흉내가 아니라 인용. |
 | **공유 작업 컨텍스트** | `collaboration`을 고정하면 팀이 하나의 컨텍스트를 공유 — 스코프는 전사 지식을 가리지 않고 우선순위만 부여. |
@@ -227,23 +238,27 @@ yoke serve --auth --host 0.0.0.0   # 팀 공유. `yoke token create` 로 만든 
 
 화면: review 큐, conflicts, 온톨로지 브라우저, persona 미리보기, 엔티티 상세, 주입
 미리보기("이 쿼리면 내 에이전트가 실제로 뭘 받나?"), 힘기반 그래프 탐색, 감사 로그.
-정적 번들 하나, 포트 하나 — 같은 프로세스가 `POST /mcp`도 처리하므로 따로 배포할 것이
-없습니다.
+정적 번들 하나, 포트 하나. `yoke serve`에서는 같은 프로세스가 `POST /mcp`도 처리해
+팀 배포에 따로 필요한 게 없고, `yoke ui`는 워크벤치만 제공합니다.
 
 서버는 기본적으로 루프백에 바인딩합니다. `yoke ui`는 인증이 없어서 개방은 명시적
-`--host`이고 경고를 출력합니다. `yoke serve`는 `--auth` 없이 비루프백 바인딩을 거부합니다.
+`--host`이고, 닿을 수 있는 누구나 이 DB의 지식을 읽고 만들고 폐기하고 이름을 바꿀 수
+있다고 경고합니다 — 크레덴셜 발급만은 비루프백 호출자에게 거부됩니다. `yoke serve`는
+인증할 수 있으므로 그럴 이유가 없고, `--auth` 없는 비루프백 바인딩을 아예 거부합니다.
 
 ## CLI
 
 ```
-yoke init | add | get | search | list | link | review | verify | deprecate
-yoke inject <query> [--include-draft] [--scope <id>] [--depth n] [--as-of ts]
-yoke overview | graph [--scope <id>]          # 코퍼스 한눈에 보기 / 엣지로 보기
+yoke init | add | get | search | list | link | verify | deprecate
+yoke review [--stale]                         # 검토 대기 draft / TTL 지난 verified
+yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
+yoke overview | graph [--limit n]             # 코퍼스 한눈에 보기 / 엣지로 보기
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
 yoke connect github-pr|slack|notes|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
-yoke backup | restore | export --until <ts> --out <new.db>   # --shards <file> 로 백엔드 연합
+yoke backup <dest.db> [--force] | restore <src.db> [--force]
+yoke export --until <ts> --out <new.db>       # --shards <file> 로 백엔드 연합
 yoke backfill [--embeddings [--rebuild]]      # 저작 엣지 / 벡터 인덱스 복구
 ```
 
@@ -282,6 +297,15 @@ recall 벤치마크 대신, yoke는 **주입 품질**을 측정합니다(`npm ru
 |---|---|---|---|
 | 오염률 | 주입 결과 중 draft 비율 | 0% | **0.0%** (후보 40건 중 verified 20건만 주입) |
 | 모순 미탐지율 | 반대 결론 decision 쌍 중 conflicts_with 미연결 비율 | 0% | **0.0%** (5/5 탐지) |
+
+이 두 숫자의 범위를 그대로 읽으세요: 45건 합성 코퍼스와, 심어둔 주제어로 벡터를 만드는
+스텁 임베더입니다. 그래서 모순 수치는 게이트 4단계가 돌아 엣지를 만든다는 뜻이고, 실제
+임베딩 모델이 알아챈다는 뜻은 아닙니다. 정밀도는 어느 축에서도 측정하지 않습니다.
+
+**검색 품질**은 `npm run eval:retrieval -- <db>`가 `eval/gold-set.json`으로 따로
+측정합니다 — 실제 텍스트에 대한 검색을 재는 쪽이고, 헤드라인 대신 약점을 그대로
+출력합니다: 데모 코퍼스에서 키워드 검색 recall@10은 전체 59.2%지만 문장형 질의는
+52.0%, 키워드형 질의는 95.5%입니다.
 
 ## 문서
 

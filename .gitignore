@@ -18,3 +18,8 @@ yoke-serve.err.log
 web/.next/
 web/out/
 *.tsbuildinfo
+
+# Local git worktrees (EnterWorktree puts them here). A worktree carries its own
+# biome.json, which biome rejects as a nested root configuration — so `npm run lint`
+# fails for anyone who has one, on a directory that is never part of a commit.
+.claude/worktrees/

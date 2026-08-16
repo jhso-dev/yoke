@@ -59,18 +59,25 @@ export function CreateButton({
           type={type}
           scope={scope}
           onCreated={(created) => {
-            // One sentence, the most important one: a duplicate warning outranks the plain
-            // "created" (it already says created), and "nothing was compared" outranks silence.
+            // One sentence, the most important one, and a PARTIAL commit outranks them all: the record
+            // is durable but an edge the gate tried alongside it was not written, and a plain "created"
+            // toast would report that as an unqualified success. After it, a duplicate warning outranks
+            // the plain "created" (it already says created), and "nothing was compared" outranks silence.
             const dups = created.duplicates ?? [];
+            const unrecorded = created.unrecorded ?? [];
             announce(
-              dups.length > 0
-                ? t.create.duplicates(
-                    dups.length,
-                    dups.map((d) => recordLabel(d)).join(" · "),
-                  )
-                : created.duplicateDetection === "skipped"
-                  ? t.create.notChecked
-                  : t.create.createdToast(recordLabel(created)),
+              unrecorded.length > 0
+                ? // Core emits three kinds of unrecorded edge, each with its own remedy; the toast
+                  // classifies them (see t.create.partial) rather than collapsing to one boolean.
+                  t.create.partial(recordLabel(created), unrecorded)
+                : dups.length > 0
+                  ? t.create.duplicates(
+                      dups.length,
+                      dups.map((d) => recordLabel(d)).join(" · "),
+                    )
+                  : created.duplicateDetection === "skipped"
+                    ? t.create.notChecked
+                    : t.create.createdToast(recordLabel(created)),
             );
             setOpen(false);
             onCreated(created);

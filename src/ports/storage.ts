@@ -5,6 +5,23 @@
 import type { Entity, Relation } from "../core/types.js";
 
 /**
+ * Two writers computed the same next `(id, version)` and one lost the primary-key contest (C1/C2).
+ *
+ * Adapters translate their backend's uniqueness violation into THIS — SQLite's
+ * `SQLITE_CONSTRAINT_PRIMARYKEY`, Postgres' `23505`, OpenSearch's `409` — so core can catch a typed
+ * error and retry, rather than string-matching a raw `UNIQUE constraint failed` (invariant 1: a
+ * backend's error vocabulary must not leak into core). It is an optimistic-concurrency signal, not a
+ * defect: `commit` (existingId re-version) and `lifecycle.transition` re-read the latest version and
+ * retry, so two concurrent re-versions of one id both land, serialized.
+ */
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
+/**
  * How many rows `search` returns when the caller names no limit.
  *
  * Not a product policy — `inject` and the front adapters have their own caps. This is the floor
@@ -25,7 +42,7 @@ export interface TextQuery {
   /** Stored status. An array means "any of these", which is what injection needs: it wants
    * verified, or verified-and-draft, and could not say so with a single value. Over-fetching instead
    * does not work — `verify` rewrites the row, so on tied relevance the injectable records sort LAST
-   * and a 4x window can miss all of them (found by the test written to prove the opposite). */
+   * and a 4x window can miss all of them. */
   status?: string | string[];
   limit?: number;
   /** Tenant namespace filter (PLAN-V2 10.1). Omitted/undefined = the default shared
@@ -119,8 +136,7 @@ export function orderByIds<T extends { id: string }>(
 /**
  * Read many entities, using the backend's batch capability when it has one and the `getEntity` loop
  * when it does not. Callers in core use THIS rather than probing `getEntities` themselves — one copy
- * of the feature-detect, the same rule `listVersions` learned after `backfillAuthorship` grew its own
- * (and settled for the wrong fallback).
+ * of the feature-detect.
  *
  * Returns rows in `ids` order with absent ids omitted, on both paths.
  */
@@ -165,6 +181,18 @@ export interface StoragePort {
   getEntities?(ids: string[]): Promise<Entity[]>;
 
   putRelation(r: Relation): Promise<void>;
+
+  /**
+   * Optional capability — one relation by id (latest version, or a given one). null if absent.
+   *
+   * `link` returns the id of the edge it stored, and that id has to resolve: a relation is knowledge
+   * in its own right (CLAUDE.md terminology), so `get` and `verify` must both find it by id.
+   *
+   * Optional in the shape `similar` and `putEmbedding` are: an adapter without it is conformant and
+   * callers feature-detect, so a backend that cannot address an edge by id is slower to read rather
+   * than broken. `neighbors` remains the only way in for adapters that skip it.
+   */
+  getRelation?(id: string, version?: number): Promise<Relation | null>;
   /** Relations connected to id. Both directions when dir is omitted; filter type with relType. */
   neighbors(
     id: string,
@@ -175,10 +203,10 @@ export interface StoragePort {
   /**
    * Keyword (FTS) search. Empty array on no match.
    *
-   * Two clauses tightened in v5.1, both conformance cases (SPEC "search"):
+   * Two clauses, both conformance cases (SPEC "search"):
    * - **Best match first**, never storage order. An adapter with a ranker uses it; one without
    *   ranks the rows it already materialized (`core/rank.ts`). Returning insertion order makes
-   *   `limit` mean "oldest N", which is what injection was silently doing.
+   *   `limit` mean "oldest N".
    * - **Bounded when the caller omits `limit`**: `DEFAULT_SEARCH_LIMIT` applies. A resource bound,
    *   not a policy cap — an unbounded search at 10M entities exhausted the JS heap.
    *
@@ -213,4 +241,26 @@ export interface StoragePort {
    * implements it; the optionality is the extension point, not a description of the current set.
    */
   putEmbedding?(e: Entity, opts?: { rebuild?: boolean }): Promise<void>;
+
+  /**
+   * Optional capability — run `fn` as a critical section serialized against every OTHER writer, so a
+   * check-then-write is atomic (C4).
+   *
+   * The connector idempotency probe is exactly this shape: `findByExternalId` then `commit`. Without
+   * serialization two concurrent ingests of one source item both read "absent" and both insert, so the
+   * corpus holds the stale claim and its correction as two live records. Holding the backend's write
+   * lock from before the read until after the write makes the second ingest see the first's row and
+   * take the updated/skipped path.
+   *
+   * On SQLite this is a `BEGIN IMMEDIATE` transaction. A backend that cannot serialize a MULTI-statement
+   * critical section across its own methods (a pooled remote, where each call may land on a different
+   * connection) omits it, and callers feature-detect — the same optional-capability shape as `similar`.
+   *
+   * ceiling: the write lock is held across every `await` inside `fn`, an embedder network call
+   * included. That is acceptable for a batch/cron ingest and is why this is opt-in per critical
+   * section rather than a global lock. It also assumes no OTHER operation runs on the same handle
+   * concurrently (true for the one-shot CLI ingest path); a long-running server sharing the handle
+   * would fold a concurrent write into the section.
+   */
+  withCriticalSection?<T>(fn: () => Promise<T>): Promise<T>;
 }

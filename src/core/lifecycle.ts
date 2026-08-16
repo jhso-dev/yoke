@@ -3,17 +3,42 @@
 // path rather than the commit gate. The only direct putEntity calls live in this file.
 // Time is injected — never call new Date() in core (SPEC: inject the clock).
 
-import { readEntities, type StoragePort } from "../ports/storage.js";
+import {
+  ConflictError,
+  readEntities,
+  type StoragePort,
+} from "../ports/storage.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity, Status } from "./types.js";
 
 const DAY_MS = 86_400_000;
 
+/** Bounded retry for the `(id, version)` race (C2), mirroring commit's MAX_VERSION_RETRIES. */
+const MAX_VERSION_RETRIES = 5;
+
+/**
+ * When THIS VERSION came into being — governance time, which is not the knowledge's event time.
+ *
+ * `transitioned_at` when a lifecycle transition wrote the row; otherwise `occurred_at`, which on a
+ * commit-written row is the instant the caller stamped it with. The fallback also reads rows written
+ * before the two times were separated: those carry the transition instant in `occurred_at`, so
+ * as-of over legacy history answers exactly as it did before the split.
+ */
+const versionTime = (e: Entity): string =>
+  e.provenance.transitioned_at ?? e.provenance.occurred_at;
+
 /**
  * Shared transition path. Reads every row in ONE batch, then appends a new version row each
- * (append-only). Provenance is refreshed to record the promote/retire action itself
- * (origin: 'lifecycle').
+ * (append-only). Provenance records the promote/retire action itself (actor, origin 'lifecycle',
+ * `transitioned_at`) on top of the knowledge's own provenance, which is carried forward.
+ *
+ * `occurred_at` SURVIVES the transition. It used to be restamped to the transition instant, which
+ * meant `verify --all-drafts` gave a whole corpus one event time — a batch of dated documents read
+ * as though everything in it happened the moment someone promoted it, and every time-aware read
+ * (as-of, claim ordering, the citation's date) got governance time in place of the knowledge's own.
+ * The transition still needs a time of its own, for the as-of rewind; that is `transitioned_at`.
+ * The invariant: a verify/deprecate changes status, never when the knowledge happened.
  *
  * ONE batch read, not a `getEntity` per id: a bulk verify of 54 rows from the review queue would
  * otherwise be 54 round trips before the first write. Writes stay one call each — the port has no
@@ -23,11 +48,36 @@ async function transition(
   port: StoragePort,
   ids: string[],
   actor: string,
-  now: string,
+  rawNow: string,
   status: Status,
+  ns?: string | null,
 ): Promise<Entity[]> {
+  // The SECOND write path into storage, and it stamps both `last_confirmed` and a fresh `provenance`.
+  // The gate normalizes its instants (commit.ts `normalizeProvenance`); a promotion that did not would
+  // reintroduce mixed spellings into the same rows the gate had just canonicalized, and every
+  // collating read — the briefing sort, `newestFirst`, the SQL windows — would disagree about which
+  // record is newest. Rejecting garbage here rather than storing an uncomparable stamp, for the reason
+  // the gate does: `Date.parse` → NaN never fails loudly, it just answers wrongly.
+  if (Number.isNaN(Date.parse(rawNow)))
+    throw new Error(
+      `cannot record a transition at ${JSON.stringify(rawNow)}: not an ISO 8601 instant`,
+    );
+  const now = new Date(Date.parse(rawNow)).toISOString();
+  const wantNs = normalizeNs(ns);
   const found = new Map(
-    (await readEntities(port, ids)).map((e) => [e.id, e] as const),
+    (await readEntities(port, ids))
+      // The namespace is the tenant isolation unit (ENTERPRISE.md): this write path filters ns as every
+      // READ route does. RBAC only asks "may you verify", never "is this record yours", so without the
+      // filter a token scoped `teamA:verify` crosses the tenant boundary — mutating, disclosing and
+      // retiring a record owned by teamB, whose own audit trail (written with the caller's ns) shows
+      // nothing.
+      //
+      // A foreign record is reported as unknown rather than as forbidden, deliberately. "exists, but
+      // not yours" is an existence oracle: it lets one tenant enumerate another's ids by watching which
+      // refusals change wording. Reads already answer this way (`GET /api/entity/:id` 404s for a
+      // foreign id), so the two agree.
+      .filter((e) => normalizeNs(e.ns) === wantNs)
+      .map((e) => [e.id, e] as const),
   );
   // Distinct: the read is a batch, so a repeated id would otherwise apply the same `prev` twice and
   // write (id, version+1) twice — two governance rows for one action.
@@ -37,42 +87,110 @@ async function transition(
   // `verify([known, "nope"])` throw with `known` already promoted, which is a half-applied governance
   // action nobody asked for.
   for (const id of distinct)
-    if (!found.has(id))
+    if (!found.has(id)) {
+      // An edge id gets its own refusal. `link` prints `draft` next to the id it returns, so the next
+      // thing a reader tries is `verify <that id>` — and "cannot transition unknown entity" says the
+      // store has never heard of a row it is holding. Name what it is and why the action does not
+      // apply, rather than denying it exists.
+      //
+      // ceiling: relations are not promotable, and a `draft` edge is not weaker than a `verified` one
+      // — no read filters on an edge's status, so an unverified relation routes a briefing exactly as
+      // a verified one does. Making promotion mean something for edges is a KNOWLEDGE-POLICY decision
+      // (should an unverified edge route injection at all?), not a missing branch here.
+      if (await port.getRelation?.(id))
+        throw new Error(
+          `${id} is a relation, and relations are not promoted: no read filters on an edge's status, so this would change nothing`,
+        );
       throw new Error(`cannot transition unknown entity: ${id}`);
+    }
   const out: Entity[] = [];
+  // The transition's job is to change STATUS, never content: it layers the status/version/last_confirmed/
+  // provenance delta on top of whatever body is current. `buildNext(base)` builds that new version from a
+  // given base — used first on the pre-race `prev`, then on the re-read latest inside the retry, so a
+  // concurrent correction to the body survives instead of being resurrected by the stale `prev`.
+  const buildNext = (base: Entity): Entity => ({
+    ...base,
+    status,
+    version: base.version + 1,
+    last_confirmed: now,
+    // The knowledge's own provenance is carried forward and the ACTION is layered on top:
+    // `occurred_at` survives, and the transition's own instant goes in `transitioned_at`.
+    provenance: {
+      ...base.provenance,
+      actor,
+      origin: "lifecycle",
+      transitioned_at: now,
+    },
+  });
+  // Retiring what is already retired records nothing: a repeated `deprecate` would otherwise append a
+  // second identical-but-for-the-clock version row, `history` would show two retirements of one record,
+  // and `retirementOf` (which takes the LAST deprecate row) would render the reason on both.
+  //
+  // Deliberately NOT applied to `verify`. Re-verifying looks like the same no-op and is not: moving
+  // `last_confirmed` is the whole content of a re-confirmation, which is exactly the act the stale queue
+  // asks for, and its stored status is already `verified`. Whether a blanket `verify` over fresh records
+  // SHOULD refresh them is a governance question about who is allowed to say "still true", not a bug in
+  // this branch — and answering it here would break the stale queue's own workflow.
+  const alreadyRetired = (e: Entity | null | undefined): e is Entity =>
+    !!e && e.status === status && status === "deprecated";
   for (const id of distinct) {
     const prev = found.get(id) as Entity;
-    const next: Entity = {
-      ...prev,
-      status,
-      version: prev.version + 1,
-      last_confirmed: now,
-      provenance: { actor, origin: "lifecycle", occurred_at: now },
-    };
-    await port.putEntity(next);
+    if (alreadyRetired(prev)) {
+      out.push(prev);
+      continue;
+    }
+    let next = buildNext(prev);
+    // C2: a concurrent re-version of this id makes `prev.version + 1` collide. Retrying on the typed
+    // ConflictError re-reads the latest version and re-appends on top, so a lost race is resolved rather
+    // than surfaced mid-loop with earlier ids already promoted — the half-applied batch the two-loop
+    // design above exists to prevent.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await port.putEntity(next);
+        break;
+      } catch (e) {
+        if (!(e instanceof ConflictError) || attempt >= MAX_VERSION_RETRIES)
+          throw e;
+        // The winner of the race may have changed the BODY (so `next` must rebuild on the latest content,
+        // not carry the stale `prev` forward and stamp it verified — B1) or may itself have RETIRED the
+        // record (so the no-op guard must be re-evaluated against the head, not only the pre-race read —
+        // B2). Re-read once, then decide against the latest.
+        const latest = await port.getEntity(next.id);
+        if (alreadyRetired(latest)) {
+          next = latest; // record nothing new; return the head the winner already wrote.
+          break;
+        }
+        next = buildNext(latest ?? next);
+      }
+    }
     out.push(next);
   }
   return out;
 }
 
-/** status → 'verified', last_confirmed = now. Appends a new version row (append-only). */
+/** status → 'verified', last_confirmed = now. Appends a new version row (append-only).
+ *
+ * `ns` is the caller's tenant: an id outside it is refused as unknown. Omitting it means the default
+ * shared namespace, which is what the single-user local path uses. */
 export function verify(
   port: StoragePort,
   ids: string[],
   actor: string,
   now: string,
+  ns?: string | null,
 ): Promise<Entity[]> {
-  return transition(port, ids, actor, now, "verified");
+  return transition(port, ids, actor, now, "verified", ns);
 }
 
-/** status → 'deprecated'. Same mechanism as verify (append-only new version). */
+/** status → 'deprecated'. Same mechanism as verify (append-only new version), same `ns` rule. */
 export function deprecate(
   port: StoragePort,
   ids: string[],
   actor: string,
   now: string,
+  ns?: string | null,
 ): Promise<Entity[]> {
-  return transition(port, ids, actor, now, "deprecated");
+  return transition(port, ids, actor, now, "deprecated", ns);
 }
 
 /**
@@ -147,10 +265,9 @@ export function effectiveStatus(
  * therefore async; versions are a dense 1..n sequence because `transition` and the commit gate both
  * increment by one, so counting reaches all of them.
  *
- * One copy: `backfillAuthorship` had its own feature-detect that settled for the latest version alone
- * on a backend without the extension, which credited a promoter as the author of everything they
- * promoted — the very thing its comment says reading only the latest row would do. Two copies of a
- * capability probe is how display.ts's `summarize` drifted, and this is the same shape.
+ * One copy of the capability probe, not one per caller: a probe that settled for the latest version
+ * alone on a backend without the extension would credit a promoter as the author of everything they
+ * promoted, so `backfillAuthorship` reads its versions through here.
  */
 export async function listVersions(
   port: StoragePort,
@@ -175,8 +292,13 @@ export async function listVersions(
 }
 
 /**
- * The version of `id` that was current at `at` — the highest whose provenance timestamp is at or
- * before it. null when the record did not exist yet.
+ * The version of `id` that was current at `at` — the highest whose `versionTime` is at or before it.
+ * null when the record did not exist yet.
+ *
+ * `versionTime`, not `occurred_at`: the rewind asks when a VERSION came into being, and since the
+ * two times were separated a transition no longer answers that with `occurred_at`. Reading
+ * `occurred_at` here after the split would give every version of a record the same timestamp and
+ * collapse the rewind to "always the latest version" — the whole feature.
  *
  * This is the whole of "what was true then". Rows are append-only and a transition writes a new
  * version (see `transition` above), so the status a record had at any past instant is already stored;
@@ -184,15 +306,32 @@ export async function listVersions(
  * past date gets the important case exactly backwards — a decision retired last week would report as
  * deprecated for a question about last month, when it was the answer.
  */
+/**
+ * Whether `stamp` is at or before `at` — the comparison the TS as-of reads share.
+ *
+ * NOT the only one in the product: `exportUntil` and `listAudit` compare inside SQL, where this
+ * function cannot reach. Those are correct because the front tiers normalize every caller-supplied
+ * instant to UTC at the boundary (`instantFlag` in the CLI, `instantParam` on the web), which makes a
+ * string comparison against stored `...Z` stamps sound. This function is the belt to that suspender:
+ * core is also called directly (tests, embedders of the library), and a by-instant comparison stays
+ * right even for a caller that skipped the boundary.
+ *
+ * It is a function, not an inlined `<=`, because a lexicographic string compare and a `Date.parse`
+ * compare disagree on the same moment spelled two ways: a shared operator is small enough to look not
+ * worth extracting, which is exactly how two of them end up disagreeing.
+ */
+export function atOrBefore(stamp: string, at: string): boolean {
+  return Date.parse(stamp) <= Date.parse(at);
+}
+
 export async function versionAsOf(
   port: StoragePort,
   id: string,
   at: string,
 ): Promise<Entity | null> {
-  const ms = Date.parse(at);
   let best: Entity | null = null;
   for (const e of await listVersions(port, id)) {
-    if (Date.parse(e.provenance.occurred_at) > ms) continue;
+    if (!atOrBefore(versionTime(e), at)) continue;
     if (!best || e.version > best.version) best = e;
   }
   return best;

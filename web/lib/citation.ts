@@ -8,11 +8,13 @@
 
 import type { Knowledge } from "./types";
 
-/** The fields a citation label needs. Narrower than Knowledge so a graph node can pass too. */
+/** The fields a citation label needs. Narrower than Knowledge so a graph node can pass too.
+ * `author`/`authorName` are optional (only injected/persona rows carry them) and, when present, name
+ * the writer rather than the promoter — see `citationLabel`. */
 export type Cited = Pick<
   Knowledge,
   "type" | "version" | "actor" | "actorName" | "occurred_at" | "citation"
->;
+> & { author?: string; authorName?: string };
 
 /**
  * The compact, readable rendering of a record's source: `fact@v2 · Bora · 2026-07-30`.
@@ -25,9 +27,15 @@ export type Cited = Pick<
  * matches the ISO vocabulary the CLI already prints.
  */
 export function citationLabel(row: Cited): string {
+  // The writer when one is known, never falling through to the promoter: on a verified record
+  // `actor` is whoever approved it, and a label that named them would be the drift this exists to
+  // remove. Without an author edge the promoter is the only actor there is.
+  const who = row.author
+    ? (row.authorName ?? shortId(row.author))
+    : (row.actorName ?? shortId(row.actor));
   return [
     `${row.type}@v${row.version}`,
-    row.actorName ?? shortId(row.actor),
+    who,
     row.occurred_at.slice(0, 10),
   ].join(" · ");
 }

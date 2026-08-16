@@ -12,7 +12,7 @@ import {
 } from "node:http";
 import { fileURLToPath } from "node:url";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
-import { CommitRejected, commit } from "../../core/commit.js";
+import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
 import {
@@ -24,18 +24,28 @@ import {
   verify,
 } from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
-import type { TypeDef } from "../../core/ontology.js";
-import { personaQuery } from "../../core/persona.js";
+import { type TypeDef, validateTypeDef } from "../../core/ontology.js";
+import {
+  NotAPerson,
+  type PersonaResult,
+  personaQuery,
+} from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
 import {
+  CONSUMPTION_WINDOW,
   consumptionCounts,
   injectDetail,
+  makeActorNames,
   rankByConsumption,
+  refuseKindChange,
+  refuseRename,
+  retirementOf,
   summarize,
   ULID,
 } from "../display.js";
-import { openStore, type YokeStore } from "../store.js";
+import { parseScope } from "../serve/rbac.js";
+import { type AuditEvent, openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
 
 type Env = Record<string, string | undefined>;
@@ -49,7 +59,19 @@ export interface UiDeps {
   now?: () => string;
   /** RBAC hook (PLAN-V2 10.4) — checked per API endpoint. Default allow-all (local single-user
    * `yoke ui` stays ungated); serve mode injects a per-request scope check. */
-  authorize?: (action: "read" | "write" | "verify", type?: string) => boolean;
+  authorize?: (
+    action: "read" | "write" | "verify" | "admin",
+    type?: string,
+  ) => boolean;
+  /**
+   * Which of `wanted` this caller may NOT put into a credential (empty = all of them).
+   *
+   * Holding `admin` is permission to run these routes; it is not permission to write any scope string
+   * into a token. Injected rather than computed here because only serve mode knows the principal's own
+   * scopes — and because the local ungated path has no principal and must stay unrestricted
+   * (invariant 4). See `ungrantable` in serve/rbac.ts for the reach rule.
+   */
+  grantable?: (wanted: string[]) => string[];
   /** Directory holding the built web bundle. Injectable so tests point at a fixture and never
    * depend on a build existing (CI runs tests before build). Defaults to the resolved location. */
   webRoot?: string | null;
@@ -84,61 +106,6 @@ function defaultWebRoot(): string | null {
     }
   }
   return cachedWebRoot;
-}
-
-/** A person's display name: the `name` attribute by convention, else the first string attribute.
- * The seed ontology declares `person` with no required attrs, so this is a convention, not a schema
- * guarantee — hence the fallback and the `undefined` when there is nothing readable. */
-function personName(e: Entity, ontology: TypeDef[]): string | undefined {
-  const named = e.attributes.name;
-  if (typeof named === "string" && named) return named;
-  return summarize(e, ontology) || undefined;
-}
-
-/**
- * actor id → display name, memoized for one request.
- *
- * `provenance.actor` is "a person entity id or agent identifier" (core/types.ts), so half the time
- * it is a ULID that means nothing to a reader. Resolution lives HERE, in the front tier, and never
- * in `citation()`: the citation is the audit pointer and an id is what makes it one — names are not
- * unique and they change, so a renamed person must not rewrite history.
- *
- * A profile DID eventually say these reads matter (v5.5). `prefetch` resolves a whole response's
- * actors in one batch read, because the memo only helps when authors repeat and in a real corpus they
- * do not: an anchored graph at depth 3 spent **1,595 of its 1,715** port calls here, one per distinct
- * author, and the traversal it was blamed on accounted for 117.
- */
-function makeActorNames(store: YokeStore, ontology: TypeDef[]) {
-  const seen = new Map<string, string | undefined>();
-  const remember = (e: Entity) =>
-    seen.set(e.id, e.type === "person" ? personName(e, ontology) : undefined);
-  /** Resolve every actor these rows name, in one read. Ids that resolve to nothing — or to something
-   * that is not a person — are memoized as "no name", which is what the point read would conclude. */
-  const prefetch = async (
-    rows: Array<{ provenance: { actor: string } }>,
-  ): Promise<void> => {
-    const missing = [...new Set(rows.map((r) => r.provenance.actor))].filter(
-      (id) => !seen.has(id),
-    );
-    if (missing.length === 0) return;
-    for (const id of missing) seen.set(id, undefined);
-    for (const e of await readEntities(store, missing)) remember(e);
-  };
-  const nameOf = async (actorId: string): Promise<string | undefined> => {
-    if (!seen.has(actorId)) {
-      // EVERY actor is looked up, including ids containing a colon. A colon looks like a machine
-      // actor ('yoke:system', 'connector:github-pr'), but a person's id is whatever created it and
-      // `scripts/seed-dummy-it-company.mjs` — this repo's own corpus generator — mints
-      // `person:platform-manager`, so skipping those would render every seeded author as a slug on
-      // the exact surface that exists to keep ids away from readers. The real guard is the type check
-      // in `remember`. Cost: one memoized point read per distinct machine actor per request.
-      const e = await store.getEntity(actorId);
-      if (e) remember(e);
-      else seen.set(actorId, undefined);
-    }
-    return seen.get(actorId);
-  };
-  return { nameOf, prefetch };
 }
 
 /** The audit-visible knowledge row shape shared by every screen (citation everywhere).
@@ -200,13 +167,39 @@ function intParam(url: URL, name: string, def: number, max: number): number {
   return n;
 }
 
+/**
+ * A timestamp query param, or a 400 — returned NORMALIZED to UTC ISO 8601, never as sent.
+ *
+ * The CLI's `instantFlag`, for the web tier, for both of that function's reasons: garbage must not
+ * reach a comparison (`Date.parse` → NaN → every row excluded → an empty screen that reads as "nothing
+ * happened then"), and a VALID instant in offset notation must not either — `?since=2026-08-14T12:00:00+09:00`
+ * compared as a string against stored `...Z` stamps sorts above every `Z` row and answers "no audit
+ * events" for a governance trail that has them.
+ */
+function instantParam(url: URL, name: string): string | undefined {
+  const raw = url.searchParams.get(name);
+  if (raw === null) return undefined;
+  // The gate's own strict parser (CLAUDE.md: the second place that parses calls the first). `Date.parse`
+  // accepted what the gate rejects — `2026-02-30` (rolls to Mar 2), `"2026-08-14 00:00:00"`
+  // (tz-dependent), `"0"` (→ 1999) — all 200 with silently-wrong filtering. Rethrown as this route's
+  // 400 with the field name so the message still says which param was bad.
+  try {
+    return parseInstant(raw);
+  } catch {
+    throw new Error(`${name} must be an ISO 8601 instant (got "${raw}")`);
+  }
+}
+
 function newestFirst<
   T extends { provenance: { occurred_at: string }; id: string },
 >(rows: T[]): T[] {
   return [...rows].sort(
     (a, b) =>
-      b.provenance.occurred_at.localeCompare(a.provenance.occurred_at) ||
-      b.id.localeCompare(a.id),
+      // By instant, not by string: a database predating the gate's canonicalization holds both
+      // vintages, and `Z` sorts after `.`, so a record confirmed at 00:00:00.500Z would sort OLDER
+      // than one at 00:00:00Z. The last collating comparison of a timestamp in the product.
+      Date.parse(b.provenance.occurred_at) -
+        Date.parse(a.provenance.occurred_at) || b.id.localeCompare(a.id),
   );
 }
 
@@ -262,9 +255,8 @@ async function mapLimit<T, R>(
  * Edges among a known node set — both ends inside it, so the client never has to draw a dangling one.
  *
  * The `neighbors` calls are issued together and folded afterwards **in the original id order**, which
- * is what keeps the answer byte-identical to the sequential version: the fold, including the early
- * return when `limit` is reached, still walks ids in the order the caller gave them. Awaiting inside
- * the loop instead made a 334-node view 334 sequential round trips (v5.5).
+ * keeps the answer byte-identical to a sequential walk: the fold, including the early return when
+ * `limit` is reached, still walks ids in the order the caller gave them.
  *
  * ceiling: still one call per node — `neighbors` takes a single id, and a batch form is a port method
  * with four implementations and a conformance case behind it. Concurrency was the free half; add the
@@ -303,31 +295,6 @@ function sendJson(res: ServerResponse, code: number, data: unknown): void {
 /** 256 KiB — a bulk verify of thousands of ULIDs still fits, and an unbounded stream cannot pin
  * memory. ceiling: one cap for the one POST shape we accept; make it per-route if that changes. */
 const MAX_BODY = 256 * 1024;
-
-/**
- * The governance act that retired a record, read back from the trail: who, when, and why if anyone
- * said. The LAST deprecate naming this id wins — a record can be retired, re-verified and retired
- * again, and the current status is explained by the most recent act, not the first.
- *
- * `ceiling:` scans the namespace's audit rows rather than querying by id, because the trail is a log
- * with no index on the records a row mentions. It is bounded by the deprecate rows in one namespace,
- * which is the count of governance acts rather than of knowledge — add an index when a corpus has
- * enough retirements for this to be felt.
- */
-function retirementOf(
-  store: YokeStore,
-  id: string,
-  ns: string | null,
-): { actor: string; at: string; reason?: string } | undefined {
-  const rows = store.listAudit({ ns });
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const r = rows[i];
-    if (r.action !== "deprecate") continue;
-    if (!r.detail.split(" ").includes(id)) continue;
-    return { actor: r.actor, at: r.at, ...(r.note ? { reason: r.note } : {}) };
-  }
-  return undefined;
-}
 
 /** How many of an audit event's referenced records get resolved to a readable summary. A bulk verify
  * can name thousands of ids; resolving all of them would turn one audit page into thousands of point
@@ -407,6 +374,36 @@ export function createUiHandler(
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
   /**
+   * Refuse the credential routes to a remote caller on a server that authenticates nobody.
+   *
+   * `yoke ui --host 0.0.0.0` warns and binds anyway, which is deliberate: a container cannot
+   * port-forward to a loopback-bound process, so widening the bind is a decision the operator is
+   * allowed to make. What they did not decide is that anonymous LAN callers may MINT CREDENTIALS — a
+   * token minted this way authenticates against a hardened `serve --auth` process on the same database,
+   * so the exposure escapes the server that was deliberately exposed.
+   *
+   * Narrow on purpose. Reading and retiring knowledge over a bind the operator widened is the
+   * documented trade; issuing credentials that work somewhere else is not, and it is the one thing on
+   * this surface that is not about this deployment's knowledge.
+   */
+  const remoteCredentialRequest = (req: IncomingMessage): boolean =>
+    // serve --auth: scopes decide, not the socket.
+    !deps.authRequired && !isLoopbackPeer(req.socket.remoteAddress);
+  const refusedRemoteCredential = (
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): boolean => {
+    if (!remoteCredentialRequest(req)) return false;
+    sendJson(res, 403, {
+      error:
+        "credentials cannot be issued or listed over a non-loopback connection on an " +
+        "unauthenticated server — run 'yoke token create' on the host, or 'yoke serve --auth'",
+    });
+    return true;
+  };
+  // No principal on the local ungated path, so nothing is out of reach there (invariant 4).
+  const grantable = deps.grantable ?? (() => []);
+  /**
    * Authorize, and on refusal answer 403 naming the scope that would have granted it.
    *
    * A bare `{"error":"forbidden"}` refuses correctly and tells the holder nothing they can act on —
@@ -421,7 +418,7 @@ export function createUiHandler(
    */
   const denied = (
     res: ServerResponse,
-    action: "read" | "write" | "verify",
+    action: "read" | "write" | "verify" | "admin",
     type?: string,
   ): boolean => {
     if (authorize(action, type)) return false;
@@ -442,6 +439,24 @@ export function createUiHandler(
     });
     return true;
   };
+  /**
+   * A read's audit row, written best-effort (C7).
+   *
+   * A search/entity/inject read whose answer is already computed must not be discarded because the
+   * trail INSERT lost the write lock to a concurrent writer — WAL's guarantee is that readers never
+   * block, so a `database is locked` on a secondary trail row must not become a failed query. A failed
+   * write is logged and dropped (the read succeeded — the trail is a secondary record), never
+   * propagated to the response. Write routes keep their audit inline; only reads use this.
+   */
+  const bestEffortAudit = (event: AuditEvent): void => {
+    try {
+      store.logAudit(event);
+    } catch (err) {
+      console.error(
+        `audit row not written (read succeeded): ${(err as Error).message}`,
+      );
+    }
+  };
   /** One audit row for a knowledge read, in the `<subject> -> <id> …` shape every other action
    * uses so the trail is comparable across adapters (SPEC "HTTP API"). Called with what is about
    * to be sent, never with what was asked for, so a row cannot claim ids the response withheld. */
@@ -450,7 +465,7 @@ export function createUiHandler(
     ids: string[],
     subject?: string,
   ) =>
-    store.logAudit({
+    bestEffortAudit({
       actor,
       action,
       detail: subject ? `${subject} -> ${ids.join(" ")}` : ids.join(" "),
@@ -464,19 +479,25 @@ export function createUiHandler(
    * once per request rather than per row, and every route reports freshness the same way.
    * Async because it also resolves actor ids to display names; the name memo is created here, per
    * call, so it cannot outlive one response and serve a renamed person their old name. */
-  /** Entity rows, relation rows, and the actor-name prefetch — ONE memo behind all three.
-   * `asRow()` and `asRelRow()` used to build a memo each, so a route serializing both read every
-   * author twice; the graph route did exactly that. */
+  /** Entity rows, relation rows, and the actor-name prefetch — ONE memo behind all three, so a route
+   * serializing both entities and relations (the graph route) does not read every author twice. */
   const serializers = () => {
     const ontology = store.loadOntology(ns);
     const ts = now();
-    const { nameOf, prefetch } = makeActorNames(store, ontology);
+    // ns-scoped: nameOf withholds a name whose resolved person is in a DIFFERENT namespace than this
+    // route's ns, so a tenant-a response never carries a default-ns person's name (W-SECURITY).
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
     return {
       asR: async (e: Entity) =>
         row(e, ontology, ts, await nameOf(e.provenance.actor)),
       asRel: async (r: Relation) =>
         relRow(r, ontology, ts, await nameOf(r.provenance.actor)),
       prefetch,
+      // Exposed so the inject/persona routes can resolve an AUTHOR id (off the authored_by edge, not
+      // provenance.actor) to a name — the citation core built names the writer, and the screen has to
+      // render it. ceiling: a point read per distinct author not already prefetched; the memo dedups,
+      // and a persona's rows share one author so it costs one read.
+      nameOf,
     };
   };
   const asRow = () => serializers().asR;
@@ -501,8 +522,7 @@ export function createUiHandler(
     const method = req.method ?? "GET";
 
     // The shell. Served from the built bundle; when it is absent the answer is an honest 503 with
-    // the command that fixes it, not a fallback UI — a second, less-tested UI is worse than a
-    // message, and the v2.5 inline template proved it (its client script never parsed).
+    // the command that fixes it, not a fallback UI — a second, less-tested UI is worse than a message.
     if ((method === "GET" || method === "HEAD") && path === "/") {
       if (!(await serveStatic(req, res, path))) {
         sendJson(res, 503, {
@@ -517,11 +537,22 @@ export function createUiHandler(
     // and a static export has no middleware to tell it. Carries no knowledge — and when the caller
     // is unauthenticated it withholds actor and ns too, so it cannot be used to enumerate tenants.
     if (method === "GET" && path === "/api/meta") {
-      const authenticated = authorize("read");
+      // "Authenticated" is holding ANY scope, not `read` specifically: a least-privileged admin
+      // (`tenant-a:*:admin`) has no `read`, and a type-scoped principal (`*:fact:read`) grants no
+      // untyped action, so both must be found by probing every declared type as well as the four
+      // untyped actions — otherwise their credential works but Create is a dead button (W-META). ns is
+      // this principal's own namespace (the 403 body already discloses it), so any valid credential may
+      // learn it. Fails closed: an anonymous caller has authorize()===false for every pair, so it still
+      // cannot enumerate the actor or namespace.
+      const metaOntology = store.loadOntology(ns);
+      const actions = ["read", "write", "verify", "admin"] as const;
+      const authenticated =
+        actions.some((a) => authorize(a)) ||
+        metaOntology.some((t) => actions.some((a) => authorize(a, t.name)));
       // The topbar says who you are signed in as. Under --auth that actor is a person entity id, so
       // without resolution the header reads as a ULID.
       const actorName = authenticated
-        ? await makeActorNames(store, store.loadOntology(ns)).nameOf(actor)
+        ? await makeActorNames(store, metaOntology, ns).nameOf(actor)
         : undefined;
       sendJson(res, 200, {
         auth: deps.authRequired ?? false,
@@ -535,10 +566,10 @@ export function createUiHandler(
 
     if (method === "GET" && path === "/api/review") {
       if (denied(res, "read")) return;
-      // The other queue: verified records past their type's TTL. SPEC's injection filter has said
-      // since v1 that "viewing stale is the job of review/CLI" and neither showed one, so stale
-      // knowledge left injection with nobody told — the failure docs/RESEARCH.md's freshness findings
-      // all land on. Same route because it takes the same two actions.
+      // The other queue: verified records past their type's TTL. SPEC's injection filter makes viewing
+      // stale review's job — otherwise stale knowledge leaves injection with nobody told, the failure
+      // docs/RESEARCH.md's freshness findings all land on. Same route because it takes the same two
+      // actions.
       if (url.searchParams.get("stale") === "1") {
         const { items, next, scanned } = await staleEntities(
           store,
@@ -553,13 +584,15 @@ export function createUiHandler(
         );
         // Most-consumed first (same rule as `yoke review --stale`): the count is inject+persona
         // audit rows naming the record, so re-confirmation effort goes where agents are actually
-        // reading. Ranked before serialization; `injections` rides on each row.
+        // reading. Ranked before serialization; `injections` rides on each row. Bounded to the most
+        // recent CONSUMPTION_WINDOW audit rows (F1): the whole trail materialized every row into JS.
         const ranked = rankByConsumption(
           items,
-          consumptionCounts(store.listAudit({ ns })),
+          consumptionCounts(store.listAudit({ ns, limit: CONSUMPTION_WINDOW })),
         );
         // `scanned` travels with the rows: the walk is bounded, so a screen that printed only the
-        // count would be claiming a corpus-wide number this did not compute.
+        // count would be claiming a corpus-wide number this did not compute. `consumptionWindow` is
+        // the count's own bound — never a silent slice: the screen can say what "injections" counts.
         sendJson(res, 200, {
           items: (await rowsOf(ranked)).map((r, i) => ({
             ...r,
@@ -567,6 +600,7 @@ export function createUiHandler(
           })),
           next,
           scanned,
+          consumptionWindow: CONSUMPTION_WINDOW,
         });
         return;
       }
@@ -653,8 +687,7 @@ export function createUiHandler(
         sendJson(res, 404, { error: "not found" });
         return;
       }
-      const asR = asRow();
-      const asRel = asRelRow();
+      const { asR, asRel, nameOf } = serializers();
       const rels = await store.neighbors(id);
       const side = async (other: string) => {
         const o = await store.getEntity(other);
@@ -693,9 +726,21 @@ export function createUiHandler(
         // content — so this reads the governance act back instead of copying it onto the row.
         // `asR` already resolved the read-time status; reading it off the row keeps one answer to
         // "is this retired" rather than recomputing the rule here.
-        ...((await asR(e)).effectiveStatus === "deprecated"
-          ? { retirement: retirementOf(store, id, ns) }
-          : {}),
+        ...(await (async () => {
+          if ((await asR(e)).effectiveStatus !== "deprecated") return {};
+          const retire = retirementOf(store, id, ns);
+          if (!retire) return {};
+          // The retiree resolved for reading, like entity.actorName above it — the same response
+          // resolves the record's own actor and left this one a bare ULID in the "Retired by …"
+          // sentence. The id stays on the row for hover/copy (no-raw-ids rule).
+          const actorName = await nameOf(retire.actor);
+          return {
+            retirement: {
+              ...retire,
+              ...(actorName === undefined ? {} : { actorName }),
+            },
+          };
+        })()),
         relations: {
           out: edges.filter((x) => x.dir === "out"),
           in: edges.filter((x) => x.dir === "in"),
@@ -743,11 +788,7 @@ export function createUiHandler(
       // As-of: what this query would have injected then. Rejected here rather than passed through, so
       // a typo produces a 400 instead of Date.parse's NaN quietly excluding every record — a screen
       // showing "0 records" for a bad date reads as "we knew nothing then", which is a lie.
-      const asOfParam = url.searchParams.get("asOf") ?? undefined;
-      if (asOfParam !== undefined && Number.isNaN(Date.parse(asOfParam))) {
-        sendJson(res, 400, { error: "asOf must be an ISO instant" });
-        return;
-      }
+      const asOfParam = instantParam(url, "asOf");
       // Same default rule as the MCP tool and the CLI, verbatim: an anchored briefing is capped at
       // BRIEFING_LIMIT, a query is not (SPEC "the three front adapters apply the default to a
       // briefing … and never to a query"). Defaulting every call would show 50 where the agent gets
@@ -757,7 +798,7 @@ export function createUiHandler(
         ? intParam(url, "limit", BRIEFING_LIMIT, 500)
         : undefined;
       const briefing = scope !== undefined && !query;
-      const { items, omitted, walk } = await inject(
+      const { items, omitted, walk, withheld } = await inject(
         store,
         store.loadOntology(ns),
         query,
@@ -779,7 +820,9 @@ export function createUiHandler(
           embedder: deps.embedder,
         },
       );
-      store.logAudit({
+      // Built here, written AFTER the response is sent (C7): before sendJson, a held write lock would
+      // turn a preview the human already needed into a `database is locked` 500.
+      const previewEvent: AuditEvent = {
         actor,
         action: "inject_preview",
         detail: injectDetail(
@@ -788,8 +831,8 @@ export function createUiHandler(
         ),
         at: ts,
         ns,
-      });
-      const { asR, prefetch } = serializers();
+      };
+      const { asR, prefetch, nameOf } = serializers();
       sendJson(res, 200, {
         query,
         scope: scope ?? null,
@@ -799,12 +842,40 @@ export function createUiHandler(
         // Present only when the walk went deeper than one hop — same shape core hands the MCP tool,
         // so the preview can state what a depth-2 answer walked (`{ depth, nodes, truncated }`).
         walk: walk ?? null,
+        // Why an empty preview is empty. The preview's claim is that it shows what an agent receives,
+        // and an agent now receives the reason too — without this the screen would be the one surface
+        // still rendering a bare "no results" for knowledge that is merely awaiting review.
+        withheld: withheld ?? null,
         items: await (async () => {
           const es = items.map((it) => it.entity);
           await prefetch(es);
-          return Promise.all(es.map(asR));
+          const rows = await Promise.all(es.map(asR));
+          // The author-aware citation, the author id, and the contradiction marker travel with the row.
+          // row() rebuilt `citation` from provenance alone, naming the PROMOTER as the author — on a
+          // verified record that is whoever approved it, not whoever wrote it. Core already built the
+          // right citation (item.citation) and knows the writer (item.author); both are handed over and
+          // the author id is resolved for reading. Without the marker two records that disagree render
+          // as two identical rows, the defect the conflicts screen was already showing one page over.
+          return Promise.all(
+            rows.map(async (r, i) => {
+              const it = items[i];
+              const authorName = it.author
+                ? await nameOf(it.author)
+                : undefined;
+              return {
+                ...r,
+                citation: it.citation,
+                ...(it.author ? { author: it.author } : {}),
+                ...(authorName === undefined ? {} : { authorName }),
+                ...(it.conflictsWith
+                  ? { conflictsWith: it.conflictsWith }
+                  : {}),
+              };
+            }),
+          );
         })(),
       });
+      bestEffortAudit(previewEvent);
       return;
     }
 
@@ -829,10 +900,7 @@ export function createUiHandler(
         if (anchor && inNs(anchor)) nodes.set(scope, anchor);
         // One hop at a time, and each hop is TWO waits rather than two per node: the frontier's
         // `neighbors` calls go out together, then the entities the hop discovered are read in a single
-        // batch. The previous shape awaited inside a triple-nested loop and, measured against the live
-        // OpenSearch demo, one 2-hop open cost 480 round trips — the heaviest read path in the product.
-        //
-        // The fold order still follows the frontier, so which nodes survive the `limit` cut does not
+        // batch. The fold order follows the frontier, so which nodes survive the `limit` cut does not
         // depend on which request finished first.
         let frontier = [scope];
         for (let d = 0; d < depth && nodes.size < limit; d++) {
@@ -904,8 +972,10 @@ export function createUiHandler(
       if (denied(res, "read")) return;
       const limit = intParam(url, "limit", 200, 2000);
       const events = store.listAudit({
-        since: url.searchParams.get("since") ?? undefined,
-        until: url.searchParams.get("until") ?? undefined,
+        // Through the same gate as every other instant this server accepts — these two went straight
+        // into SQL string comparisons (see `instantParam` for what that answered).
+        since: instantParam(url, "since"),
+        until: instantParam(url, "until"),
         ns,
         limit,
       });
@@ -915,7 +985,8 @@ export function createUiHandler(
       // heavily across events (the same knowledge injected again and again), so a shared memo turns
       // what would be limit×refs point reads into one per distinct id.
       const auditOnt = store.loadOntology(ns);
-      const { nameOf } = makeActorNames(store, auditOnt);
+      // ns-scoped like every other resolver here — a foreign-ns actor id resolves to no name (W-SECURITY).
+      const { nameOf } = makeActorNames(store, auditOnt, ns);
       const seen = new Map<string, { type: string; summary: string } | null>();
       const resolve = async (id: string) => {
         if (!seen.has(id)) {
@@ -935,19 +1006,17 @@ export function createUiHandler(
         events.map(async (e) => {
           const actorName = await nameOf(e.actor);
           // `detail` has two shapes: `<subject> -> <id> <id> …` for a read, and a bare id list for a
-          // lifecycle transition (verify/deprecate). Reading only the post-arrow half meant a verify
-          // row rendered as raw ULIDs — the exact defect this pass exists to remove, in the rows the
-          // audit screen most needs to be legible.
+          // lifecycle transition (verify/deprecate). Reading only the post-arrow half would render a
+          // verify row as raw ULIDs, on the screen that most needs to be legible.
           const after = e.detail.split(" -> ");
           const ids = (after[1] ?? after[0] ?? "")
             .split(" ")
             .filter(Boolean)
             .slice(0, AUDIT_REFS);
           // The subject is a TOKEN LIST, not one opaque string (SPEC "HTTP API"): a persona row's
-          // subject is a person id, an anchored injection's is an anchor id followed by the query
-          // text. Testing the whole head against the ULID shape only resolved the first case, so an
-          // anchored injection would have rendered its anchor as a raw ULID. Only ULID-shaped tokens
-          // are looked up, so query words never cost a point read.
+          // subject is a person id, an anchored injection's is an anchor id followed by the query text.
+          // Only ULID-shaped tokens are looked up, so query words never cost a point read and an
+          // anchored injection's anchor is resolved rather than shown raw.
           const head = after.length > 1 ? (after[0] ?? "") : "";
           for (const token of head.split(" ").filter(Boolean))
             if (ULID.test(token)) ids.unshift(token);
@@ -977,13 +1046,21 @@ export function createUiHandler(
     }
 
     if (method === "GET" && path === "/api/tokens") {
-      if (denied(res, "verify")) return;
-      sendJson(res, 200, store.listTokens());
+      // `admin`, not `verify`: this is the credential surface, and every reviewer holds verify.
+      if (denied(res, "admin")) return;
+      if (refusedRemoteCredential(req, res)) return;
+      // Only the rows this caller could have issued. A tenant admin listing every tenant's credentials
+      // and their scopes is a map of the whole deployment's access.
+      const visible = store
+        .listTokens()
+        .filter((t) => grantable(t.scopes).length === 0);
+      sendJson(res, 200, visible);
       return;
     }
 
     if (method === "POST" && path === "/api/tokens") {
-      if (denied(res, "verify")) return;
+      if (denied(res, "admin")) return;
+      if (refusedRemoteCredential(req, res)) return;
       const body = await readBody(req);
       const name = body.name;
       const scopes = body.scopes;
@@ -999,6 +1076,34 @@ export function createUiHandler(
         return;
       }
       const cleanScopes = scopes.map((s) => s.trim());
+      // Shape is not enough: `["reed"]` would produce a credential that authenticates and then 403s on
+      // everything, indistinguishable from a working one until used. The parser that decides what a
+      // scope MEANS is the right thing to ask what one IS, and the CLI asks it too (`yoke token create`).
+      const unparsed = cleanScopes.filter((raw) => parseScope(raw) === null);
+      if (unparsed.length > 0 || cleanScopes.length === 0) {
+        sendJson(res, 400, {
+          error:
+            cleanScopes.length === 0
+              ? "scopes is empty: a credential with no scope can do nothing"
+              : `not a scope: ${unparsed.join(", ")} — scope is action | namespace:action | namespace:type:action`,
+          ...(unparsed.length > 0 ? { scopes: unparsed } : {}),
+        });
+        return;
+      }
+      // Every scope has to be one this caller could grant. Without it, `admin` on one namespace mints a
+      // wildcard credential and the boundary the rest of this server enforces is gone in two steps
+      // instead of one.
+      const outOfReach = grantable(cleanScopes);
+      if (outOfReach.length > 0) {
+        sendJson(res, 403, {
+          error:
+            `forbidden: this credential cannot grant ${outOfReach.join(", ")}` +
+            " — an admin scoped to a namespace grants only within it",
+          required: "admin",
+          scopes: outOfReach,
+        });
+        return;
+      }
       const created_at = now();
       const { token } = store.createToken({
         name: name.trim(),
@@ -1015,10 +1120,18 @@ export function createUiHandler(
     }
 
     if (method === "DELETE" && path.startsWith("/api/tokens/")) {
-      if (denied(res, "verify")) return;
+      if (denied(res, "admin")) return;
+      if (refusedRemoteCredential(req, res)) return;
       const name = decodeURIComponent(path.slice("/api/tokens/".length));
       if (!name) {
         sendJson(res, 400, { error: "token name is required" });
+        return;
+      }
+      // Out of reach reads as absent, for the same reason a foreign record does: "exists, but not
+      // yours" lets one tenant enumerate another's credentials by name.
+      const target = store.listTokens().find((t) => t.name === name);
+      if (target && grantable(target.scopes).length > 0) {
+        sendJson(res, 404, { error: `no such token: ${name}` });
         return;
       }
       if (!store.revokeToken(name)) {
@@ -1033,27 +1146,67 @@ export function createUiHandler(
       if (denied(res, "read")) return;
       const id = decodeURIComponent(path.slice("/api/persona/".length));
       const ts = now();
-      const result = await personaQuery(store, store.loadOntology(ns), id, ts, {
-        ns,
-      });
+      // Core refuses an anchor that is not a person, so the screen 404s rather than rendering a persona
+      // about a fact — an empty document is what an id typed into the URL would otherwise give.
+      let result: PersonaResult;
+      try {
+        result = await personaQuery(store, store.loadOntology(ns), id, ts, {
+          ns,
+        });
+      } catch (e) {
+        if (e instanceof NotAPerson) {
+          sendJson(res, 404, { error: e.message });
+          return;
+        }
+        throw e;
+      }
       // A persona read IS an injection — same knowledge, same citations — so it leaves the same
       // trail as its MCP twin. ENTERPRISE.md's audit target is "who got what knowledge injected",
       // and a read path that answers with attributes but writes no row makes that claim false.
-      const injected = [...result.decisions, ...result.facts];
-      store.logAudit({
+      const injected = [...result.decisions, ...result.facts].map(
+        (i) => i.entity,
+      );
+      // Best-effort (C7): the persona is already computed, so a locked trail drops the row to stderr
+      // rather than 400 an answer — inline `logAudit` would let a held write lock turn a read into a
+      // failure.
+      bestEffortAudit({
         actor,
         action: "persona",
         detail: `${id} -> ${injected.map((e) => e.id).join(" ")}`,
         at: ts,
         ns,
       });
-      const { asR, prefetch } = serializers();
+      const { asR, prefetch, nameOf } = serializers();
+      // The author-aware citation, author id, and contradiction marker travel with the row, exactly as
+      // on the inject preview. row() names the PROMOTER; on a persona — every row authored by the one
+      // person on screen — that renders each of their records cited to whoever verified it, not to them.
+      // Core built the right citation (i.citation) and knows the author (i.author); both are handed over.
+      const rows = async (list: typeof result.decisions) =>
+        Promise.all(
+          list.map(async (i) => {
+            const r = await asR(i.entity);
+            const authorName = i.author ? await nameOf(i.author) : undefined;
+            return {
+              ...r,
+              citation: i.citation,
+              ...(i.author ? { author: i.author } : {}),
+              ...(authorName === undefined ? {} : { authorName }),
+              ...(i.conflictsWith ? { conflictsWith: i.conflictsWith } : {}),
+            };
+          }),
+        );
       sendJson(res, 200, {
+        // What matched this person and could NOT be injected, and the identities this persona unioned
+        // — both carried like the inject preview and the SKILL.md do (W-PERSONA-ENVELOPE). Without
+        // them "everything in review" and "nothing on record" are byte-identical here, and a same_as
+        // identity merge is applied with no disclosure. Absent when there is nothing to say.
+        ...(result.withheld ? { withheld: result.withheld } : {}),
+        ...(result.identities ? { identities: result.identities } : {}),
         ...(await (async () => {
-          await prefetch([...result.decisions, ...result.facts]);
+          await prefetch(injected);
           return {
-            decisions: await Promise.all(result.decisions.map(asR)),
-            facts: await Promise.all(result.facts.map(asR)),
+            decisions: await rows(result.decisions),
+            facts: await rows(result.facts),
           };
         })()),
       });
@@ -1070,7 +1223,9 @@ export function createUiHandler(
       const { ids, reason } = await readIds(req);
       const ts = now();
       const fn = action === "verify" ? verify : deprecate;
-      const done = await fn(store, ids, actor, ts);
+      // The caller's namespace, so a governance act cannot reach another tenant's record — every READ
+      // route on this server filters ns, and this one must too (see core/lifecycle's transition).
+      const done = await fn(store, ids, actor, ts, ns);
       // Governance action audit — who verified/deprecated what, when (same tier as CLI inject audit),
       // and for a deprecate, WHY: the record's own screen reads it back, because a retired record
       // otherwise raises a question it cannot answer.
@@ -1159,31 +1314,17 @@ export function createUiHandler(
           });
           return;
         }
-        const { entity, duplicates, duplicateDetection } = await commit(
-          store,
-          ontology,
-          { type, attributes },
-          prov,
-          ts,
-          { embedder: deps.embedder, ns },
-        );
-        // Capture-side linking, the same second commit `yoke add --scope` makes — so the browser
-        // path and the CLI path attach knowledge to a collaboration identically.
-        if (typeof body.scope === "string" && body.scope) {
-          await commit(
-            store,
-            ontology,
-            {
-              type: "relates_to",
-              attributes: {},
-              from: entity.id,
-              to: body.scope,
-            },
-            prov,
-            ts,
-            { ns },
-          );
-        }
+        const { entity, duplicates, duplicateDetection, unrecorded } =
+          await commit(store, ontology, { type, attributes }, prov, ts, {
+            embedder: deps.embedder,
+            ns,
+            // Capture-side linking, the same act `yoke add --scope` makes — so the browser path and
+            // the CLI path attach knowledge to a collaboration identically, and a bad scope refuses
+            // the whole write here too rather than leaving a record the caller was told was rejected.
+            ...(typeof body.scope === "string" && body.scope
+              ? { attachTo: body.scope }
+              : {}),
+          });
         // Duplicates travel with the response: the gate found them, and a form that discards them
         // is a form that helps someone create the thing they were warned about.
         //
@@ -1194,6 +1335,8 @@ export function createUiHandler(
           ...(await asRow()(entity)),
           duplicates: await rowsOf(duplicates),
           duplicateDetection,
+          // Durable record, partial commit — the screen must not render an unqualified success.
+          ...(unrecorded ? { unrecorded } : {}),
         });
         return;
       } catch (e) {
@@ -1214,23 +1357,25 @@ export function createUiHandler(
     if (method === "POST" && path === "/api/ontology") {
       if (denied(res, "verify")) return;
       const def = (await readBody(req)).def;
-      if (
-        !def ||
-        typeof def !== "object" ||
-        typeof (def as TypeDef).name !== "string" ||
-        !(def as TypeDef).name ||
-        ((def as TypeDef).kind !== "entity" &&
-          (def as TypeDef).kind !== "relation")
-      ) {
-        sendJson(res, 400, {
-          error: 'def must be { name, kind: "entity"|"relation", attrs }',
-        });
-        return;
-      }
       // attrs defaulted, not overridden: a type with no attributes is legitimate (the seed's `term`
       // and `resource` both are), and the CLI's JSON-file path allows omitting the key.
-      const incoming = def as TypeDef;
+      const incoming = (def ?? {}) as TypeDef;
       const typeDef: TypeDef = { ...incoming, attrs: incoming.attrs ?? {} };
+      // The same validator the CLI uses. Name and kind are not enough — `ttl_days: "soon"` would return
+      // 201 and then withhold every record of that type from injection forever (see `validateTypeDef`
+      // for the full list).
+      const bad = validateTypeDef(typeDef);
+      if (bad) {
+        sendJson(res, 400, { error: bad });
+        return;
+      }
+      // Same call as the CLI, not the same logic re-typed — see `refuseKindChange`, which counts both
+      // tables so a relation type being flipped does not slip past.
+      const kindRefusal = await refuseKindChange(store, typeDef, ns);
+      if (kindRefusal) {
+        sendJson(res, 409, { error: kindRefusal });
+        return;
+      }
       await store.saveOntology([typeDef], ns);
       sendJson(res, 201, typeDef);
       return;
@@ -1283,8 +1428,25 @@ export function createUiHandler(
         sendJson(res, 400, { error: "from and to are required" });
         return;
       }
+      // Kept as a 400 ahead of the refusals below: renaming a name to itself is a malformed request,
+      // not a conflict with the database's state.
       if (from === to) {
         sendJson(res, 400, { error: "from and to are the same name" });
+        return;
+      }
+      // The same refusals the CLI applies — literally the same call (`refuseRename`). Evidence
+      // gathered per caller drifts per caller, so it is gathered in one place.
+      const refusal = await refuseRename(store, from, to, ns);
+      if (refusal) {
+        sendJson(res, 409, { error: refusal });
+        return;
+      }
+      // A typo'd source name is a 404, not a success with rows: 0 — "renamed nosuch to other — 0 rows
+      // rewritten" is a success sentence for a no-op (the CLI refuses it too).
+      if (!store.loadOntology(ns).some((t) => t.name === from)) {
+        sendJson(res, 404, {
+          error: `no type named ${from} in this namespace`,
+        });
         return;
       }
       const ts = now();
@@ -1320,9 +1482,20 @@ export function createUiServer(deps: UiDeps): Server {
 }
 
 /** The default bind address. Loopback, not every interface: node's `listen(port)` binds `::`/
- * `0.0.0.0`, so an ungated workbench on a laptop was reachable by anyone on the same network while
- * the console said "localhost". Widening is an explicit `--host`. */
+ * `0.0.0.0`, which would make an ungated workbench reachable by anyone on the same network. Widening
+ * is an explicit `--host`. */
 export const DEFAULT_HOST = "127.0.0.1";
+
+/**
+ * Whether a CONNECTED PEER is this machine. Separate from `isLoopback`, which asks about a bind
+ * address, because the string arrives in a different shape: a dual-stack listener reports a loopback
+ * peer as the IPv4-mapped `::ffff:127.0.0.1`, and treating that as remote would refuse the host its own
+ * credential routes. An absent address (a socket already gone) counts as remote — the safe default.
+ */
+export function isLoopbackPeer(addr: string | undefined): boolean {
+  if (!addr) return false;
+  return isLoopback(addr.replace(/^::ffff:/, ""));
+}
 
 /** Whether an address reaches only this machine (so serving it ungated is safe). */
 export function isLoopback(host: string): boolean {
@@ -1377,12 +1550,18 @@ export async function runUi(
   await listen(server, port, host);
   const addr = server.address();
   const bound = typeof addr === "object" && addr ? addr.port : port;
-  // `yoke ui` has no authentication at all, so a non-loopback bind is a decision, not a detail.
-  // It is allowed (a container cannot port-forward to a loopback-bound process) but never quiet.
+  // `yoke ui` has no authentication at all, so a non-loopback bind is a decision, not a detail. It is
+  // allowed (a container cannot port-forward to a loopback-bound process) but never quiet: the same
+  // routes read, create, retire and rename this database's knowledge and rewrite its history.
+  // Credential issuing is the one thing refused outright to a remote caller here (see
+  // `refusedRemoteCredential`), because a token minted this way works against a hardened `serve --auth`
+  // process on the same database — an exposure that escapes the server the operator chose to expose.
   if (!isLoopback(host))
     process.stderr.write(
-      `yoke ui: bound to ${host} with NO authentication — anyone who can reach this port can read\n` +
-        `  and deprecate knowledge. Use 'yoke serve --auth --host ${host}' to expose it safely.\n`,
+      `yoke ui: bound to ${host} with NO authentication — anyone who can reach this port can read,\n` +
+        `  create, retire and rename this database's knowledge. Issuing credentials is refused to\n` +
+        `  non-loopback callers; everything else is not. Use 'yoke serve --auth --host ${host}' to\n` +
+        `  expose it safely.\n`,
     );
   console.log(`yoke ui listening: http://${host}:${bound}`);
   return server;

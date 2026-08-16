@@ -35,22 +35,36 @@ Trust isn't a promise here — it's five mechanisms, each enforced in code:
 2. **Nothing is believed until a human verifies it.** New knowledge lands as a
    `draft`, quarantined from injection. AI agents can *record* knowledge over
    MCP, but they cannot promote it — verification is deliberately a human act
-   (`yoke verify`). Only `verified` knowledge ever reaches your AI's context.
+   (`yoke verify`), and there is no MCP tool that does it. By default only
+   `verified` knowledge reaches your AI's context; an agent can ask for drafts
+   explicitly (`includeDraft`) and they arrive labelled `[draft]`. One documented
+   exception: `connect rdb` maps an existing database that is already the org's
+   system of record, so mapped rows land verified — see docs/BACKENDS.md.
 3. **Nothing is silently overwritten.** Storage is append-only: an edit is a new
    version, and there is no delete at all — retirement is a status (`deprecated`). You can always reconstruct what the
    system believed at any point in time, and every injected item carries a
-   citation — `[type:id@vN] actor, occurred_at` — so every claim is auditable.
+   citation — `[type:id@vN] author (confirmed by promoter), occurred_at` — so
+   every claim is auditable and names both who wrote it and who vouched for it.
+   The one mutation history cannot record is `rename-type`, which rewrites the
+   type on existing version rows; it leaves an audit row saying so.
 4. **Contradictions are surfaced, never auto-resolved.** When new knowledge
    conflicts with what's already verified, yoke keeps both and links them with
-   a `conflicts_with` edge for a human to settle. A disagreement is itself
-   knowledge; deciding the winner is not the database's job.
+   a `conflicts_with` edge for a human to settle, and injection serves both
+   sides marked as disputed. A disagreement is itself knowledge; deciding the
+   winner is not the database's job. Automatic *detection* compares embeddings,
+   so it needs an embedding provider configured (below) — without one, records
+   you link yourself are still surfaced, but nothing is detected for you.
 5. **Knowledge expires.** Verified isn't forever — entries lose freshness past
    their type's TTL and are demoted to `stale` at read time, out of the
    injection path until someone re-confirms them. Stale truths are the
    politest form of misinformation, and yoke treats them that way.
 
 And it's measured, not asserted: the injection-quality eval reports **0%
-contamination** and **0% missed contradictions** (see below).
+contamination** (no draft, stale or retired record reaching an injection) and
+**0% missed contradictions** on its planted pairs (see below). Read it for what
+it covers: a synthetic corpus and a stub embedder, so it measures the filter and
+the detection wiring rather than retrieval quality on your data — `npm run
+eval:retrieval` is the one that measures that, against a gold set.
 
 Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server required.
 
@@ -88,7 +102,7 @@ Every record also arrives with its citation, which a pasted passage cannot do.
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
-| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
+| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → draft knowledge, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record, so its rows land verified. |
 | **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
@@ -208,6 +222,10 @@ yoke backfill --embeddings                 # index every record with the current
 yoke backfill --embeddings --rebuild       # after CHANGING model (dimension differs)
 ```
 
+A database written before the index key became prose needs one `yoke backfill --embeddings --rebuild`
+to re-key both halves of its index. Until it runs, that store searches on the old key — nothing
+breaks, results just rank worse.
+
 A database holds one vector space. Switching models without `--rebuild` fails loudly with the
 dimension it found and the command above — a mixed space would return confidently wrong neighbours
 instead.
@@ -267,24 +285,31 @@ yoke serve --auth --host 0.0.0.0   # a team; log in with a token from `yoke toke
 
 Screens: the review queue, conflicts, the ontology browser, persona preview, entity
 detail, injection preview ("what would my agent actually receive for this query?"), a
-force-directed graph explorer, and the audit log. One static bundle, one port — the same
-process answers `POST /mcp`, so there is nothing extra to deploy.
+force-directed graph explorer, and the audit log. One static bundle, one port. Under
+`yoke serve` the same process also answers `POST /mcp`, so a team deployment needs
+nothing extra; `yoke ui` serves the workbench only.
 
 Servers bind loopback by default. `yoke ui` has no authentication, so widening it is an
-explicit `--host` and says so; `yoke serve` refuses a non-loopback bind without `--auth`.
+explicit `--host` and it warns that anyone reachable can read, create, retire and rename
+this database's knowledge; issuing credentials is refused to non-loopback callers there.
+`yoke serve` refuses a non-loopback bind without `--auth` outright, since it can
+authenticate and therefore has no reason not to.
 
 ## CLI
 
 ```
-yoke init | add | get | search | list | link | review | verify | deprecate
-yoke inject <query> [--include-draft] [--scope <id>] [--depth n] [--as-of ts]
-yoke overview | graph [--scope <id>]          # the corpus at a glance / as edges
+yoke init | add | get | search | list | link | verify | deprecate
+yoke review [--stale]                         # drafts awaiting review / verified past their TTL
+yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
+yoke overview | graph [--limit n]             # the corpus at a glance / as edges
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to> | persona <person-id> [--check f]
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
 yoke connect github-pr|slack|notes|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
-yoke backup | restore | export --until <ts> --out <new.db>   # --shards <file> federates backends
+yoke backup <dest.db> [--force] | restore <src.db> [--force]
+yoke export --until <ts> --out <new.db>       # --shards <file> federates backends
 yoke backfill [--embeddings [--rebuild]]      # repair authorship edges / the vector index
+yoke backfill --occurred-at [--dry-run]      # restore event times a pre-fix verify overwrote
 ```
 
 Common options: `--db` (> `YOKE_DB` env > `./yoke.db`), `--actor`
@@ -311,12 +336,26 @@ judgment would be impersonation.
 
 ## Measuring quality
 
-Instead of a recall benchmark, yoke measures **injection quality** (`npm run eval`):
+yoke measures two different things, and they answer different questions.
+
+**Injection quality** (`npm run eval`) — does the filter hold, and is the detection
+wired up:
 
 | Metric | Definition | Target | Measured |
 |---|---|---|---|
 | Contamination rate | Share of draft entries among inject results | 0% | **0.0%** (only the 20 verified of 40 candidates were injected) |
 | Missed-contradiction rate | Share of opposing-conclusion decision pairs with no conflicts_with edge | 0% | **0.0%** (5/5 detected) |
+
+Read those two numbers for what they cover: a 45-record synthetic corpus and a stub
+embedder whose vectors are built from the planted topic word, so the contradiction
+figure measures that stage 4 runs and files the edge — not that a real embedding model
+would notice. Precision is not measured on either axis.
+
+**Retrieval quality** (`npm run eval:retrieval -- <db>`) — does the right record come
+back, over `eval/gold-set.json` on a loaded corpus. This is the one that measures search
+against real text, and it reports its own weak spots rather than a headline: on the demo
+corpus, keyword-only retrieval scores recall@10 59.2% overall but 52.0% on
+question-shaped queries against 95.5% on keyword-shaped ones.
 
 ## Docs
 

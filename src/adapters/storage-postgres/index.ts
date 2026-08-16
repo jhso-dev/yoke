@@ -57,6 +57,7 @@ import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
+  ConflictError,
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   orderByIds,
@@ -68,6 +69,13 @@ import {
 
 /** The text-search configuration. See decision 4 in the header — this is a contract, not a knob. */
 const REGCONFIG = "simple";
+
+/** Postgres' unique-violation SQLSTATE. A duplicate `(id, version)` INSERT is the version-race loser
+ * (C1/C2), translated to the port's typed `ConflictError` so core retries — the same contract sqlite
+ * gives from `SQLITE_CONSTRAINT_PRIMARYKEY`. */
+function isVersionConflict(err: unknown): boolean {
+  return err instanceof Error && (err as { code?: string }).code === "23505";
+}
 
 /** Columns of a stored row, in the order every read selects them. `txt`/`tsv` are index state, never
  * returned: they are derived from `type` + `attributes` and a caller has both. */
@@ -225,8 +233,8 @@ export class PostgresStorage implements StoragePort {
       attributes     JSONB   NOT NULL,
       provenance     JSONB   NOT NULL,
       last_confirmed TEXT    NOT NULL,
-      -- The exact serializeText() output, kept so the tsvector can be rebuilt (renameType) without
-      -- re-deriving the caller's JSON. Not returned by any read.
+      -- The exact serializeText() output, kept so the tsvector can be rebuilt (reconcileSearchable,
+      -- renameType) without re-deriving the key in SQL. Not returned by any read.
       txt            TEXT    NOT NULL,
       -- Non-null on the latest version only. See decision 2.
       tsv            TSVECTOR,
@@ -310,25 +318,34 @@ export class PostgresStorage implements StoragePort {
     // Plain INSERT, not an upsert: re-putting an existing (id, version) is a primary-key conflict and
     // must stay one. That conflict is precisely why `putEmbedding` exists as a separate method (SPEC
     // "The vector index"), so swallowing it here would remove the reason for the design.
-    await this.tx(async (c) => {
-      await c.query(
-        `INSERT INTO ${this.t("entities")}
+    try {
+      await this.tx(async (c) => {
+        await c.query(
+          `INSERT INTO ${this.t("entities")}
            (id, version, type, status, ns, attributes, provenance, last_confirmed, txt)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)`,
-        [
-          e.id,
-          e.version,
-          e.type,
-          e.status,
-          normalizeNs(e.ns) ?? "",
-          JSON.stringify(e.attributes),
-          JSON.stringify(e.provenance),
-          e.last_confirmed,
-          txt,
-        ],
-      );
-      await this.reconcileSearchable(c, e.id);
-    });
+          [
+            e.id,
+            e.version,
+            e.type,
+            e.status,
+            normalizeNs(e.ns) ?? "",
+            JSON.stringify(e.attributes),
+            JSON.stringify(e.provenance),
+            e.last_confirmed,
+            txt,
+          ],
+        );
+        await this.reconcileSearchable(c, e.id);
+      });
+    } catch (err) {
+      // C1/C2: the version-race loser. Typed ConflictError so core retries, not the raw SQLSTATE.
+      if (isVersionConflict(err))
+        throw new ConflictError(
+          `version conflict on ${e.id}: another writer committed version ${e.version} first`,
+        );
+      throw err;
+    }
     if (e.embedding && this.vectors) await this.writeVector(e.id, e.embedding);
   }
 
@@ -351,6 +368,23 @@ export class PostgresStorage implements StoragePort {
             OR (e.version <> m.mx AND e.tsv IS NOT NULL))`,
       [id],
     );
+  }
+
+  /** One edge by id — parity with sqlite's, so `get <relation-id>` behaves the same on both. */
+  async getRelation(id: string, version?: number): Promise<Relation | null> {
+    const rows =
+      version === undefined
+        ? await this.q<RelationRow>(
+            `SELECT ${RELATION_COLS} FROM ${this.t("relations")}
+              WHERE id = $1 ORDER BY version DESC LIMIT 1`,
+            [id],
+          )
+        : await this.q<RelationRow>(
+            `SELECT ${RELATION_COLS} FROM ${this.t("relations")}
+              WHERE id = $1 AND version = $2`,
+            [id, version],
+          );
+    return rows[0] ? toRelation(rows[0]) : null;
   }
 
   async putRelation(r: Relation): Promise<void> {
@@ -712,21 +746,41 @@ export class PostgresStorage implements StoragePort {
     const scope = normalizeNs(ns) ?? "";
     return this.tx(async (c) => {
       let rows = 0;
-      // `txt` is rebuilt from the stored JSONB rather than string-patched. jsonb's text form is
-      // canonical (sorted keys, one space after each colon) and therefore not byte-identical to the
-      // JSON.stringify that wrote it — which does not matter, because `txt` exists only to be
-      // tokenized and both forms tokenize to the same lexemes. The tsvector is recomputed only where
-      // one already lives, so the latest-version-only invariant survives the rename.
-      const ents = await c.query(
-        `UPDATE ${this.t("entities")}
-            SET type = $1,
-                txt = $1 || ' ' || attributes::text,
-                tsv = CASE WHEN tsv IS NULL THEN NULL
-                           ELSE to_tsvector('${REGCONFIG}', $1 || ' ' || attributes::text) END
-          WHERE type = $2 AND ns = $3`,
+      // The type moves in SQL; `txt` is rebuilt in TypeScript, through the same `serializeText` the
+      // write path uses. The key is prose — the type, the values in ontology order, the `sources`
+      // span, then the identifiers — and no SQL expression reproduces that. A transliteration here
+      // would be a second copy of the rule that only the rename path exercises, so it reverts every
+      // renamed row to whatever the key used to be, silently.
+      const ents = await c.query<{
+        id: string;
+        version: number;
+        attributes: Record<string, unknown>;
+      }>(
+        `UPDATE ${this.t("entities")} SET type = $1 WHERE type = $2 AND ns = $3
+          RETURNING id, version, attributes`,
         [to, from, scope],
       );
       rows += ents.rowCount ?? 0;
+      if (ents.rows.length > 0) {
+        // ceiling: one batch, so a rename holds every affected row's key in memory at once. The
+        // statement is already keyed per row, so chunking it is the whole fix if a type outgrows that.
+        const ids = ents.rows.map((r) => r.id);
+        const versions = ents.rows.map((r) => r.version);
+        const txts = ents.rows.map((r) =>
+          serializeText(to, JSON.stringify(r.attributes)),
+        );
+        // The tsvector is recomputed only where one already lives, so the latest-version-only
+        // invariant (decision 2) survives the rename.
+        await c.query(
+          `UPDATE ${this.t("entities")} e
+              SET txt = v.txt,
+                  tsv = CASE WHEN e.tsv IS NULL THEN NULL
+                             ELSE to_tsvector('${REGCONFIG}', v.txt) END
+             FROM unnest($1::text[], $2::int[], $3::text[]) AS v(id, version, txt)
+            WHERE e.id = v.id AND e.version = v.version`,
+          [ids, versions, txts],
+        );
+      }
       // Relations too, without asking the caller which kind it was: one name lives in one ontology,
       // and the other statement simply matches nothing.
       const rels = await c.query(

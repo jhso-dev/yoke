@@ -361,6 +361,18 @@ describe("CLI --shards smoke", () => {
       1,
     );
     expect(errs.at(-1)).toMatch(/per-shard/);
+
+    // `backfill --embeddings --rebuild` rewrites the vector half on any backend, but only the one
+    // that writes its FTS text from JS has a keyword rebuild. Silently doing half the job is how an
+    // index ends up with its two halves disagreeing, so the missing half is SAID — loudly, on stderr,
+    // naming the backend. Not exit 1: a rebuild for a changed embedding model leaves the keyword half
+    // correct, and this command cannot tell that case from a re-key.
+    expect(
+      await runCli(["backfill", "--embeddings", "--rebuild", "--shards", cfg]),
+    ).toBe(0);
+    expect(errs.at(-1)).toMatch(
+      /keyword index was NOT re-keyed — ShardedStorage/,
+    );
   });
 
   // The flow that was broken, with nothing hand-seeded: `yoke init`, then work in a namespace owned

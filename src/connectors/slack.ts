@@ -3,8 +3,7 @@
 // no decision-marker NLP — humans promote what matters via review/verify (the governance model).
 // external_id = slack:<channel>:<ts> (stable message address; a permalink needs an extra API call).
 
-import type { EntityInput } from "../core/types.js";
-import type { Connector } from "./types.js";
+import type { Connector, SourceItem } from "./types.js";
 
 interface SlackMessage {
   ts: string;
@@ -35,9 +34,8 @@ export function makeSlackConnector(opts: {
     params: Record<string, string>,
   ): Promise<SlackPage> {
     const url = `${base}/${method}?${new URLSearchParams(params)}`;
-    // conversations.replies fires once per threaded message, so a busy channel
-    // trips Slack's rate limit quickly (seen live: 429 mid-sync). Honor
-    // Retry-After and retry a few times before giving up.
+    // conversations.replies fires once per threaded message, so a busy channel trips Slack's rate limit
+    // quickly. Honor Retry-After and retry a few times before giving up.
     for (let attempt = 0; ; attempt++) {
       const res = await fetchImpl(url, {
         headers: { Authorization: `Bearer ${opts.token}` },
@@ -58,11 +56,23 @@ export function makeSlackConnector(opts: {
     }
   }
 
-  function toItem(
-    m: SlackMessage,
-  ): (EntityInput & { externalId: string }) | null {
-    // Skip system events (channel_join, bot_message, etc.) — seen live: join
-    // notices carry text and were landing in the review queue as noise.
+  /**
+   * Slack `ts` ("1785900010.000200") → ISO 8601, or undefined if it is not the number Slack documents.
+   *
+   * The fraction is Slack's 6-digit disambiguator, finer than a millisecond, so it does not survive into an
+   * ISO instant. That is not a loss worth solving: the value is read by a TTL measured in days and by a
+   * human reading a date, and the message's identity is carried by `external_id`, which keeps the `ts`
+   * verbatim.
+   */
+  function slackTsToIso(ts: string): string | undefined {
+    const seconds = Number.parseFloat(ts);
+    if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
+    return new Date(seconds * 1000).toISOString();
+  }
+
+  function toItem(m: SlackMessage): SourceItem | null {
+    // Skip system events (channel_join, bot_message, etc.): they carry text but are not statements,
+    // and would land in the review queue as noise.
     if (m.subtype) return null;
     if (!m.text) return null; // uploads etc. carry no statement
     const externalId = `slack:${opts.channel}:${m.ts}`;
@@ -74,6 +84,9 @@ export function makeSlackConnector(opts: {
         external_id: externalId,
       },
       externalId,
+      // Slack's `ts` is the post time (unix seconds); pass it as occurredAt so the TTL counts from when
+      // the message was posted, not from the import.
+      occurredAt: slackTsToIso(m.ts),
     };
   }
 

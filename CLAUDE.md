@@ -3,6 +3,26 @@
 An ontology-based knowledge database. The core is the knowledge model; everything around it is an adapter.
 The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user's context, injected on demand.
 
+## First principle: always subtract
+
+This project is finished not when there is nothing left to add, but when there is nothing left to
+take away. Removal is the default move; addition carries the burden of proof. Every change should leave
+the codebase smaller or the same size unless new behavior genuinely requires more.
+
+- **Code that no longer earns its place goes.** Unused exports, one-implementation abstractions,
+  speculative options, dead branches, a helper that a caller could inline — delete them.
+- **A comment states a present constraint or it is deleted.** The codebase is read in the present
+  tense. A comment may say what the code cannot show — an invariant, an ordering requirement, a
+  measured limit (`ceiling:`), a deliberate corner cut (`ponytail:`). It may **not** narrate history:
+  "used to", "previously", "before the fix", "X was Y, now Z", "the old behavior", commit archaeology,
+  or a before/after war story about a bug already fixed. That belongs in git, not the source. The
+  reader needs to know what is true now and what must stay true — never what was once wrong.
+- **History with lasting value lives where history belongs.** git holds the change record; `docs/`
+  (e.g. RESEARCH.md's dated measurements) holds findings that still constrain a decision. A measured
+  number that governs a current `ceiling:` stays; the story of the bug that motivated it does not.
+
+When in doubt, cut. A smaller diff that removes is worth more than a larger one that adds.
+
 ## Invariants (never violate)
 
 1. **The core imports no adapter.** Dependencies always point one way: adapter → core.
@@ -51,3 +71,18 @@ The goal: AI agents (Claude, Codex, etc.) receive knowledge relevant to the user
 - A `ceiling:` comment marks a deliberate simplification: it names the known limit and what would
   justify lifting it. Don't remove the limit without reading the comment — some ceilings are measured
   (e.g. `downstreamOf`'s one hop), and lifting those needs new evidence, not just code.
+- **Reproduce through a front adapter before fixing, and again after.** A defect that cannot be
+  reproduced from the CLI or an MCP tool may not exist: an ingest fix once shipped for "a reviewer who
+  edited a record by hand" when no path in the product lets anyone do that. Reading finds plausible
+  defects; running finds real ones.
+- **Write a guard against the operation, not against the case that prompted it.** Open what you are
+  protecting and enumerate what it touches. `renameType` writes `entities` AND `relations`; its refusal
+  counted only entities, so the merge it exists to prevent went through for every relation type.
+- **A validator that enumerates what is valid must reject what it did not enumerate.** Checking only
+  known keys makes it a spell-checker for its own vocabulary — `ttl_dayz: 30` was accepted and silently
+  meant no expiry.
+- **The second place that compares, parses or normalises the same thing calls the first.** Two as-of
+  comparisons (`Date.parse` in one file, `<=` on strings in another) made one read answer itself two
+  ways. A shared operator looks too small to extract, which is how the two end up disagreeing.
+- **A comment may only claim what a test or a transcript backs.** Everything else is a `ceiling:` or is
+  deleted. Prose is the largest untested surface in a diff, and it is where the wrong claims live.

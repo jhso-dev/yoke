@@ -162,6 +162,33 @@ export const en = {
       "Created. Nothing was compared against it: this workspace has no embedding provider configured, so duplicate detection did not run.",
     createdToast: (label: string) =>
       `Created "${label}" as a draft — verify it in Review.`,
+    // A partial commit: the record is durable but an edge the gate tried alongside it was not written.
+    // Core emits three kinds (commit.ts) and each has a DIFFERENT remedy: a `relates_to` attachment
+    // must be re-linked, an `authored_by` edge re-derives with backfill, and a `conflicts_with` marker
+    // has NO backfill (backfill re-derives only authorship). Classifying by `relates_to` alone sent a
+    // conflict loss to `yoke backfill`, which cannot re-derive a contradiction, and silently dropped an
+    // authorship loss when an attachment loss rode alongside it. Each kind present names its own remedy.
+    partial: (label: string, unrecorded: string[]) => {
+      const has = (prefix: string) =>
+        unrecorded.some((u) => u.startsWith(prefix));
+      const parts: string[] = [];
+      if (has("relates_to"))
+        parts.push(
+          "its attachment to the scope was NOT recorded — link it again",
+        );
+      if (has("authored_by"))
+        parts.push(
+          "its authorship edge was NOT recorded — re-derive it with yoke backfill",
+        );
+      if (has("conflicts_with"))
+        parts.push(
+          "a contradiction it raised with an existing record was NOT recorded — it will not show as disputed, and backfill does not re-derive conflicts",
+        );
+      // An edge core added that this list does not name yet — reported, never dropped as success.
+      if (parts.length === 0)
+        parts.push("an edge the gate tried alongside it was NOT recorded");
+      return `Saved "${label}" as a draft, but ${parts.join("; ")}.`;
+    },
   },
   status: {
     /** Why a record in this state is or is not injected. The stored NAME stays English (it is what
@@ -188,9 +215,9 @@ export const en = {
     placeholder:
       "superseded by the reframed version · was a test fixture · no longer true since …",
     kept: "The record is kept and stops being injected.",
-    /** Shown on the retired record itself. */
-    retiredBy: (actor: string, when: string) =>
-      `Retired by ${actor} on ${when}`,
+    /** Shown on the retired record itself, after an <Actor> that names the retiree — a leading space
+     * joins the two, so this reads "<name> retired this record on <when>". */
+    retiredBy: (when: string) => ` retired this record on ${when}`,
     noReason: "No reason was recorded.",
   },
   review: {
@@ -373,6 +400,32 @@ export const en = {
     decisions: "guiding decisions",
     noDecisions: "this person has not recorded any decisions",
     otherKnowledge: "other knowledge",
+    // What this person has on record but this view does NOT contain, by reason — the same wording the
+    // inject preview and the exported SKILL.md use. An empty view and a person whose every record is
+    // in review look identical without this; the note says why the omission matters.
+    withheld: (w: {
+      draft: number;
+      stale: number;
+      deprecated: number;
+      structural: number;
+      superseded: number;
+    }) =>
+      `This person has records this view does not contain: ${[
+        w.draft && `${w.draft} awaiting review`,
+        w.stale && `${w.stale} past its freshness window`,
+        w.deprecated && `${w.deprecated} retired`,
+        w.superseded && `${w.superseded} replaced by newer knowledge`,
+      ]
+        .filter(Boolean)
+        .join(
+          ", ",
+        )} — so its silence on a subject is not evidence they never recorded one.`,
+    // A same_as union combines a second person's judgment under this name; the link is unreviewed, so
+    // the merge is disclosed. The names follow this lead-in; the note (below) states the trust caveat.
+    identityUnion: (n: number) =>
+      `Combined ${n} identity records recorded as the same person by same_as:`,
+    identityUnionNote: (name: string) =>
+      `That link is an unreviewed claim (relations cannot be verified): if these are not one person, this view attributes someone else's judgment to ${name}.`,
   },
   inject: {
     heading: "Injection preview",
@@ -392,6 +445,38 @@ export const en = {
       `Showing ${shown} of ${total}. An agent receives the same results and a note to ask a more specific question for the rest. Raise the limit to preview more.`,
     empty:
       "No verified knowledge matches this query, so nothing will be sent to the agent",
+    // The column that says a row is contested. Named as a state ("disputed") rather than an action,
+    // because there is nothing to click to fix it — settling a contradiction is a human judgment the
+    // database deliberately does not make. Each cell names the contradicted record (DisputedLinks).
+    disputedHead: "disputed",
+    // The empty state above claims nothing matches. When something DID match and was held back, saying
+    // so is the difference between "we know nothing about this" and "this is waiting for review".
+    withheld: (
+      w: {
+        draft: number;
+        stale: number;
+        deprecated: number;
+        structural: number;
+        superseded: number;
+      },
+      // How many records ARE being sent. The lead-in turns on it: with a full table on screen the
+      // reader's mistake is not "we know nothing" but "this is all we know".
+      sent: number,
+    ) =>
+      `${
+        sent === 0
+          ? "Nothing will be sent, but this query did match records"
+          : `Also matched and NOT sent — the table above is not everything this query found`
+      }: ${[
+        w.draft && `${w.draft} awaiting review`,
+        w.stale && `${w.stale} past its freshness window`,
+        w.deprecated && `${w.deprecated} retired`,
+        w.superseded && `${w.superseded} replaced by newer knowledge`,
+        w.structural &&
+          `${w.structural} naming something knowledge is attached to, which is never injected as knowledge`,
+      ]
+        .filter(Boolean)
+        .join(", ")}.`,
     // As-of. Labelled as a question about the past rather than as a filter, because that is what it
     // answers, and banner-flagged whenever it is on: a historical result that looked like a current
     // one would be worse than not offering this at all.
@@ -470,6 +555,10 @@ export const en = {
     readHint: "see knowledge — briefings, injections, search",
     writeHint: "create records — they enter as drafts",
     verifyHint: "governance — verify, re-confirm, deprecate",
+    // Spelled out because it is the one permission that hands out permissions, and it deliberately
+    // does NOT include reading knowledge.
+    adminHint:
+      "issue and revoke credentials — grants no access to knowledge itself",
     restrictLegend: "(optional)",
     recordType: "record type",
     anyPlaceholder: "any",

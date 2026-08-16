@@ -11,6 +11,7 @@ import type { TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
+  ConflictError,
   DEFAULT_SEARCH_LIMIT,
   type ListQuery,
   orderByIds,
@@ -19,6 +20,15 @@ import {
   type StoragePort,
   type TextQuery,
 } from "../../ports/storage.js";
+
+/** A duplicate `(id, version)` INSERT — the version-race loser (C1/C2). Translated to the port's
+ * typed `ConflictError` so core retries rather than string-matching a raw SQL message. */
+function isVersionConflict(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err as { code?: string }).code === "SQLITE_CONSTRAINT_PRIMARYKEY"
+  );
+}
 
 // The schema is a TS constant rather than a .sql file (simpler bundling). created_at is an
 // internal column outside the Entity contract, so a DB default fills it — it is not a put argument.
@@ -52,6 +62,17 @@ CREATE TABLE IF NOT EXISTS relations (
 ) WITHOUT ROWID;
 
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(id UNINDEXED, text);
+
+-- C6/F2: keep the latest-version-only FTS row deletable by an INDEXED key. \`id UNINDEXED\` means
+-- \`DELETE FROM entities_fts WHERE id = ?\` passes NO constraint to fts5 and scans the whole index —
+-- O(N) per write, O(N^2) per bulk ingest, and a 22 s write-lock hold for a rename over 20k rows.
+-- The FTS \`rowid\` (its docid) IS indexed, so this maps each entity id to its stable rowid and deletes
+-- go \`WHERE rowid = ?\` (O(log n)). Search is unaffected: it still SELECTs \`f.id\` and orders by \`f.rank\`.
+-- The rowid is written once per id and never moves, so this table is append-only per id.
+CREATE TABLE IF NOT EXISTS fts_docid (
+  id TEXT NOT NULL PRIMARY KEY,
+  docid INTEGER NOT NULL
+) WITHOUT ROWID;
 
 -- Bypasses the gate. append-only: versions accumulate per name; load returns only the latest.
 CREATE TABLE IF NOT EXISTS ontology_types (
@@ -190,11 +211,102 @@ export class SqliteStorage implements StoragePort {
   async init(): Promise<void> {
     this.db.pragma("journal_mode = WAL");
     sqliteVec.load(this.db);
+    // Columns FIRST, then the schema — a required ordering. SCHEMA declares indexes over `ns`
+    // (`idx_entities_ns_type_id` and four more); on a database created before PLAN-V2 10.1 that column
+    // does not exist yet, so `exec(SCHEMA)` throws "no such column: ns" before the ALTER TABLE loop
+    // that adds it can run. Running the ALTERs first keeps SCHEMA's index DDL valid on every vintage.
+    //
+    // Safe in both directions because every statement is conditional. On a fresh database the ALTERs
+    // throw "no such table" and are ignored, then SCHEMA creates the tables with `ns` already in them;
+    // on a current one they throw "duplicate column" and SCHEMA is idempotent.
+    //
+    // ceiling: no `PRAGMA user_version` marker — every migration here is idempotent and self-detecting,
+    // so nothing needs one yet. Set it before adding a migration that is not (a backfill, a data
+    // rewrite), because those cannot be run twice and cannot ask the schema whether they already have.
+    this.migrateColumns();
     this.db.exec(SCHEMA);
+    this.migrateFtsDocids();
+  }
+
+  /**
+   * C6/F2 migration: map every currently-UNMAPPED FTS row to its rowid, so deletes stop scanning (see
+   * the fts_docid schema note). Reconciles per-id on every open, not once: a MIXED database — some
+   * `entities_fts` rows mapped and some not (mixed-vintage writes: a rollback, a shared file, two
+   * installs) — otherwise leaves an unmapped id reaching `reindexFts`'s else-branch, which inserts a
+   * SECOND fts row without deleting the first, so the old text stays searchable as a ghost and every
+   * hit doubles. Mapping the id here first forces the delete-by-rowid path, leaving exactly one fts row
+   * per id.
+   *
+   * Cheap: only unmapped rows do work. `WHERE NOT EXISTS ... fts_docid` uses the map's primary key, so
+   * an already-reconciled database inserts nothing and a fresh one has no fts rows at all — a no-op.
+   *
+   * `OR IGNORE` on top of the filter, because init() runs concurrently across processes (invariant 4:
+   * `yoke mcp` + `yoke ui` + CLI on one file). One process can map an id between this SELECT and its
+   * INSERT; IGNORE skips it, and the rowid it would have written is identical (reindexFts wrote the same
+   * one), so the two stay consistent.
+   */
+  private migrateFtsDocids(): void {
+    this.db.exec(
+      `INSERT OR IGNORE INTO fts_docid (id, docid)
+       SELECT f.id, f.rowid FROM entities_fts f
+       WHERE NOT EXISTS (SELECT 1 FROM fts_docid d WHERE d.id = f.id)`,
+    );
+  }
+
+  /**
+   * Reindex one id's latest-version FTS text, deleting by the INDEXED rowid rather than by the
+   * UNINDEXED `id` (C6/F2 — the whole reason fts_docid exists). The rowid is allocated once on first
+   * insert and reused on every re-version, so the mapping is write-once and the delete is O(log n).
+   */
+  private reindexFts(id: string, text: string): void {
+    const row = this.db
+      .prepare(`SELECT docid FROM fts_docid WHERE id = ?`)
+      .get(id) as { docid: number } | undefined;
+    if (row) {
+      this.db
+        .prepare(`DELETE FROM entities_fts WHERE rowid = ?`)
+        .run(row.docid);
+      this.db
+        .prepare(`INSERT INTO entities_fts (rowid, id, text) VALUES (?, ?, ?)`)
+        .run(row.docid, id, text);
+    } else {
+      const info = this.db
+        .prepare(`INSERT INTO entities_fts (id, text) VALUES (?, ?)`)
+        .run(id, text);
+      this.db
+        .prepare(`INSERT INTO fts_docid (id, docid) VALUES (?, ?)`)
+        .run(id, Number(info.lastInsertRowid));
+    }
+  }
+
+  /**
+   * Run `fn` as a critical section serialized against other writers (C4). `BEGIN IMMEDIATE` takes the
+   * write lock up front — waiting out `busy_timeout` rather than failing on a snapshot upgrade — so a
+   * check-then-write inside `fn` is atomic: the connector idempotency probe needs the second ingest of
+   * one source item to SEE the first's committed row. Nested `putEntity`/`putRelation` transactions
+   * become savepoints (better-sqlite3), so their writes commit and roll back with this section.
+   *
+   * See the port doc for the ceilings (lock held across `fn`'s awaits; assumes no concurrent op on the
+   * same handle). Re-entrant: an inner call while already in a transaction just runs `fn`.
+   */
+  async withCriticalSection<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.db.inTransaction) return fn();
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const out = await fn();
+      this.db.exec("COMMIT");
+      return out;
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  /** Additive column migrations, each conditional so it runs on any vintage of database. */
+  private migrateColumns(): void {
     // Migration for DBs created before PLAN-V2 10.1: add the nullable ns column. Fresh DBs already
     // have it (in SCHEMA), so ADD COLUMN throws "duplicate column" — caught and ignored. NULL default
     // means every pre-existing row belongs to the default shared namespace (backward compatible).
-    // audit_log joined the list in v5.0 (its rows were namespace-blind until then).
     for (const table of [
       "entities",
       "relations",
@@ -279,44 +391,75 @@ export class SqliteStorage implements StoragePort {
 
   async putEmbedding(e: Entity, opts?: { rebuild?: boolean }): Promise<void> {
     if (!e.embedding) return;
-    this.indexEmbedding(e.id, e.embedding, opts?.rebuild);
+    // Delete-then-insert, so it is transactional for the same reason `putEntity` is. Milder here —
+    // `yoke backfill --embeddings` re-derives a lost vector, which is not true of a lost FTS row —
+    // but a torn write leaves a record retrievable by keyword and invisible to the vector half, which
+    // is a silently worse answer rather than an error.
+    this.db.transaction(() => {
+      this.indexEmbedding(e.id, e.embedding as Float32Array, opts?.rebuild);
+    })();
   }
 
   close(): void {
     this.db.close();
   }
 
+  /**
+   * One row plus its indexes, as ONE transaction.
+   *
+   * The four statements — insert the version, read back the latest, drop the FTS row, insert the new
+   * one — must commit together. A process that ends between them (a kill, an OOM, a power loss) leaves
+   * a durable state nothing in the product can see or repair: `getEntity` present, `listEntities`
+   * counts it, `search` returns nothing, so `inject` never serves it — and `yoke backfill` rebuilds
+   * embeddings and authorship but nothing rebuilds FTS, so a record that falls into that window is
+   * invisible for good.
+   *
+   * The embedding write joins the transaction for the same reason and one more: `ensureVecTable`
+   * throws on a dimension change (deliberately — see `vectorHits`), and outside a transaction that
+   * throw would leave the entity and its FTS row committed while the caller heard an error. The gate
+   * catches the mismatch earlier, by `similar` during duplicate detection, so nothing reaches this
+   * line — but that guarantee stops holding the moment a caller skips the gate.
+   */
   async putEntity(e: Entity): Promise<void> {
-    this.db
-      .prepare(
-        `INSERT INTO entities (id, version, type, status, attributes, provenance, last_confirmed, ns)
+    this.db.transaction(() => {
+      try {
+        this.db
+          .prepare(
+            `INSERT INTO entities (id, version, type, status, attributes, provenance, last_confirmed, ns)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        e.id,
-        e.version,
-        e.type,
-        e.status,
-        JSON.stringify(e.attributes),
-        JSON.stringify(e.provenance),
-        e.last_confirmed,
-        e.ns ?? null,
-      );
-    // FTS keeps only the latest version: drop the id's row, then re-insert the latest version's text.
-    const latest = this.db
-      .prepare(
-        `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
-      )
-      .get(e.id) as { type: string; attributes: string };
-    this.db.prepare(`DELETE FROM entities_fts WHERE id = ?`).run(e.id);
-    this.db
-      .prepare(`INSERT INTO entities_fts (id, text) VALUES (?, ?)`)
-      .run(e.id, serializeText(latest.type, latest.attributes));
+          )
+          .run(
+            e.id,
+            e.version,
+            e.type,
+            e.status,
+            JSON.stringify(e.attributes),
+            JSON.stringify(e.provenance),
+            e.last_confirmed,
+            e.ns ?? null,
+          );
+      } catch (err) {
+        // C1/C2: a concurrent writer already committed this (id, version). Raise the port's typed
+        // ConflictError so core re-reads and retries, never the raw `UNIQUE constraint failed` string.
+        if (isVersionConflict(err))
+          throw new ConflictError(
+            `version conflict on ${e.id}: another writer committed version ${e.version} first`,
+          );
+        throw err;
+      }
+      // FTS keeps only the latest version's text; the delete goes by rowid (C6/F2 — reindexFts).
+      const latest = this.db
+        .prepare(
+          `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
+        )
+        .get(e.id) as { type: string; attributes: string };
+      this.reindexFts(e.id, serializeText(latest.type, latest.attributes));
 
-    // Keep only the latest version's vector too (same delete+insert as FTS). Touch it only when an
-    // embedding is present — re-putting a version without an embedding leaves the existing vector in
-    // place (entities has no vector column, so the latest vector cannot be reconstructed).
-    if (e.embedding) this.indexEmbedding(e.id, e.embedding);
+      // Keep only the latest version's vector too (same delete+insert as FTS). Touch it only when an
+      // embedding is present — re-putting a version without an embedding leaves the existing vector in
+      // place (entities has no vector column, so the latest vector cannot be reconstructed).
+      if (e.embedding) this.indexEmbedding(e.id, e.embedding);
+    })();
   }
 
   async getEntity(id: string, version?: number): Promise<Entity | null> {
@@ -346,6 +489,21 @@ export class SqliteStorage implements StoragePort {
       )
       .all(...ids) as EntityRow[];
     return orderByIds(rows.map(rowToEntity), ids);
+  }
+
+  /** One edge by id — the read that makes `link`'s returned id resolvable (see the port). */
+  async getRelation(id: string, version?: number): Promise<Relation | null> {
+    const row =
+      version === undefined
+        ? this.db
+            .prepare(
+              `SELECT * FROM relations WHERE id = ? ORDER BY version DESC LIMIT 1`,
+            )
+            .get(id)
+        : this.db
+            .prepare(`SELECT * FROM relations WHERE id = ? AND version = ?`)
+            .get(id, version);
+    return row ? rowToRelation(row as RelationRow) : null;
   }
 
   async putRelation(r: Relation): Promise<void> {
@@ -431,8 +589,8 @@ export class SqliteStorage implements StoragePort {
     // needs it: an engine with WAND (Tantivy, Lucene) behind this same port — which is what the port
     // is for. Not worth doing on a guess.
     //
-    // The filters sit in this WHERE, so they apply BEFORE the limit. That ordering is the fix for
-    // "asked for 50, received 29": inject used to cap here and filter afterwards in JS.
+    // The filters sit in this WHERE, so they apply BEFORE the limit: capping first and filtering
+    // afterward in JS returns fewer rows than the caller asked for.
     const limitClause = " LIMIT @limit";
     // Namespace isolation (PLAN-V2 10.1): `IS @ns` handles NULL (default ns sees only default rows).
     const rows = this.db
@@ -539,6 +697,43 @@ export class SqliteStorage implements StoragePort {
     });
   }
 
+  /**
+   * Rewrite every FTS row from the latest stored version. Returns rows rewritten.
+   *
+   * The keyword half of the index is written by `putEntity` and nowhere else, so it cannot be
+   * re-derived the way `backfill --embeddings` re-derives the vector half: `putEntity` appends a
+   * version, and re-putting one is a primary-key collision, not a reindex. Without this, a database
+   * written before `serializeText` changed would take a re-key on the vector half only, and the two
+   * halves of one hybrid query would be reading two different indexes.
+   *
+   * `ontology` orders the values in the key; without it the values are in written order, which FTS
+   * ranks identically (a bag of words) but which makes the rebuilt text differ from what `commit`
+   * writes. The caller passes it — `yoke backfill --embeddings --rebuild`.
+   *
+   * Per row it goes through `reindexFts`, so the delete is by the mapped rowid and the fts_docid
+   * mapping stays intact (C6/F2). A raw delete-by-id here would leave the map pointing at rows this
+   * rebuilt, and an unmapped id takes reindexFts's insert branch — a second fts row per id, the old
+   * text still searchable as a ghost.
+   *
+   * ceiling: an adapter extension rather than a port method, feature-detected by the caller, because
+   * sqlite is the only backend whose FTS text is written from JS. Postgres keeps `serializeText`
+   * output in a column and derives the tsvector from it, so it can rebuild in SQL; opensearch
+   * re-indexes documents. Give them each a `rebuildFts` when either needs one.
+   */
+  rebuildFts(ontology?: TypeDef[]): number {
+    const latest = this.db
+      .prepare(
+        `SELECT id, type, attributes FROM entities e
+         WHERE e.version = (SELECT MAX(version) FROM entities WHERE id = e.id)`,
+      )
+      .all() as { id: string; type: string; attributes: string }[];
+    this.db.transaction(() => {
+      for (const r of latest)
+        this.reindexFts(r.id, serializeText(r.type, r.attributes, ontology));
+    })();
+    return latest.length;
+  }
+
   // --- Adapter extensions outside StoragePort: ontology seed save/load (for CLI init) ---
 
   /** Append-only save of ontology definitions. Accumulates as the next version per name.
@@ -561,7 +756,11 @@ export class SqliteStorage implements StoragePort {
         insert.run(def.name, v, JSON.stringify(def), n);
       }
     });
-    tx(defs);
+    // C5: BEGIN IMMEDIATE. The body reads MAX(version) then INSERTs, so a plain deferred BEGIN starts
+    // as a reader and fails INSTANTLY with SQLITE_BUSY_SNAPSHOT when it upgrades to a writer under any
+    // concurrent writer — busy_timeout never applies to that upgrade. Requesting the write lock up
+    // front makes it WAIT out the timeout instead.
+    tx.immediate(defs);
   }
 
   /**
@@ -585,7 +784,7 @@ export class SqliteStorage implements StoragePort {
     ns?: string | null,
   ): Promise<number> {
     const n = normalizeNs(ns);
-    return this.db.transaction(() => {
+    const tx = this.db.transaction(() => {
       let rows = 0;
       // Collected before the UPDATE: the FTS text is built from type + attributes, so every affected
       // id's index row goes stale the instant the column changes.
@@ -604,17 +803,15 @@ export class SqliteStorage implements StoragePort {
       rows += this.db
         .prepare(`UPDATE relations SET type = ? WHERE type = ? AND ns IS ?`)
         .run(to, from, n).changes;
-      const del = this.db.prepare(`DELETE FROM entities_fts WHERE id = ?`);
-      const ins = this.db.prepare(
-        `INSERT INTO entities_fts (id, text) VALUES (?, ?)`,
-      );
+      // FTS reindex by rowid (C6/F2). Deleting each stale row by its UNINDEXED `id` is a full FTS scan
+      // per affected id — O(N^2) over the whole type, a 22 s write-lock hold at 20k rows / >15 min at
+      // 200k, locking out every other process (C6). reindexFts deletes by rowid instead (O(log n)).
       const latest = this.db.prepare(
         `SELECT type, attributes FROM entities WHERE id = ? ORDER BY version DESC LIMIT 1`,
       );
       for (const id of ids) {
         const l = latest.get(id) as { type: string; attributes: string };
-        del.run(id);
-        ins.run(id, serializeText(l.type, l.attributes));
+        this.reindexFts(id, serializeText(l.type, l.attributes));
       }
       // The declaration. saveOntology appends a version per name, which would leave every `from` row
       // sitting there, so these are rewritten in place — name column and the name inside `def`.
@@ -645,7 +842,11 @@ export class SqliteStorage implements StoragePort {
         }
       }
       return rows;
-    })();
+    });
+    // C5: BEGIN IMMEDIATE, for the same reason as saveOntology — this transaction opens with a SELECT
+    // (collect the affected ids) then UPDATEs, so a deferred BEGIN would die on the read-to-write
+    // upgrade the instant another writer holds the lock. Requesting the write lock up front waits.
+    return tx.immediate();
   }
 
   /** All versions of an id, ascending (outside StoragePort — for CLI history, PLAN 8.4).
@@ -677,8 +878,21 @@ export class SqliteStorage implements StoragePort {
    * `limit` takes the most recent N and still returns them oldest-first, so a paging viewer and
    * `yoke audit` read the same direction. */
   listAudit(q: AuditQuery = {}): AuditEvent[] {
-    const sinceClause = q.since === undefined ? "" : " AND at >= @since";
-    const untilClause = q.until === undefined ? "" : " AND at <= @until";
+    // By instant (`julianday` parses ISO 8601, offsets included), never by string. Stored `at` values
+    // are not one spelling — the DB default is whole-second `...Z`, callers write millisecond `...Z` —
+    // and `Z` sorts AFTER `.`, so a string compare misses rows in the bound's own second even when
+    // both sides are UTC (an offset bound like `--since <now as +09:00>` is the case that breaks).
+    //
+    // ceiling: wrapping the column kills the range scan on `idx_audit_ns_at` (declared above for
+    // exactly this filter), so a bounded read now scans the namespace's rows and parses each one.
+    // Correct beats fast on the trail, and the ns equality still uses the index's leading column — but
+    // audit_log is the one table that only grows. The way out is a stored epoch column maintained on
+    // write and indexed, which lets the bound be compared as a number; do that before a corpus makes
+    // this felt, not a smarter string compare.
+    const sinceClause =
+      q.since === undefined ? "" : " AND julianday(at) >= julianday(@since)";
+    const untilClause =
+      q.until === undefined ? "" : " AND julianday(at) <= julianday(@until)";
     // DESC + LIMIT selects the newest rows; the reverse below restores ascending order.
     const order = q.limit === undefined ? "rowid" : "rowid DESC";
     const limitClause = q.limit === undefined ? "" : " LIMIT @limit";
@@ -772,6 +986,21 @@ export class SqliteStorage implements StoragePort {
     await this.db.backup(dest);
   }
 
+  /**
+   * `"ok"`, or what sqlite says is wrong with this file.
+   *
+   * `quick_check`, not `integrity_check`: it verifies page structure and skips the full index
+   * cross-check, which is the part whose cost scales with the database. What it catches is the class that
+   * matters to a caller about to copy the file — pages that cannot be read correctly at all.
+   *
+   * Nothing calls this on a read path. A corrupt database currently answers `list` and `overview` with a
+   * confident short census (measured: 228 records where there were 251, exit 0), and the fix for that is
+   * a `yoke doctor` that says so, not a check on every query.
+   */
+  integrityCheck(): string {
+    return this.db.pragma("quick_check", { simple: true }) as string;
+  }
+
   /** PITR-lite (11.1): reconstruct DB state as of `ts` into a fresh file. History is append-only, so
    * we copy every entity/relation/ontology/audit row created at or before ts and rebuild FTS from the
    * surviving latest versions. Embeddings/vec are NOT carried over (search falls back to FTS on the
@@ -790,14 +1019,14 @@ export class SqliteStorage implements StoragePort {
         .prepare(
           `INSERT INTO bak.entities (id, version, type, status, attributes, provenance, last_confirmed, ns, created_at)
            SELECT id, version, type, status, attributes, provenance, last_confirmed, ns, created_at
-           FROM entities WHERE COALESCE(created_at, last_confirmed) <= ?`,
+           FROM entities WHERE julianday(COALESCE(created_at, last_confirmed)) <= julianday(?)`,
         )
         .run(ts);
       this.db
         .prepare(
           `INSERT INTO bak.relations (id, version, type, status, attributes, provenance, last_confirmed, ns, created_at, from_id, to_id)
            SELECT id, version, type, status, attributes, provenance, last_confirmed, ns, created_at, from_id, to_id
-           FROM relations WHERE COALESCE(created_at, last_confirmed) <= ?`,
+           FROM relations WHERE julianday(COALESCE(created_at, last_confirmed)) <= julianday(?)`,
         )
         .run(ts);
       // Ontology defs have no timestamp — copy them all; a reconstructed DB is unusable without them.
@@ -807,8 +1036,9 @@ export class SqliteStorage implements StoragePort {
       );
       this.db
         .prepare(
-          `INSERT INTO bak.audit_log (actor, action, detail, at)
-           SELECT actor, action, detail, at FROM audit_log WHERE at <= ?`,
+          `INSERT INTO bak.audit_log (actor, action, detail, at, ns, note)
+           SELECT actor, action, detail, at, ns, note FROM audit_log
+           WHERE julianday(at) <= julianday(?)`,
         )
         .run(ts);
       // Rebuild FTS from the copied latest versions (serializeText is JS, not SQL).
@@ -823,6 +1053,12 @@ export class SqliteStorage implements StoragePort {
       );
       for (const r of latest)
         ins.run(r.id, serializeText(r.type, r.attributes));
+      // Map the rebuilt FTS rows to their rowids (C6/F2), so a write into the export is O(log n) like
+      // any other database. A later open would self-heal this via migrateFtsDocids anyway; doing it
+      // here keeps the export internally consistent the moment it is written.
+      this.db.exec(
+        `INSERT INTO bak.fts_docid (id, docid) SELECT id, rowid FROM bak.entities_fts`,
+      );
     } finally {
       this.db.exec("DETACH DATABASE bak");
     }
