@@ -35,6 +35,7 @@ async function openSession() {
   await Promise.all([server.connect(serverT), client.connect(clientT)]);
   return {
     client,
+    store,
     async close() {
       await client.close();
       await server.close();
@@ -122,6 +123,66 @@ describe("yoke MCP server", () => {
       "yoke_use_scope",
     ]);
     await s.close();
+  });
+
+  it("resolves the authors of one answer in one read, not one per line", async () => {
+    // display.ts records the measured cost of the unbatched form: an anchored graph at depth 3 spent
+    // 1,595 of its 1,715 port calls resolving names, one point read per distinct author. The MCP
+    // server had its own private copy of that loop; both surfaces now go through `makeActorNames`.
+    const port = new SqliteStorage(db);
+    await port.init();
+    const at = "2026-08-02T00:00:00Z";
+    const names = ["Ana", "Ben", "Cai", "Dot"];
+    const facts: string[] = [];
+    for (const name of names) {
+      const person = (
+        await commit(
+          port,
+          seedOntology(),
+          { type: "person", attributes: { name } },
+          { actor: "mcp:seed", origin: "cli", occurred_at: at },
+          at,
+        )
+      ).entity.id;
+      facts.push(
+        (
+          await commit(
+            port,
+            seedOntology(),
+            {
+              type: "fact",
+              // Each fact is authored by a DIFFERENT person, which is the case the memo cannot help
+              // with and a real corpus is made of.
+              attributes: { statement: `zqbatched ledger note from ${name}` },
+            },
+            { actor: person, origin: "cli", occurred_at: at },
+            at,
+          )
+        ).entity.id,
+      );
+    }
+    port.close();
+    expect(await runCli(["verify", ...facts, "--db", db])).toBe(0);
+
+    const s = await openSession();
+    const realGet = s.store.getEntity.bind(s.store);
+    let points = 0;
+    s.store.getEntity = async (id: string, version?: number) => {
+      points++;
+      return realGet(id, version);
+    };
+    const out = text(
+      await s.client.callTool({
+        name: "yoke_inject",
+        arguments: { query: "zqbatched" },
+      }),
+    );
+    await s.close();
+
+    // Every author is named — the point reads are gone, not the names.
+    for (const name of names) expect(out).toContain(name);
+    // Four authors and four confirmers, resolved without a single point read.
+    expect(points).toBe(0);
   });
 
   it("never names a tool it does not register", async () => {
