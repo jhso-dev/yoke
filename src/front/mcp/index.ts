@@ -264,7 +264,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
                 partial:
                   `the record was stored but these could not be written: ${unrecorded.join("; ")}. ` +
                   "Do not report this as fully recorded; authorship is re-derivable by running " +
-                  "'yoke backfill', and an attachment has to be filed again with yoke_link.",
+                  "'yoke backfill', and an attachment has to be filed again with yoke_commit " +
+                  "(type 'relates_to', from this record's id, to the scope id).",
               }
             : {}),
         }),

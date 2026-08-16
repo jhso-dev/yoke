@@ -2,7 +2,7 @@
 // Uses InMemoryTransport instead of spawn (allowed): server and client are connected as a linked pair,
 // but each connection opens and closes the DB file afresh, preserving the "Client A commits → close → Client B reads" scenario.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -122,6 +122,21 @@ describe("yoke MCP server", () => {
       "yoke_use_scope",
     ]);
     await s.close();
+  });
+
+  it("never names a tool it does not register", async () => {
+    // An instruction is only as good as the tool it names: "file it again with yoke_link" sent agents
+    // after a tool that has never existed, and a model cannot tell a wrong name from a missing
+    // permission. Scanned over the whole adapter, because the names appear in tool DESCRIPTIONS and in
+    // the text tools return, and both are read by the same reader.
+    const s = await openSession();
+    const registered = new Set(
+      (await s.client.listTools()).tools.map((t) => t.name),
+    );
+    await s.close();
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const named = new Set(source.match(/yoke_[a-z_]+/g) ?? []);
+    expect([...named].filter((n) => !registered.has(n))).toEqual([]);
   });
 
   it("yoke_persona: returns a person's verified decisions with citations; an absent person is a tool error", async () => {
