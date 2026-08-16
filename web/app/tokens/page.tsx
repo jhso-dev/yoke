@@ -37,8 +37,8 @@ import { useAsync } from "../../lib/useAsync";
 const ANY = "__any";
 
 /** The four actions RBAC actually knows (src/front/serve/rbac.ts). The form offers exactly these —
- * a free-text scope field made the caller memorise the grammar to grant "read". `admin` joined them
- * when it stopped being `verify`'s second job: it grants the credential routes and nothing else. */
+ * a free-text scope field would make the caller memorise the grammar to grant "read". `admin` is its
+ * own action, not `verify`'s second job: it grants the credential routes and nothing else. */
 const ACTIONS = ["read", "write", "verify", "admin"] as const;
 type Action = (typeof ACTIONS)[number];
 
@@ -46,12 +46,10 @@ type Action = (typeof ACTIONS)[number];
  * Compose scope strings in rbac.ts's own grammar. The form offers the action and an optional
  * record-type narrowing; the namespace comes from the SERVER, which `/api/meta` already reports.
  *
- * It used to be a hard-coded wildcard, on the argument that a namespace is a multi-tenant concept with
- * no meaningful answer on a local single-user screen. That reasoning holds for the local case and is
- * wrong for the deployed one: a wildcard-namespace scope grants every tenant, so this form silently
- * minted deployment-wide credentials on a per-tenant server — and now that an admin may only grant
- * within its own namespace, they would simply be refused. A wildcard is still what the default
- * namespace needs (`ceiling:` in rbac.ts), which is exactly the `ns === null` case.
+ * Not a hard-coded wildcard: a wildcard-namespace scope grants every tenant, so on a per-tenant
+ * server this form would mint deployment-wide credentials — and an admin may only grant within its
+ * own namespace, so the server refuses them anyway. A wildcard is what the default namespace needs
+ * (`ceiling:` in rbac.ts), which is exactly the `ns === null` case.
  */
 function composeScopes(
   actions: Set<Action>,
@@ -159,9 +157,9 @@ function CreateTokenButton({
   const [type, setType] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  // The narrowing is chosen from the ontology, like every other type picker in the app. It was free
-  // text, and a typo minted a REAL token whose scopes matched no type — the preview below printed
-  // `*:desicion:read` without complaint and nothing failed until a caller was refused at runtime.
+  // The narrowing is chosen from the ontology, like every other type picker in the app. Free text
+  // here lets a typo mint a REAL token whose scopes match no type: the preview below prints
+  // `*:desicion:read` without complaint and nothing fails until a caller is refused at runtime.
   const ontology = useAsync(() => api.ontology(), []);
 
   const scopes = composeScopes(actions, type.trim(), ns);

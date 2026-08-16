@@ -6,17 +6,17 @@
 //
 // What lives here is the APPEARANCE (tone, glyph) and the stored name. What does not is the
 // explanation: "staged but not verified — withheld from injection" is a sentence said to a person,
-// and it sat here as an English literal outside both catalogs, so the Korean UI showed English on
-// the screen whose entire job is lifecycle state — with no guard able to see it, since the
-// untranslated test walks the catalogs. The sentence is now `t.status.meaning[…]`.
+// so it lives in the locale catalogs as `t.status.meaning[…]`. An English literal here would show
+// through on the Korean UI with no guard able to see it, because the untranslated test walks the
+// catalogs.
 
 import type { Status } from "./types";
 
 export interface StatusStyle {
   /** The STORED value, untranslated on purpose: it is what the database and the CLI both say. */
   label: string;
-  /** The Badge variant that draws this status (components/ui/badge.tsx). Was a `data-tone` attribute
-   * selecting a CSS rule; typed now, so a tone with no matching variant is a compile error. */
+  /** The Badge variant that draws this status (components/ui/badge.tsx). Typed rather than a
+   * `data-tone` string, so a tone with no matching variant is a compile error. */
   tone: "draft" | "verified" | "stale" | "deprecated" | "unknown";
   /** A short glyph reinforcing the label for scanning. */
   glyph: string;
@@ -34,9 +34,4 @@ export function statusStyle(s: Status | string): StatusStyle {
   return (
     STYLES[s as Status] ?? { label: String(s), tone: "unknown", glyph: "?" }
   );
-}
-
-/** True when an agent could actually receive this record right now. */
-export function isInjectable(s: Status | string): boolean {
-  return s === "verified";
 }

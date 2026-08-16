@@ -28,8 +28,8 @@ const LocaleContext = createContext<{
 }>({ locale: "en", setLocale: () => {} });
 
 /** A stored choice wins; otherwise the browser's own language preference decides. Falling straight
- * to English meant a Korean reader met an English UI even though the Korean catalog is complete and
- * already shipping — a switcher they had to find first. */
+ * to English would put an English UI in front of a Korean reader while the Korean catalog sits
+ * complete behind a switcher they have to find first. */
 function detect(): Locale {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored !== null) return chooseLocale(stored);

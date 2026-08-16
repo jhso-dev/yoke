@@ -92,10 +92,10 @@ export function GraphCanvas({
   membership: Set<string>;
   selected: string | null;
   /**
-   * Which nodes have already been expanded. This used to be a private ref in here, which made the
-   * page's Expand button a guaranteed no-op: clicking a node expands it, so the button that then
-   * appeared for that same node could only refetch and announce it had added nothing. The page owns
-   * the set now and disables the button from it; this component only reads it to avoid re-asking.
+   * Which nodes have already been expanded. The PAGE owns this set, not this component: clicking a
+   * node expands it, and the page's Expand button has to be able to disable itself for a node that
+   * is already open — held privately here, that button could only refetch and announce it had added
+   * nothing. This component reads the set to avoid re-asking.
    */
   expanded: ReadonlySet<string>;
   onSelect: (id: string | null) => void;
@@ -400,11 +400,11 @@ export function GraphCanvas({
     /**
      * Ctrl/Cmd + wheel zooms. A bare wheel is left alone, so the page scrolls.
      *
-     * It used to preventDefault EVERY wheel event, and this canvas is 520px of full width: a
-     * trackpad scroll anywhere over it zoomed the graph instead of moving the page, and a reader
-     * heading for the node table below had to find the strip of margin beside it. The modifier is
-     * also the platform convention — a trackpad pinch arrives as a ctrl+wheel event — so
-     * pinch-to-zoom keeps working without anyone being told about a key.
+     * This canvas is 520px of full width, so cancelling every wheel event would trap a trackpad
+     * scroll anywhere over it and leave a reader heading for the node table below hunting for the
+     * strip of margin beside it. The modifier is also the platform convention — a trackpad pinch
+     * arrives as a ctrl+wheel event — so pinch-to-zoom keeps working without anyone being told
+     * about a key.
      *
      * preventDefault happens only on the events actually consumed — a bare wheel returns before it,
      * so the browser is never told to cancel a scroll this canvas has no interest in. The listener
@@ -475,8 +475,8 @@ export function GraphCanvas({
   }, [selected]);
 
   // The ontology arrives on its own request, so `membership` is usually empty for the first paint —
-  // one repaint when it lands. Kept as its own effect rather than a second dep above, because the
-  // regression guard's rule is that `selected` never shares a dependency array.
+  // one repaint when it lands. Its own effect rather than a second dep above: `selected` never
+  // shares a dependency array, and a guard enforces that.
   // biome-ignore lint/correctness/useExhaustiveDependencies: read through membershipRef, above.
   useEffect(() => {
     drawRef.current?.();

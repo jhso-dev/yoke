@@ -296,10 +296,10 @@ function Maintenance({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  // The outcome is ANNOUNCED, never held in this component's state: `onDone()` reloads the
-  // ontology, the parent swaps in its loading branch, and this panel unmounts — which is how
-  // "scanned 412 records, added 7 edges" and "renamed X to Y — 42 rows rewritten" were computed,
-  // translated, and then thrown away. Two whole-namespace repairs with no feedback at all.
+  // The outcome is ANNOUNCED, never held in this component's state: `onDone()` reloads the ontology,
+  // the parent swaps in its loading branch, and this panel unmounts — so "scanned 412 records, added
+  // 7 edges" or "renamed X to Y — 42 rows rewritten" held here would be computed, translated and
+  // thrown away, leaving a whole-namespace repair with no feedback at all.
   const run = async (fn: () => Promise<string>) => {
     setBusy(true);
     setError(null);
@@ -313,9 +313,9 @@ function Maintenance({
     }
   };
 
-  // Grouped by kind, and keyed by kind:name. A flat list of every type gave no clue whether you
-  // were renaming an entity or a relation, and two kinds sharing a name produced two options with
-  // the same value — Radix picks one and the target of the rename became a coin toss.
+  // Grouped by kind, and keyed by kind:name. A flat list says nothing about whether the rename
+  // targets an entity or a relation, and two kinds sharing a name give two options one value —
+  // Radix picks one, and the target of the rename is a coin toss.
   const groups = (["entity", "relation"] as const)
     .map((kind) => ({ kind, list: types.filter((d) => d.kind === kind) }))
     .filter((g) => g.list.length > 0);

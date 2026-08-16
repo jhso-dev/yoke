@@ -1,10 +1,9 @@
 // A source guard: no screen may put an opaque id where a person reads meaning.
 //
-// This is a grep, not a render test, and that is deliberate. The defect class here has now escaped
-// twice — raw ULIDs in the actor and source columns, then again in the audit detail and the entity
-// panel — and both times every payload assertion passed, because the payloads were right. Rendering
-// tests would need a DOM this project does not carry. Scanning the source for the three patterns that
-// actually produced the defect costs nothing and fails the moment one comes back.
+// This is a grep, not a render test, and that is deliberate. A raw ULID in a cell passes every
+// payload assertion, because the payload is right — it is the rendering that is wrong — and catching
+// it properly would need a DOM this project does not carry. Scanning the source for the three
+// patterns that produce it costs nothing and fails the moment one appears.
 //
 // If a screen legitimately needs one of these, the exemption belongs here, named, with a reason.
 
@@ -98,8 +97,8 @@ describe("no raw ids in human-facing renders", () => {
   });
 
   it("actually catches the defect it is guarding against", () => {
-    // Non-vacuity. A regex tightened until it stops firing is a test that passes forever, which is how
-    // the last two display defects survived. These are the exact shapes that shipped.
+    // Non-vacuity. A regex tightened until it stops firing is a test that passes forever, and a
+    // display defect is exactly what slips past one. These are the shapes it must catch.
     expect('<td className="mono">{e.actor}</td>').toMatch(
       renderedInText("actor"),
     );
@@ -114,14 +113,14 @@ describe("no raw ids in human-facing renders", () => {
     // A prop position whose name is not the field's — the exact shape every one of these fixes takes.
     expect("<Instant iso={e.at} />").not.toMatch(renderedInText("at"));
     expect("title={row.citation}").not.toMatch(renderedInText("citation"));
-    // A translated label, not a value read off a record. Both of these shipped and both were
-    // flagged, which is what sent the guard looking at what it was reading FROM.
+    // A translated label, not a value read off a record — which is why the guard looks at what the
+    // expression reads FROM rather than at the field name.
     expect("<th>{t.common.actor}</th>").not.toMatch(renderedInText("actor"));
     expect("<th>{t.entity.citation}</th>").not.toMatch(
       renderedInText("citation"),
     );
-    // A raw id passed straight into a dictionary function — the shape that shipped a ULID inside
-    // "Retired by <id> …", which `renderedInText` skipped because the brace starts `{t.`.
+    // A raw id passed straight into a dictionary function — a ULID inside "Retired by <id> …", which
+    // `renderedInText` skips because the brace starts `{t.`.
     expect("{t.retire.retiredBy(d.retirement.actor, when)}").toMatch(
       inDictCall("actor"),
     );
@@ -135,8 +134,8 @@ describe("no raw ids in human-facing renders", () => {
     expect("title={t.chrome.authedAs(meta.actor)}").not.toMatch(
       inDictCall("actor"),
     );
-    // `author` is a person id too — `{r.author}` in text would ship a raw ULID, the same defect one
-    // field over. Caught in text, allowed as a prop into <Actor> (which resolves it for reading).
+    // `author` is a person id too — `{r.author}` in text is a raw ULID, the same rule one field
+    // over. Caught in text, allowed as a prop into <Actor> (which resolves it for reading).
     expect('<td className="mono">{r.author}</td>').toMatch(
       renderedInText("author"),
     );

@@ -1,9 +1,8 @@
 // A source guard: a dictionary key nothing reads is a string that stayed English on screen.
 //
-// This class has now shipped twice. `browse.newRecord` and `collaboration.newOne` were both
-// translated in ko and both unreferenced, because CreateButton built its label from an English
-// template literal instead — so the Korean UI said "new record" while the dictionary held "새
-// 레코드". A key with no reader is the fingerprint of exactly that mistake, and unlike a scan for
+// A key translated in ko and read by nothing — because the component built its label from an
+// English template literal instead — is a Korean UI saying "new record" while the dictionary holds
+// "새 레코드". A key with no reader is the fingerprint of exactly that mistake, and unlike a scan for
 // bare English strings it has no judgement in it: either something reads the key or nothing does.
 //
 // The reverse direction (a screen reading a key that does not exist) is already a type error, since

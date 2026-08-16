@@ -13,7 +13,7 @@
  * vocabulary the rest of the product speaks. So the instant is localized, the notation is not.
  *
  * `timeZoneName` is not decoration. A bare `16:43` that is silently not UTC is a worse ambiguity than
- * the raw `Z` string it replaced, in a tool whose entire job is answering when something happened.
+ * a raw `Z` string, in a tool whose entire job is answering when something happened.
  */
 const shape = new Intl.DateTimeFormat("en-CA", {
   year: "numeric",
@@ -38,10 +38,10 @@ const shape = new Intl.DateTimeFormat("en-CA", {
  * `<input type="datetime-local">`'s value → the ISO UTC instant the API wants.
  *
  * The control's vocabulary is local wall time with no zone and no seconds (`2026-07-30T16:43`), and
- * that string is the ONLY thing it will accept back as its own `value`. Two bugs came out of ignoring
- * that: storing an ISO string in the control's state made the field blank itself the moment anyone
- * picked a date, and appending `Z` to a local wall time declared 16:43 KST to be 16:43 UTC, so the
- * window queried was nine hours off — silently, since a wrong window still returns rows.
+ * that string is the ONLY thing it will accept back as its own `value`. Two things follow: an ISO
+ * string in the control's state blanks the field the moment anyone picks a date, and appending `Z`
+ * to a local wall time declares 16:43 KST to be 16:43 UTC, moving the queried window by the offset —
+ * silently, since a wrong window still returns rows.
  *
  * `new Date("…T16:43")` (no offset) is parsed as LOCAL time by spec, which is exactly the reading the
  * control intends. Full ISO with milliseconds out, because the server compares `at >= since` as text:

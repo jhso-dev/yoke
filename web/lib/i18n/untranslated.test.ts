@@ -1,9 +1,9 @@
 // A source guard: no Korean string may still be English.
 //
-// `verify` and `deprecate` shipped as English buttons on the Korean UI because the dictionary said
-// `verify: "verify"` — the file typechecked, the key was read, the screen rendered, and nothing
-// anywhere noticed the value had never been translated. Every locale being `typeof en` catches a
-// MISSING key; it cannot catch a key that was filled in with the English.
+// Every locale being `typeof en` catches a MISSING key; it cannot catch one filled in with the
+// English. `verify: "verify"` typechecks, the key reads, the screen renders, and nothing anywhere
+// notices the value was never translated — so an English button lands on the Korean UI. This test
+// is what notices.
 //
 // The rule the dictionary follows, and this test enforces: a stored value is not translated (status
 // names, audit action names, type and relation names, CLI commands and scope names), because those
@@ -44,7 +44,7 @@ describe("ko dictionary", () => {
   });
 
   it("actually detects an untranslated value", () => {
-    // Non-vacuity: `verify: "verify"` is the exact shape that shipped, so assert it would fail.
+    // Non-vacuity: `verify: "verify"` is the shape this must catch, so assert that it does.
     expect(/[가-힣]/.test("verify")).toBe(false);
     expect(/[가-힣]/.test("검증")).toBe(true);
   });

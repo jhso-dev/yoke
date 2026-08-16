@@ -232,8 +232,8 @@ export function DateRangePicker({
     setOpen(false);
   };
   // "onward" rather than a trailing tilde: clicking one day in a range calendar leaves `to` unset,
-  // which is a legitimate open-ended window — but rendered as `2026-08-01 00:00 ~ ` it read as a
-  // value someone had failed to finish.
+  // which is a legitimate open-ended window — `2026-08-01 00:00 ~ ` reads as a value someone failed
+  // to finish.
   const label = value.from
     ? value.to
       ? `${value.from.replace("T", " ")} ~ ${value.to.replace("T", " ")}`

@@ -1,21 +1,19 @@
 /* Tailwind + the shadcn token layer. Must be first: CSS @import may not follow other rules. */
 @import "./theme.css";
 
-/* Below is the hand-written layer this workbench shipped with, kept while the screens migrate.
-   Interactive primitives (button, input, select, label, dialog) now come from components/ui and are
-   styled by Tailwind; the structural classes here — .panel, tables, .pill, .banner, the shell — are
-   still in use and are removed as each screen moves over. Anything still referenced is live CSS, not
-   dead weight: `git grep` the class name before deleting a block. */
+/* Below is the hand-written layer. Interactive primitives (button, input, select, label, dialog) and
+   the panel, table and badge boxes come from components/ui and are styled by Tailwind; what lives
+   here is the shell, the nav, the page furniture and the small text utilities. Everything here is
+   referenced by a screen: `git grep` the class name before deleting a block. */
 
 /* One stylesheet for the workbench. Terminal-adjacent: this is an operator's tool, so it borrows
    the CLI's vocabulary (monospace ids and citations, teal accent) rather than looking like a SaaS
    dashboard. Tokens first so both themes are one place. */
 
-/* Tokens live in theme.css and ONLY there. This file used to declare its own :root block after
-   importing that one, which silently redefined the names they share — `--accent` became the teal
-   foreground instead of the pale hover background, so a hovered select item drew its text in its
-   own background colour, and `--muted` (a background in shadcn's vocabulary) became a text grey.
-   Two vocabularies, one namespace: the later declaration always won and nothing said so. */
+/* Tokens live in theme.css and ONLY there. A `:root` block in this file would silently redefine the
+   names the two share — `--accent` is the pale hover background here and a teal foreground there,
+   `--muted` is a background in shadcn's vocabulary and a text grey in ours. Two vocabularies, one
+   namespace: the later declaration wins and nothing says so. */
 
 * {
   box-sizing: border-box;
@@ -361,30 +359,18 @@ h1 {
 
 /* --- panels, tables, rows --- */
 
-/* `.panel`, `.panel-head` and `.scroll-x` are gone — the last of the structural classes this file's
-   header promised would leave as each screen migrated.
-   - The box and its title bar are `components/Panel.tsx`, i.e. `Card` composed once. The four rules
-     that were COUPLED to the class (the box, the 14px gap between consecutive panels, the inset on a
-     control row, the inset on a notice) live there together instead of being restated as utilities at
-     every one of the thirty-odd call sites.
-   - `.scroll-x` around a table was inert: `Table` renders its own `overflow-x-auto` container, so the
-     outer scroller could never move — and the pagers that sat inside it scrolled sideways out of
-     view. Markdown keeps its own scroller for wide code blocks; that one is real. */
-
-/* The table box moved into components/ui/table.tsx (every screen now renders <Table>). These bare
-   element rules could not stay: unlayered CSS beats Tailwind utilities, so while they existed the
-   shadcn Table in this repo set classes that never applied — which is why it had zero importers.
-
-   `td.num` stays because it is a call-site choice, not a default, and it still wins for the same
-   reason those rules had to go. */
+/* The panel box and its title bar are components/Panel.tsx; the table box is
+   components/ui/table.tsx. No bare `table`/`td` element rules here: unlayered CSS beats a Tailwind
+   utility, so an element rule would override the shadcn Table's own classes on every screen.
+   `td.num` is the exception on purpose — a call-site opt-in, and it wins for that same reason. */
 td.num {
   font-variant-numeric: tabular-nums;
 }
 
-/* A stored value rendered as the document it was written as (components/Markdown.tsx). Measured
-   trigger: a 2,809-character postmortem with 40 line breaks arrived in a table cell, where HTML
-   collapses newlines, so its six sections read as one paragraph. Sits INSIDE a td, hence the
-   first/last-child margin reset — a leading margin inside a cell reads as a broken row. */
+/* A stored value rendered as the document it was written as (components/Markdown.tsx). Measured: a
+   2,809-character postmortem with 40 line breaks in a table cell, where HTML collapses newlines,
+   reads as one paragraph. Sits INSIDE a td, hence the first/last-child margin reset — a leading
+   margin inside a cell reads as a broken row. */
 .md {
   line-height: 1.65;
   max-width: 78ch;
@@ -468,25 +454,13 @@ td.num {
   text-align: center;
 }
 
-/* The status pill moved into components/ui/badge.tsx as its `tone` variants — same box, same
-   colours, same non-colour signals (draft dashed, stale italic, deprecated struck through). The
-   `--tone-*` tokens it reads still live in theme.css. */
-
 /* --- controls --- */
 
-/* button / .btn / input / select used to be styled here as bare element selectors. They are gone:
-   those primitives now come from components/ui, and an UNLAYERED element rule beats a Tailwind
-   utility no matter the specificity — Tailwind's output sits in @layer utilities, and unlayered CSS
-   always wins over layered CSS. So `button { background: var(--secondary) }` silently overrode every
-   shadcn variant, which is how a teal primary button rendered grey. Anything still on the old
-   classes is listed in the migration note at the top of this file.
-
-   `.btn` survives for <Link> elements that look like buttons — Button's `asChild` is the eventual
-   home for those, and they move with their screens. */
-/* `.btn` is gone: the six links that looked like buttons are `<Button asChild>` now, which is what the
-   note above said would happen. It was boxed to match Button's `compact` size (h-7, px-2.5, 13px)
-   deliberately, so the swap is the same box — the border and the secondary fill that `compact` does not
-   carry travel on the call site instead. */
+/* No bare `button` / `input` / `select` element rules here. Those primitives come from components/ui,
+   and an UNLAYERED element rule beats a Tailwind utility no matter the specificity — Tailwind's
+   output sits in @layer utilities, and unlayered CSS always wins over layered CSS. One
+   `button { background: var(--secondary) }` silently overrides every shadcn variant, and a teal
+   primary button renders grey. */
 
 .controls {
   display: flex;
@@ -495,14 +469,6 @@ td.num {
   flex-wrap: wrap;
   margin-bottom: 12px;
 }
-
-/* A choice between two or three views of the same screen — the review queues.
-   Native radios, visually hidden but still the thing focus and screen readers land on: the state IS
-   a radio group, so borrowing buttons would mean re-announcing it with aria by hand. Height matches
-   .btn (28px) so it sits level in a .controls row. */
-/* The segmented control is a <RadioGroup> now (components/ui/radio-group.tsx): Radix carries the roles
-   and the arrow keys, the segment look travels on className at its one call site, and the native radios
-   that had to be hidden off-screen to be focusable are gone. */
 
 .copy-code {
   display: inline-flex;
@@ -616,24 +582,8 @@ td.num {
   border-color: var(--primary);
 }
 
-/* The compatibility layer that gave native `<input>`/`<select>` the same 32px box as a Button is gone
-   with the last of them: browse, audit, inject, persona and login now render <Input> and <Select>, so
-   the `:not([data-slot])` guards it needed matched nothing. Checkboxes and the review radios are the
-   only native controls left — see the note by `.segmented`. */
-
-/* A panel has no padding of its own: its usual content is a full-bleed table, and the padding a
-   reader sees comes from the cells. Anything else placed in one — the form rows on browse, entity,
-   ontology and collaboration — therefore sits flush against the border unless it brings its own.
-   Scoped to direct children so a top-level `.controls` row, which sits on the page background and
-   wants no padding, is untouched. */
-
-/* The banners are <Alert variant="error|warn|info"> now (components/ui/alert.tsx). The tighter box
-   those variants carry is what `.banner` was; `default` keeps shadcn's, because it is the inline result
-   panel on ontology and the create form, not a page notice.
-
-   Two rules survive as data-slot selectors rather than class ones, because both are about where an
-   alert SITS rather than what it is: a notice inside a panel takes a margin so its border does not land
-   on the panel's, and inline code in one keeps the mono size. */
+/* Inline code inside an alert keeps the mono size. A data-slot selector rather than a class, because
+   this is about where the code sits rather than what the alert is. */
 [data-slot="alert"] code {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -650,20 +600,10 @@ td.num {
   flex-direction: column;
   gap: 10px;
 }
-/* The mono face on a pasted token now travels on <Input className="font-mono"> — the rule that used
-   to do it here had to dodge shadcn's primitives with `:not([data-slot])`, and there is no native
-   input left on this screen to style. */
 .login [data-slot="alert"] {
   margin-top: 14px;
 }
 
-/* --- modal --- */
-
-/* Nothing here styles the dialog any more. The screens moved to Radix (components/ui/dialog.tsx),
-   which renders a <div> — so the `dialog` element rules, `dialog::backdrop`, `.modal-head` and
-   `.modal-body` matched nothing and shipped anyway. One of them was load-bearing and its loss was
-   invisible: `max-height: calc(100vh - 64px); overflow: auto` kept a tall form scrolling inside the
-   dialog. That contract now lives on DialogContent itself. */
-
-/* .stack / .field / .token-form are gone: the last form on them (tokens) moved to the shared modal
-   form shape — Tailwind grid gap with components/ui fields — like every other create form. */
+/* Nothing here styles the dialog or the forms inside it: both are components/ui (dialog.tsx and the
+   field primitives), and a tall form's `max-height: calc(100vh - 64px); overflow: auto` is a
+   contract carried by DialogContent itself. */

@@ -4,14 +4,11 @@ import { cn } from "@/lib/utils";
 /**
  * The workbench's box: a titled surface holding a table, a form row, or a result list.
  *
- * This is `Card`, composed once. The screens were written against a hand-written `.panel` class,
- * and globals.css has always called that migration debt — but converting the call sites to bare
- * `Card` meant re-encoding four COUPLED css rules as utilities at every one of thirty-odd sites
- * (`.panel`'s own box, the 14px gap between consecutive panels, the 12px inset that `.panel >
- * .controls` gave a control row, and the pager's inset). Utility soup repeated thirty times is how
- * the thirty-first drifts, so the coupling lives here instead, in one component, on the primitive.
+ * This is `Card`, composed once. Four rules are COUPLED — the box, the 14px gap between consecutive
+ * panels, the 12px inset on a control row, and the pager's inset — and restating them as utilities
+ * at thirty-odd call sites is how the thirty-first drifts. They live here instead, on the primitive.
  *
- * What the call sites get is what they had: `<Panel>` and `<PanelHead>`, no class strings.
+ * What the call sites write is `<Panel>` and `<PanelHead>`, no class strings.
  */
 export function Panel({
   className,

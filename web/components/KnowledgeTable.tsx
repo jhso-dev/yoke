@@ -35,7 +35,7 @@ export function KnowledgeTable({
   trailing,
 }: {
   rows: Knowledge[];
-  /** Required, because the default was an English literal that one of seven call sites relied on. */
+  /** Required: a default here is an English literal that a call site can silently rely on. */
   empty: string;
   paginate?: boolean;
   /** When given, renders a checkbox column for bulk governance actions. */
@@ -56,10 +56,10 @@ export function KnowledgeTable({
   const t = useT();
   const paged = usePage(rows);
   const visible = paginate ? paged.items : rows;
-  // A selection belongs to the page it was made on. It used to survive paging while the header
-  // checkbox deliberately did not, so ticking twenty drafts and pressing Next left the toolbar
-  // reading "Deprecate 20" with not one visible row checked — and pressing it retired twenty
-  // records the reader could not see. Bulk work wider than a page is what the CLI is for.
+  // A selection belongs to the page it was made on, and is dropped when the page turns. Surviving
+  // the turn would leave the toolbar reading "Deprecate 20" with not one visible row checked, and
+  // pressing it would retire twenty records the reader cannot see. Bulk work wider than a page is
+  // what the CLI is for.
   const clearSelection = select?.clear;
   const shownPage = useRef(paged.page);
   useEffect(() => {
@@ -76,8 +76,8 @@ export function KnowledgeTable({
   if (rows.length === 0) return <div className="empty">{empty}</div>;
   return (
     <>
-      {/* No `.scroll-x` wrapper: `Table` renders its own `overflow-x-auto` container, so the outer
-          one could never scroll (its only child is `w-full`) and only nested two scrollers. */}
+      {/* No outer scroll wrapper: `Table` renders its own `overflow-x-auto` container, and a second
+          one around it cannot scroll (its only child is `w-full`) — it only nests two scrollers. */}
       <Table>
         <TableHeader>
           <TableRow>
@@ -85,7 +85,7 @@ export function KnowledgeTable({
               <TableHead>
                 <Checkbox
                   // "Some of these are selected" is a VALUE here, not a DOM property poked into the
-                  // node by a ref after render — which is what a native checkbox forced, since
+                  // node by a ref after render — which is what a native checkbox forces, since
                   // `indeterminate` has no attribute form.
                   checked={head.indeterminate ? "indeterminate" : head.checked}
                   onCheckedChange={() => {
@@ -116,10 +116,10 @@ export function KnowledgeTable({
                     checked={select.chosen.has(r.id)}
                     onCheckedChange={() => select.toggle(r.id)}
                     // The record's own label, never its id: this prop IS the human surface for a
-                    // screen-reader user, and it used to read out a 26-character ULID — in English
-                    // — on every one of twenty rows, while the visible cell two columns over said
-                    // the summary. The no-raw-ids guard cannot see it (prop position, and the id
-                    // arrived through a template), so it is a rule the reviewer has to hold.
+                    // screen-reader user, and an id here reads out a 26-character ULID on every one
+                    // of twenty rows while the visible cell two columns over says the summary. The
+                    // no-raw-ids guard cannot see it (prop position, and the id arrives through a
+                    // template), so it is a rule the reviewer has to hold.
                     aria-label={t.review.selectRow(recordLabel(r))}
                   />
                 </TableCell>

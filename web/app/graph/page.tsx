@@ -51,10 +51,9 @@ function GraphBody() {
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
-  // Which nodes have had their neighbours fetched. Lifted out of GraphCanvas, which kept it in a
-  // private ref: clicking a node already expands it, so the Expand button that then appears in the
-  // detail row for that same node could only refetch and announce that it added nothing. State
-  // rather than a ref because the button's `disabled` is rendered from it.
+  // Which nodes have had their neighbours fetched. Owned here rather than inside GraphCanvas:
+  // clicking a node already expands it, so the Expand button in that node's detail row has to be
+  // able to disable itself. State rather than a ref, because `disabled` is rendered from it.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {

@@ -13,9 +13,9 @@ import { Modal } from "./Modal";
 /**
  * Retiring knowledge, with the one thing a retired record cannot answer for itself.
  *
- * A deprecated record raised exactly one question — why — and the status was on the record while the
- * reason was nowhere: `deprecate` took ids, an actor and an instant, and nothing else. So the reader
- * who found it later got "deprecated" and had to go ask a person, if they could work out which one.
+ * A deprecated record raises exactly one question — why — and the status alone cannot answer it: a
+ * reader who finds it later gets "deprecated" and has to go ask a person, if they can work out which
+ * one.
  *
  * The reason is asked for here and stored on the audit ROW, never on the record: verify and deprecate
  * change status, never knowledge content (core/lifecycle.ts), and the reason is a property of the act

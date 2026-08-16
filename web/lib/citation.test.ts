@@ -15,7 +15,7 @@ describe("citationLabel", () => {
   it("shows the name, the version and the date — and no full ULID", () => {
     const label = citationLabel(row({ actorName: "Bora" }));
     expect(label).toBe("fact@v2 · Bora · 2026-07-30");
-    // The regression that reached a browser twice: a 26-char ULID in a table cell.
+    // What must never reach a table cell: a 26-char ULID.
     expect(label).not.toContain(ULID);
     expect(label).not.toMatch(/[0-9A-HJKMNP-TV-Z]{26}/);
   });

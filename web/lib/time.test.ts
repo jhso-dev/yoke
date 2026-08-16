@@ -31,9 +31,9 @@ describe("localTime", () => {
 
 describe("isoFromLocalInput", () => {
   it("reads the control's value as local time, not as UTC", () => {
-    // The bug this replaces appended `Z` to the control's local wall time, which moved the queried
-    // window by the reader's whole offset. Asserted by round trip so it holds in any zone: 16:43 typed
-    // into the picker must still read as 16:43 on the screen it filters.
+    // Appending `Z` to the control's local wall time moves the queried window by the reader's whole
+    // offset. Asserted by round trip so it holds in any zone: 16:43 typed into the picker must still
+    // read as 16:43 on the screen it filters.
     expect(localTime(isoFromLocalInput("2026-07-30T16:43"))).toContain(
       "16:43:00",
     );

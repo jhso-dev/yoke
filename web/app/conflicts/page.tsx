@@ -29,9 +29,8 @@ import { useAsync } from "../../lib/useAsync";
 export default function Conflicts() {
   const pairs = useAsync(() => api.conflicts(), []);
   // Which side is being retired, so the OTHER side's button is refused while it happens: two quick
-  // clicks used to retire both halves of a contradiction.
+  // clicks must not retire both halves of a contradiction.
   const [busy, setBusy] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<unknown>(null);
   const [downstream, setDownstream] = useState<Knowledge[]>([]);
 
   const side = (s: ConflictPair["from"]) => {
@@ -53,7 +52,7 @@ export default function Conflicts() {
           <span className="mono muted">{k.type}</span>
         </div>
         {/* min-w-0 so a long summary wraps instead of forcing the grid column wider than the
-            viewport — the citation below used to be clipped mid-string with no ellipsis. */}
+            viewport, which clips the citation below mid-string with no ellipsis. */}
         <p className="my-2 min-w-0 break-words">
           <Link href={`/entity/?id=${encodeURIComponent(k.id)}`}>
             {recordLabel(k)}
@@ -61,8 +60,8 @@ export default function Conflicts() {
         </p>
         <Citation row={k} />
         <div className="mt-2.5">
-          {/* Disabled while ANY retire is in flight, not just this side's. Per-side it left the other
-              button live, so two quick clicks retired both halves of a contradiction — the one
+          {/* Disabled while ANY retire is in flight, not just this side's: per-side leaves the other
+              button live, and two quick clicks retiring both halves of a contradiction is the one
               outcome this screen exists to prevent.
               Retired sides keep a plain disabled button: there is nothing to ask about an act that
               already happened, and its reason is on the record's own screen. */}
@@ -94,10 +93,10 @@ export default function Conflicts() {
   const t = useT();
   const all = pairs.data ?? [];
   // Resolved pairs sink to the bottom instead of sitting in the queue forever. `/api/conflicts`
-  // returns every `conflicts_with` relation whatever its sides' status, so a contradiction someone
-  // settled last month kept its place in the list, interleaved with live ones and counted in the
-  // same pager — a work queue that only grows. They are still LISTED, because the relation is
-  // knowledge in its own right and hiding it would rewrite the record.
+  // returns every `conflicts_with` relation whatever its sides' status, so without this a
+  // contradiction settled last month keeps its place among the live ones and its share of the
+  // pager — a work queue that only grows. They are still LISTED, because the relation is knowledge
+  // in its own right and hiding it would rewrite the record.
   const settled = (p: ConflictPair) =>
     [p.from, p.to].some(
       (s) => !isMissing(s) && (s as Knowledge).effectiveStatus === "deprecated",
@@ -109,10 +108,7 @@ export default function Conflicts() {
     <>
       <h1>{t.conflicts.heading}</h1>
       <p className="lede">{t.conflicts.lede}</p>
-      <ErrorBanner
-        error={pairs.error ?? actionError}
-        onRetry={pairs.error ? pairs.reload : undefined}
-      />
+      <ErrorBanner error={pairs.error} onRetry={pairs.reload} />
       <Downstream rows={downstream} />
       {pairs.loading ? (
         <Panel>
@@ -135,14 +131,14 @@ export default function Conflicts() {
                   <span className="muted">{t.conflicts.settledNote}</span>
                 )}
               </PanelHead>
-              {/* One column on a phone, three from 48rem up. As a fixed `1fr auto 1fr` each side got
-                  about 115px of content box at phone width, which clipped the citation mid-string —
+              {/* One column on a phone, three from 48rem up. A fixed `1fr auto 1fr` leaves each side
+                  about 115px of content box at phone width, which clips the citation mid-string —
                   and the source is the one thing this product never drops. */}
               <div className="grid items-start gap-2.5 p-3 md:grid-cols-[1fr_auto_1fr]">
                 {side(p.from)}
                 {/* Lucide rather than the ↔ character: a glyph renders at whatever weight the
-                  system font happens to give it, which is how this arrived hairline-thin and
-                  invisible. An icon is a path, so it is the same on every machine.
+                  system font happens to give it — hairline-thin and invisible on some. An icon is a
+                  path, so it is the same on every machine.
                   `aria-hidden` because the panel head already says `conflicts_with` in text. */}
                 <ArrowLeftRightIcon
                   aria-hidden="true"

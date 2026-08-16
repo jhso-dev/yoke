@@ -45,8 +45,8 @@ function ReviewBody() {
   const tab: "drafts" | "stale" =
     params.get("queue") === "stale" ? "stale" : "drafts";
   const drafts = useAsync(() => api.review(), []);
-  // Fetched independently of the tab so the counts on both tabs are real before you click either one —
-  // a queue you cannot see the size of is a queue you forget exists, which is how staleness got here.
+  // Fetched independently of the tab so the counts on both tabs are real before you click either one:
+  // a queue you cannot see the size of is a queue you forget exists.
   const stale = useAsync(() => api.stale({ limit: 100 }), []);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
