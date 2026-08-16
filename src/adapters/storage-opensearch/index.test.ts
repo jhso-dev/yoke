@@ -269,6 +269,38 @@ suite("opensearch policies that are contract, not implementation", () => {
     await wipe(prefix);
   });
 
+  it("overlays a tenant's ontology on the shared base, like every other backend", async () => {
+    // `loadOntology` is not a port method, so no conformance case covers it — and a backend that
+    // returns the tenant scope ALONE refuses every namespaced command: `yoke init` writes the seed
+    // with no ns, so a tenant that declared nothing of its own would load an EMPTY ontology and every
+    // commit would come back "unknown type". Same rule as sqlite, postgres and sharded (core's
+    // `overlayOntology`), asserted here because only a live cluster runs this adapter's version of it.
+    const prefix = "yoketest_ns_ontology_";
+    await wipe(prefix);
+    const store = make(prefix);
+    await store.init();
+    await store.saveOntology(seedOntology());
+    await store.saveOntology(
+      [
+        { name: "runbook", kind: "entity", attrs: {} },
+        // A tenant override of a shared type wins, in the shared type's slot.
+        { name: "fact", kind: "entity", attrs: {}, ttl_days: 7 },
+      ],
+      "teamA",
+    );
+
+    const shared = await store.loadOntology();
+    expect(shared.map((t) => t.name)).not.toContain("runbook");
+    expect(shared.find((t) => t.name === "fact")?.ttl_days).toBe(180);
+
+    const tenant = await store.loadOntology("teamA");
+    expect(tenant.map((t) => t.name)).toContain("person");
+    expect(tenant.map((t) => t.name)).toContain("runbook");
+    expect(tenant.find((t) => t.name === "fact")?.ttl_days).toBe(7);
+    store.close();
+    await wipe(prefix);
+  });
+
   it("rebuilds the index key on rename through serializeText, not in Painless", async () => {
     // The composite case below checks that a renamed row is still FOUND, which both the prose key and
     // the old `type + ' ' + attributes` script satisfy. These tokens separate them: the prose key

@@ -37,7 +37,7 @@
 // deployment to need it rather than being made from here.
 
 import { normalizeNs } from "../../core/namespace.js";
-import type { TypeDef } from "../../core/ontology.js";
+import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 import type {
   ListQuery,
@@ -305,29 +305,20 @@ export class ShardedStorage implements YokeStore {
   }
 
   /**
-   * The effective ontology for a namespace: the DEFAULT shard's shared (null-ns) base, overlaid with
-   * the owner shard's defs — the same rule sqlite applies inside one database (PLAN-V2 10.1, "tenant
-   * defs overlay shared (null-ns) defs").
+   * The effective ontology for a namespace — core's `overlayOntology`, with the two halves read from
+   * two different shards: the DEFAULT shard holds the shared (null-ns) base, the owner shard holds the
+   * tenant's own defs. The overlay belongs here rather than in `yoke init` for the reason core's doc
+   * gives: a backend answering `loadOntology(ns)` its own way leaks through the store surface.
    *
-   * Reading the owner shard alone would make every namespace owned by a non-default shard
-   * **unusable**: `yoke init` writes the seed with no ns, so it lands on the default shard, and a
-   * namespaced command would load an EMPTY ontology from its own shard and refuse to run. A tenant
-   * shard holding no copy of the shared types is the POINT of the split — it is never meant to need
-   * one. And the overlay belongs HERE rather than in `yoke init`, because a backend answering
-   * `loadOntology(ns)` differently from sqlite is backend behaviour leaking through the store surface
-   * (invariant 2).
+   * When the owner IS the default shard, its own overlay already returned both halves and re-setting
+   * them changes nothing.
    */
   loadOntology(ns?: string | null): TypeDef[] {
     const load = (m: ShardMember, n: string | null | undefined): TypeDef[] =>
       (m.store as ExtStore).loadOntology?.(n) ?? [];
     const shared = load(this.defaultShard, null);
     if (normalizeNs(ns) === null) return shared;
-    // Shared order preserved, tenant defs replace same-name entries in place, tenant-only types
-    // appended — Map.set on an existing key keeps its original slot. When the owner IS the default
-    // shard, its own overlay already returned both halves and re-setting them changes nothing.
-    const byName = new Map(shared.map((d) => [d.name, d] as const));
-    for (const d of load(this.ownerOf(ns), ns)) byName.set(d.name, d);
-    return [...byName.values()];
+    return overlayOntology(shared, load(this.ownerOf(ns), ns));
   }
 
   listHistory(id: string): Entity[] {

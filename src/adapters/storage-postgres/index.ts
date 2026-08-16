@@ -53,7 +53,7 @@
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
-import type { TypeDef } from "../../core/ontology.js";
+import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
@@ -715,16 +715,12 @@ export class PostgresStorage implements StoragePort {
     return rows.map((r) => r.def);
   }
 
-  /** The effective ontology for a namespace (PLAN-V2 10.1): tenant defs overlaid on the shared base
-   * by name. Shared order is preserved and a tenant def replaces its same-name entry IN PLACE (a Map
-   * keeps insertion order and a re-set keeps the original slot); tenant-only types append. */
+  /** The effective ontology for a namespace — see core's `overlayOntology`. */
   async loadOntology(ns?: string | null): Promise<TypeDef[]> {
     const shared = await this.ontologyScope("");
     const scope = normalizeNs(ns);
     if (scope === null) return shared;
-    const byName = new Map(shared.map((d) => [d.name, d]));
-    for (const d of await this.ontologyScope(scope)) byName.set(d.name, d);
-    return [...byName.values()];
+    return overlayOntology(shared, await this.ontologyScope(scope));
   }
 
   /**

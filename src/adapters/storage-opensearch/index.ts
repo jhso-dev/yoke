@@ -42,7 +42,7 @@
 
 import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
-import type { TypeDef } from "../../core/ontology.js";
+import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
@@ -681,9 +681,9 @@ export class OpenSearchStorage implements StoragePort {
     }
   }
 
-  async loadOntology(ns?: string | null): Promise<TypeDef[]> {
+  /** Latest version per name within ONE namespace scope ("" = the shared base). */
+  private async ontologyScope(scope: string): Promise<TypeDef[]> {
     const name = this.idx(ONTOLOGY);
-    const scope = normalizeNs(ns) ?? "";
     await this.ready(name);
     const res = await this.req<
       SearchResponse<{ name: string; version: number; json: string }>
@@ -698,6 +698,14 @@ export class OpenSearchStorage implements StoragePort {
         latest.set(h._source.name, JSON.parse(h._source.json) as TypeDef);
     }
     return [...latest.values()];
+  }
+
+  /** The effective ontology for a namespace — see core's `overlayOntology`. */
+  async loadOntology(ns?: string | null): Promise<TypeDef[]> {
+    const shared = await this.ontologyScope("");
+    const scope = normalizeNs(ns);
+    if (scope === null) return shared;
+    return overlayOntology(shared, await this.ontologyScope(scope));
   }
 
   /**
