@@ -63,12 +63,12 @@ token you spend is a claim rather than the prose around one.
 Measured against two retrieval baselines in one harness — same corpus, same
 questions, same answering model, 42 questions over two people:
 
-| | injected context | accuracy | correct per 1k tokens |
-|---|---|---|---|
-| no memory | 0 | 59.5% | — |
-| **yoke** | **1.2k tokens** | 73.8% | **26.5** |
-| keyword chunks | 5.1k tokens | 61.9% | 5.1 |
-| dense + sparse hybrid, top-50 chunks | 22.8k tokens | 71.4% | 1.3 |
+| | injected context | accuracy |
+|---|---|---|
+| no memory | 0 | 59.5% |
+| **yoke** | **1.2k tokens** | 73.8% |
+| keyword chunks | 5.1k tokens | 61.9% |
+| dense + sparse hybrid, top-50 chunks | 22.8k tokens | 71.4% |
 
 **5.2× the answers per token of chunk retrieval, 20× that of the hybrid
 retriever** — and higher accuracy than both, on a fifth to a twentieth of the
@@ -89,7 +89,6 @@ Every record also arrives with its citation, which a pasted passage cannot do.
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted), `rdb` (Postgres/MySQL read-mapping) — external sources → draft knowledge. |
-| **Context cost** | Records, not passages: **1.2k tokens against 5.1k** (chunk retrieval) and **22.8k** (dense+sparse hybrid) on the same questions and answering model — 5.2× and 20× the answers per token, at higher accuracy than both. |
 | **Anchored injection** | One mechanism, two entry points: anchor on a `collaboration` for the team's shared working context, or on a `person` for a persona. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
