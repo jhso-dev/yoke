@@ -21,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { commit } from "../../core/commit.js";
 import { seedOntology } from "../../core/ontology.js";
 import { conformanceCases } from "../../ports/conformance-cases.js";
+import { DEFAULT_SEARCH_LIMIT } from "../../ports/storage.js";
 import { makeCompositeStore } from "../storage-composite/index.js";
 import { SqliteStorage } from "../storage-sqlite/index.js";
 import { OpenSearchStorage } from "./index.js";
@@ -268,6 +269,35 @@ suite("opensearch policies that are contract, not implementation", () => {
     store.close();
     await wipe(prefix);
   });
+
+  it("returns every edge of a high-degree node, not the first page of them", async () => {
+    // `neighbors` takes no limit and its callers read it as a total. sqlite and postgres are unbounded;
+    // a `size` here made this backend alone stop at DEFAULT_SEARCH_LIMIT, and docs/SCALE.md measures a
+    // 5,000-edge anchor as a real shape — a briefing on one would quietly lose the tail.
+    const prefix = "yoketest_hidegree_";
+    await wipe(prefix);
+    const store = make(prefix);
+    await store.init();
+    const total = DEFAULT_SEARCH_LIMIT + 5;
+    for (let i = 0; i < total; i++) {
+      await store.putRelation({
+        ...base,
+        id: `edge${String(i).padStart(5, "0")}`,
+        version: 1,
+        type: "relates_to",
+        attributes: {},
+        from: "hub",
+        to: `leaf${i}`,
+      });
+    }
+    const edges = await store.neighbors("hub", "relates_to", "out");
+    expect(edges).toHaveLength(total);
+    // Every page, not the first one repeated: distinct ids, and the last edge written is present.
+    expect(new Set(edges.map((e) => e.id)).size).toBe(total);
+    expect(edges.map((e) => e.to)).toContain(`leaf${total - 1}`);
+    store.close();
+    await wipe(prefix);
+  }, 120_000);
 
   it("overlays a tenant's ontology on the shared base, like every other backend", async () => {
     // `loadOntology` is not a port method, so no conformance case covers it — and a backend that

@@ -532,18 +532,33 @@ export class OpenSearchStorage implements StoragePort {
           : [{ term: { from_id: id } }, { term: { to_id: id } }];
     const filter: unknown[] = [{ term: { latest: true } }];
     if (relType !== undefined) filter.push({ term: { type: relType } });
-    const res = await this.req<SearchResponse<RelationDoc>>(
-      "POST",
-      `/${this.idx(RELATIONS)}/_search`,
-      {
-        size: DEFAULT_SEARCH_LIMIT,
-        query: {
-          bool: { filter, should: ends, minimum_should_match: 1 },
+    // Paged to exhaustion, not capped: `neighbors` answers "every edge at this node", and every caller
+    // reads it as a total (the gate's dedup asks whether an edge is already there, injection walks the
+    // whole hop, the rdb sync skips an edge it finds). A default `size` would silently drop the tail on
+    // this backend alone — docs/SCALE.md measures a 5,000-edge anchor as a real shape, so the cap would
+    // hide 4,000 edges from a briefing and duplicate the ones the dedup could no longer see.
+    //
+    // `search_after` on the ascending `id`, which is a total order over the LATEST docs (one row per
+    // edge id under the filter) — a from/size deep page would re-sort the whole result set per page.
+    const out: Relation[] = [];
+    for (let after: string | undefined; ; ) {
+      const res = await this.req<SearchResponse<RelationDoc>>(
+        "POST",
+        `/${this.idx(RELATIONS)}/_search`,
+        {
+          size: DEFAULT_SEARCH_LIMIT,
+          query: {
+            bool: { filter, should: ends, minimum_should_match: 1 },
+          },
+          sort: [{ id: "asc" }],
+          ...(after === undefined ? {} : { search_after: [after] }),
         },
-        sort: [{ id: "asc" }],
-      },
-    );
-    return res.hits.hits.map((h) => this.toRelation(h._source));
+      );
+      const hits = res.hits.hits;
+      for (const h of hits) out.push(this.toRelation(h._source));
+      if (hits.length < DEFAULT_SEARCH_LIMIT) return out;
+      after = hits[hits.length - 1]._source.id;
+    }
   }
 
   async search(q: TextQuery): Promise<Entity[]> {
