@@ -1,6 +1,6 @@
 {
-  "name": "yoke",
-  "version": "0.1.0",
+  "name": "@jhso-dev/yoke",
+  "version": "0.7.0",
   "description": "Knowledge your AI can trust — ontology-based knowledge DB with governed context injection for AI agents",
   "type": "module",
   "license": "MIT",
@@ -23,7 +23,8 @@
     "yoke": "dist/front/cli/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "ontology"
   ],
   "scripts": {
     "build": "npm run build:cli && npm run build:web",

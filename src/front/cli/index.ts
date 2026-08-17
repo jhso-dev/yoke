@@ -12,8 +12,8 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
 import { makeAdrConnector } from "../../connectors/adr.js";
@@ -501,7 +501,7 @@ getting started:
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
   overview                  the shape of the whole corpus: types, hubs, authors (--limit n)
   link <from> <relation> <to>   record a relation (works_on, supersedes, relates_to …)
-capture:    connect github-pr|slack|notes|adr|tracker|docs|backstage|rdb
+capture:    connect github-pr|slack|notes|adr|tracker|docs|backstage|module|rdb
   connect raw <dir>         a model proposes records from unstructured material (needs YOKE_LLM_*)
   relate                    a model proposes the links BETWEEN stored records (needs YOKE_LLM_*)
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
@@ -1719,7 +1719,7 @@ async function cmdCatalog(v: Values, env: Env): Promise<number> {
         v,
         declared
           ? "no catalog records (import one: yoke connect backstage --host <url>)"
-          : "the catalog types are not in this ontology (yoke ontology add-type ontology/catalog.json)",
+          : "the catalog types are not in this ontology (yoke ontology add-type catalog)",
         [],
       );
       return 0;
@@ -2101,9 +2101,32 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
   });
 }
 
+/**
+ * A fragment path a caller can actually run.
+ *
+ * `ontology/catalog.json` is right inside a clone and wrong for a global install, whose cwd has no such
+ * directory — an instruction naming a file the reader does not have is a refusal that cannot be acted on.
+ * The fragments ship in the package (`files`), so this resolves one beside the compiled CLI and falls back
+ * to the repo-relative path when running from source.
+ */
+function bundledFragment(name: string): string {
+  // dist/front/cli/index.js -> the package root is three levels up; a source run (tsx src/...) lands on the
+  // repo root by the same count.
+  const packaged = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "..",
+    "ontology",
+    `${name}.json`,
+  );
+  return existsSync(packaged) ? packaged : join("ontology", `${name}.json`);
+}
+
 const ONTOLOGY_USAGE =
   "usage: yoke ontology <list|add-type <json-file>>\n" +
-  "  the file holds one type definition or an array of them (a fragment, e.g. ontology/catalog.json)";
+  "  <json-file> holds one type definition or an array of them; a bare name loads a fragment that\n" +
+  "  ships with yoke (add-type catalog → service/api/datastore/depends_on)";
 
 async function cmdOntology(
   positionals: string[],
@@ -2141,10 +2164,18 @@ async function cmdOntology(
       return 1;
     }
     let parsed: unknown;
+    // A bare name is one of the fragments that ship with yoke (`add-type catalog`), which is what the
+    // refusals elsewhere tell people to run — those have to name something a global install actually has.
+    const path = /[./\\]/.test(file) ? file : bundledFragment(file);
     try {
-      parsed = JSON.parse(readFileSync(file, "utf8"));
+      parsed = JSON.parse(readFileSync(path, "utf8"));
     } catch (e) {
-      console.error(`cannot read type def: ${(e as Error).message}`);
+      console.error(
+        `cannot read type def: ${(e as Error).message}` +
+          (path === file
+            ? ""
+            : `\n  (looked for the bundled fragment at ${path})`),
+      );
       return 1;
     }
     // One object or an array of them. A fragment is naturally a SET — `depends_on` means nothing without
@@ -2335,7 +2366,7 @@ async function cmdConnect(
       if (missing.length) {
         console.error(
           `the catalog types are not in this database's ontology (missing: ${missing.join(", ")}).\n` +
-            "Load them first: yoke ontology add-type ontology/catalog.json",
+            "Load them first: yoke ontology add-type catalog",
         );
         return 1;
       }
@@ -2359,6 +2390,53 @@ async function cmdConnect(
       );
       return result.errors ? 1 : 0;
     });
+  }
+  if (source === "module") {
+    // Third-party connectors, with no plugin framework: `Connector` is `name` + `pull`, so loading one is
+    // resolving a module and checking that contract. The records still enter through the one commit gate as
+    // drafts (invariant 5), which is why this needs no trust decision beyond "you chose to run it".
+    const specifier = positionals[1];
+    if (!specifier) {
+      console.error(
+        "usage: yoke connect module <specifier> [--since ts] [--actor a]\n" +
+          "  the module's default export (or `makeConnector`) is called with no arguments and must\n" +
+          "  return { name, pull(since?) } — see src/connectors/types.ts",
+      );
+      return 1;
+    }
+    let loaded: unknown;
+    try {
+      // A bare specifier resolves against yoke's own node_modules, which is rarely what a caller means, so
+      // a path is resolved against the working directory first.
+      const target = /^[./]|^file:|^[a-zA-Z]:\\/.test(specifier)
+        ? pathToFileURL(resolvePath(specifier)).href
+        : specifier;
+      const mod = (await import(target)) as Record<string, unknown>;
+      const factory = mod.default ?? mod.makeConnector;
+      loaded = typeof factory === "function" ? factory() : factory;
+    } catch (e) {
+      console.error(
+        `cannot load connector ${specifier}: ${(e as Error).message}`,
+      );
+      return 1;
+    }
+    // Refused by NAME with the reason, rather than crashing mid-stream on a missing method: a connector
+    // that half-satisfies the contract would otherwise ingest some records and then throw, leaving a
+    // partial import nobody asked for.
+    const c = loaded as { name?: unknown; pull?: unknown };
+    const problem =
+      typeof c?.name !== "string" || !c.name
+        ? "it has no `name`"
+        : typeof c.pull !== "function"
+          ? "it has no `pull(since?)` method"
+          : null;
+    if (problem) {
+      console.error(
+        `${specifier} is not a connector: ${problem}. A connector is { name: string, pull(since?): AsyncIterable<SourceItem> }`,
+      );
+      return 1;
+    }
+    return runIngest(loaded as Connector, v, env);
   }
   if (source === "docs") {
     // Confluence and Notion take different credentials; one shared variable would send a Notion secret to
@@ -2461,7 +2539,7 @@ async function cmdConnect(
     console.error(
       "usage: yoke connect <github-pr --repo owner/name | slack --channel C123 | notes <dir> |\n" +
         "  adr <dir> | tracker [--host url] [--project KEY] | docs [--host url] [--space KEY] |\n" +
-        "  backstage --host url |\n" +
+        "  backstage --host url | module <specifier> |\n" +
         "  raw <dir> | rdb --mapping f.json> [--since ts] [--actor a]",
     );
     return 1;

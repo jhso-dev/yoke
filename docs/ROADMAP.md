@@ -793,6 +793,31 @@ Plan: docs/PLAN-V7.md. The gap this closes is that the headline was measured out
       a template rots unnoticed until the tenth service is wrong, a verified convention expires and returns
       to its owner through the queue that already exists
 
+## v7.6 — distribution, and a surface others can extend
+
+- [x] **7.6.1 a publishable name.** `npm view yoke` is `sintaxi/yoke`, a preprocessor at 0.1.3, so the bare
+      name will never install this. Published as **`@jhso-dev/yoke`** with the binary, docs and ontology
+      vocabulary unchanged; version `0.7.0`, tracking the milestone in the minor while the 0.x major keeps
+      saying the API can still move. `files` now ships `ontology/` as well as `dist/`, verified with
+      `npm pack --dry-run`, because `connect backstage` refuses without the catalog fragment and a global
+      install has no repo to read it from — and `ontology add-type catalog` resolves the bundled copy, so
+      every refusal names something the reader can actually run
+- [ ] **7.6.2 one-line install.** Blocked on the first publish, which is an outward action awaiting the
+      owner's go-ahead. The package is ready (`prepublishOnly` runs typecheck, tests and build); README's
+      install still documents the installer script, because claiming an npm command that does not resolve
+      yet would be the kind of unbacked claim this version spent its time removing
+- [ ] **7.6.3 registry listings.** Same reason: an outward action, prepared and not taken
+- [x] **7.6.4 third-party connectors, without a plugin framework.** `yoke connect module <specifier>`
+      resolves a module (path-relative to the caller, not to yoke's node_modules), calls its default export
+      or `makeConnector`, and refuses by name with the reason when the result is not `{ name, pull }` — a
+      half-satisfying connector would otherwise ingest some records and throw. Records still enter as
+      drafts through the one commit gate, so this adds no trust decision. Verified end to end with a
+      connector living outside the tree
+- [x] **7.6.5 evidence, on the project's own store.** The six decisions behind this version are recorded in
+      yoke and verified, and `yoke inject "why is contradiction detection only a hint"` answers with the
+      one that says so. Output and its limits in README "yoke on yoke" — the store is gitignored like every
+      local database, so the git log is the check on the record being real
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

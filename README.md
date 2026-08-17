@@ -332,7 +332,7 @@ yoke graph [--limit n]                        # the corpus as edges
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
-yoke connect github-pr|slack|notes|adr|tracker|docs|backstage|raw|rdb ...
+yoke connect github-pr|slack|notes|adr|tracker|docs|backstage|module|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup <dest.db> [--force] | restore <src.db> [--force]
 yoke export --until <ts> --out <new.db>       # --shards <file> federates backends
@@ -416,6 +416,29 @@ per query, so eight of ten slots cannot be relevant no matter what retrieval doe
 the figure is 82% of what is reachable, and the way to move it is a smaller k, which is
 the same trade as the tokens-per-answer column above. Keyword-only scores a higher raw
 precision (16.4%) purely by returning fewer records.
+
+## yoke on yoke
+
+The decisions behind v7 are recorded in yoke, and the agent that wrote it was injected with them. Six
+decisions, each with its rationale and what it turned down, captured and verified on 2026-08-17:
+
+```
+$ yoke overview --since 2026-08-17T00:00:00Z
+7 records, 6 relations
+by type
+  decision       6 verified
+verified knowledge by author (from authored_by, not who promoted it)
+     6  person:jhso
+captured since 2026-08-17T00:00:00.000Z — 6 records, every status
+     6  decision
+
+$ yoke inject "why is contradiction detection only a hint"
+[decision:01M0835FJF…@v2] person:jhso, 2026-08-17  The contradiction detector ships as a hint, not a mechanism…
+```
+
+The store itself is gitignored, like every other local database; the decisions in it are the ones this
+branch's commits argue for, so the git log is the check on this being real. The retrieval numbers above
+come from corpora anyone can load (`scripts/load-demo-corpus.mjs`), not from this.
 
 ## Docs
 

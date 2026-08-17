@@ -308,7 +308,7 @@ yoke graph [--limit n]                        # 코퍼스를 엣지로 보기
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
-yoke connect github-pr|slack|notes|adr|tracker|docs|backstage|raw|rdb ...
+yoke connect github-pr|slack|notes|adr|tracker|docs|backstage|module|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup <dest.db> [--force] | restore <src.db> [--force]
 yoke export --until <ts> --out <new.db>       # --shards <file> 로 백엔드 연합
