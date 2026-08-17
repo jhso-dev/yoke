@@ -43,12 +43,15 @@ interface GoldQuery {
 const db = process.argv[2];
 if (!db) {
   console.error(
-    "usage: tsx eval/retrieval-quality.ts <db>   (load it first: node scripts/load-demo-corpus.mjs <db>)",
+    "usage: tsx eval/retrieval-quality.ts <db> [gold-set.json]   (load it first: node scripts/load-demo-corpus.mjs <db>)",
   );
   process.exit(2);
 }
 
-const gold = JSON.parse(readFileSync("eval/gold-set.json", "utf8")) as {
+// A second corpus (e.g. scripts/kraftonway-corpus) supplies its own gold set; the `corpus` field inside
+// it points the `<file>#<key>` resolver at that corpus's dir. Default stays the demo gold set.
+const goldPath = process.argv[3] ?? "eval/gold-set.json";
+const gold = JSON.parse(readFileSync(goldPath, "utf8")) as {
   corpus: string;
   queries: GoldQuery[];
 };

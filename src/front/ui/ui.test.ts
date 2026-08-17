@@ -441,6 +441,16 @@ describe("ui API", () => {
     expect(entry?.detail).toContain(personaFactId);
   });
 
+  it("a person row carries its role, so the persona roster labels a card by role not the steward", async () => {
+    // The roster is seeded by one steward, so every person's citation reads the same and says nothing
+    // about who the card is. The role attribute travels on the row for the persona roster to show instead.
+    const people = await get("/api/entities?type=person");
+    const bora = people.items.find(
+      (e: { summary: string }) => e.summary === "Bora",
+    );
+    expect(bora?.role).toBe("engineer");
+  });
+
   it("GET / says the bundle is missing, with the command that fixes it", async () => {
     // No bundle configured → an honest 503 naming the build step, rather than a fallback UI. A
     // second, less-tested UI is what shipped in v2.5 and never ran in a browser.

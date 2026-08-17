@@ -1,0 +1,1209 @@
+{
+  "role": "pd",
+  "collaboration": {
+    "id": "collab:pubg-design",
+    "title": "배틀그라운드 배틀로열 코어 디자인 — 낙하부터 최후 1인까지의 규칙을 설계한 게임/레벨/UX 디자인 협업 (SYNTHETIC TEST DATA)"
+  },
+  "people": [
+    {
+      "id": "person:pd-park-jiwon",
+      "name": "박지원",
+      "role": "리드 게임 디자이너",
+      "team": "코어 디자인팀"
+    },
+    {
+      "id": "person:pd-lee-seunghyun",
+      "name": "이승현",
+      "role": "레벨 디자이너",
+      "team": "맵 디자인팀"
+    },
+    {
+      "id": "person:pd-choi-yuna",
+      "name": "최유나",
+      "role": "UX 디자이너",
+      "team": "UX팀"
+    },
+    {
+      "id": "person:pd-jung-minho",
+      "name": "정민호",
+      "role": "시스템 디자이너",
+      "team": "시스템팀"
+    },
+    {
+      "id": "person:pd-han-sora",
+      "name": "한소라",
+      "role": "밸런스 디자이너",
+      "team": "밸런스팀"
+    },
+    {
+      "id": "person:pd-oh-donghyun",
+      "name": "오동현",
+      "role": "무기 디자이너",
+      "team": "밸런스팀"
+    },
+    {
+      "id": "person:pd-kang-hyerim",
+      "name": "강혜림",
+      "role": "UI 디자이너",
+      "team": "UX팀"
+    },
+    {
+      "id": "person:pd-yoon-taeyang",
+      "name": "윤태양",
+      "role": "레벨 디자이너",
+      "team": "맵 디자인팀"
+    },
+    {
+      "id": "person:pd-seo-jimin",
+      "name": "서지민",
+      "role": "데이터 디자이너",
+      "team": "밸런스팀"
+    },
+    {
+      "id": "person:pd-baek-junseo",
+      "name": "백준서",
+      "role": "게임 필/피드백 디자이너",
+      "team": "시스템팀"
+    },
+    {
+      "id": "person:pd-moon-arae",
+      "name": "문아래",
+      "role": "시스템 디자이너",
+      "team": "시스템팀"
+    },
+    {
+      "id": "person:pd-jang-hyeok",
+      "name": "장혁",
+      "role": "플레이테스트 리드",
+      "team": "밸런스팀"
+    }
+  ],
+  "records": [
+    {
+      "key": "dec-core-loop",
+      "type": "decision",
+      "author": "person:brendan-greene",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "코어 루프를 '무장 없이 낙하 → 지도 위에서 무기·장비 수집 → 축소되는 자기장이 생존 공간을 좁힘 → 최후 1인(1팀)이 승리'의 단일 사이클로 확정한다. 매 순간 플레이어는 '지금 어디서 싸우고, 언제 이동할지'라는 하나의 리스크/리워드 판단만 반복하게 만든다.",
+        "rationale": "ARMA/H1Z1 모드에서 검증된 것은 규칙의 단순함이 만드는 긴장이었다. 규칙 하나(공간이 계속 줄어든다)가 100명의 행동을 자연스럽게 중앙으로 수렴시키므로, 스크립트된 이벤트 없이도 매 매치가 다른 이야기를 만든다. 초기 무장 0에서 시작하는 비대칭 없는 출발이 '수집' 단계를 필수 루프로 강제한다.",
+        "rejected_alternatives": [
+          "라운드제 아레나(고정 스폰·재입장) — 축소 압력이 없어 캠핑이 지배적",
+          "지속형 오픈월드 서바이벌(세션 무한) — 승패의 명확한 종료점이 없어 매치 단위 리텐션이 약함",
+          "팀 데스매치형 킬 카운트 승리 — 마지막 1인의 서사가 사라짐"
+        ]
+      }
+    },
+    {
+      "key": "dec-map-scale",
+      "type": "decision",
+      "author": "person:pd-lee-seunghyun",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "런칭 맵(에란겔)의 유효 플레이 영역을 8x8km 오픈월드로 잡고, 100명 기준 초기 인구 밀도를 약 1.5명/km²로 설계한다. 도시·군사기지 같은 고밀도 랜드마크와 광활한 저밀도 야지를 교차 배치해 '즉시 교전'과 '이동 중 긴장'을 모두 담는다.",
+        "rationale": "맵이 너무 작으면 낙하 직후 교전만 반복돼 수집 루프가 죽고, 너무 크면 최종 서클 전까지 서로를 못 만난다. 8x8km는 100명이 초반 20분 동안 '만날 수도, 안 만날 수도 있는' 확률을 만들어 플레이어에게 경로 선택의 의미를 준다.",
+        "rejected_alternatives": [
+          "4x4km 고밀도 맵 — 교전 빈도는 높지만 전략적 이동의 여지가 사라짐",
+          "16x16km 초대형 맵 — 최종 서클 전까지 접촉이 없어 중반이 공허",
+          "절차적 생성 맵 — 랜드마크 학습·메타 형성이 불가능해 반복 플레이 깊이가 얕아짐"
+        ]
+      }
+    },
+    {
+      "key": "dec-bluezone-early",
+      "type": "decision",
+      "author": "person:pd-han-sora",
+      "size": "para",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "초기 방향: 자기장은 매 페이즈 지도 중앙을 향해 고정 수축하며, 모든 페이즈에서 동일한 이동 속도와 동일한 대기 시간을 사용한다.",
+        "rationale": "규칙을 단순하고 예측 가능하게 만들어 신규 유저가 자기장 타이밍을 쉽게 학습하게 한다.",
+        "rejected_alternatives": [
+          "완전 랜덤 중심 이동 — 학습 자체가 불가능",
+          "플레이어 투표로 다음 원 결정 — 메타 붕괴"
+        ]
+      }
+    },
+    {
+      "key": "dec-bluezone-curve",
+      "type": "decision",
+      "author": "person:pd-han-sora",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "자기장 축소를 8~9개 페이즈의 비선형 곡선으로 확정한다. 초반 페이즈(1~2)는 대기 5분·이동 5~6분으로 느슨하게, 후반 페이즈(6 이후)는 대기 30~90초·이동 30~60초로 급격하게 조인다. 원의 중심은 이전 원 내부에서 편향 랜덤으로 재배치해 '안전한 명당'을 없앤다.",
+        "rationale": "초반을 느슨하게 두면 수집·이동 루프가 충분히 살고, 후반을 급격히 조이면 최종 교전이 지연 없이 강제된다. 균일 속도(폐기된 초기안)는 후반이 지루하게 늘어지거나 초반이 과하게 압박되는 양자택일이었다. 중심의 편향 랜덤 재배치는 특정 지형 캠핑 메타를 억제한다.",
+        "rejected_alternatives": [
+          "선형 등속 수축(초기안) — 페이즈별 긴장 조절 불가",
+          "고정 중심 수축 — 지도 중앙 명당 캠핑이 지배 전략화",
+          "페이즈 6부터 즉시 최소 원 — 후반 전투 준비 시간이 사라져 운 게임이 됨"
+        ]
+      }
+    },
+    {
+      "key": "dec-loot-distribution",
+      "type": "decision",
+      "author": "person:pd-oh-donghyun",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "루팅을 3티어 확률 분포로 설계한다. 일반 야지 가옥은 하급 무기·기본 탄약 위주(중상급 스폰 5% 미만), 도시 밀집 건물은 중급 무기·부착물 다수, 군사기지·핵심 랜드마크는 상급 무기(저격총·상급 방어구) 고확률(15~25%). 리스크가 높은 지역일수록 리워드 기대값을 높인다.",
+        "rationale": "스폰이 균질하면 어디에 내려도 같아져 낙하 지점 선택이 무의미해진다. 확률을 지역 위험도와 묶으면 '핫드랍으로 상급 파밍 후 초반 교전' vs '안전 파밍 후 후반 도박'이라는 상반된 플레이스타일이 공존한다.",
+        "rejected_alternatives": [
+          "완전 균등 스폰 — 낙하 지점 선택의 전략성 소멸",
+          "고정 스폰(항상 같은 위치 같은 아이템) — 암기 게임화",
+          "킬 보상 드롭만으로 무장 — 초반 무장 획득이 운에 종속"
+        ]
+      }
+    },
+    {
+      "key": "dec-realism-tone",
+      "type": "decision",
+      "author": "person:brendan-greene",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "디자인 톤을 밀리터리 리얼리즘 지향으로 확정한다. 총기는 실측 기반 반동·탄속·탄낙(bullet drop)을 반영하고, 조준 보조·자동 조준은 넣지 않는다. 무기 숙련은 리코일 패턴 학습으로 보상한다.",
+        "rationale": "리얼한 총기 감각이 '한 발 한 발이 무겁다'는 이 게임의 핵심 긴장을 만든다. 아케이드식 즉발 명중은 최후 교전의 심리전을 얕게 만든다. 진입 장벽은 감수하되, 숙련의 천장을 높여 장기 리텐션을 확보한다.",
+        "rejected_alternatives": [
+          "히트스캔·조준 보조 도입 — 접근성은 오르나 스킬 표현의 폭이 붕괴",
+          "무반동 아케이드 사격 — 총기별 개성 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-arcade-tone",
+      "type": "decision",
+      "author": "person:pd-choi-yuna",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "대안 제안: 신규 유저 이탈을 막기 위해 톤을 접근성 지향으로 완화한다. 초반 페이즈 한정 완만한 탄낙, 근접 교전 시 미세 조준 보조(에임 마그네티즘 3~5도)를 두고, 리코일 패턴을 단순화한다.",
+        "rationale": "플레이테스트에서 신규 유저의 첫 3매치 교전 명중률이 극히 낮아 '한 발도 못 맞히고 죽었다'는 좌절 이탈이 관측됐다. 진입 구간만 완만하게 해도 숙련 천장은 유지된다.",
+        "rejected_alternatives": [
+          "전 구간 히트스캔 — 하드코어 정체성 훼손",
+          "난이도 선택 매치메이킹 분리 — 인구 분산으로 대기시간 폭증"
+        ]
+      }
+    },
+    {
+      "key": "dec-minimap-compass",
+      "type": "decision",
+      "author": "person:pd-choi-yuna",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "미니맵(우하단, 자기장 라인 상시 표시)과 상단 360° 방위 컴퍼스를 기본 HUD로 둔다. 컴퍼스에는 소음 이벤트(총성·발소리·차량) 방향 마커를 짧게 띄우고, 팀원 핑을 각도값(예: 045)으로 표기한다.",
+        "rationale": "3인칭 시점 특성상 화면 밖 위협의 방향을 소리에만 의존하면 정보 손실이 크다. 컴퍼스의 각도 표기는 팀 보이스에서 '동쪽 어디쯤'을 정확히 공유하게 해 스쿼드 협동의 언어를 만든다.",
+        "rejected_alternatives": [
+          "미니맵 미제공(전체 지도만) — 실시간 방위 파악 불가",
+          "적 위치 상시 표시 — 정보전의 긴장 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-inventory-weight-early",
+      "type": "decision",
+      "author": "person:pd-jung-minho",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "초기 방향: 인벤토리를 무게(kg) 기반으로 설계한다. 각 아이템에 무게값을 부여하고 총 적재 한계를 넘으면 이동 속도가 단계적으로 감소한다.",
+        "rationale": "리얼리즘 톤에 맞춰 '많이 챙기면 느려진다'는 실감을 준다.",
+        "rejected_alternatives": ["무제한 적재 — 파밍의 기회비용이 사라짐"]
+      }
+    },
+    {
+      "key": "dec-inventory-slot",
+      "type": "decision",
+      "author": "person:pd-jung-minho",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "인벤토리를 무게 대신 용량(캐리 슬롯) 기반 그리드로 확정한다. 기본 소지량은 낮고 백팩 등급(레벨 1~3)으로 용량을 확장한다. 무게에 따른 이동 페널티는 제거한다.",
+        "rationale": "무게 시스템은 플레이테스트에서 '느려질까 봐 아무것도 못 줍는' 과도한 인지 부하를 낳았다. 용량 기반은 '무엇을 버리고 무엇을 챙길지'라는 명확한 선택만 남기고 이동감을 해치지 않는다. 백팩 업그레이드가 파밍 진행의 성장 보상 역할을 겸한다.",
+        "rejected_alternatives": [
+          "무게 기반 이동 페널티(초기안) — 인지 부하 과다, 이동감 저하",
+          "칸 없는 리스트형 무한 인벤 — 선택의 긴장 소멸",
+          "테트리스형 공간 배치 퍼즐 — 긴박한 교전 중 조작 부담 과다"
+        ]
+      }
+    },
+    {
+      "key": "dec-freefall-parachute",
+      "type": "decision",
+      "author": "person:pd-jung-minho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "낙하를 비행경로 상 자유 이탈 + 자유낙하 조종 + 낙하산 활공의 3단계로 설계한다. 이탈 타이밍과 하강 각도를 플레이어가 통제해 목표 지점 도달 시간을 스스로 최적화하게 한다. 급강하 시 최대 약 234km/h, 활공 시 저속으로 분기한다.",
+        "rationale": "낙하 지점 선택이 매 매치 첫 번째 전략 결정이다. 조종 가능한 낙하는 '멀리 안전하게 vs 가까이 빠르게'의 판단을 만들고, 같은 지점을 노린 상대와의 낙하 레이스라는 초반 미니게임을 파생시킨다.",
+        "rejected_alternatives": [
+          "랜덤 스폰 배치 — 첫 전략 결정이 사라짐",
+          "자동 낙하(조종 불가) — 낙하 레이스의 긴장 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-redzone",
+      "type": "decision",
+      "author": "person:pd-moon-arae",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "무작위 지역에 일시적 폭격 구역(레드존)을 띄워 실내로의 대피를 유도하는 환경 압박 장치를 둔다. 지속 약 20~40초, 실외 노출 시 확률적 폭발 피해.",
+        "rationale": "자기장이 수평 압박이라면 레드존은 국지적 수직 압박이다. 지루해지기 쉬운 중반 야지 이동에 리듬을 준다.",
+        "rejected_alternatives": [
+          "상시 랜덤 낙뢰 — 학습·회피 불가한 순수 운",
+          "레드존 미도입 — 중반 이동의 단조로움 방치"
+        ]
+      }
+    },
+    {
+      "key": "dec-attachments",
+      "type": "decision",
+      "author": "person:pd-oh-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "무기 부착물(총구·손잡이·탄창·조준경·개머리판) 슬롯 시스템을 도입한다. 부착물은 반동·재장전·조준 속도를 정량 개선하되 무기 기본 성능은 유지해, '완성된 총'을 만드는 과정을 파밍의 장기 목표로 둔다.",
+        "rationale": "부착물은 같은 무기에도 파밍 깊이의 차이를 만든다. 급하게 주운 맨 총과 풀어태치 총의 교전력 차이가 '더 파밍할 것인가 지금 싸울 것인가'의 리스크/리워드를 강화한다.",
+        "rejected_alternatives": [
+          "부착물 없는 고정 무기 — 파밍 후반의 성장 목표 부재",
+          "부착물 자동 장착 — 선택의 재미 제거"
+        ]
+      }
+    },
+    {
+      "key": "dec-healing-channel",
+      "type": "decision",
+      "author": "person:pd-han-sora",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "회복 아이템을 즉시 사용이 아닌 채널링(사용 완료까지 시간 소요)으로 설계한다. 붕대 4초, 구급상자 6초, 부스트류(에너지·진통제)는 지속 회복 버프. 채널링 중 피격 시 취소된다.",
+        "rationale": "즉시 회복은 교전을 소모전으로 만든다. 채널링은 '언제 어디서 안전하게 회복할지'를 또 하나의 결정으로 만들어, 교전 후 후퇴·엄폐의 공간 판단을 강제한다.",
+        "rejected_alternatives": [
+          "즉시 회복 — 교전 심리전 붕괴",
+          "자동 재생만 — 아이템 파밍 동기 약화"
+        ]
+      }
+    },
+    {
+      "key": "dec-perspective-3p1p",
+      "type": "decision",
+      "author": "person:pd-jung-minho",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "기본 시점을 3인칭으로 하되, 우클릭 정조준 시 1인칭으로 전환하는 하이브리드로 확정한다. 별도로 1인칭 전용(FPP) 큐를 선택 제공한다.",
+        "rationale": "3인칭은 진입 문턱을 낮추고 캐릭터 몰입·풍경 감상을 주며 대중성을 넓힌다. 정조준 시 1인칭 전환은 사격 순간의 정밀 조준을 보장한다. 3인칭 특유의 '엄폐물 뒤 시야(3rd-person peek)' 불공정 논란은 별도 FPP 큐로 하드코어 수요를 흡수한다.",
+        "rejected_alternatives": [
+          "1인칭 전용 — 대중 접근성 저하",
+          "3인칭 전용 — 엄폐 뒤 시야 불공정에 대한 경쟁 유저 반발",
+          "시점 자유 전환 무제한 — 조준 일관성 훼손"
+        ]
+      }
+    },
+    {
+      "key": "dec-fpp-only",
+      "type": "decision",
+      "author": "person:pd-oh-donghyun",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "대안 제안: 경쟁 무결성을 위해 3인칭을 제거하고 1인칭 전용으로 통일한다. 모든 플레이어가 동일한 시야 정보를 갖게 한다.",
+        "rationale": "3인칭 정조준 전 상태에서 엄폐물 너머를 몸을 노출하지 않고 정찰하는 것은 정보 비대칭 불공정이다. 리얼리즘 톤과도 3인칭 정찰은 모순된다.",
+        "rejected_alternatives": [
+          "3인칭 유지 + 카메라 제약 — 근본적 시야 우위는 남음",
+          "랭크전만 FPP — 결국 하이브리드와 동일한 분리 문제"
+        ]
+      }
+    },
+    {
+      "key": "dec-final-circle-melee",
+      "type": "decision",
+      "author": "person:pd-han-sora",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "최종 페이즈(7 이후) 원 반경을 근접 교전 유도 크기(반경 약 50~80m)로 좁히고, 마지막 원은 엄폐물이 적은 개활지에 형성되도록 지형 가중치를 준다.",
+        "rationale": "최종 교전이 장거리 대치로 끝나면 승부가 지루하게 늘어진다. 개활 소형 원은 마지막 순간을 반사신경·심리전의 밀도 높은 클라이맥스로 만든다.",
+        "rejected_alternatives": [
+          "최종 원을 항상 건물 위 — 캠핑 우위 고착",
+          "원 없이 페이즈 종료 시 즉사 — 운 게임화"
+        ]
+      }
+    },
+    {
+      "key": "dec-sound-directional",
+      "type": "decision",
+      "author": "person:pd-baek-junseo",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "발소리·총성·차량음에 거리 감쇠와 3D 정위(수평 방위 + 상하 층)를 부여한다. 발소리 가청 반경은 지면 재질별로 차등(콘크리트 넓게, 잔디 좁게)하고, 실내 계단 소리는 층 정보를 담아 수직 교전의 단서로 쓴다.",
+        "rationale": "소리는 이 게임에서 미니맵 다음가는 정보 채널이다. 정확한 정위는 '보이지 않는 적을 소리로 추적'하는 고유 긴장을 만들고, 헤드셋 숙련이라는 또 하나의 스킬 축을 연다.",
+        "rejected_alternatives": [
+          "2D 스테레오 팬만 — 상하·거리 정보 손실",
+          "발소리 무음 — 실내 교전의 정보전 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-killfeed",
+      "type": "decision",
+      "author": "person:pd-kang-hyerim",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "킬 피드는 우상단에 '가해자 → 무기/사인 → 피해자' 순으로 3~5줄 롤링 표기하고, 자기장·낙사 등 환경 사망은 별도 아이콘으로 구분한다.",
+        "rationale": "생존 인원과 위협 무기 종류를 실시간으로 읽게 해 후반 판단(어느 방향이 위험한지)의 단서를 준다.",
+        "rejected_alternatives": [
+          "킬 피드 미표시 — 잔여 인원·위협 정보 상실",
+          "전체 킬로그 상시 노출 — 화면 과밀"
+        ]
+      }
+    },
+    {
+      "key": "dec-knockdown-squad",
+      "type": "decision",
+      "author": "person:pd-moon-arae",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "듀오/스쿼드 모드에 넉다운(DBNO) 상태를 둔다. 체력 0 시 즉사 대신 기절(포복 이동·저지력 없음), 팀원이 일정 시간(약 10초) 소생 가능. 솔로 모드에는 넉다운이 없다.",
+        "rationale": "넉다운은 팀 교전을 '먼저 눕히고 마무리를 압박'하는 단계형 전투로 만들어 스쿼드 협동의 서사를 살린다. 소생 유무의 판단(살릴까 물러설까)이 팀플의 핵심 결정이 된다.",
+        "rejected_alternatives": [
+          "즉사만 유지 — 팀 교전이 개인 킬의 합으로 단조로워짐",
+          "무한 소생 — 마무리 압박 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-vehicle-density",
+      "type": "decision",
+      "author": "person:pd-lee-seunghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "차량 스폰을 도로변·주거지 인접에 편중 배치하고 야지 심부에는 희소하게 둔다. 차량은 빠른 자기장 추격을 가능하게 하되 엔진음으로 위치를 크게 노출시키고 연료 한계를 둔다.",
+        "rationale": "8x8km 대형 맵에서 후반 자기장 이동은 차량 없이는 가혹하다. 차량은 이동 리스크의 해법이지만 소음·표적화라는 대가를 지불하게 해 '탈 것인가 걸을 것인가'의 선택을 유지한다.",
+        "rejected_alternatives": [
+          "차량 무제한 균등 배치 — 항상 차를 타 도보 교전이 사라짐",
+          "차량 완전 제거 — 후반 자기장 이동이 순수 페널티가 됨"
+        ]
+      }
+    },
+    {
+      "key": "dec-erangel-landmarks",
+      "type": "decision",
+      "author": "person:pd-yoon-taeyang",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "에란겔에 이름 있는 고밀도 랜드마크(군사기지, 발전소, 학교, 대형 도시 등) 12~15곳을 지도 전역에 분산 배치하고, 각 랜드마크에 상급 루팅과 명확한 실루엣(멀리서도 식별되는 스카이라인)을 부여한다.",
+        "rationale": "랜드마크는 플레이어의 정신적 지도와 낙하 목적지를 만든다. 분산 배치는 초반 인구를 지도 전체로 흩어 '어디로 몰릴지' 예측 가능한 메타를 형성하고, 명확한 실루엣은 원거리 방위 판단의 랜드마크가 된다.",
+        "rejected_alternatives": [
+          "랜드마크를 지도 중앙 집중 — 초반 인구가 한 곳에 몰림",
+          "무명 균질 건물만 — 낙하 목적지·메타 형성 실패"
+        ]
+      }
+    },
+    {
+      "key": "dec-bluezone-damage-curve",
+      "type": "decision",
+      "author": "person:pd-seo-jimin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "자기장 밖 피해를 페이즈별 상승 곡선으로 설계한다. 초반 페이즈는 초당 약 0.4~1% 체력의 완만한 틱, 후반 페이즈는 초당 5~10%로 급증. 초반엔 '조금 늦어도 만회 가능', 후반엔 '자기장 밖 = 사실상 사망'을 성립시킨다.",
+        "rationale": "고정 피해율은 초반이면 무의미하고 후반이면 초반 파밍을 과하게 처벌한다. 상승 곡선은 초반의 관용과 후반의 냉혹함을 동시에 만들어 자기장을 페이즈마다 다른 압박으로 쓴다.",
+        "rejected_alternatives": [
+          "고정 피해율 — 초반 무의미 또는 후반 과처벌 중 택일",
+          "자기장 밖 즉사 — 초반 실수의 회복 여지 제거"
+        ]
+      }
+    },
+    {
+      "key": "dec-colorblind",
+      "type": "decision",
+      "author": "person:pd-choi-yuna",
+      "size": "line",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "색각 이상(적록/청황) 모드를 옵션으로 제공해 자기장 라인·팀원 마커·피해 표시의 색을 대체 팔레트로 전환한다.",
+        "rationale": "자기장·팀 식별은 색 의존도가 높아 색각 이상 유저에게 정보 손실이 크다. 접근성은 대중 타깃과 직결된다.",
+        "rejected_alternatives": [
+          "명도·패턴만으로 구분 강제 — 정상 색각 사용자의 가독성 저하",
+          "미지원 — 상당 비율 유저의 핵심 정보 접근 차단"
+        ]
+      }
+    },
+    {
+      "key": "dec-match-duration",
+      "type": "decision",
+      "author": "person:brendan-greene",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "1매치 목표 길이를 평균 28~32분으로 설정하고, 자기장 페이즈 수·타이밍·이동 속도를 이 목표에 역산해 튜닝한다.",
+        "rationale": "너무 짧으면 파밍·서사의 기승전결이 안 서고, 너무 길면 세션 리텐션과 재도전 욕구가 떨어진다. 30분 안팎은 '한 판 더'의 심리적 문턱을 낮게 유지하는 스윗스팟이다.",
+        "rejected_alternatives": [
+          "15분 초단축 매치 — 파밍·전략 층위가 얕아짐",
+          "60분 장기전 — 사망 후 대기·이탈 비용 과다"
+        ]
+      }
+    },
+    {
+      "key": "dec-recoil-spray",
+      "type": "decision",
+      "author": "person:pd-oh-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "자동화기 반동을 학습 가능한 결정론적 스프레이 패턴(수직 상승 후 수평 흔들림)으로 설계한다. 부착물로 반동을 정량 완화하되 패턴 자체는 유지해, 반동 제어를 숙련 보상의 핵심 축으로 둔다.",
+        "rationale": "완전 랜덤 반동은 숙련이 무의미하고, 무반동은 스킬 표현이 없다. 결정론적 패턴은 '연습하면 는다'는 성장 감각을 주고, 부착물 완화가 파밍 보상을 사격 성능으로 환원한다.",
+        "rejected_alternatives": [
+          "완전 랜덤 탄퍼짐 — 숙련의 의미 소멸",
+          "무반동 — 무기별 개성·스킬 표현 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-bluezone-slow",
+      "type": "decision",
+      "author": "person:pd-lee-seunghyun",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "대안 제안: 자기장 후반 축소 속도를 현행보다 20~30% 늦춰 전략적 진지 선점·재배치 시간을 더 준다. 후반 이동 시간을 60~90초로 늘린다.",
+        "rationale": "현행 후반 곡선은 이동 도중 자기장에 갈려 죽는 비율이 높아, 교전보다 달리기가 사인이 되는 경우가 많다. 조금 늦추면 '어떻게 싸울지'를 준비할 여유가 생긴다.",
+        "rejected_alternatives": [
+          "전 페이즈 감속 — 매치 길이 목표(30분) 초과",
+          "이동 페이즈 삭제(즉시 수축) — 재배치 불가로 순수 운"
+        ]
+      }
+    },
+    {
+      "key": "dec-spawn-island",
+      "type": "decision",
+      "author": "person:pd-moon-arae",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "매치 시작 전 대기 공간(스타팅 아일랜드)을 별도로 두고, 무적·무장 없이 자유 이동·교전 연습만 가능하게 한다. 여기서 주운 무기는 본 매치로 이월되지 않는다.",
+        "rationale": "100명이 동시 접속·로딩되는 시간의 편차를 흡수하는 완충 공간이 필요하다. 이월 없는 자유 공간은 대기 지루함을 조작 연습·장난으로 전환해 부정적 대기 경험을 완화한다.",
+        "rejected_alternatives": [
+          "검은 로딩 화면 대기 — 대기 이탈 증가",
+          "대기실 무기 이월 허용 — 초반 무장 비대칭 발생"
+        ]
+      }
+    },
+    {
+      "key": "dec-no-aim-assist",
+      "type": "decision",
+      "author": "person:brendan-greene",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "PC 플랫폼에서 조준 보조(에임 어시스트)를 넣지 않는다. 모든 명중은 순수 마우스 조작의 결과로 둔다.",
+        "rationale": "조준 보조는 리얼리즘 톤과 스킬 표현의 천장을 동시에 훼손한다. PC 입력 정밀도가 충분하므로 보조 없이도 접근성 손실이 제한적이다. 숙련의 순도가 경쟁 신뢰를 만든다.",
+        "rejected_alternatives": [
+          "근접 에임 마그네티즘 도입 — 스킬 표현 왜곡",
+          "옵션형 조준 보조 — 켠 사람과 안 켠 사람 간 형평 논란"
+        ]
+      }
+    },
+    {
+      "key": "dec-matchmaking-bots",
+      "type": "decision",
+      "author": "person:pd-seo-jimin",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "대기열이 임계 시간(예: 60초)을 넘으면 부족 인원을 저난도 봇으로 채워 매치를 개시하는 안을 검토한다. 봇 비율은 상한(예: 20%)을 두고 킬 피드에서 구분하지 않는다.",
+        "rationale": "인구가 얇은 시간대·지역에서 매치 성사 실패는 즉각적 이탈로 이어진다. 소수 봇 채움은 대기 경험을 지키는 타협이다.",
+        "rejected_alternatives": [
+          "봇 없이 무한 대기 — 비피크 시간 이탈 급증",
+          "봇 비율 무제한 — 인간 대전의 긴장 희석"
+        ]
+      }
+    },
+    {
+      "key": "dec-throwable-arc",
+      "type": "decision",
+      "author": "person:pd-oh-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "투척류(수류탄·연막·화염병)에 조준 시 예상 궤적 가이드라인을 표시하고, 수류탄은 쿠킹(핀 뽑고 대기)으로 폭발 타이밍을 조절하게 한다. 연막은 시야 차단으로 자기장 이동·소생 엄호의 전술 도구로 둔다.",
+        "rationale": "투척은 엄폐물 뒤 적을 강제로 움직이게 하는 유일한 수단이다. 궤적 가이드는 3인칭 시점의 거리감 오차를 보정하고, 쿠킹은 '언제 터뜨릴지'라는 숙련 층위를 추가한다.",
+        "rejected_alternatives": [
+          "궤적 가이드 없음 — 3인칭 거리감 오차로 투척이 순수 운",
+          "쿠킹 불가(착탄 즉발) — 공중 폭발 타이밍 전술 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-loot-ui-quickpick",
+      "type": "decision",
+      "author": "person:pd-kang-hyerim",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "루팅 UI에 원클릭 자동 정렬(탄약·회복·부착물 카테고리별)과 바닥 아이템 더블클릭 즉시 획득을 넣되, 교전 위험을 위해 인벤 개방 중에도 이동·시야는 유지되게 한다.",
+        "rationale": "루팅은 빈도가 가장 높은 상호작용이라 마찰이 곧 피로다. 빠른 획득은 파밍 속도를 올리되, 개방 중 이동 유지가 '루팅하다 뒤를 찔린다'는 긴장을 남긴다.",
+        "rejected_alternatives": [
+          "개방 중 완전 정지 — 루팅이 무방비 시간이 되어 교전 리듬 파괴",
+          "자동 전량 획득 — 무엇을 챙길지의 선택 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-weapon-tier-balance",
+      "type": "decision",
+      "author": "person:pd-han-sora",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "무기군을 역할별(근거리 SMG/샷건, 중거리 AR, 장거리 SR/DMR)로 나누고 TTK를 역할·거리에 맞게 차등한다. 압도적 만능 무기를 두지 않아 교전 거리에 따라 최적 무기가 달라지게 한다.",
+        "rationale": "단일 최강 무기는 파밍 목표를 획일화하고 교전을 단조롭게 한다. 역할 분화는 '지금 이 거리에 맞는 총을 들었는가'를 판단하게 해 무기 조합의 전략을 만든다.",
+        "rejected_alternatives": [
+          "전 거리 만능 AR 하나 — 무기 다양성·파밍 목표 붕괴",
+          "전 무기 동일 TTK — 거리별 선택 의미 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-care-package",
+      "type": "decision",
+      "author": "person:pd-moon-arae",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "매치 중 무작위 지점에 항공 보급(케어 패키지)을 낙하시켜 최상급 무기(그라운드 스폰 불가 저격총·방어구)를 담는다. 낙하 지점은 붉은 연기로 원거리 노출된다.",
+        "rationale": "보급은 지도 위에 자발적 교전 자석을 만든다. '최상급 장비를 노릴 것인가, 그것을 노리는 적을 노릴 것인가'라는 고위험 결정으로 중반의 능동적 충돌을 유도한다.",
+        "rejected_alternatives": [
+          "보급 미도입 — 중반 능동적 교전 유인 부족",
+          "은밀 낙하(무표시) — 교전 자석 효과 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-stance-lean",
+      "type": "decision",
+      "author": "person:pd-jung-minho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "자세(서기/앉기/엎드리기)와 좌우 기울이기(Q/E 린)를 도입한다. 자세는 피탄 면적·이동 속도·명중 안정성의 트레이드오프를 만들고, 린은 엄폐물 뒤에서 최소 노출로 사격하게 한다.",
+        "rationale": "리얼리즘 톤에서 엄폐 활용은 핵심 스킬이다. 린은 '몸을 얼마나 노출할지'라는 미세 결정을 매 교전에 넣어 정적인 총싸움을 위치·자세 싸움으로 확장한다.",
+        "rejected_alternatives": [
+          "자세 없이 서기만 — 엄폐 전술 층위 소멸",
+          "자동 엄폐(커버 스냅) — 리얼리즘 톤·수동 조작감 훼손"
+        ]
+      }
+    },
+    {
+      "key": "fact-hotdrop-ratio",
+      "type": "fact",
+      "author": "person:pd-jang-hyeok",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "핫드랍 인구 편중 관측",
+        "statement": "내부 플레이테스트(표본 42매치, 4,200명 낙하 로그)에서 상급 루팅 랜드마크 상위 3곳에 전체 낙하의 약 38%가 몰렸고, 해당 지역의 첫 60초 사망률이 맵 평균의 4.6배로 측정됐다. 고위험/고보상 낙하 선택이 실제로 분기하고 있음을 확인."
+      }
+    },
+    {
+      "key": "fact-first-engagement-time",
+      "type": "fact",
+      "author": "person:pd-jang-hyeok",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "첫 교전 발생 시각 분포",
+        "statement": "핫드랍 미참여 플레이어의 첫 교전 발생 시각 중앙값은 약 6분 40초, 핫드랍 참여자는 약 22초로 이원화됐다. 8x8km 밀도 설계가 '즉시 교전'과 '이동 중 긴장'의 두 경험을 실제로 분리해 냄."
+      }
+    },
+    {
+      "key": "fact-final-circle-count",
+      "type": "fact",
+      "author": "person:pd-seo-jimin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "최종 페이즈 평균 생존 인원",
+        "statement": "확정 자기장 곡선(dec-bluezone-curve) 기준 페이즈 7 진입 시 평균 생존 인원 8.3명, 페이즈 8에서 3.1명. 후반 급축소가 최종 교전을 30분 목표 안에서 안정적으로 강제함을 확인."
+      }
+    },
+    {
+      "key": "fact-match-length-measured",
+      "type": "fact",
+      "author": "person:pd-seo-jimin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "실측 매치 길이",
+        "statement": "확정 곡선 적용 후 매치 길이 중앙값 29분 12초, 상위 90퍼센타일 34분. dec-match-duration의 28~32분 목표에 부합."
+      }
+    },
+    {
+      "key": "fact-bluezone-death-ratio",
+      "type": "fact",
+      "author": "person:pd-jang-hyeok",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "자기장 사망 비율",
+        "statement": "전체 사망 중 자기장(피해 틱) 사망이 차지하는 비율은 초반 곡선 튜닝 전 21%에서 튜닝 후 11%로 감소. dec-bluezone-slow(감속 제안)의 근거로 인용됨 — 후반 이동 중 사망이 여전히 높다는 관측."
+      }
+    },
+    {
+      "key": "fact-thirdperson-peek",
+      "type": "fact",
+      "author": "person:pd-jang-hyeok",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "3인칭 엄폐 정찰 사용 관측",
+        "statement": "3인칭 큐 교전 로그에서 발사 직전 3인칭 상태로 엄폐물 너머를 정찰한 비율이 교전당 평균 2.7회. FPP 전용 큐(dec-fpp-only)를 요구하는 근거 데이터로 제출됨."
+      }
+    },
+    {
+      "key": "fact-ttk-by-weapon",
+      "type": "fact",
+      "author": "person:pd-oh-donghyun",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "title": "무기군별 TTK 측정치",
+        "statement": "레벨2 방어구 기준 근거리 SMG TTK 약 620ms, 중거리 AR 약 750ms, 장거리 SR(헤드 미적중 시) 2발 약 1,300ms, SR 헤드샷 즉사. 역할별 TTK 차등(dec-weapon-tier-balance)이 의도한 거리별 우위로 성립함을 확인."
+      }
+    },
+    {
+      "key": "fact-loot-time-median",
+      "type": "fact",
+      "author": "person:pd-jang-hyeok",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "초기 무장 완성 소요 시간",
+        "statement": "낙하 후 '주무기 + 방어구 + 회복 아이템'의 기본 무장 완성까지 소요 시간 중앙값 약 3분 5초(일반 야지 기준). 자동 정렬 UI(dec-loot-ui-quickpick) 적용 후 이전 대비 약 22% 단축."
+      }
+    },
+    {
+      "key": "fact-early-newuser-accuracy",
+      "type": "fact",
+      "author": "person:pd-jang-hyeok",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "신규 유저 초반 명중률",
+        "statement": "첫 3매치 신규 유저의 자동화기 명중률 중앙값 8.4%, 숙련 유저(100매치 이상)는 27%. 좌절 이탈 인터뷰에서 '한 발도 못 맞혔다'가 반복 언급됨 — dec-arcade-tone(접근성 완화 제안)의 근거."
+      }
+    },
+    {
+      "key": "fact-vehicle-usage",
+      "type": "fact",
+      "author": "person:pd-seo-jimin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "차량 이용 이동 비율",
+        "statement": "생존자 기준 매치당 평균 차량 탑승 시간 4분 10초, 후반(페이즈 5 이후) 자기장 이동의 약 44%가 차량으로 이뤄짐. 대형 맵에서 차량이 자기장 이동의 실질 해법임을 확인(dec-vehicle-density)."
+      }
+    },
+    {
+      "key": "fact-footstep-winrate",
+      "type": "fact",
+      "author": "person:pd-baek-junseo",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "발소리 선인지 교전 승률",
+        "statement": "실내 교전에서 상대 발소리를 먼저 인지하고 교전을 시작한 쪽의 승률이 71%. 3D 사운드 정위(dec-sound-directional)가 정보 우위를 실질적 전투 우위로 전환함을 확인."
+      }
+    },
+    {
+      "key": "fact-attachment-equip-rate",
+      "type": "fact",
+      "author": "person:pd-oh-donghyun",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "부착물 장착률",
+        "statement": "최종 페이즈 생존자의 주무기 부착물 슬롯 평균 충족률 68%(총구·조준경이 가장 먼저, 개머리판이 가장 늦게 채워짐). 개머리판 스폰 확률 상향 검토용 초안 데이터."
+      }
+    },
+    {
+      "key": "fact-early-density-100",
+      "type": "fact",
+      "author": "person:pd-jang-hyeok",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "title": "초기 빌드 64인 밀도 관측",
+        "statement": "얼리액세스 이전 초기 빌드는 매치 정원 64명으로 테스트했고, 8x8km 기준 중반 접촉 빈도가 목표보다 낮게 측정됐다. 이후 정원 100명 기준으로 밀도를 재설계하며 대체됨."
+      }
+    },
+    {
+      "key": "fact-drop-dispersion",
+      "type": "fact",
+      "author": "person:pd-jang-hyeok",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "낙하 분산도",
+        "statement": "비행경로를 매치마다 랜덤화한 결과 낙하 지점의 지도 커버리지(격자 점유율)가 경로 고정 대비 1.9배로 증가. 조종 가능 낙하(dec-freefall-parachute)와 경로 랜덤화가 초반 인구 분산에 함께 기여함."
+      }
+    },
+    {
+      "key": "term-blue-zone",
+      "type": "term",
+      "author": "person:pd-han-sora",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "자기장 (Blue Zone / Play Zone)",
+        "statement": "플레이 가능 영역을 시간이 지날수록 좁히는 원형 경계. 경계 밖(파란 벽 외부)에서는 시간당 누적 피해를 입는다. 다음 안전 원의 위치는 현재 원 안에서 미리 예고된다."
+      }
+    },
+    {
+      "key": "term-br",
+      "type": "term",
+      "author": "person:brendan-greene",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "배틀로열 (Battle Royale, BR)",
+        "statement": "다수(수십~100명)가 무장 없이 시작해 파밍과 교전을 거쳐 단 한 명(또는 한 팀)만 생존하며, 축소되는 안전 구역이 플레이어를 강제로 수렴시키는 라스트맨스탠딩 장르."
+      }
+    },
+    {
+      "key": "term-ttk",
+      "type": "term",
+      "author": "person:pd-oh-donghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "TTK (Time To Kill)",
+        "statement": "특정 무기·거리·방어구 조건에서 대상을 사망시키는 데 걸리는 시간. 밸런스의 기준 지표로, 짧을수록 반응·선제의 가치가 커지고 길수록 위치·재장전 관리의 비중이 커진다."
+      }
+    },
+    {
+      "key": "term-looting",
+      "type": "term",
+      "author": "person:pd-lee-seunghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "루팅 (Looting)",
+        "statement": "맵과 사망한 적이 남긴 무기·탄약·회복·부착물·방어구를 수집해 무장을 완성하는 행위. 코어 루프의 두 번째 단계이며 파밍(farming)과 혼용된다."
+      }
+    },
+    {
+      "key": "term-phase",
+      "type": "term",
+      "author": "person:pd-han-sora",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "페이즈 / 서클 (Phase / Circle)",
+        "statement": "자기장 한 주기. 각 페이즈는 '다음 원 예고(대기) → 원 수축(이동)'의 두 구간으로 나뉜다. 페이즈 번호가 커질수록 원 반경은 작아지고 밖 피해는 커진다."
+      }
+    },
+    {
+      "key": "term-hot-drop",
+      "type": "term",
+      "author": "person:pd-jang-hyeok",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "핫드랍 (Hot Drop)",
+        "statement": "상급 루팅이 밀집한 고인기 랜드마크에 많은 인원이 동시에 낙하하는 것. 초반 사망 위험이 극단적으로 높은 대신 빠른 상급 무장과 킬 파밍의 기회를 준다."
+      }
+    },
+    {
+      "key": "term-spray-pattern",
+      "type": "term",
+      "author": "person:pd-oh-donghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "스프레이 패턴 (Spray / Recoil Pattern)",
+        "statement": "자동화기를 연사할 때 탄착이 그리는 결정론적 반동 궤적. 플레이어가 마우스로 역보정하면 집탄이 유지되며, 이 역보정 숙련이 사격 스킬의 핵심 축이다."
+      }
+    },
+    {
+      "key": "term-dbno",
+      "type": "term",
+      "author": "person:pd-moon-arae",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "넉다운 / DBNO (Down But Not Out)",
+        "statement": "팀 모드에서 체력이 0이 됐으나 즉사하지 않고 기절(포복 이동만 가능)한 상태. 제한 시간 내 팀원이 소생하면 부활하고, 마무리 피해를 받거나 시간이 지나면 사망한다."
+      }
+    },
+    {
+      "key": "term-game-feel",
+      "type": "term",
+      "author": "person:pd-baek-junseo",
+      "size": "line",
+      "state": "draft",
+      "attributes": {
+        "title": "게임 필 (Game Feel)",
+        "statement": "입력에 대한 즉각적 감각 반응의 총합 — 사격의 반동 진동, 히트 피드백, 발소리·리로드 사운드, 카메라 흔들림 등이 만드는 '손맛'. 밸런스 수치와 별개로 조작의 만족을 결정한다."
+      }
+    },
+    {
+      "key": "term-risk-reward",
+      "type": "term",
+      "author": "person:brendan-greene",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "리스크/리워드 (Risk/Reward)",
+        "statement": "더 큰 보상에는 더 큰 위험을 묶어 플레이어의 매 선택에 긴장을 부여하는 설계 원리. 핫드랍·케어 패키지·자기장 가장자리 파밍이 모두 이 축 위에 놓인다."
+      }
+    },
+    {
+      "key": "res-arma-mod",
+      "type": "resource",
+      "author": "person:brendan-greene",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "ARMA2/ARMA3 배틀로열 모드 원류 레퍼런스",
+        "statement": "코어 루프(무장 없이 낙하 → 파밍 → 축소 구역 → 최후 1인)의 직접적 기원. 리얼리즘 톤과 대형 맵 밀도 감각의 원형을 여기서 검증했다. (SYNTHETIC 참조 포인터)",
+        "url": "https://example.test/kraftonway/ref/arma-battle-royale-mod"
+      }
+    },
+    {
+      "key": "res-h1z1-compare",
+      "type": "resource",
+      "author": "person:pd-han-sora",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "H1Z1 King of the Kill 비교 분석",
+        "statement": "자기장 페이스와 아케이드/리얼리즘 톤의 스펙트럼을 비교한 내부 분석. 우리의 톤을 리얼리즘 쪽으로, 매치 길이를 더 길게 잡는 근거로 참조.",
+        "url": "https://example.test/kraftonway/ref/h1z1-koth-compare"
+      }
+    },
+    {
+      "key": "res-battle-royale-film",
+      "type": "resource",
+      "author": "person:pd-lee-seunghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "영화 배틀로얄(2000) 무드보드",
+        "statement": "'좁혀지는 생존 공간 안에서 최후까지 살아남는' 서사 톤의 무드보드 원천. 자기장의 심리적 압박감을 설계할 때 정서 레퍼런스로 사용.",
+        "url": "https://example.test/kraftonway/ref/battle-royale-film-moodboard"
+      }
+    },
+    {
+      "key": "res-gdc-br-design",
+      "type": "resource",
+      "author": "person:pd-park-jiwon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "배틀로열 코어 디자인 GDC 발표 자료",
+        "statement": "축소 구역 페이싱과 100인 매치 밀도 튜닝 방법론을 정리한 발표 슬라이드. 페이즈 곡선 역산(매치 길이 목표 → 페이즈 타이밍) 접근의 참고.",
+        "url": "https://example.test/kraftonway/ref/gdc-battle-royale-pacing"
+      }
+    },
+    {
+      "key": "res-ballistics-ref",
+      "type": "resource",
+      "author": "person:pd-oh-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "총기 탄도·반동 리얼리즘 레퍼런스 문서",
+        "statement": "탄속·탄낙·총구 상승 반동의 실측 근사값을 무기군별로 정리한 내부 문서. 리코일 스프레이 패턴(dec-recoil-spray)과 무기 TTK 튜닝의 수치 근거.",
+        "url": "https://example.test/kraftonway/ref/ballistics-recoil-reference"
+      }
+    },
+    {
+      "key": "res-erangel-terrain",
+      "type": "resource",
+      "author": "person:pd-yoon-taeyang",
+      "size": "line",
+      "state": "draft",
+      "attributes": {
+        "title": "에란겔 지형 무드보드 (동유럽 시골)",
+        "statement": "버려진 동유럽 군사 시설·농촌 마을·발전소의 사진 무드보드. 랜드마크 실루엣과 저밀도 야지의 색·질감 톤을 잡기 위한 레퍼런스 모음.",
+        "url": "https://example.test/kraftonway/ref/erangel-terrain-moodboard"
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "relates_to",
+      "from": "dec-core-loop",
+      "to": "dec-map-scale"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-core-loop",
+      "to": "dec-bluezone-curve"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-core-loop",
+      "to": "term-br"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-core-loop",
+      "to": "term-risk-reward"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-core-loop",
+      "to": "res-arma-mod"
+    },
+    {
+      "type": "supersedes",
+      "from": "dec-bluezone-curve",
+      "to": "dec-bluezone-early"
+    },
+    {
+      "type": "supersedes",
+      "from": "dec-inventory-slot",
+      "to": "dec-inventory-weight-early"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-bluezone-curve",
+      "to": "term-blue-zone"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-bluezone-curve",
+      "to": "term-phase"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-bluezone-curve",
+      "to": "dec-match-duration"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-bluezone-curve",
+      "to": "fact-final-circle-count"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-bluezone-curve",
+      "to": "res-gdc-br-design"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-bluezone-damage-curve",
+      "to": "term-blue-zone"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-bluezone-damage-curve",
+      "to": "fact-bluezone-death-ratio"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-realism-tone",
+      "to": "dec-arcade-tone"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-bluezone-curve",
+      "to": "dec-bluezone-slow"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-perspective-3p1p",
+      "to": "dec-fpp-only"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-arcade-tone",
+      "to": "fact-early-newuser-accuracy"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-realism-tone",
+      "to": "dec-no-aim-assist"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-realism-tone",
+      "to": "dec-recoil-spray"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-realism-tone",
+      "to": "res-ballistics-ref"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-recoil-spray",
+      "to": "term-spray-pattern"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-recoil-spray",
+      "to": "fact-ttk-by-weapon"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-weapon-tier-balance",
+      "to": "fact-ttk-by-weapon"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-weapon-tier-balance",
+      "to": "term-ttk"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-loot-distribution",
+      "to": "term-looting"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-loot-distribution",
+      "to": "fact-hotdrop-ratio"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-loot-distribution",
+      "to": "term-hot-drop"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-map-scale",
+      "to": "dec-erangel-landmarks"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-map-scale",
+      "to": "fact-first-engagement-time"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-map-scale",
+      "to": "fact-early-density-100"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-erangel-landmarks",
+      "to": "res-erangel-terrain"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-erangel-landmarks",
+      "to": "fact-hotdrop-ratio"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-freefall-parachute",
+      "to": "fact-drop-dispersion"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-vehicle-density",
+      "to": "fact-vehicle-usage"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-sound-directional",
+      "to": "fact-footstep-winrate"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-sound-directional",
+      "to": "term-game-feel"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-perspective-3p1p",
+      "to": "fact-thirdperson-peek"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-fpp-only",
+      "to": "fact-thirdperson-peek"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-attachments",
+      "to": "fact-attachment-equip-rate"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-attachments",
+      "to": "dec-recoil-spray"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-inventory-slot",
+      "to": "dec-loot-ui-quickpick"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-loot-ui-quickpick",
+      "to": "fact-loot-time-median"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-knockdown-squad",
+      "to": "term-dbno"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-care-package",
+      "to": "term-risk-reward"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-no-aim-assist",
+      "to": "dec-colorblind"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-match-duration",
+      "to": "fact-match-length-measured"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-bluezone-slow",
+      "to": "fact-bluezone-death-ratio"
+    },
+    {
+      "type": "relates_to",
+      "from": "res-arma-mod",
+      "to": "res-h1z1-compare"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-realism-tone",
+      "to": "dec-arcade-tone"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-bluezone-curve",
+      "to": "dec-bluezone-slow"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-perspective-3p1p",
+      "to": "dec-fpp-only"
+    }
+  ]
+}

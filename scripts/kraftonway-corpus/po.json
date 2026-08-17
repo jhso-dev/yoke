@@ -1,0 +1,1335 @@
+{
+  "role": "po",
+  "collaboration": {
+    "id": "collab:pubg-product",
+    "title": "검증되지 않은 배틀로열 장르에서 글로벌 플래그십 제품을 만들고 라이브로 키운다"
+  },
+  "people": [
+    {
+      "id": "person:po-lee-jihoon",
+      "name": "이지훈",
+      "role": "프로덕트 오너",
+      "team": "PUBG 제품팀"
+    },
+    {
+      "id": "person:po-park-soyeon",
+      "name": "박소연",
+      "role": "기획 리드",
+      "team": "배틀로열 코어팀"
+    },
+    {
+      "id": "person:po-jung-minwoo",
+      "name": "정민우",
+      "role": "BM 기획",
+      "team": "수익화팀"
+    },
+    {
+      "id": "person:po-choi-eunji",
+      "name": "최은지",
+      "role": "라이브 서비스 PO",
+      "team": "라이브팀"
+    },
+    {
+      "id": "person:po-han-seunghyun",
+      "name": "한승현",
+      "role": "글로벌 퍼블리싱 기획",
+      "team": "글로벌팀"
+    },
+    {
+      "id": "person:po-yoon-jaehyeok",
+      "name": "윤재혁",
+      "role": "시스템 기획 리드",
+      "team": "코어시스템팀"
+    },
+    {
+      "id": "person:po-seo-yena",
+      "name": "서예나",
+      "role": "콘텐츠 기획",
+      "team": "콘텐츠팀"
+    },
+    {
+      "id": "person:po-kang-taeho",
+      "name": "강태호",
+      "role": "제품지표 분석",
+      "team": "데이터팀"
+    },
+    {
+      "id": "person:po-lim-hyunju",
+      "name": "임현주",
+      "role": "UX 기획",
+      "team": "UX팀"
+    },
+    {
+      "id": "person:po-oh-donghyun",
+      "name": "오동현",
+      "role": "밸런스·서킷 기획",
+      "team": "e스포츠팀"
+    }
+  ],
+  "records": [
+    {
+      "key": "dec-tera-flagship",
+      "type": "decision",
+      "author": "person:jang-byeonggyu",
+      "size": "half",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "2011년 TERA를 회사의 플래그십 성장 엔진으로 삼고 개발·마케팅 자원을 여기에 집중한다.",
+        "rationale": "논타게팅 액션 전투를 앞세운 대형 MMORPG로 국내 시장에서 리니지·아이온 계열과 정면 승부가 가능하다고 봤다. 4년간 쌓은 개발 조직의 역량이 하나의 대작에 응축되어야 회수가 된다는 판단이었다.",
+        "rejected_alternatives": [
+          "여러 중소 규모 타이틀을 동시에 굴리는 멀티 라인업",
+          "해외 퍼블리셔에 개발만 맡기고 IP를 넘기는 수탁 개발",
+          "캐주얼 웹게임으로 먼저 현금흐름을 만든 뒤 MMO에 재투자"
+        ]
+      }
+    },
+    {
+      "key": "dec-tera-b2p-to-f2p",
+      "type": "decision",
+      "author": "person:po-jung-minwoo",
+      "size": "para",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "TERA 서비스 안정화 이후 정액제(B2P) 중심에서 부분유료화(F2P) 전환을 단행한다.",
+        "rationale": "정액 결제 구간에서 신규 유입이 둔화되고 이탈 곡선이 가팔라졌다. 접속 장벽을 없애 상단 유입을 회복하고 코스메틱·편의 상품으로 ARPPU를 방어하는 편이 총매출에 유리하다고 판단했다.",
+        "rejected_alternatives": [
+          "정액제 유지하며 요금 인하로만 대응",
+          "대규모 확장팩 유료 판매로 매출 방어",
+          "북미·유럽만 F2P, 국내는 정액 유지하는 이원화"
+        ]
+      }
+    },
+    {
+      "key": "dec-one-masterpiece",
+      "type": "decision",
+      "author": "person:jang-byeonggyu",
+      "size": "half",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "회사는 '하나의 걸작'에 조직 역량을 몰아 대작 한 편의 성공으로 도약한다.",
+        "rationale": "산발적인 다수 프로젝트는 인재를 희석하고 어느 것도 최고 수준에 못 미친다. 한 팀이 한 작품에 총력을 쏟아야 세계 시장에서 통할 완성도가 나온다는 신념이 초기 조직 설계의 축이었다.",
+        "rejected_alternatives": [
+          "여러 스튜디오가 각자 다른 장르를 병렬로 개발",
+          "외부 스튜디오 인수로 라인업을 넓히는 방식",
+          "소규모 실험작을 다수 띄워 데이터로 선별"
+        ]
+      }
+    },
+    {
+      "key": "dec-portfolio-bluehole2",
+      "type": "decision",
+      "author": "person:jang-byeonggyu",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "'하나의 걸작' 노선을 접고, 다수의 개발 스튜디오를 인수·연합하는 '블루홀 2.0' 포트폴리오 전략으로 전환한다. 한 편의 흥행에 회사의 생존을 거는 구조를 해체하고, 서로 다른 장르·플랫폼의 스튜디오를 묶어 어느 하나가 실패해도 나머지가 회사를 떠받치는 형태로 재설계한다. 창작의 단위는 여전히 '걸작을 노리는 팀'이되, 생존의 단위는 팀에서 회사 전체의 포트폴리오로 옮긴다.",
+        "rationale": "TERA 단일 타이틀 의존은 매출의 계절성과 라이프사이클 위험을 회사 전체 위험으로 증폭시켰다. 대작 한 편은 성공 확률 자체가 낮고, 성공해도 수명이 유한하다. 정액 매출은 신규 유입이 둔화되는 순간부터 우하향하는데, 그 곡선 하나에 회사의 존폐가 묶여 있으면 어떤 경영 판단도 방어적으로만 흐른다. 게임은 본질적으로 히트 산업이며 히트는 사전에 예측하기 어렵다 — 그렇다면 개별 타이틀의 성공을 정밀하게 맞히려 애쓰기보다, 타석 수를 늘려 포트폴리오 전체의 기대값을 관리하는 편이 합리적이다. 이것은 개발력을 낮추자는 말이 아니라, 낮은 적중률을 전제로 베팅 횟수를 설계에 넣자는 것이다.\n\n2013년 여름 외부의 매각 제안을 받았을 때 회사는 갈림길에 섰다. 매각은 TERA라는 자산의 값을 현금으로 확정하는 길이었고, 거부는 불확실성을 계속 짊어지는 길이었다. 회사는 거부를 택했다 — 스스로를 '지금 팔리는 자산'이 아니라 '베팅을 반복할 수 있는 플랫폼'으로 규정했기 때문이다. 이 정체성 선언이 블루홀 2.0의 출발점이다. 자산으로 남으면 한 번 정산되고 끝이지만, 베팅 플랫폼으로 남으면 실패한 베팅조차 다음 베팅의 학습이 된다.\n\n실행 원칙은 세 가지다. 첫째, 서로 다른 장르 감각과 실행력을 가진 개발팀을 인수·투자·합류로 끌어모아 라인업의 상관관계를 낮춘다. 장르가 겹치면 같은 시장 충격에 함께 무너지므로, 포트폴리오는 분산될수록 강하다. 둘째, 각 팀에는 창작 자율성을 최대한 부여한다. 위에서 '무엇을 만들라'고 지시해 나온 게임은 걸작이 되지 못한다. 회사는 팀이 무엇을 만들지에 개입하지 않고, 대신 자원 배분과 리스크의 총량만 포트폴리오 관점에서 조율한다. 셋째, 평가 축을 개별 타이틀의 성패에서 포트폴리오 전체의 기대 수익률로 옮긴다. 한 팀이 실패했다는 사실만으로 그 팀의 존재 이유를 부정하지 않는다 — 실패 확률이 높은 큰 베팅을 감당하는 것이 바로 이 구조의 목적이기 때문이다.\n\n이 전환의 가장 중요한 부산물은 조직적 여유다. 검증되지 않은 배틀로열 장르에 2015년 소규모로 착수할 수 있었던 것은, 그 팀이 실패해도 회사가 흔들리지 않는 구조가 이미 만들어져 있었기 때문이다. '하나의 걸작' 체제였다면 검증 안 된 장르에 회사의 명운을 거는 일은 무모했을 것이다. 낮은 확률의 큰 베팅은 그것을 감당할 안전 마진이 있을 때만 합리적 선택이 된다 — 블루홀 2.0은 바로 그 마진을 제도로 만든 결정이었고, PUBG의 성공은 이 전략이 만든 여유 위에서 나온 결과다.\n\n실행 과정에서 이 전략은 두 가지 긴장을 낳았고, 문서는 그것을 숨기지 않고 명시했다. 첫째는 자원 배분의 긴장이다. 포트폴리오는 분산될수록 강하지만, 한정된 자본과 인력을 여러 팀에 나누면 어느 팀도 충분히 지원받지 못한다는 반론이 있었다. 이에 대해 회사는 '균등 분배'가 아니라 '단계적 집중'으로 답했다 — 초기엔 여러 팀에 얇게 씨앗 자원을 뿌려 신호를 관찰하고, 지표가 나오는 팀에 자원을 몰아준다. PUBG가 얼리액세스 초기 지표를 낸 순간 전사 자원의 우선순위가 그쪽으로 급격히 재정렬된 것이 바로 이 원칙의 실행이었다. 둘째는 정체성의 긴장이다. '하나의 걸작'을 믿고 합류했던 조직 구성원에게 포트폴리오 전환은 '집중을 포기하는 것'으로 비칠 수 있었다. 문서는 이를 '팀 단위의 집중은 유지하되 회사 단위의 집중을 분산으로 바꾼다'는 언어로 정리해, 개별 팀에게는 여전히 걸작을 노리라고 요구한다는 점을 분명히 했다. 2013–14년의 M&A와 팀 합류는 이 원칙에 따라 순차적으로 진행됐고, 그 결과 회사는 검증되지 않은 장르에 베팅할 수 있는 다수의 독립적 타석을 확보했다.",
+        "rejected_alternatives": [
+          "TERA 후속작·확장팩에 재투자하여 단일 IP 수명을 늘리는 노선",
+          "2013년 매각 제안을 수용하고 자산을 현금화",
+          "외부 투자 없이 사내 신규 프로젝트만으로 라인업을 서서히 확장",
+          "퍼블리싱 사업으로 전환해 개발 리스크 자체를 외주화"
+        ]
+      }
+    },
+    {
+      "key": "dec-br-gdd-approval",
+      "type": "decision",
+      "author": "person:kim-changhan",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2015년 11월, 배틀로열 게임 디자인 문서(GDD)를 승인하고 소규모 팀으로 프로토타입 제작에 착수한다.",
+        "rationale": "국내에 성공 사례가 없는 장르지만, 모드 커뮤니티에서 배틀로열 규칙의 강한 반복 몰입이 이미 검증되고 있었다. 큰 조직을 붙이는 대신 적은 인원과 짧은 개발 기간으로 '틀리면 싸게 틀리는' 베팅으로 설계했다.",
+        "rejected_alternatives": [
+          "검증된 MMO·MOBA 장르 신작에 자원을 배분",
+          "배틀로열을 기존 게임의 한 모드로만 부착",
+          "시장이 더 커질 때까지 착수를 1~2년 유예"
+        ]
+      }
+    },
+    {
+      "key": "dec-flagship-shift",
+      "type": "decision",
+      "author": "person:kim-changhan",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "회사의 플래그십을 TERA에서 PUBG(배틀그라운드)로 이동하고, 전사 자원 우선순위를 PUBG의 글로벌 라이브 서비스에 재배치한다.",
+        "rationale": "얼리액세스 초기 지표가 국내 MMO 라이프사이클 전체를 압도했다. 성장의 무게중심이 옮겨간 이상, 자원 배분의 기준도 매출이 커지는 쪽으로 재정렬하는 것이 타당했다.",
+        "rejected_alternatives": [
+          "TERA와 PUBG를 동급 플래그십으로 병행 운영",
+          "PUBG를 별도 자회사로 분리해 본사 자원과 분리",
+          "TERA 신규 확장으로 기존 플래그십을 방어"
+        ]
+      }
+    },
+    {
+      "key": "dec-pubg-ea-scope",
+      "type": "decision",
+      "author": "person:kim-changhan",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2017년 3월, 맵 하나·핵심 루프만 갖춘 최소 구성으로 스팀 얼리액세스를 출시한다. 완성도보다 시장 진입 타이밍을 우선한다.",
+        "rationale": "배틀로열 시장이 열리는 창은 좁고, 선점이 네트워크 효과로 굳어지는 장르다. 부족한 콘텐츠는 라이브에서 채우되, 코어 루프의 재미가 검증된 지금 시점에 유저와 함께 완성해가는 편이 낫다고 봤다.",
+        "rejected_alternatives": [
+          "맵·모드·최적화를 모두 갖춘 정식 출시까지 대기",
+          "비공개 베타만 장기간 운영하며 지표 관찰",
+          "콘솔 동시 출시로 진입 규모를 키우는 방식"
+        ]
+      }
+    },
+    {
+      "key": "dec-pubg-bm-global",
+      "type": "decision",
+      "author": "person:po-jung-minwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "수익화는 유료 구매(B2P) 위에 코스메틱 중심으로 얹고, 매출 목표의 축을 국내가 아니라 북미·유럽·글로벌에 둔다. 해외 매출 비중 95% 이상을 기본 전제로 스코프를 설계한다.",
+        "rationale": "장르 수요가 서구권에서 압도적으로 크고 스팀 유통이 국경을 지운다. 국내 과금 관행에 맞춘 설계는 오히려 글로벌 유저 반발을 부른다. 코어 게임플레이에 영향 없는 외형 상품만으로 규모의 매출을 낼 수 있다고 판단했다.",
+        "rejected_alternatives": [
+          "국내 MMO식 확률형·능력치 아이템 과금 이식",
+          "무료 배포 후 광고·인앱으로 회수하는 F2P",
+          "지역별로 과금 모델을 다르게 가져가는 이원화"
+        ]
+      }
+    },
+    {
+      "key": "dec-br-map-erangel-first",
+      "type": "decision",
+      "author": "person:po-park-soyeon",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "출시 맵은 8x8km 에란겔(Erangel) 단일 맵으로 시작하고, 추가 맵은 라이브 이후 순차 공급한다.",
+        "rationale": "맵 하나의 지형·자원 배치·동선 밸런스를 끝까지 다듬는 편이, 여러 맵을 어중간하게 내는 것보다 코어 경험의 완성도가 높다. 단일 맵은 메타 학습을 빠르게 만들어 초기 커뮤니티 형성에도 유리했다.",
+        "rejected_alternatives": [
+          "사막·설원 등 3종 맵 동시 출시로 다양성 확보",
+          "절차적 생성 맵으로 콘텐츠 반복성 해결",
+          "소형 맵 위주로 매치 길이를 줄인 구성"
+        ]
+      }
+    },
+    {
+      "key": "dec-map-size-8x8",
+      "type": "decision",
+      "author": "person:po-yoon-jaehyeok",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "100인 매치의 표준 맵 규격을 8x8km로 고정하고, 이후 맵은 4x4·6x6 등 예외적 목적일 때만 축소한다.",
+        "rationale": "8x8은 100명이 초반 분산 후 30분 안팎에 자연스럽게 수렴하도록 자기장 반경과 이동 속도를 맞춘 크기다. 더 크면 교전 밀도가 떨어지고 더 작으면 초반 난입이 과해진다.",
+        "rejected_alternatives": [
+          "6x6km로 통일해 매치 시간 단축",
+          "맵마다 크기를 자유롭게 두는 무표준 운영"
+        ]
+      }
+    },
+    {
+      "key": "dec-ea-price-point",
+      "type": "decision",
+      "author": "person:po-jung-minwoo",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "얼리액세스 가격을 29.99달러 단일가로 책정하고, 얼리액세스 기간 중 가격 인상은 하지 않는다.",
+        "rationale": "AAA 정가보다 낮춰 진입 장벽을 없애되 무료는 아니어서 어뷰징 계정 비용을 만든다. 완성 전 가격을 올리면 초기 구매자와의 신뢰가 깨지므로 정식 출시까지 동결한다.",
+        "rejected_alternatives": [
+          "무료 배포 후 과금으로 회수",
+          "얼리액세스 할인가 후 정식 출시 시 인상",
+          "AAA 정가 59.99달러로 프리미엄 포지셔닝"
+        ]
+      }
+    },
+    {
+      "key": "dec-cosmetic-only-monetization",
+      "type": "decision",
+      "author": "person:po-jung-minwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "수익화 상품은 게임 결과에 영향을 주지 않는 외형(코스메틱) 전용으로 한정하고, 성능·능력치를 파는 P2W 요소는 어떤 형태로도 넣지 않는다.",
+        "rationale": "경쟁 슈터의 공정성은 제품 신뢰의 핵심 자산이다. 성능 과금이 한 번 들어오면 매치 결과의 정당성이 무너지고 코어 유저가 이탈한다. 외형만으로도 규모의 매출이 나온다는 계산이 섰다.",
+        "rejected_alternatives": [
+          "무기 스킨에 미세한 명중·반동 보정을 붙이는 방식",
+          "경험치·전리품 부스터 판매",
+          "유료 전용 무기·장비 추가"
+        ]
+      }
+    },
+    {
+      "key": "dec-battlepass-adoption",
+      "type": "decision",
+      "author": "person:po-jung-minwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "시즌제 보상 트랙인 '서바이버 패스'(배틀패스)를 도입해 코스메틱 매출을 지속 매출로 전환한다.",
+        "rationale": "개별 스킨 판매는 스파이크성 매출이라 예측이 어렵다. 시즌 단위로 플레이-보상 루프를 걸면 리텐션과 결제가 함께 올라가고, 무료 트랙을 병치해 비결제 유저의 이탈도 막는다.",
+        "rejected_alternatives": [
+          "개별 스킨 상점만 유지",
+          "월 구독형 멤버십으로 전환",
+          "확률형 상자만으로 코스메틱 판매"
+        ]
+      }
+    },
+    {
+      "key": "dec-anti-cheat-priority",
+      "type": "decision",
+      "author": "person:po-choi-eunji",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "핵·치트 대응을 콘텐츠 로드맵보다 앞선 최우선 라이브 과제로 격상하고, 안티치트 솔루션·전담 대응 인력·주기적 대량 밴을 상시 운영한다.",
+        "rationale": "폭발적 성장기에 치트 유입이 매치 신뢰를 빠르게 잠식했고, 방치 시 코어 유저의 대규모 이탈로 직결된다. 콘텐츠보다 공정성 회복이 리텐션 방어에 우선한다고 판단했다.",
+        "rejected_alternatives": [
+          "신규 콘텐츠로 관심을 돌려 이탈을 상쇄",
+          "신고 누적 시에만 수동 대응하는 사후 처리",
+          "안티치트를 외부에 전면 위탁하고 내부 대응은 최소화"
+        ]
+      }
+    },
+    {
+      "key": "dec-report-based-ban",
+      "type": "decision",
+      "author": "person:po-yoon-jaehyeok",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "제재는 자동 탐지를 1차로 두고, 신고 데이터는 우선 조사 큐를 정렬하는 신호로만 사용한다. 신고 수 자체를 밴 트리거로 쓰지 않는다.",
+        "rationale": "신고 기반 자동 밴은 조직적 허위 신고에 악용된다. 탐지 근거는 클라이언트·서버 신호여야 하고, 신고는 어디를 먼저 볼지 정하는 힌트로만 가치가 있다.",
+        "rejected_alternatives": [
+          "신고 임계치 도달 시 자동 밴",
+          "커뮤니티 투표로 제재 결정"
+        ]
+      }
+    },
+    {
+      "key": "dec-server-region-strategy",
+      "type": "decision",
+      "author": "person:po-han-seunghyun",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "매칭은 지역 서버 기반으로 하고 핑을 1순위 기준으로 둔다. 초기엔 지역 서버를 유저가 직접 선택하게 하되, 이후 핑 기반 자동 매칭으로 이행한다.",
+        "rationale": "슈터의 체감 품질은 지연에 지배된다. 스킬 기반 매칭보다 낮은 핑이 먼저다. 다만 지역별 유저 풀 편차가 커서 초기엔 수동 선택으로 매칭 시간을 방어할 필요가 있었다.",
+        "rejected_alternatives": [
+          "전 세계 단일 글로벌 풀로 스킬 매칭 우선",
+          "핑 무관 최단 매칭 시간 우선",
+          "지역 고정 없이 계정 국가로만 배정"
+        ]
+      }
+    },
+    {
+      "key": "dec-tpp-default-fpp-queue",
+      "type": "decision",
+      "author": "person:po-park-soyeon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "기본 시점은 3인칭(TPP)으로 두고, 1인칭(FPP)은 별도 큐로 분리 제공한다.",
+        "rationale": "TPP는 엄폐물 너머를 보는 특유의 심리전과 접근성으로 대중 유입에 유리하고, FPP는 공정성을 중시하는 하드코어·경쟁층 수요가 뚜렷하다. 한 큐에 섞으면 양쪽 다 불만이 커진다.",
+        "rejected_alternatives": [
+          "FPP를 기본으로 하고 TPP를 옵션화",
+          "매치 내에서 시점을 자유 전환",
+          "FPP 전용으로 통일"
+        ]
+      }
+    },
+    {
+      "key": "dec-blue-zone-tuning",
+      "type": "decision",
+      "author": "person:po-oh-donghyun",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "자기장(블루존) 데미지 커브를 후반 원일수록 급격히 가팔라지게 튜닝하고, 초반 원은 관대하게 둔다.",
+        "rationale": "초반부터 데미지가 세면 파밍 시간이 사라지고 운 요소가 커진다. 반대로 후반 원이 물러도 되면 매치가 늘어지고 잠수 플레이가 이득이 된다. 원별 데미지를 차등해 '초반 탐색 → 후반 압박'의 리듬을 만든다.",
+        "rejected_alternatives": [
+          "전 구간 동일 데미지로 단순화",
+          "자기장 이동 속도만 조정하고 데미지는 고정",
+          "후반 원을 즉사 판정으로 강제 수렴"
+        ]
+      }
+    },
+    {
+      "key": "dec-content-cadence",
+      "type": "decision",
+      "author": "person:po-seo-yena",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "콘텐츠·밸런스 패치 케이던스를 월간 정규 업데이트 + 필요 시 핫픽스 구조로 고정한다.",
+        "rationale": "예측 가능한 주기는 유저의 복귀 리듬과 e스포츠 시즌 운영에 필요하다. 너무 잦으면 메타가 불안정해지고 너무 뜸하면 이탈한다. 월간이 라이브 슈터의 학습·적응 주기에 맞았다.",
+        "rejected_alternatives": [
+          "주간 패치로 최신성 극대화",
+          "분기 대형 업데이트만 운영",
+          "고정 주기 없이 준비되는 대로 배포"
+        ]
+      }
+    },
+    {
+      "key": "dec-console-port-timing",
+      "type": "decision",
+      "author": "person:po-han-seunghyun",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "콘솔(Xbox 선행) 이식은 PC 얼리액세스 안정화 이후 별도 트랙으로 진행하고, PC와 동시 출시하지 않는다.",
+        "rationale": "PC 코어 루프와 최적화가 흔들리는 상태에서 콘솔을 붙이면 두 플랫폼이 함께 무너진다. 콘솔은 입력·최적화 제약이 커서 전담 대응이 필요하고, 시장 확장 효과는 PC가 자리 잡은 뒤에 크다.",
+        "rejected_alternatives": [
+          "PC·콘솔 동시 출시로 초기 규모 극대화",
+          "콘솔을 정식 출시 이후로 무기한 연기",
+          "PlayStation 우선 출시"
+        ]
+      }
+    },
+    {
+      "key": "dec-crossplay-hold",
+      "type": "decision",
+      "author": "person:po-yoon-jaehyeok",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "PC-콘솔 크로스플레이는 당분간 보류하고, 콘솔 간 크로스플레이만 우선 검토한다.",
+        "rationale": "마우스·패드 입력 정밀도 격차가 매치 공정성을 깨뜨린다. 조준 보정으로 균형을 맞추려 하면 어느 쪽도 만족하지 못한다. 입력이 유사한 콘솔끼리 먼저 풀을 합쳐 매칭 시간을 개선하는 편이 안전하다.",
+        "rejected_alternatives": [
+          "전 플랫폼 크로스플레이 즉시 도입",
+          "입력 방식 무관 완전 통합 풀"
+        ]
+      }
+    },
+    {
+      "key": "dec-mobile-separate-track",
+      "type": "decision",
+      "author": "person:kim-changhan",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "모바일 버전은 PC/콘솔 팀이 아니라 외부 파트너 스튜디오와의 협업으로 별도 트랙에서 개발·운영한다.",
+        "rationale": "모바일은 조작·세션 길이·과금·시장(특히 아시아)이 근본적으로 다른 제품이다. PC 팀이 겸하면 두 제품 모두 애매해진다. 모바일 개발·운영 역량을 가진 파트너에 맡기고 IP·품질 기준만 본사가 관리하는 편이 빠르고 안전하다.",
+        "rejected_alternatives": [
+          "PC 코어팀이 모바일까지 직접 개발",
+          "모바일을 정식 출시 이후로 미루기",
+          "PC 빌드를 그대로 이식하는 단순 포팅"
+        ]
+      }
+    },
+    {
+      "key": "dec-region-lock-china",
+      "type": "decision",
+      "author": "person:po-han-seunghyun",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "중국 시장은 글로벌 빌드로 직접 진입하지 않고, 현지 대형 퍼블리셔를 통한 별도 퍼블리싱·현지화 트랙으로 운영한다.",
+        "rationale": "판호·콘텐츠 심의·결제 규제가 글로벌 운영과 근본적으로 다르고, 현지 유통·서버·정책 대응은 현지 파트너 없이는 불가능하다. 본사는 IP·품질을 통제하고 유통은 위탁하는 구조가 리스크를 격리한다.",
+        "rejected_alternatives": [
+          "글로벌 빌드로 중국 유저를 그대로 수용",
+          "중국 진출을 무기한 보류",
+          "본사가 직접 현지 법인·서버를 구축해 운영"
+        ]
+      }
+    },
+    {
+      "key": "dec-tencent-partnership",
+      "type": "decision",
+      "author": "person:jang-byeonggyu",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "글로벌·아시아권 배급 확대와 모바일 사업을 위해 대형 글로벌 파트너와의 전략적 제휴·지분 관계를 수용한다.",
+        "rationale": "폭발적 성장 규모를 본사 단독 인프라·유통망으로는 감당하기 어렵고, 특정 지역의 유통·운영은 강력한 현지 파트너 없이는 불가능하다. 지분 관계를 통해 유통·모바일 역량을 빠르게 확보하는 편이 자체 구축보다 빠르고 확실했다.",
+        "rejected_alternatives": [
+          "모든 지역을 본사 단독으로 직접 유통",
+          "지분 관계 없이 순수 계약형 퍼블리싱만",
+          "지역별로 소규모 파트너를 다수 병렬 계약"
+        ]
+      }
+    },
+    {
+      "key": "dec-esports-circuit-invest",
+      "type": "decision",
+      "author": "person:po-oh-donghyun",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "글로벌 e스포츠 서킷(대회 체계)에 초기부터 투자하고, 관전·옵저버·경기 포맷을 제품 기능으로 함께 개발한다.",
+        "rationale": "배틀로열은 100인 매치라 관전 난이도가 높아, 방치하면 보는 재미가 안 산다. e스포츠는 제품의 수명과 브랜드를 늘리는 상단 퍼널이고, 관전 기능은 사후에 붙이면 늦다. 대회 포맷과 옵저버 툴을 코어와 함께 설계한다.",
+        "rejected_alternatives": [
+          "커뮤니티 자율 대회에만 의존",
+          "e스포츠 투자를 정식 출시 이후로 연기",
+          "관전 기능 없이 상금 대회만 후원"
+        ]
+      }
+    },
+    {
+      "key": "dec-early-access-vs-full",
+      "type": "decision",
+      "author": "person:kim-changhan",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "정식 출시 완성도를 기다리기보다 얼리액세스로 먼저 진입하고, 정식 출시는 최적화·콘텐츠가 궤도에 오른 뒤로 잡는다.",
+        "rationale": "장르 선점 창은 짧고, 시장이 존재하는지 자체가 가설이었다. 얼리액세스는 그 가설을 실매출로 검증하면서 개발 자금을 조달하는 수단이다. 완성 후 출시는 안전해 보이지만 창을 놓친다.",
+        "rejected_alternatives": [
+          "정식 출시 완성 후 일괄 런칭",
+          "무료 오픈베타로 지표만 검증",
+          "소수 초대 알파를 장기 운영"
+        ]
+      }
+    },
+    {
+      "key": "dec-studio-reorg-2020",
+      "type": "decision",
+      "author": "person:jang-byeonggyu",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2020년, PUBG를 독립 스튜디오 체제로 재편하고 제작 조직을 IP·프랜차이즈 단위로 정렬한다.",
+        "rationale": "단일 히트작에서 지속 프랜차이즈로 넘어가려면 제품·운영·신작 개발이 하나의 스튜디오 책임 아래 묶여야 한다. 포트폴리오 상위에서는 각 스튜디오가 P&L과 로드맵을 스스로 책임지는 구조가 확장에 맞다.",
+        "rejected_alternatives": [
+          "기능 조직(기획·아트·개발) 중심 매트릭스 유지",
+          "PUBG를 본사 사업부로 남기기",
+          "타이틀별 소규모 팀으로 잘게 분산"
+        ]
+      }
+    },
+    {
+      "key": "dec-ip-franchise-expansion",
+      "type": "decision",
+      "author": "person:kim-changhan",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "PUBG를 단일 게임이 아니라 세계관·후속작·미디어로 확장하는 프랜차이즈 IP로 규정하고, IP 관리·확장 조직을 별도로 둔다.",
+        "rationale": "라이브 게임의 매출은 결국 라이프사이클을 탄다. IP 자산으로 확장해야 후속 제품과 미디어가 기존 유저 기반을 재활용하며 수명을 연장한다. 세계관·설정을 문서화해 파생 제작의 일관성을 관리한다.",
+        "rejected_alternatives": [
+          "본편 라이브 서비스에만 집중하고 확장 배제",
+          "IP 라이선스를 외부에 넘겨 로열티만 수취",
+          "후속작을 완전히 무관한 신규 IP로 개발"
+        ]
+      }
+    },
+    {
+      "key": "dec-loot-distribution-model",
+      "type": "decision",
+      "author": "person:po-park-soyeon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "전리품은 지역별 등급 확률로 분포시키되 완전 무작위가 아니라 '핫드랍 고위험·고보상' 구조로 편향을 준다.",
+        "rationale": "균일 분포는 초반 이동 동기를 없애 매치를 밋밋하게 만든다. 명소에 좋은 전리품을 몰아 초반 교전 밀도를 만들고, 안전 지역은 낮은 보상으로 리스크-리워드 선택을 강제한다.",
+        "rejected_alternatives": [
+          "전 지역 균일 확률 분포",
+          "플레이어 실력 기반 동적 드랍",
+          "고정 스폰 지점에 배치"
+        ]
+      }
+    },
+    {
+      "key": "dec-ranked-mode-add",
+      "type": "decision",
+      "author": "person:po-oh-donghyun",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "캐주얼 일반 매치와 분리된 랭크(경쟁) 모드를 추가하고, 별도 MMR과 시즌 티어를 운영한다.",
+        "rationale": "실력 격차가 큰 단일 풀은 신규엔 가혹하고 상위엔 심심하다. 경쟁 모드를 분리해 유사 실력끼리 붙이면 양쪽 리텐션이 함께 오른다. 다만 배틀로열 특성상 표본이 커야 MMR이 수렴한다는 리스크가 있어 초안으로 검토 중이다.",
+        "rejected_alternatives": [
+          "단일 풀 유지하고 매치 내 스킬 매칭만 강화",
+          "티어 없이 누적 통계만 노출"
+        ]
+      }
+    },
+    {
+      "key": "dec-map-rotation-pool",
+      "type": "decision",
+      "author": "person:po-seo-yena",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "맵이 늘어난 뒤에는 전 맵 상시 매칭 대신 로테이션 풀로 운영해 매칭 시간을 방어한다.",
+        "rationale": "맵이 많아질수록 유저 선택이 분산되어 각 맵의 풀이 얇아지고 매칭이 느려진다. 로테이션은 풀을 모아 대기시간을 줄이지만, 선호 맵을 못 하는 불만이 생겨 주기 설계가 관건이다.",
+        "rejected_alternatives": [
+          "모든 맵을 항상 개별 선택 가능하게 유지",
+          "단일 인기 맵만 상시 운영"
+        ]
+      }
+    },
+    {
+      "key": "dec-optimization-over-content",
+      "type": "decision",
+      "author": "person:kim-changhan",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "얼리액세스 중반, 신규 콘텐츠보다 클라이언트·서버 최적화를 우선 스프린트에 배치한다.",
+        "rationale": "성장으로 동접이 폭증하며 프레임 저하·서버 지연이 코어 경험을 갉아먹었다. 콘텐츠로 유입을 늘려도 기술 품질이 받쳐주지 못하면 리텐션이 새어나간다. 최적화가 곧 리텐션 투자였다.",
+        "rejected_alternatives": [
+          "신규 맵·모드로 성장 모멘텀 유지",
+          "하드웨어 권장 사양 상향으로 회피"
+        ]
+      }
+    },
+    {
+      "key": "dec-custom-match-open",
+      "type": "decision",
+      "author": "person:po-seo-yena",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "커스텀 매치(사설 방)와 관전 기능을 스트리머·대회용으로 개방해 커뮤니티 콘텐츠 생산을 촉진한다.",
+        "rationale": "폭발적 초기 확산의 상당 부분이 스트리밍에서 왔다. 사설 방·관전 도구는 콘텐츠 창작자에게 무기를 쥐어주는 것이고, 이는 유료 마케팅보다 강한 유입 채널이 된다.",
+        "rejected_alternatives": [
+          "공개 매치만 허용하고 사설 방 금지",
+          "관전 기능을 공식 대회에만 제한적 제공"
+        ]
+      }
+    },
+    {
+      "key": "dec-season-persona-export",
+      "type": "decision",
+      "author": "person:po-lee-jihoon",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "제품 의사결정 히스토리를 '결정 기록'으로 축적해, 신규 합류자가 지난 판단의 근거·기각안을 열람할 수 있게 한다.",
+        "rationale": "빠른 성장으로 조직이 커지며 '왜 이렇게 정했는지'가 구전으로만 남아 반복 논쟁이 생긴다. 결론·근거·기각 대안을 구조화해 남기면 같은 논의를 다시 하지 않는다. 아직 포맷·운영 주체가 확정 안 돼 초안이다.",
+        "rejected_alternatives": [
+          "회의록만 축적하고 별도 결정 기록 없이 운영",
+          "위키에 자유 형식으로 기록"
+        ]
+      }
+    },
+    {
+      "key": "dec-ipo-listing-2021",
+      "type": "decision",
+      "author": "person:jang-byeonggyu",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2021년 8월 코스피 상장을 통해 성장 자본을 조달하고, 조달 자금을 신작·IP 확장과 스튜디오 인수에 배분한다.",
+        "rationale": "단일 히트작 의존을 넘어 포트폴리오를 다시 채우려면 대규모 자본과 인수 여력이 필요하다. 상장은 그 자본을 조달하고, 창업 초기의 '베팅을 반복하는 플랫폼'이라는 정체성을 자금 규모로 뒷받침한다.",
+        "rejected_alternatives": [
+          "비상장 유지하며 이익잉여금으로만 재투자",
+          "특정 대형 파트너에 매각",
+          "사모 투자 유치로 자본만 조달"
+        ]
+      }
+    },
+    {
+      "key": "dec-brand-rename-krafton",
+      "type": "decision",
+      "author": "person:jang-byeonggyu",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2018년 11월, 회사 브랜드를 블루홀에서 크래프톤으로 재정의하고 스튜디오 연합의 상위 브랜드로 삼는다.",
+        "rationale": "블루홀은 특정 스튜디오·타이틀의 색이 강해 포트폴리오 전체를 담기 어렵다. 여러 제작 스튜디오를 아우르는 상위 정체성을 새 브랜드로 세워, 단일 게임 회사가 아니라 제작 집단임을 안팎에 정렬한다.",
+        "rejected_alternatives": [
+          "블루홀 브랜드 유지하며 하위 스튜디오만 신설",
+          "타이틀 브랜드(PUBG)를 회사명으로 승격"
+        ]
+      }
+    },
+    {
+      "key": "dec-third-party-anticheat",
+      "type": "decision",
+      "author": "person:po-choi-eunji",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "안티치트는 상용 솔루션을 도입하되 서버 측 탐지 로직을 자체 병행 운영하는 이중 구조로 간다.",
+        "rationale": "상용 솔루션만으로는 신종 치트를 다 못 잡고, 자체만으로는 커널 레벨 대응이 부족하다. 두 층을 겹쳐 클라이언트·서버 신호를 교차 검증하면 오탐과 미탐을 함께 줄인다.",
+        "rejected_alternatives": [
+          "상용 솔루션 단독 도입",
+          "자체 개발 안티치트만 운영"
+        ]
+      }
+    },
+    {
+      "key": "dec-new-map-4x4-add",
+      "type": "decision",
+      "author": "person:po-park-soyeon",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "빠른 매치 수요를 위해 4x4km 소형 맵을 추가해, 세션 길이 옵션을 8x8과 이원화한다.",
+        "rationale": "30분 매치는 몰입도가 높지만 세션이 길어 캐주얼·모바일 이탈 유저를 못 잡는다. 15분 내외 소형 맵을 병치해 '짧게 자주' 수요를 흡수하되, 코어 8x8의 정체성은 유지한다.",
+        "rejected_alternatives": [
+          "8x8 단일 맵 크기 고수",
+          "기존 맵을 축소 편집해 재활용"
+        ]
+      }
+    },
+    {
+      "key": "fact-ea-day1-sales",
+      "type": "fact",
+      "author": "person:po-kang-taeho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "얼리액세스 첫날 판매 지표(테스트값)",
+        "statement": "2017-03 얼리액세스 출시 당일 약 12만 장이 판매됐고, 첫 주 누적 판매는 약 67만 장으로 집계됐다. 초기 리뷰의 긍정 비율은 약 84%였다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-concurrent-peak",
+      "type": "fact",
+      "author": "person:po-kang-taeho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "스팀 동시접속 피크(테스트값)",
+        "statement": "정식 출시 전후 스팀 동시접속 피크가 약 320만 명을 기록해 플랫폼 역대 최고치를 경신했다. 이는 2위 타이틀의 약 2.5배 수준이었다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-global-revenue-share",
+      "type": "fact",
+      "author": "person:po-kang-taeho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "매출의 지역 구성(테스트값)",
+        "statement": "PUBG 매출의 해외 비중은 95%를 넘었고, 이 중 아시아·북미·유럽 순으로 기여가 컸다. 국내 비중은 한 자릿수에 머물렀다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-tera-launch-metrics",
+      "type": "fact",
+      "author": "person:po-kang-taeho",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "title": "TERA 출시 초기 지표(테스트값)",
+        "statement": "2011-01 TERA 출시 첫 달 국내 PC방 점유 상위권에 진입했으나, 6개월 차에 신규 유입이 둔화되며 정액 결제 유지율이 하락했다. 이 곡선이 이후 F2P 전환 판단의 근거가 됐다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-steam-topseller",
+      "type": "fact",
+      "author": "person:po-kang-taeho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "스팀 최고 매출 순위(테스트값)",
+        "statement": "PUBG는 얼리액세스 기간 중 스팀 글로벌 매출 1위를 다수 주 연속 유지했다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-retention-d30",
+      "type": "fact",
+      "author": "person:po-kang-taeho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "D30 리텐션(테스트값)",
+        "statement": "정식 출시 코호트의 D30 리텐션은 약 22%로, 라이브 슈터 벤치마크 상단에 위치했다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-cheat-ban-volume",
+      "type": "fact",
+      "author": "person:po-choi-eunji",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "치트 제재 규모(테스트값)",
+        "statement": "성장 정점 분기에 안티치트·수동 대응으로 월 평균 약 60만 계정이 영구 제재됐다. 신규 치트 변종 탐지까지의 평균 대응 시간은 약 5일이었다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-esports-viewership",
+      "type": "fact",
+      "author": "person:po-oh-donghyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "글로벌 대회 시청 지표(테스트값)",
+        "statement": "첫 글로벌 초청 대회의 피크 동시 시청자는 약 40만 명, 누적 시청 시간은 약 3천만 시간으로 집계됐다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-ipo-valuation",
+      "type": "fact",
+      "author": "person:po-kang-taeho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "IPO 시점 규모(테스트값)",
+        "statement": "2021-08 코스피 상장 시점 공모 규모는 대형 게임사 상장 사례 중 최상위권으로 평가됐다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-mobile-dau",
+      "type": "fact",
+      "author": "person:po-kang-taeho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "모바일 DAU(테스트값)",
+        "statement": "파트너 협업으로 출시한 모바일 버전의 글로벌 DAU가 특정 분기에 약 4천만 명에 도달했고, 신흥 시장 비중이 컸다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-fpp-adoption-rate",
+      "type": "fact",
+      "author": "person:po-kang-taeho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "FPP 큐 채택률(테스트값)",
+        "statement": "FPP 별도 큐 도입 후, 서구권 매치의 약 45%가 FPP로 이뤄진 반면 아시아권은 20% 미만이었다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-battlepass-conversion",
+      "type": "fact",
+      "author": "person:po-jung-minwoo",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "서바이버 패스 전환율(테스트값)",
+        "statement": "첫 시즌 서바이버 패스의 유료 트랙 구매 전환율은 활성 유저의 약 18%였고, 시즌 완주율은 구매자의 약 55%였다. 개별 스킨 상점 대비 월 매출 변동성이 크게 낮아졌다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-erangel-remaster-feedback",
+      "type": "fact",
+      "author": "person:po-lim-hyunju",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "에란겔 리마스터 유저 반응(테스트값)",
+        "statement": "에란겔 지형·텍스처 리마스터 패치 직후 커뮤니티 반응은 초반 엄폐물 배치 변경을 두고 찬반이 갈렸고, 첫 2주 부정 리뷰가 일시 상승 후 회복됐다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "fact-console-sales",
+      "type": "fact",
+      "author": "person:po-kang-taeho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "콘솔 판매 지표(테스트값)",
+        "statement": "콘솔 버전 출시 첫 분기 누적 판매가 약 800만 장에 도달했으나, 프레임·최적화 관련 리뷰 이슈가 초기 평점을 눌렀다. (합성 테스트 수치)"
+      }
+    },
+    {
+      "key": "term-battle-royale",
+      "type": "term",
+      "author": "person:po-park-soyeon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "배틀로열 (Battle Royale)",
+        "statement": "다수 플레이어가 한 맵에 투입되어 점점 좁아지는 안전 구역 안에서 최후 1인(또는 1팀)까지 생존을 겨루는 게임 규칙. 파밍·교전·수축의 반복 루프가 핵심이며, 매 판 초기 조건이 달라 반복 몰입이 강하다."
+      }
+    },
+    {
+      "key": "term-early-access",
+      "type": "term",
+      "author": "person:po-lee-jihoon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "얼리액세스 (Early Access)",
+        "statement": "정식 출시 전 미완성 빌드를 유료로 공개해, 유저와 함께 완성해가며 개발 자금과 피드백을 동시에 확보하는 출시 방식. 미완성임을 명시하고 로드맵을 공유하는 투명성이 신뢰의 전제다."
+      }
+    },
+    {
+      "key": "term-gdd",
+      "type": "term",
+      "author": "person:po-lee-jihoon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "GDD (Game Design Document)",
+        "statement": "게임의 코어 루프·시스템·밸런스·목표 경험을 정의하는 게임 디자인 문서. 개발 착수의 승인 단위이자 팀 공통 언어이며, 검증되지 않은 장르일수록 GDD 단계에서 가설과 기각 대안을 명확히 남긴다."
+      }
+    },
+    {
+      "key": "term-circuit",
+      "type": "term",
+      "author": "person:po-oh-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "서킷 (Circuit)",
+        "statement": "지역 예선부터 글로벌 결승까지 연간 일정으로 연결한 공식 e스포츠 대회 체계. 표준 룰셋·포인트·시즌 구조를 갖춰야 국제 성적 비교와 팀 전략의 일관성이 성립한다."
+      }
+    },
+    {
+      "key": "term-blue-zone",
+      "type": "term",
+      "author": "person:po-oh-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "블루존/자기장 (Blue Zone)",
+        "statement": "매치가 진행될수록 안전 구역 밖을 침식하며 데미지를 주는 수축 메커니즘. 플레이어를 강제로 수렴시켜 매치 시간을 통제하고, 원별 데미지 커브가 초반 탐색과 후반 압박의 리듬을 만든다."
+      }
+    },
+    {
+      "key": "term-tpp-fpp",
+      "type": "term",
+      "author": "person:po-park-soyeon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "TPP / FPP (시점)",
+        "statement": "TPP(3인칭)는 캐릭터 뒤에서 넓은 시야로 엄폐 너머를 보는 심리전과 접근성이 강점이고, FPP(1인칭)는 화면=시야로 정보 비대칭이 없어 공정성을 중시하는 경쟁층이 선호한다. 두 시점은 별도 큐로 분리 운영된다."
+      }
+    },
+    {
+      "key": "term-battlepass",
+      "type": "term",
+      "author": "person:po-jung-minwoo",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "배틀패스 / 서바이버 패스",
+        "statement": "시즌 단위로 플레이-보상 트랙을 제공하는 수익화 구조. 무료 트랙과 유료 트랙을 병치해 비결제 유저 이탈을 막으면서 결제 유저의 지속 플레이를 유도하고, 개별 스킨 판매보다 매출 변동성을 낮춘다."
+      }
+    },
+    {
+      "key": "term-chicken-dinner",
+      "type": "term",
+      "author": "person:po-lim-hyunju",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "치킨 디너 (Winner Winner Chicken Dinner)",
+        "statement": "매치 최종 1위 시 노출되는 승리 문구. 반복 도전의 목표 심볼이자 커뮤니티·밈으로 확산되어 자연 유입에 기여한 브랜드 자산."
+      }
+    },
+    {
+      "key": "term-loot-farming",
+      "type": "term",
+      "author": "person:po-park-soyeon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "루팅 / 파밍 (Looting / Farming)",
+        "statement": "착지 후 건물·지역에서 무기·방어구·소모품을 수집해 교전 준비를 갖추는 초반 단계. 전리품의 지역별 등급 편향이 초반 동선과 리스크-리워드 선택을 설계하는 핵심 손잡이다."
+      }
+    },
+    {
+      "key": "term-mmr",
+      "type": "term",
+      "author": "person:po-oh-donghyun",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "MMR (Matchmaking Rating)",
+        "statement": "플레이어 실력을 수치화해 유사 실력끼리 매칭하는 내부 지표. 배틀로열은 한 매치의 표본이 100명이라 개인 기여 분해가 어렵고, MMR 수렴에 다른 장르보다 많은 표본이 필요하다는 제약이 있다."
+      }
+    },
+    {
+      "key": "term-hot-drop",
+      "type": "term",
+      "author": "person:po-park-soyeon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "핫드랍 (Hot Drop)",
+        "statement": "고급 전리품이 밀집해 초반 교전이 집중되는 인기 착지 지점. 고위험·고보상 설계로 매치 초반의 긴장과 스킬 표현 공간을 만든다."
+      }
+    },
+    {
+      "key": "res-br-gdd-doc",
+      "type": "resource",
+      "author": "person:kim-changhan",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "title": "배틀로열 GDD v0.9 (2015-11 승인본, 합성 테스트 문서)",
+        "statement": "2015년 11월 승인된 배틀로열 게임 디자인 문서의 요약 포인터. 이 문서는 '검증되지 않은 장르에 대한 소규모 베팅'을 정당화하기 위해 재미의 가설과 그것이 틀렸을 때의 조기 이탈 신호를 함께 명문화한 것이 특징이다.\n\n[코어 루프] 한 판의 경험을 '낙하·착지 → 파밍(루팅) → 자기장 수축 대응 → 교전 → 최후 생존'의 반복으로 정의한다. 각 단계는 앞 단계의 결과를 입력으로 받아 매 판 다른 이야기를 만든다. 착지 지점 선택이 파밍의 질을 정하고, 파밍 결과가 교전에서의 선택지를 정하며, 자기장의 무작위 중심이 이동 경로를 강제한다. 이 인과 사슬이 '초기 조건이 매번 달라지는' 반복 몰입의 원천이다.\n\n[핵심 가설과 검증 신호] (1) 초기 조건의 무작위성이 매 판을 새로 만들어 반복 몰입을 낳는다 — 검증 신호는 세션당 매치 수와 패배 직후 재도전율. 이 값이 낮으면 '한 판이 곧 여러 판을 부르는' 루프가 작동하지 않는 것이다. (2) 넓은 맵의 이동과 수축 압박이 '탐색과 회피'의 전략 공간을 만든다 — 검증 신호는 매치 시간 분포와 자기장 데미지로 인한 사망 비율. 자기장 사망이 지나치게 높으면 맵이 너무 넓거나 수축이 가혹한 것이고, 지나치게 낮으면 압박이 없어 매치가 늘어지는 것이다. (3) 100인 규모의 매치는 관전·중계로 e스포츠 상단 퍼널을 연다 — 다만 100명을 동시에 따라가는 관전 난이도가 높아, 옵저버 툴과 중계 카메라를 코어와 동시에 설계하지 않으면 '보는 재미'가 성립하지 않는다는 리스크를 함께 적었다.\n\n[스코프 결정] 문서는 8x8km 단일 맵(에란겔)으로 시작해 라이브 서비스에서 맵을 순차 확장하는 단계 전략을 채택했다. 여러 맵을 어중간하게 내기보다 한 맵의 지형·자원 배치·동선 밸런스를 끝까지 다듬는 편이 코어 완성도가 높고, 단일 맵은 메타 학습을 빠르게 만들어 초기 커뮤니티 형성에도 유리하다는 논리다. 수익화는 게임 결과에 영향을 주지 않는 코스메틱 전용을 전제로 스코프를 잡아, 공정성이라는 신뢰 자산을 설계 단계부터 못 박았다. 시점은 TPP를 기본으로, FPP를 별도 큐로 분리하는 이원 구조로 정했다.\n\n[기각 대안] '배틀로열을 기존 게임의 한 모드로만 부착', '검증된 MMO·MOBA 신작에 자원을 배분', '시장이 성숙할 때까지 착수를 1~2년 유예'가 각각 왜 배제됐는지를 기록했다. 앞의 둘은 장르 선점의 기회를 스스로 포기하는 선택이고, 마지막은 선점 창이 닫힌 뒤에 진입하는 것이라 어느 것도 이 베팅의 논리와 맞지 않았다.\n\n[승인 조건] 큰 조직을 붙이지 않는다. 적은 인원·짧은 기간으로 프로토타입을 만들어 코어 루프의 재미를 먼저 증명하고, 그 다음에 자원을 늘린다. '틀리면 싸게 틀린다'는 이 구조가 블루홀 2.0 포트폴리오 체제가 만든 안전 마진 위에서 성립했고, 이후 실패했더라도 회사가 흔들리지 않을 규모로 위험을 가둔 것이 이 GDD 승인의 본질이다.\n\n[프로토타입 게이트] 문서는 승인과 동시에 세 개의 조기 판단 게이트를 걸었다. 1차 게이트는 '코어 루프가 재미있는가'로, 소수 내부 플레이 테스트에서 세션당 재도전이 자연스럽게 일어나는지를 본다. 여기서 신호가 없으면 자원을 늘리지 않고 접는다 — 가장 싸게 틀리는 지점이다. 2차 게이트는 '100인 규모가 기술적으로 성립하는가'로, 서버 동기화·이동·자기장 수축이 100명 규모에서 무너지지 않는지를 검증한다. 3차 게이트는 '외부 유저가 반복하는가'로, 폐쇄 테스트에서 초대 유저의 재접속률을 본다. 각 게이트는 통과할 때마다 팀 규모와 예산을 한 단계 올리는 조건부 투자 구조였고, 이는 '전부 걸고 시작해서 나중에 접기 어려운' 대작형 투자와 정반대의 리스크 프로파일을 의도한 것이다.\n\n[이 문서가 남긴 원칙] 검증되지 않은 장르에 착수할 때는 확신이 아니라 가설과 기각 신호를 문서화한다. 무엇이 참이면 계속하고 무엇이 거짓이면 멈추는지를 착수 시점에 못 박아 두면, 성장의 열기 속에서도 냉정한 중단 판단이 가능하다. 이 문서가 이후 결정 기록 문화(결론·근거·기각 대안의 구조화)의 원형이 됐다.\n\n본 문서는 크래프톤 스토리(공개 보도 기반)를 각색한 합성 테스트 데이터이며, 원문·실제 사양이 아니다.",
+        "url": "https://example.com/krafton-test-corpus/po/battle-royale-gdd-v0-9"
+      }
+    },
+    {
+      "key": "res-bluehole2-memo",
+      "type": "resource",
+      "author": "person:jang-byeonggyu",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "title": "블루홀 2.0 전략 메모 (2013–14, 합성 테스트 문서)",
+        "statement": "단일 대작 의존을 포트폴리오로 전환하는 배경과 원칙을 정리한 전략 메모 포인터. 게임은 히트 산업이고 히트는 예측이 어렵다는 전제에서, 타석을 늘려 기대값을 관리하고 개별 스튜디오에 창작 자율성을 주되 회사는 포트폴리오 기대 수익률로 평가한다는 원칙을 담았다. 2013년 여름 매각 제안 거부의 논리('팔리는 자산이 아니라 베팅을 반복하는 플랫폼으로 남는다')를 함께 기록한다. 합성 테스트 데이터.",
+        "url": "https://example.com/krafton-test-corpus/po/bluehole2-strategy-memo"
+      }
+    },
+    {
+      "key": "res-ea-launch-plan",
+      "type": "resource",
+      "author": "person:po-lee-jihoon",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "PUBG 얼리액세스 출시 계획서 (2017-03, 합성 테스트 문서)",
+        "statement": "얼리액세스 출시의 스코프·타이밍·가격·소통 계획을 담은 문서 포인터. 최소 구성(에란겔 단일 맵, 코어 루프, 29.99달러 단일가), 미완성 고지와 로드맵 공개, 주간 핫픽스·월간 업데이트 케이던스, 스트리머·커스텀 매치 개방을 통한 유입 전략을 정리한다. 정식 출시 조건을 '최적화·콘텐츠가 궤도에 오른 시점'으로 명시했다. 합성 테스트 데이터.",
+        "url": "https://example.com/krafton-test-corpus/po/pubg-ea-launch-plan"
+      }
+    },
+    {
+      "key": "res-bm-spec",
+      "type": "resource",
+      "author": "person:po-jung-minwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "수익화 스펙: 코스메틱 전용 + 서바이버 패스 (합성 테스트 문서)",
+        "statement": "B2P 위에 얹는 코스메틱 전용 수익화의 상품 원칙과 서바이버 패스 시즌 구조를 정의한 스펙 포인터. P2W 요소를 전면 배제하는 가드레일, 무료·유료 트랙 병치 설계, 지역 무관 단일 상품 원칙, 매출 변동성 완화 목표를 담았다. 합성 테스트 데이터.",
+        "url": "https://example.com/krafton-test-corpus/po/monetization-spec"
+      }
+    },
+    {
+      "key": "res-live-ops-calendar",
+      "type": "resource",
+      "author": "person:po-choi-eunji",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "라이브 운영 캘린더 (합성 테스트 문서)",
+        "statement": "월간 정규 패치·핫픽스·시즌 전환·대회 일정을 한 축에 정렬한 라이브 운영 캘린더 포인터. 콘텐츠 케이던스와 e스포츠 서킷, 안티치트 대량 밴 주기를 상호 충돌 없이 배치하는 것이 목적이다. 초안 상태. 합성 테스트 데이터.",
+        "url": "https://example.com/krafton-test-corpus/po/live-ops-calendar"
+      }
+    },
+    {
+      "key": "res-esports-format",
+      "type": "resource",
+      "author": "person:po-oh-donghyun",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "e스포츠 포맷·표준 룰셋 (합성 테스트 문서)",
+        "statement": "지역 예선–글로벌 결승 서킷 구조와 킬+순위 합산 표준 스코어링, 옵저버 툴 요구사항을 정의한 문서 포인터. 100인 매치의 관전성을 확보하기 위한 제작 기능 요구도 함께 담았다. 합성 테스트 데이터.",
+        "url": "https://example.com/krafton-test-corpus/po/esports-format-spec"
+      }
+    },
+    {
+      "key": "res-content-roadmap",
+      "type": "resource",
+      "author": "person:po-seo-yena",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "콘텐츠 로드맵: 맵 확장·시즌 테마 (합성 테스트 문서)",
+        "statement": "에란겔 단일 맵 이후의 맵 확장 순서(대형 8x8 추가 → 소형 4x4 병치)와 시즌 테마·서바이버 패스 연계를 정리한 로드맵 포인터. 맵 로테이션 풀 전환 시점과 매칭 시간 방어 기준을 함께 검토 중인 초안이다. 합성 테스트 데이터.",
+        "url": "https://example.com/krafton-test-corpus/po/content-roadmap"
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "supersedes",
+      "from": "dec-portfolio-bluehole2",
+      "to": "dec-one-masterpiece"
+    },
+    {
+      "type": "supersedes",
+      "from": "dec-flagship-shift",
+      "to": "dec-tera-flagship"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-one-masterpiece",
+      "to": "dec-portfolio-bluehole2"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-portfolio-bluehole2",
+      "to": "res-bluehole2-memo"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-br-gdd-approval",
+      "to": "res-br-gdd-doc"
+    },
+    { "type": "relates_to", "from": "dec-br-gdd-approval", "to": "term-gdd" },
+    {
+      "type": "relates_to",
+      "from": "dec-br-gdd-approval",
+      "to": "term-battle-royale"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-pubg-ea-scope",
+      "to": "res-ea-launch-plan"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-pubg-ea-scope",
+      "to": "term-early-access"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-pubg-ea-scope",
+      "to": "dec-ea-price-point"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-pubg-ea-scope",
+      "to": "dec-br-map-erangel-first"
+    },
+    { "type": "relates_to", "from": "dec-pubg-bm-global", "to": "res-bm-spec" },
+    {
+      "type": "relates_to",
+      "from": "dec-pubg-bm-global",
+      "to": "dec-cosmetic-only-monetization"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-cosmetic-only-monetization",
+      "to": "dec-battlepass-adoption"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-battlepass-adoption",
+      "to": "term-battlepass"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-battlepass-adoption",
+      "to": "fact-battlepass-conversion"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-flagship-shift",
+      "to": "fact-ea-day1-sales"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-flagship-shift",
+      "to": "fact-concurrent-peak"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-anti-cheat-priority",
+      "to": "dec-third-party-anticheat"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-anti-cheat-priority",
+      "to": "fact-cheat-ban-volume"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-anti-cheat-priority",
+      "to": "dec-report-based-ban"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-esports-circuit-invest",
+      "to": "res-esports-format"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-esports-circuit-invest",
+      "to": "term-circuit"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-esports-circuit-invest",
+      "to": "fact-esports-viewership"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-tpp-default-fpp-queue",
+      "to": "term-tpp-fpp"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-tpp-default-fpp-queue",
+      "to": "fact-fpp-adoption-rate"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-blue-zone-tuning",
+      "to": "term-blue-zone"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-br-map-erangel-first",
+      "to": "dec-map-size-8x8"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-br-map-erangel-first",
+      "to": "dec-loot-distribution-model"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-loot-distribution-model",
+      "to": "term-loot-farming"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-loot-distribution-model",
+      "to": "term-hot-drop"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-console-port-timing",
+      "to": "dec-crossplay-hold"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-console-port-timing",
+      "to": "fact-console-sales"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-mobile-separate-track",
+      "to": "fact-mobile-dau"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-region-lock-china",
+      "to": "dec-tencent-partnership"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-tera-flagship",
+      "to": "dec-tera-b2p-to-f2p"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-tera-flagship",
+      "to": "fact-tera-launch-metrics"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-studio-reorg-2020",
+      "to": "dec-ip-franchise-expansion"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-brand-rename-krafton",
+      "to": "dec-portfolio-bluehole2"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-ipo-listing-2021",
+      "to": "dec-portfolio-bluehole2"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-optimization-over-content",
+      "to": "dec-content-cadence"
+    },
+    { "type": "relates_to", "from": "dec-ranked-mode-add", "to": "term-mmr" },
+    {
+      "type": "relates_to",
+      "from": "dec-new-map-4x4-add",
+      "to": "dec-map-rotation-pool"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-new-map-4x4-add",
+      "to": "res-content-roadmap"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-custom-match-open",
+      "to": "fact-concurrent-peak"
+    }
+  ],
+  "conflicts": [
+    {
+      "key": "conflict-allin-vs-portfolio",
+      "topic": "회사 전략: 하나의 걸작에 올인 vs 다수 스튜디오 포트폴리오",
+      "a": {
+        "type": "decision",
+        "author": "person:jang-byeonggyu",
+        "age_days": 3200,
+        "attributes": {
+          "conclusion": "역량을 하나의 걸작에 몰아 대작 한 편의 성공으로 도약해야 한다.",
+          "rationale": "산발적 다수 프로젝트는 인재를 희석하고 세계 시장에서 통할 완성도를 못 만든다. 집중이 곧 품질이다.",
+          "rejected_alternatives": [
+            "여러 스튜디오가 각자 다른 장르를 병렬 개발",
+            "외부 스튜디오 인수로 라인업 확장"
+          ]
+        }
+      },
+      "b": {
+        "type": "decision",
+        "author": "person:jang-byeonggyu",
+        "age_days": 2400,
+        "attributes": {
+          "conclusion": "단일 대작 의존을 해체하고 다수 스튜디오 포트폴리오로 리스크를 분산해야 한다.",
+          "rationale": "히트는 예측 불가라 타석을 늘려 기대값을 관리해야 한다. 한 팀의 실패가 회사의 실패가 되면 안 된다.",
+          "rejected_alternatives": [
+            "TERA 후속작에 재투자해 단일 IP 수명 연장",
+            "매각 제안 수용해 현금화"
+          ]
+        }
+      }
+    },
+    {
+      "key": "conflict-monetization-purity",
+      "topic": "수익화: 코스메틱 전용 순수성 vs 매출을 위한 소폭 성능 과금 허용",
+      "a": {
+        "type": "decision",
+        "author": "person:po-jung-minwoo",
+        "age_days": 210,
+        "attributes": {
+          "conclusion": "수익화는 게임 결과에 영향 없는 코스메틱으로만 한정하고 성능 과금은 어떤 형태로도 넣지 않는다.",
+          "rationale": "공정성은 경쟁 슈터의 핵심 신뢰 자산이다. 성능 과금이 들어오면 매치 정당성이 무너져 코어 유저가 이탈한다.",
+          "rejected_alternatives": [
+            "무기 스킨에 미세 명중·반동 보정",
+            "경험치·전리품 부스터 판매"
+          ]
+        }
+      },
+      "b": {
+        "type": "decision",
+        "author": "person:po-han-seunghyun",
+        "age_days": 40,
+        "attributes": {
+          "conclusion": "특정 지역 매출 방어를 위해 밸런스에 무해한 범위의 편의·부스터 상품은 제한적으로 허용하자.",
+          "rationale": "지역별 과금 관행 차이가 크고, 코스메틱만으로는 일부 시장의 ARPPU가 목표에 못 미친다. 매치 결과에 직접 영향 없는 편의 상품은 회색지대다.",
+          "rejected_alternatives": [
+            "전 지역 코스메틱 전용 고수",
+            "해당 지역 매출 목표 자체를 하향"
+          ]
+        }
+      }
+    },
+    {
+      "key": "conflict-ea-timing",
+      "topic": "출시: 좁은 선점 창을 노린 조기 얼리액세스 vs 완성도 우선",
+      "a": {
+        "type": "decision",
+        "author": "person:kim-changhan",
+        "age_days": 190,
+        "attributes": {
+          "conclusion": "완성도를 기다리지 말고 최소 구성으로 얼리액세스에 먼저 진입해 장르를 선점한다.",
+          "rationale": "배틀로열 선점 창은 좁고 네트워크 효과로 굳는다. 부족한 부분은 라이브에서 유저와 함께 채운다.",
+          "rejected_alternatives": [
+            "맵·모드·최적화를 갖춘 정식 출시까지 대기",
+            "비공개 베타 장기 운영"
+          ]
+        }
+      },
+      "b": {
+        "type": "decision",
+        "author": "person:po-yoon-jaehyeok",
+        "age_days": 60,
+        "attributes": {
+          "conclusion": "최적화·안티치트가 준비되기 전 조기 출시는 리텐션을 갉아먹으므로, 기술 안정화 후 출시 폭을 넓혀야 한다.",
+          "rationale": "동접 폭증 시 프레임 저하·치트 유입이 코어 경험을 무너뜨린다. 선점해도 품질이 못 받치면 유입이 그대로 샌다.",
+          "rejected_alternatives": [
+            "콘텐츠로 관심을 돌려 기술 이슈 상쇄",
+            "권장 사양 상향으로 회피"
+          ]
+        }
+      }
+    }
+  ]
+}
