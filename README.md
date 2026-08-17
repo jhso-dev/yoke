@@ -72,24 +72,45 @@ Memory layers retrieve passages and paste them in. yoke injects **records** — 
 decision with its rationale, a preference, a fact — already distilled, so every
 token you spend is a claim rather than the prose around one.
 
-Measured against two retrieval baselines in one harness — same corpus, same
-questions, same answering model, 42 questions over two people:
+Measured in a third-party harness —
+[vectorize-io/agent-memory-benchmark](https://github.com/vectorize-io/agent-memory-benchmark)
+running PersonaMem 32k, 42 questions over two users. yoke is only the memory arm; the harness owns
+the dataset, the answering model and the judge. Answered and judged by `gemma-4-26b-a4b-qat`,
+2026-08-15, result files in [`bench/`](bench):
 
 | | injected context | accuracy |
 |---|---|---|
-| no memory | 0 | 59.5% |
-| **yoke** | **1.2k tokens** | 73.8% |
-| keyword chunks | 5.1k tokens | 61.9% |
-| dense + sparse hybrid, top-50 chunks | 22.8k tokens | 71.4% |
+| no memory | 0 | 59.5% (25/42) |
+| **yoke** | **1.2k tokens** | **73.8% (31/42)** |
 
-**5.2× the answers per token of chunk retrieval, 20× that of the hybrid
-retriever** — and higher accuracy than both, on a fifth to a twentieth of the
-context. The hybrid buys its 71.4% with a 22.8k-token injection, most of a
-small model's context window spent on one question.
+The floor is re-scored rather than quoted as printed: the harness marks any arm with empty context
+wrong whatever it answered, so it reports 0.0% for no-memory while that arm actually answered 25 of
+42. `node bench/rescore.mjs bench/results-*.json` is the scorer, and a floor deflated to zero is the
+denominator of every "lift" a memory system publishes.
 
-Translated to the benchmark's official evaluation conditions, yoke lands at
-~87% — the range of the top published systems, on a twentieth of the injected
-context.
+Against two chunk-retrieval baselines, on an earlier reader (`gemma-4-e4b`) where yoke scored 28/42
+from the same 1.2k tokens:
+
+| | injected context | accuracy | correct per 1k tokens |
+|---|---|---|---|
+| **yoke** | **1.2k tokens** | 66.7% | **23.3** |
+| keyword chunks | 5.1k tokens | 61.9% | 5.1 |
+| dense + sparse hybrid, top-50 chunks | 22.8k tokens | 71.4% | 1.3 |
+
+**4.6× the answers per token of chunk retrieval, 18× that of the hybrid retriever.** The hybrid buys
+the highest accuracy on that rig — 71.4% — with 19× the context, most of a small model's window spent
+on one question.
+
+Changing the reader moves every level, so those are one rig each and not one comparison: the baseline
+arms have no result file in `bench/` yet, and re-running them on the current rig is what
+`npm run bench` is for. What a *stronger* reader does is measured too, and it flatters no one: with
+`gpt-5-mini` the floor rises to 24/42 and yoke to 25/42, because four-option multiple choice lets a
+capable model reason the answer out unaided. Read any memory benchmark's accuracy as a statement
+about its answering model first.
+
+[`bench/README.md`](bench/README.md) has the rest, including the limit that matters most here: the
+harness has no human, so the run opens the verification gate. It measures yoke's extraction and
+retrieval — never its governance, which `npm run eval` is for.
 
 Every record also arrives with its citation, which a pasted passage cannot do.
 
