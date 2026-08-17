@@ -97,6 +97,25 @@
 - 적재는 전부 draft다 — cron이 늘리는 것은 검토 큐이고, 승격은 여전히 §4-2의 사람 몫이다. 큐가 감당 안 되면
   `--since` 창을 좁히거나 `--project`로 범위를 줄인다.
 
+## 4-1. 새 서비스를 규약대로 시작하기 (템플릿 엔진 없이)
+
+포털의 "새 서비스 만들기"는 파일을 생성하지 않는다. 규약을 **검증된 레코드**로 남기고, 화면은 에이전트에게
+그 주입을 건네준다 — 에이전트가 만들고, yoke는 규약을 준다. 템플릿 파일은 조용히 썩어서 열 번째 서비스에서야
+발각되지만, verified 규약은 TTL이 지나면 `review --stale`로 담당자에게 돌아온다.
+
+넣는 것: `decision`(시작 방법·등록 시점 + 기각 대안), `term`(서비스의 정의). 되받는 것:
+
+```
+$ yoke inject "starting a new service"
+[decision:01M082VA…@v2] person:ann (confirmed by person:lead), 2026-08-17  Every new service registers in the catalog on its first PR,
+[decision:01M082V9…@v2] person:ann (confirmed by person:lead), 2026-08-17  A new service starts from the service template repo, not fro
+[term:01M082VA…@v2]     person:bae (confirmed by person:lead), 2026-08-17  service
+```
+
+세 규약 모두 **누가 썼고 누가 보증했는지**를 달고 온다(2026-08-17 실측). 에이전트는 이걸 받아 스캐폴딩하고,
+"왜 이렇게 하나"를 물으면 인용된 레코드로 답한다. 생성기 코드는 0줄이고, 화면에 있는 것은 복사 가능한
+`yoke inject "starting a new service"` 한 줄이다.
+
 ## 5. 채택 순서 (bottom-up)
 
 위에서 강제로 깔지 않는다. 지식은 격리, 온톨로지(어휘)는 공유한다.

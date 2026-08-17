@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Citation } from "../../components/Citation";
+import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { Panel, PanelHead } from "../../components/Panel";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -53,6 +54,17 @@ export default function Catalog() {
         />
         {t.catalog.staleOnly}
       </label>
+      {/*
+        "Create a new service" (v7.5), and it generates nothing.
+        A template engine would rot silently — nobody notices until the tenth service is wrong. The
+        conventions live as verified records instead, so they expire and come back to their owner through
+        the queue that already exists; this hands the agent the injection that carries them. The screen
+        dispatches, the agent scaffolds.
+      */}
+      <div className="controls">
+        <span className="muted">{t.catalog.newService}</span>
+        <CopyCode value='yoke inject "starting a new service"' />
+      </div>
       {rows.error ? <ErrorBanner error={rows.error} /> : null}
       {rows.loading ? <p className="muted">{t.common.loading}</p> : null}
       {rows.data ? (

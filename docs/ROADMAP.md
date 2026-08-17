@@ -783,6 +783,16 @@ Plan: docs/PLAN-V7.md. The gap this closes is that the headline was measured out
       groups, their drafts awaiting verify, and their expired knowledge — all off the `authored_by` edge,
       never `provenance.actor`, so the screen and the stale queue name the same person
 
+## v7.5 — "create a new service", with no generator
+
+- [x] The portal's create affordance dispatches instead of generating: the conventions live as verified
+      `decision` and `term` records, and the screen hands the agent
+      `yoke inject "starting a new service"`. Generator code: zero. Screen code: a copyable line.
+      Transcript in ADOPTION.md §4-1 (measured 2026-08-17) — three conventions come back each naming who
+      wrote it and who vouched for it, which a template file cannot do. The longer-lived half of the trade:
+      a template rots unnoticed until the tenth service is wrong, a verified convention expires and returns
+      to its owner through the queue that already exists
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.
