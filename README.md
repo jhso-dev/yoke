@@ -47,22 +47,26 @@ Trust isn't a promise here — it's five mechanisms, each enforced in code:
    every claim is auditable and names both who wrote it and who vouched for it.
    The one mutation history cannot record is `rename-type`, which rewrites the
    type on existing version rows; it leaves an audit row saying so.
-4. **Contradictions are surfaced, never auto-resolved.** When new knowledge
-   conflicts with what's already verified, yoke keeps both and links them with
-   a `conflicts_with` edge for a human to settle, and injection serves both
-   sides marked as disputed. A disagreement is itself knowledge; deciding the
-   winner is not the database's job. Automatic *detection* compares embeddings,
-   so it needs an embedding provider configured (below) — without one, records
-   you link yourself are still surfaced, but nothing is detected for you.
+4. **Contradictions are surfaced, never auto-resolved.** When knowledge is
+   linked as conflicting, yoke keeps both sides and injection serves them marked
+   as disputed, for a human to settle. A disagreement is itself knowledge;
+   deciding the winner is not the database's job. Automatic *detection* is the
+   weak half and is measured as such: it only inspects records the duplicate
+   detector already raised, so on real embeddings it found 1 of 5 planted
+   contradictions and linked 5 of 5 compatible refinements — see
+   [Measuring quality](#measuring-quality). Treat the edges you file yourself as
+   the mechanism, and detection as a hint.
 5. **Knowledge expires.** Verified isn't forever — entries lose freshness past
    their type's TTL and are demoted to `stale` at read time, out of the
    injection path until someone re-confirms them. Stale truths are the
    politest form of misinformation, and yoke treats them that way.
 
-And it's measured, not asserted: the injection-quality eval reports **0%
-contamination** (no draft record reaching an injection — drafts are what it plants) and
-**0% missed contradictions** on its planted pairs. What those numbers cover, and what
-they do not, is in [Measuring quality](#measuring-quality).
+And it's measured, not asserted — including where it comes out badly. The
+injection-quality eval reports **0% contamination** (no draft record reaching an
+injection, and drafts are what it plants) on real embeddings, and on the same run it
+reports contradiction *detection* finding 1 of 5 planted contradictions. The gate holds;
+the detector is a hint. Both numbers, and why the second one is structural, are in
+[Measuring quality](#measuring-quality).
 
 Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server required.
 
@@ -358,18 +362,34 @@ judgment would be impersonation.
 
 yoke measures three different things, and they answer different questions.
 
-**Injection quality** (`npm run eval`) — does the filter hold, and is the detection
-wired up:
+**Injection quality** (`npm run eval`) — does the filter hold, and does the detection
+find what it claims to. Measured 2026-08-17 with `bge-m3` behind `YOKE_EMBED_URL`, on a
+60-record planted corpus:
 
 | Metric | Definition | Target | Measured |
 |---|---|---|---|
 | Contamination rate | Share of draft entries among inject results | 0% | **0.0%** (only the 20 verified of 40 candidates were injected) |
-| Missed-contradiction rate | Share of opposing-conclusion decision pairs with no conflicts_with edge | 0% | **0.0%** (5/5 detected) |
+| Missed-contradiction rate | Opposing-conclusion decision pairs with no conflicts_with edge | 0% | **80.0%** (1 of 5 detected) |
+| False-conflict rate | Compatible same-topic pairs linked as conflicts anyway | 0% | **100.0%** (5 of 5) |
 
-Read those two numbers for what they cover: a 50-record synthetic corpus and a stub
-embedder whose vectors are built from the planted topic word, so the contradiction
-figure measures that stage 4 runs and files the edge — not that a real embedding model
-would notice. Precision is not measured on either axis.
+**The filter holds; the contradiction detector does not, and the reason is structural.**
+Stage 4 only considers records the *duplicate* detector already raised, which means
+cosine ≥ 0.85. On real embeddings a reversal reads as less similar than a restatement:
+the five opposing pairs measured 0.803–0.866 (one above the line) while five compatible
+refinements measured 0.859–0.924 (all five above it). So the gate selects for
+restatement, which is exactly right for finding duplicates and backwards for finding
+disagreements. The earlier 0% miss rate came from a stub embedder whose vectors were
+built from the planted topic word — it proved stage 4 files an edge when handed a
+candidate, never that a model would hand it one.
+
+What that costs you today, stated plainly: `conflicts_with` edges you file yourself are
+honoured everywhere — injection serves both sides marked as disputed, the conflicts
+screen lists them — but **automatic detection cannot be relied on to find a
+contradiction**, and it will link records that merely refine each other. Run
+`npm run eval` yourself; without an embedder configured it falls back to the stub and
+says so on every run.
+
+Precision on the injection axis is `eval:retrieval` below, not this eval.
 
 **Persona quality** (`npm run eval:persona`) — does a persona return that person's
 verified judgment and nothing else. Five planted failure modes (a colleague's records on

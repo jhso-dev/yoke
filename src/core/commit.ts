@@ -456,6 +456,18 @@ export async function commit(
   // the conclusion text (the v1 ontology has no subject). Both sides preserved, no auto-resolution.
   // Relations must also pass the gate, so we reuse commit internally (relations skip stages 3 & 4,
   // so there is no infinite recursion).
+  //
+  // ceiling: this rides on the DUPLICATE candidate set, so a pair is only judged at all when it is
+  // already above DUP_THRESHOLD — and on real embeddings that line sits on the wrong side of the
+  // question. Measured with bge-m3 (`npm run eval`, 2026-08-17): five opposing-conclusion pairs
+  // scored cosine 0.803-0.866 (one above 0.85, so 1 of 5 detected) while five compatible
+  // refinements of one conclusion scored 0.859-0.924 (5 of 5, all false positives). A reversal
+  // states the opposite and reads as LESS similar; a refinement restates and reads as more. So this
+  // selects for restatement, which is right for duplicates and backwards here.
+  // Lifting it needs a judgment that does not come from the duplicate threshold — a stance/subject
+  // pair on the decision type, or an asymmetric comparison that reads negation — not a lower
+  // threshold, which only adds false positives to the 100% already measured. Until then the product
+  // claim is the edges a human files, and detection is a hint (README "Measuring quality").
   const conflicts: Relation[] = [];
   if (input.type === "decision") {
     const conclusion = String(input.attributes.conclusion ?? "");
