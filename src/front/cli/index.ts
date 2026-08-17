@@ -41,6 +41,7 @@ import {
   backfillEmbeddings,
   backfillOccurredAt,
 } from "../../core/backfill.js";
+import { clusterDrafts } from "../../core/cluster.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import {
@@ -132,6 +133,8 @@ type Values = {
   status?: string;
   "as-of"?: string;
   stale?: boolean;
+  /** `review --cluster`: group the draft queue by the duplicate threshold. */
+  cluster?: boolean;
   embeddings?: boolean;
   rebuild?: boolean;
   "occurred-at"?: boolean;
@@ -156,6 +159,7 @@ const OPTIONS = {
   help: { type: "boolean", short: "h" },
   repo: { type: "string" },
   since: { type: "string" },
+  cluster: { type: "boolean" },
   out: { type: "string" },
   mapping: { type: "string" },
   dsn: { type: "string" },
@@ -1113,14 +1117,41 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
     }
     const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
     await prefetch(drafts);
-    const lines = await Promise.all(
-      drafts.map(
-        async (e) =>
-          `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${
-            (await nameOf(e.provenance.actor)) ?? e.provenance.actor
-          }  ${e.provenance.occurred_at}`,
-      ),
-    );
+    const row = async (e: Entity) =>
+      `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${
+        (await nameOf(e.provenance.actor)) ?? e.provenance.actor
+      }  ${e.provenance.occurred_at}`;
+    // --cluster groups the queue by the duplicate threshold, so a batch import reads as its subjects
+    // rather than as forty separate decisions. Promotion stays per record: the group's ids are printed
+    // on one line to paste into `yoke verify`, which keeps every record's own authorship edge.
+    if (v.cluster) {
+      const groups = await clusterDrafts(
+        store,
+        ontology,
+        makeFetchEmbedder(env),
+        drafts,
+      );
+      const lines: string[] = [];
+      for (const [i, g] of groups.entries()) {
+        lines.push(
+          `-- group ${i + 1}: ${g.members.length} record${g.members.length === 1 ? "" : "s"}` +
+            (g.compared === 0 ? " (not compared — no vector)" : ""),
+        );
+        for (const e of g.members) lines.push(`   ${await row(e)}`);
+        if (g.members.length > 1)
+          lines.push(
+            `   verify all: yoke verify ${g.members.map((e) => e.id).join(" ")}`,
+          );
+      }
+      if (groups.every((g) => g.compared === 0))
+        lines.push(
+          "",
+          "nothing was compared: set YOKE_EMBED_URL and YOKE_EMBED_MODEL, then 'yoke backfill --embeddings'",
+        );
+      emit(v, lines.join("\n"), groups);
+      return 0;
+    }
+    const lines = await Promise.all(drafts.map(row));
     emit(v, lines.join("\n"), drafts);
     return 0;
   });
@@ -2632,8 +2663,9 @@ const COMMAND_USAGE: Record<string, string> = {
   ontology: ONTOLOGY_USAGE,
   backup: BACKUP_USAGE,
   review:
-    "usage: yoke review [--stale] [--type t] [--limit n] [--after cursor]\n" +
+    "usage: yoke review [--stale] [--cluster] [--type t] [--limit n] [--after cursor]\n" +
     "  no flags   drafts awaiting review\n" +
+    "  --cluster  group the draft queue by similarity, with a verify line per group\n" +
     "  --stale    verified records past their type's TTL, most-injected first",
   audit:
     "usage: yoke audit [--since ts] [--until ts] [--limit n] [--shape]\n" +

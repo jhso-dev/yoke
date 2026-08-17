@@ -13,7 +13,7 @@ import {
   type StoragePort,
 } from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
-import { serializeText } from "./embedding.js";
+import { cosine, serializeText } from "./embedding.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import { validateInput } from "./ontology.js";
@@ -238,21 +238,6 @@ function normalizeProvenance(p: Provenance): Provenance {
     ...rest,
     occurred_at: new Date(Date.parse(p.occurred_at)).toISOString(),
   };
-}
-
-/** Cosine similarity. Handles unnormalized vectors too (provider-independent scale). */
-function cosine(a: Float32Array, b: Float32Array): number {
-  const n = Math.min(a.length, b.length);
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < n; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  if (na === 0 || nb === 0) return 0;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
 /**

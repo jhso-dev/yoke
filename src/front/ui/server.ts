@@ -12,6 +12,7 @@ import {
 } from "node:http";
 import { fileURLToPath } from "node:url";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
+import { clusterDrafts } from "../../core/cluster.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
@@ -615,7 +616,32 @@ export function createUiHandler(
       // whoever adds multi-reviewer aggregation. This route enforces nothing of the sort today, and
       // saying it returned "only this reviewer's list" would describe a filter that is not here.
       const drafts = await store.listEntities({ status: "draft", ns });
-      sendJson(res, 200, await rowsOf(newestFirst(drafts.items)));
+      const ordered = newestFirst(drafts.items);
+      // `cluster=1` groups the queue by the duplicate threshold, so a batch import reads as its
+      // subjects. Parity with `yoke review --cluster` (WEB-UI.md "Parity is a floor on BOTH surfaces"),
+      // and the same core function — a second grouping written for the browser is a second answer to
+      // "are these the same". Promotion stays per record: the group carries ids, and verify is
+      // unchanged, so every record keeps its own authorship edge.
+      if (url.searchParams.get("cluster") === "1") {
+        const groups = await clusterDrafts(
+          store,
+          store.loadOntology(ns),
+          // The same embedder the gate uses on this deployment, so the grouping a reviewer sees is the
+          // comparison the gate made. Absent → every group reports `compared: 0`.
+          deps.embedder ?? (async () => null),
+          ordered,
+        );
+        sendJson(res, 200, {
+          groups: await Promise.all(
+            groups.map(async (g) => ({
+              items: await rowsOf(g.members),
+              compared: g.compared,
+            })),
+          ),
+        });
+        return;
+      }
+      sendJson(res, 200, await rowsOf(ordered));
       return;
     }
 

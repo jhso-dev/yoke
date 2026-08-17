@@ -193,7 +193,9 @@ describe("overview", () => {
       // Promotion by a third party is exactly the case an authors list off head provenance gets wrong.
       await verify(port, [recent], "reviewer", late);
 
-      const res = await overview(port, ont, late, { since: "2026-07-01T00:00:00Z" });
+      const res = await overview(port, ont, late, {
+        since: "2026-07-01T00:00:00Z",
+      });
       expect(res.captured).toEqual({
         since: "2026-07-01T00:00:00Z",
         byType: { decision: 1 },

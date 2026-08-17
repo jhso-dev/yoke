@@ -182,3 +182,24 @@ export function dimensionMismatch(
       "yoke backfill --embeddings --rebuild",
   );
 }
+
+/**
+ * Cosine similarity. Handles unnormalized vectors too (provider-independent scale).
+ *
+ * Lives here beside `Embedder` because two callers now compare vectors — the gate's duplicate stage and
+ * the review queue's clustering — and they must agree on what "alike" means. A second copy is how one
+ * threshold ends up meaning two things.
+ */
+export function cosine(a: Float32Array, b: Float32Array): number {
+  const n = Math.min(a.length, b.length);
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < n; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}

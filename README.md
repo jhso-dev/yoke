@@ -322,7 +322,7 @@ authenticate and therefore has no reason not to.
 
 ```
 yoke init | add | get | search | list | link | verify | deprecate
-yoke review [--stale]                         # drafts awaiting review / verified past their TTL
+yoke review [--stale] [--cluster]             # drafts awaiting review / verified past their TTL
 yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview [--limit n] [--since ts]        # the corpus at a glance; --since adds capture density
 yoke graph [--limit n]                        # the corpus as edges
