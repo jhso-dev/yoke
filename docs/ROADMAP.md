@@ -653,6 +653,42 @@ shape rather than imported:
       loudly as one that empties the persona. Mutation-checked: including drafts reads as 100% draft
       leak, dropping `scopeRel` as 50% impersonation
 
+## v7.0 — the numbers become reproducible, and two of them change
+
+Plan: docs/PLAN-V7.md. The gap this closes is that the headline was measured outside the repository.
+
+- [x] **7.0.1 `bench/` lands.** The harness the context-cost table was measured by (yoke as a provider
+      for vectorize-io/agent-memory-benchmark) plus its result files and its limits document, none of
+      which a reader could see. `2cfe8d3`'s off-by-default unmeasured prompt variant deliberately left
+      behind — subtracted, not merged
+- [x] **7.0.2 the table names its rig, and stops mixing two.** The four rows were two rigs: floor and
+      yoke had been updated to a 26b reader while the two baseline rows stayed on an e4b one, which is
+      what produced "5.2× the answers per token" and "higher accuracy than both" — the second is false
+      on any single reader. Now two tables, one reader each, within-rig ratios only (4.6× keyword, 18×
+      hybrid). The "~87% under official conditions" figure deleted rather than restated: it transferred
+      a reader gap across rigs, and the repo's own frontier-reader measurement (gpt-5-mini: floor
+      24/42, yoke 25/42) contradicts the premise. `bench/rescore.mjs` replaces the prose snippet that
+      asked readers to re-score the deflated floor themselves — the harness scores an empty-context arm
+      wrong whatever it answered, so no-memory prints 0.0% while having answered 25 of 42
+- [x] **7.0.3 `npm run bench`.** Five arms sequentially, rig pinned, and a preflight that refuses until
+      the harness carries each patch this comparison depends on — every one of them fails quietly. The
+      sampler is the reason it is a script and not a shell block: nothing sent a temperature, so the
+      server sampled at its own default and identical runs moved 4–5 questions out of 42
+- [ ] **7.0.4 the full set at leaderboard conditions.** Blocked on an answering endpoint, not on code.
+      No false claim is waiting on it (7.0.2 deleted the extrapolation); what is waiting is a positive
+      number at comparable conditions
+- [x] **7.0.5 the governance eval runs on real vectors, and the result is worse.** With `bge-m3`:
+      contamination still 0% — the gate holds, which the stub could not show — but contradiction
+      detection finds 1 of 5 planted contradictions where the stub reported 5 of 5. Structural, not a
+      tuning miss: stage 4 only judges pairs the *duplicate* detector raised (cosine ≥ 0.85), and
+      opposing conclusions measured 0.803–0.866 while compatible refinements measured 0.859–0.924. A
+      reversal reads as less similar than a restatement, so the threshold selects for the wrong thing.
+      `commit.ts` carries the ceiling; both READMEs corrected in all three places that claimed 0%
+- [x] **7.0.6 precision, on both axes.** False-conflict rate added to `npm run eval`: 100% (5 of 5
+      compatible pairs linked). Injection precision added to `eval:retrieval` with the ceiling k
+      imposes — 13.5% against a reachable 16.5% at k=10, since the gold set names under two relevant
+      records per query. Reported next to each other so neither reads as the other's number
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

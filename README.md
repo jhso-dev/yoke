@@ -406,6 +406,13 @@ which is what an agent sends, scores recall@10 82.4%; one to three terms scores 
 The report names the queries that came back with nothing relevant rather than only the
 totals.
 
+Precision is reported beside it and must be read against its own ceiling: **13.5%**
+against a **16.5%** maximum at k=10. The gold set names fewer than two relevant records
+per query, so eight of ten slots cannot be relevant no matter what retrieval does —
+the figure is 82% of what is reachable, and the way to move it is a smaller k, which is
+the same trade as the tokens-per-answer column above. Keyword-only scores a higher raw
+precision (16.4%) purely by returning fewer records.
+
 ## Docs
 
 | Doc | What's in it |

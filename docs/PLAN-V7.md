@@ -66,15 +66,20 @@ baseline, so the script prints the reader model and the pinned settings with the
 DoD: two runs of the same configuration agree question-for-question (`results-p0-determinism-u2-repeat`
 is the precedent).
 
-### 7.0.4 the full set, at leaderboard conditions
+### 7.0.4 the full set, at leaderboard conditions — **needs an answering endpoint**
 
 42 questions over two users is a pilot. Run the full PersonaMem set (589 queries) with a frontier
-answerer across all four arms, so the number sits beside the published leaderboard (cognee 81.8%,
+answerer across all five arms, so the number sits beside the published leaderboard (cognee 81.8%,
 hindsight 86.6%) instead of being extrapolated to it.
 
-DoD: README's "translated to the benchmark's official evaluation conditions, yoke lands at ~87%" is
-replaced by a measured figure; the word "translated" is gone. Per 7.0.2 the arm is still a single draw —
-report the extraction range from three ingests rather than one number.
+The extrapolation is already gone: 7.0.2 deleted the "~87% under official conditions" claim rather than
+restating it, because it added a reader gap measured on one rig to a score from another, and this repo's
+own frontier-reader run contradicts the premise. So nothing false is waiting on this task — what is
+waiting is a *positive* number at comparable conditions, and `npm run bench` is the command.
+
+DoD: all five arms over 589 queries with a frontier answerer, result files committed, README's tables
+replaced by the single-rig set. Per 7.0.2 an arm is still a single draw, so report the extraction range
+from three ingests rather than one number.
 
 ### 7.0.5 the governance eval runs on real vectors
 

@@ -134,10 +134,22 @@ function ndcg(hitAt: boolean[], relevantCount: number, k: number): number {
 
 interface Score {
   recall: number;
+  /** Share of the returned items that were relevant. The axis recall cannot see: an injection that
+   * returns everything scores perfect recall while spending the agent's context on noise, and this is
+   * the corpus-side twin of the token-efficiency number in the README. Measured over what was actually
+   * returned rather than over k, so a query with fewer than k hits is not charged for the empty slots. */
+  precision: number;
+  /** The best precision this query could score, given the retriever filled its k slots and the gold set
+   * names only `want` relevant records. Read precision against THIS, not against 100%: with a mean of
+   * under two relevant records per query and k=10, most of every result set is unavoidably irrelevant,
+   * and a bare precision figure would read as a defect when it is arithmetic. Lowering k is what moves
+   * it, which is the same trade the README's tokens-per-answer column is about. */
+  precisionCeiling: number;
   ndcg: number;
   hit1: number;
   found: number;
   want: number;
+  returned: number;
 }
 
 async function scoreAll(
@@ -160,10 +172,16 @@ async function scoreAll(
     per.push({
       q: g.q,
       recall: want.size === 0 ? 0 : found / want.size,
+      precision: items.length === 0 ? 0 : found / items.length,
+      precisionCeiling:
+        items.length === 0
+          ? 0
+          : Math.min(want.size, items.length) / items.length,
       ndcg: ndcg(hitAt, want.size, K),
       hit1: hitAt[0] ? 1 : 0,
       found,
       want: want.size,
+      returned: items.length,
     });
   }
   const mean = (pick: (s: Score) => number) =>
@@ -172,10 +190,13 @@ async function scoreAll(
     per,
     mean: {
       recall: mean((s) => s.recall),
+      precision: mean((s) => s.precision),
+      precisionCeiling: mean((s) => s.precisionCeiling),
       ndcg: mean((s) => s.ndcg),
       hit1: mean((s) => s.hit1),
       found: per.reduce((a, s) => a + s.found, 0),
       want: per.reduce((a, s) => a + s.want, 0),
+      returned: per.reduce((a, s) => a + s.returned, 0),
     },
   };
 }
@@ -208,12 +229,27 @@ console.log(
 console.log("=".repeat(50));
 console.log(`${"".padEnd(22)}${"keyword".padStart(8)}${"hybrid".padStart(9)}`);
 console.log(row("recall@10", keyword.mean.recall, hybrid?.mean.recall ?? null));
+console.log(
+  row("precision", keyword.mean.precision, hybrid?.mean.precision ?? null),
+);
+console.log(
+  row(
+    `  ceiling at k=${K}`,
+    keyword.mean.precisionCeiling,
+    hybrid?.mean.precisionCeiling ?? null,
+  ),
+);
 console.log(row("nDCG@10", keyword.mean.ndcg, hybrid?.mean.ndcg ?? null));
 console.log(row("accuracy@1", keyword.mean.hit1, hybrid?.mean.hit1 ?? null));
 console.log("=".repeat(50));
 console.log(
   `relevant records found: ${keyword.mean.found}/${keyword.mean.want} keyword` +
     (hybrid ? `, ${hybrid.mean.found}/${hybrid.mean.want} hybrid` : ""),
+);
+console.log(
+  `records returned:       ${keyword.mean.returned} keyword` +
+    (hybrid ? `, ${hybrid.mean.returned} hybrid` : "") +
+    ` — precision is over these, not over ${K} per query`,
 );
 
 // By query shape. This breakdown is what stops "keyword 0%" being read as "BM25 is broken": the two
