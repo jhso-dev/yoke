@@ -93,7 +93,7 @@ from the same 1.2k tokens:
 
 | | injected context | accuracy | correct per 1k tokens |
 |---|---|---|---|
-| **yoke** | **1.2k tokens** | 66.7% | **23.3** |
+| **yoke** | **1.2k tokens** | 66.7% | **23.5** |
 | keyword chunks | 5.1k tokens | 61.9% | 5.1 |
 | dense + sparse hybrid, top-50 chunks | 22.8k tokens | 71.4% | 1.3 |
 

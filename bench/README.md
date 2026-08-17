@@ -114,6 +114,16 @@ On two PersonaMem users this moved the floor from 0% to 47.6% (20/42) — bm25's
 Check `empty-ans` on the floor arm while you are there: an unanswered question is not a wrong one, and
 user 1's floor rested on 3 of them (user 2's, re-run later, had none).
 
+**The harness does not send a temperature, so the server picks one.** On the openai path nothing set
+`temperature`, which left LM Studio sampling at its own default (~0.7): identical runs of one arm moved
+by 4–5 questions out of 42, and every A/B decided by ±2 questions against an earlier number was reading
+that noise. Pinning `temperature: 0` with a fixed seed made a repeat run reproduce its 23 questions
+exactly. Two consequences worth stating separately. A rig change moves the baseline, so numbers from
+before the fix cannot be compared to numbers after it — re-measure the baseline, then judge every arm
+against the new one. And once determinism is verified, **one run per arm is enough**, which is cheaper
+than the three-run averaging an unpinned rig would need. `npm run bench` refuses to start until this
+patch is present.
+
 **Extraction is not reproducible at `YOKE_EXTRACT_CONCURRENCY > 1`, even at temperature 0.** The same
 document (39,154 characters, 7 chunks), the same model, the same code, extracted three times at
 concurrency 4, yielded **27, 25 and 18 records**. The extractor sends `temperature: 0`, so this is not
@@ -417,13 +427,31 @@ Two operational notes for repeating this:
 ## Running
 
 ```bash
+export AMB_DIR=/path/to/agent-memory-benchmark
+export YOKE_BENCH_UNITS=<user_id>[,<user_id>...]     # from the query-count snippet above
+npm run bench
+```
+
+That runs all five arms sequentially — `vanilla`, `fullcontext`, `bm25`, `qdrant`, `yoke` — copies each
+result file into `bench/`, and prints both scorings side by side. It **refuses to start** until the
+harness carries the patches this comparison depends on, naming each one, because every one of them
+fails quietly: an unregistered provider, an unpinned sampler, an uncapped answering model, a
+single-valued `--unit`.
+
+The arms run one at a time deliberately. Two runs against one local endpoint reproduce the concurrency
+stall above, and the `vanilla` arm takes its concurrency from `SDE_CONCURRENCY` rather than a flag.
+
+The equivalent by hand, if you are debugging one arm:
+
+```bash
 U=<user_id from above>
 uv run amb run --dataset personamem --split 32k --llm openai --unit $U -m vanilla -n vanilla
 uv run amb run --dataset personamem --split 32k --llm openai --unit $U -m bm25    -n bm25
 uv run amb run --dataset personamem --split 32k --llm openai --unit $U -m yoke    -n yoke
 ```
 
-Run the arms one at a time. Two runs against one local endpoint reproduce the concurrency stall above.
+**Two runs of the same configuration must agree question-for-question.** If they do not, the rig is not
+pinned and no comparison drawn from it is valid — including against the numbers committed here.
 
 **One model answering and judging its own answers is weaker than a strong external judge**, and its
 absolute accuracy should not be quoted as a PersonaMem score. What it supports is the comparison:

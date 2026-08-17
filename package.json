@@ -1,7 +1,7 @@
 {
   "name": "yoke",
   "version": "0.1.0",
-  "description": "Knowledge your AI can trust \u2014 ontology-based knowledge DB with governed context injection for AI agents",
+  "description": "Knowledge your AI can trust — ontology-based knowledge DB with governed context injection for AI agents",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -38,7 +38,8 @@
     "dev:web": "npm --prefix web exec next dev web -p 4801",
     "test:bundle": "vitest run src/front/ui/bundle.smoke.test.ts",
     "typecheck:web": "npm --prefix web install --no-audit --no-fund --silent && npm --prefix web exec tsc -- -p web --noEmit",
-    "eval:retrieval": "tsx eval/retrieval-quality.ts"
+    "eval:retrieval": "tsx eval/retrieval-quality.ts",
+    "bench": "node bench/run.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
