@@ -210,7 +210,7 @@ vector — measured at 1 of 3 entities in this repo's own database before it was
 | Knowledge is stored | yes | **yes** — a provider being down never rejects a record |
 | Duplicate candidates on commit | yes | **no, and `yoke add` says so** — there is no keyword fallback for this, because treating every FTS hit as a duplicate is mostly false positives |
 | `conflicts_with` auto-detection | yes | no |
-| Keyword search / injection | yes | yes, unaffected |
+| Search / injection | yes | keyword only — a question-shaped query drops from recall@10 82.4% to 52.0% on the demo gold set |
 
 Coverage is repairable at any time — the vector is a derived index, not knowledge, so this writes no
 new version and changes no citation:
@@ -358,10 +358,12 @@ rates **0%**, recall **100%** whole and under a topic query.
 
 **Retrieval quality** (`npm run eval:retrieval -- <db>`) — does the right record come
 back, over `eval/gold-set.json` on a loaded corpus. This is the one that measures search
-against real text, and it reports its own weak spots rather than a headline: on the demo
-corpus, keyword-only retrieval scores recall@10 58.5% overall but 51.1% on
-question-shaped queries against 95.5% on keyword-shaped ones (docs/RESEARCH.md,
-measured 2026-08-05).
+against real text. On the demo corpus with `bge-m3`, 66 queries at k=10: recall@10
+**85.4%**, nDCG **75.7%**, accuracy@1 **65.2%** — 89 of the 109 relevant records found
+(measured 2026-08-17). How the query is phrased is what moves that number: a sentence,
+which is what an agent sends, scores recall@10 82.4%; one to three terms scores 100%.
+The report names the queries that came back with nothing relevant rather than only the
+totals.
 
 ## Docs
 
