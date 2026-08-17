@@ -7,6 +7,7 @@
 import { clearCredential, getCredential } from "./credential";
 import type {
   AuditEntry,
+  CatalogRow,
   ConflictPair,
   CreatedToken,
   Edge,
@@ -98,6 +99,9 @@ export const api = {
   stale: (p: { type?: string; limit?: number; after?: string } = {}) =>
     request<StaleQueue>(`/api/review${qs({ ...p, stale: 1 })}`),
   conflicts: () => request<ConflictPair[]>("/api/conflicts"),
+  /** The catalog — what the org runs, most-rotted first (the server orders it; no second ranker here). */
+  catalog: (p: { owner?: string; stale?: 1 } = {}) =>
+    request<CatalogRow[]>(`/api/catalog${qs(p)}`),
   ontology: () => request<TypeDef[]>("/api/ontology"),
   persona: (id: string) =>
     request<Persona>(`/api/persona/${encodeURIComponent(id)}`),

@@ -1,0 +1,34 @@
+[
+  {
+    "name": "service",
+    "kind": "entity",
+    "attrs": {
+      "name": { "type": "string", "required": true },
+      "description": { "type": "string" },
+      "lifecycle": { "type": "string" },
+      "repo": { "type": "string" }
+    },
+    "ttl_days": 180
+  },
+  {
+    "name": "api",
+    "kind": "entity",
+    "attrs": {
+      "name": { "type": "string", "required": true },
+      "description": { "type": "string" },
+      "spec_url": { "type": "string" }
+    },
+    "ttl_days": 180
+  },
+  {
+    "name": "datastore",
+    "kind": "entity",
+    "attrs": {
+      "name": { "type": "string", "required": true },
+      "description": { "type": "string" },
+      "engine": { "type": "string" }
+    },
+    "ttl_days": 180
+  },
+  { "name": "depends_on", "kind": "relation", "attrs": {} }
+]

@@ -306,7 +306,7 @@ yoke ui                      # http://127.0.0.1:4800 — local, single-user, ung
 yoke serve --auth --host 0.0.0.0   # a team; log in with a token from `yoke token create`
 ```
 
-Screens: the review queue, conflicts, the ontology browser, persona preview, entity
+Screens: the catalog, the review queue, conflicts, the ontology browser, persona preview, entity
 detail, injection preview ("what would my agent actually receive for this query?"), a
 force-directed graph explorer, and the audit log. One static bundle, one port. Under
 `yoke serve` the same process also answers `POST /mcp`, so a team deployment needs
@@ -326,6 +326,7 @@ yoke review [--stale] [--cluster]             # drafts awaiting review / verifie
 yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview [--limit n] [--since ts]        # the corpus at a glance; --since adds capture density
 yoke owner <id>                               # who is on the hook: author, group, work, last confirmer
+yoke catalog [--owner g] [--stale]            # what the org runs, most-rotted first
 yoke graph [--limit n]                        # the corpus as edges
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>

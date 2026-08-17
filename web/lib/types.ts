@@ -205,6 +205,33 @@ export interface StaleQueue extends Page<Knowledge & { injections: number }> {
   scanned: number;
 }
 
+/**
+ * One catalog row (v7.3.4). Mirrors `CatalogRow` in core.
+ *
+ * Every health field is present on purpose: WEB-UI.md's amended test 1 admits this screen only while a row
+ * cannot be rendered without its status, staleness and owner, so these are not optional decorations.
+ */
+export interface CatalogRow {
+  id: string;
+  type: string;
+  name: string;
+  status: Status;
+  lifecycle?: string;
+  repo?: string;
+  owner?: string;
+  dependsOn: number;
+  dependents: number;
+  docs: number;
+  latestDecision?: { id: string; summary: string; at: string };
+  stale: number;
+  conflicts: number;
+  /** `Cited`, so the row renders through the same `<Citation>` every other knowledge surface uses. */
+  citation: string;
+  actor: string;
+  occurred_at: string;
+  version: number;
+}
+
 export interface Persona {
   /** `InjectedKnowledge`, because a persona row can be disputed like any other injected one — both
    * sides of a `conflicts_with` are returned and the screen's job is to say so, not to pick. */

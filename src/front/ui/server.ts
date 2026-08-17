@@ -12,6 +12,7 @@ import {
 } from "node:http";
 import { fileURLToPath } from "node:url";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
+import { catalog } from "../../core/catalog.js";
 import { clusterDrafts } from "../../core/cluster.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
@@ -650,6 +651,28 @@ export function createUiHandler(
         return;
       }
       sendJson(res, 200, await rowsOf(ordered));
+      return;
+    }
+
+    // The portal's front door (v7.3.4). Admitted by WEB-UI.md's amended test 1 on one condition, which
+    // the row shape enforces: every row carries its effective status, its stale count and its owner, so
+    // the screen cannot be read without seeing what has rotted. Same core function as `yoke catalog`
+    // (the doc's parity floor), and no ranking of its own — test 2 stays intact.
+    if (method === "GET" && path === "/api/catalog") {
+      if (denied(res, "read")) return;
+      const rows = await catalog(store, store.loadOntology(ns), now(), {
+        ns,
+        owner: url.searchParams.get("owner") ?? undefined,
+        staleOnly: url.searchParams.get("stale") === "1",
+      });
+      sendJson(res, 200, rows);
+      // The ids, not the count: SPEC's audit shape is `<subject> -> <id> …`, and a row for a knowledge
+      // read that names no records cannot answer "what was this person shown".
+      auditRead(
+        "read",
+        rows.map((r) => r.id),
+        "catalog",
+      );
       return;
     }
 

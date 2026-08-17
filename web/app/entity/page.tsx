@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 import { Actor } from "../../components/Actor";
 import { AttributeValue } from "../../components/AttributeValue";
+import { CatalogPanel } from "../../components/CatalogPanel";
 import { Citation } from "../../components/Citation";
 import { DeprecateButton } from "../../components/DeprecateButton";
 import { DirectionIcon } from "../../components/DirectionIcon";
@@ -174,6 +175,9 @@ function EntityBody() {
       {/* Below the buttons, not above them: this is the consequence of pressing Deprecate, and putting
           it between the record heading and its own controls made the controls read as the table's. */}
       <Downstream rows={downstream} />
+
+      {/* Catalog types only; every other record renders exactly as before. */}
+      <CatalogPanel type={d.entity.type} edges={edges} />
 
       <Panel>
         <PanelHead>{t.common.attributes}</PanelHead>

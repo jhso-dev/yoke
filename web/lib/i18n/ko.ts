@@ -81,12 +81,36 @@ export const ko: typeof en = {
     page: (page: number, pages: number, total: number) =>
       `${pages}페이지 중 ${page}페이지 · 총 ${total}개`,
   },
+  catalog: {
+    title: "카탈로그",
+    hint: "조직이 무엇을 운영하는지. 모든 행이 상태·무엇이 낡았는지·누가 소유하는지를 함께 보여줍니다 — 부패가 보이지 않는 카탈로그가 곧 부패입니다.",
+    staleOnly: "낡은 것이 있는 행만",
+    empty:
+      "카탈로그 레코드가 없습니다. ontology/catalog.json을 로드한 뒤 'yoke connect backstage'로 가져오세요.",
+    owner: "소유자",
+    unowned: "소유자 없음",
+    deps: (out: number, incoming: number) =>
+      `의존 ${out}개 · 이것에 의존 ${incoming}개`,
+    docs: (n: number) => (n === 0 ? "문서 없음" : `문서 ${n}개`),
+    stale: (n: number) => `낡은 것 ${n}개`,
+    conflicts: (n: number) => `상충 ${n}개`,
+    panelTitle: "카탈로그",
+    dependsOnLabel: "의존 대상",
+    dependentsLabel: "이것에 의존",
+    docsLabel: "문서",
+    none: "없음",
+    noDocs: "문서가 없음",
+    lastDecision: "최근 결정",
+    summary: (total: number, stale: number, unowned: number) =>
+      `레코드 ${total}개 · 낡은 것 있음 ${stale}개 · 소유자 없음 ${unowned}개`,
+  },
   nav: {
     review: "리뷰",
     conflicts: "모순",
     ontology: "온톨로지",
     persona: "페르소나",
     collaboration: "협업",
+    catalog: "카탈로그",
     browse: "둘러보기",
     inject: "주입",
     graph: "그래프",

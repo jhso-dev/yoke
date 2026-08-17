@@ -302,6 +302,7 @@ yoke review [--stale] [--cluster]             # 검토 대기 draft / TTL 지난
 yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview [--limit n] [--since ts]        # 코퍼스 한눈에 보기; --since는 캡처 밀도 추가
 yoke owner <id>                               # 이 레코드의 책임자: 저자·그룹·소속 작업·최종 확인자
+yoke catalog [--owner g] [--stale]            # 조직이 운영하는 것, 썩은 것부터
 yoke graph [--limit n]                        # 코퍼스를 엣지로 보기
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>

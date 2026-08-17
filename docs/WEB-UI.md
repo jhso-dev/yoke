@@ -4,6 +4,11 @@ The web UI is a **governance workbench**: the human surface for deciding what yo
 allowed to tell an AI, and for auditing what it told. It is not a place to read
 knowledge as answers, and not a place to author knowledge.
 
+From v7.3 it is also the **portal**: what the organisation runs, who owns it, what is
+documented — every row carrying the verification state and freshness of the records
+behind it. Test 1 below is amended for that, and only for that; the amendment states
+exactly what moved and what did not.
+
 ## The line (read this before adding a screen)
 
 Every screen renders **records, not answers**. A record is typed, versioned,
@@ -14,6 +19,27 @@ Three tests a screen must pass, argued in this document before the code exists:
 
 1. **Governance purpose.** It supports a governance act — promote, reject, deprecate,
    trust, audit — or makes one auditable. Not "look something up".
+
+   **Amended 2026-08-17 (v7.3), for the portal.** A screen may answer "what do we run,
+   and who owns it" — provided **every row it renders carries the effective status, the
+   freshness, and the owner chain of the records behind it.** The reasoning, stated so
+   the next amendment has to argue against it: a catalog that cannot be read without
+   seeing what is stale and what was never verified *is* a governance surface — it is
+   the only screen on which catalog decay is visible, and making it visible is the one
+   thing a descriptor-driven portal structurally cannot do. A catalog that hides that
+   is the decay itself, and stays forbidden.
+
+   What this does NOT license, so the line is still a line:
+
+   - **No answers.** No prose summary of a service, no chat, no synthesized "here is
+     how payments works". Tests 2 and 3 are untouched, and a question about the
+     knowledge still goes to an agent over MCP.
+   - **No second catalog.** The portal reads descriptors the organisation already
+     maintains (`yoke connect backstage`). An authoring surface for the same data would
+     need the record editing test 3 forbids, and would reintroduce the two-places-to-
+     update problem that makes catalogs rot.
+   - **No green without evidence.** A row may not report health it did not check. A
+     service whose owner record is stale is not green — see the scorecard in v7.4.
 2. **No synthesis.** No model call, no relevance ranking outside the injection ranker,
    no generated text. A screen that needs a model to produce its output belongs in MCP.
 3. **No editing, and no bypass.** A screen may create records and relations through

@@ -17,6 +17,10 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
 import { makeAdrConnector } from "../../connectors/adr.js";
+import {
+  ingestCatalog,
+  makeBackstageConnector,
+} from "../../connectors/backstage.js";
 import { makeFetchExtractor, numEnv } from "../../connectors/extract.js";
 import { makeGithubPrConnector } from "../../connectors/github-pr.js";
 import { ingest } from "../../connectors/ingest.js";
@@ -43,6 +47,7 @@ import {
   backfillEmbeddings,
   backfillOccurredAt,
 } from "../../core/backfill.js";
+import { catalog } from "../../core/catalog.js";
 import { clusterDrafts } from "../../core/cluster.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
@@ -138,6 +143,8 @@ type Values = {
   stale?: boolean;
   /** `review --cluster`: group the draft queue by the duplicate threshold. */
   cluster?: boolean;
+  /** `catalog --owner`: only rows this group or person owns. */
+  owner?: string;
   /** `connect tracker --project`: Jira project key or Linear team key. */
   project?: string;
   embeddings?: boolean;
@@ -157,6 +164,7 @@ const OPTIONS = {
   port: { type: "string" },
   host: { type: "string" },
   project: { type: "string" },
+  owner: { type: "string" },
   attr: { type: "string", multiple: true },
   version: { type: "string" },
   type: { type: "string" },
@@ -442,6 +450,7 @@ const COMMANDS = [
   "conflicts",
   "overview",
   "owner",
+  "catalog",
   "ontology",
   "persona",
   "connect",
@@ -486,7 +495,7 @@ getting started:
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
   overview                  the shape of the whole corpus: types, hubs, authors (--limit n)
   link <from> <relation> <to>   record a relation (works_on, supersedes, relates_to …)
-capture:    connect github-pr|slack|notes|adr|tracker|rdb
+capture:    connect github-pr|slack|notes|adr|tracker|backstage|rdb
   connect raw <dir>         a model proposes records from unstructured material (needs YOKE_LLM_*)
   relate                    a model proposes the links BETWEEN stored records (needs YOKE_LLM_*)
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
@@ -1679,6 +1688,71 @@ async function cmdOwner(
   });
 }
 
+/**
+ * `yoke catalog` — the portal's front door, on the surface WEB-UI.md calls the parity floor.
+ *
+ * Ordered by rot rather than by name: this screen exists to make catalog decay visible, so the finding is
+ * the default sort. A row shows its own effective status, which is the condition the amended test 1 admits
+ * this screen under.
+ */
+async function cmdCatalog(v: Values, env: Env): Promise<number> {
+  const ns = resolveNs(v.ns, env);
+  return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
+    const ts = now();
+    const rows = await catalog(store, ontology, ts, {
+      ns,
+      owner: v.owner,
+      staleOnly: v.stale,
+    });
+    if (rows.length === 0) {
+      // Two different empties, and conflating them sends a reader to the wrong fix.
+      const declared = ontology.some((t) => t.name === "service");
+      emit(
+        v,
+        declared
+          ? "no catalog records (import one: yoke connect backstage --host <url>)"
+          : "the catalog types are not in this ontology (yoke ontology add-type ontology/catalog.json)",
+        [],
+      );
+      return 0;
+    }
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+    await prefetch([]);
+    const lines = await Promise.all(
+      rows.map(async (r) => {
+        const owner = r.owner
+          ? ((await nameOf(r.owner)) ?? r.owner)
+          : "(unowned)";
+        // The health columns first, because they are why this screen is allowed to exist.
+        return (
+          `${r.stale > 0 ? "!" : " "} ${r.status.padEnd(10)} ${r.name.padEnd(24)} ${r.type.padEnd(10)} ` +
+          `${owner.padEnd(20)} deps ${String(r.dependsOn).padStart(2)}/${String(r.dependents).padStart(2)}  ` +
+          `docs ${r.docs}  stale ${r.stale}${r.conflicts ? `  conflicts ${r.conflicts}` : ""}` +
+          (r.latestDecision
+            ? `\n      last decision: ${r.latestDecision.summary}`
+            : "")
+        );
+      }),
+    );
+    lines.push(
+      `-- ${rows.length} record${rows.length === 1 ? "" : "s"}; ` +
+        `${rows.filter((r) => r.stale > 0).length} with something stale, ` +
+        `${rows.filter((r) => !r.owner).length} unowned`,
+    );
+    emit(v, lines.join("\n"), rows);
+    auditRead(store, {
+      actor: resolveActor(v, env),
+      action: "read",
+      detail: `catalog -> ${rows.length} rows`,
+      at: ts,
+      ns,
+    });
+    return 0;
+  });
+}
+
 async function cmdConflicts(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
@@ -1983,7 +2057,9 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
   });
 }
 
-const ONTOLOGY_USAGE = "usage: yoke ontology <list|add-type <json-file>>";
+const ONTOLOGY_USAGE =
+  "usage: yoke ontology <list|add-type <json-file>>\n" +
+  "  the file holds one type definition or an array of them (a fragment, e.g. ontology/catalog.json)";
 
 async function cmdOntology(
   positionals: string[],
@@ -2020,22 +2096,46 @@ async function cmdOntology(
       console.error("usage: yoke ontology add-type <json-file>");
       return 1;
     }
-    let def: TypeDef;
+    let parsed: unknown;
     try {
-      def = JSON.parse(readFileSync(file, "utf8")) as TypeDef;
+      parsed = JSON.parse(readFileSync(file, "utf8"));
     } catch (e) {
       console.error(`cannot read type def: ${(e as Error).message}`);
       return 1;
     }
-    // `attrs` may be omitted in the file — a type with no attributes is legitimate (the seed's `term`
-    // and `resource` both are) — so it is defaulted before validation rather than demanded by it.
-    const withAttrs = { ...(def as TypeDef), attrs: def.attrs ?? {} };
-    const bad = validateTypeDef(withAttrs);
-    if (bad) {
-      console.error(`not a valid type definition: ${bad}`);
+    // One object or an array of them. A fragment is naturally a SET — `depends_on` means nothing without
+    // `service` — and four files for one concept is four chances to load half of it. The array is
+    // validated whole before anything is saved, so a typo in the fourth type does not leave a database
+    // holding the first three.
+    const raw = Array.isArray(parsed) ? parsed : [parsed];
+    if (raw.length === 0) {
+      console.error("no type definitions in file");
       return 1;
     }
-    def = withAttrs;
+    const defs: TypeDef[] = [];
+    const problems: string[] = [];
+    for (const [i, one] of raw.entries()) {
+      // `attrs` may be omitted in the file — a type with no attributes is legitimate (the seed's `term`
+      // and `resource` both are) — so it is defaulted before validation rather than demanded by it.
+      const withAttrs = {
+        ...(one as TypeDef),
+        attrs: (one as TypeDef).attrs ?? {},
+      };
+      const bad = validateTypeDef(withAttrs);
+      // The INDEX and the name, because a fragment's failure is otherwise "unknown field: 0" and the
+      // reader has to guess which of four types it was.
+      if (bad)
+        problems.push(
+          `  [${i}] ${(one as TypeDef)?.name ?? "(unnamed)"}: ${bad}`,
+        );
+      else defs.push(withAttrs);
+    }
+    if (problems.length) {
+      console.error(
+        `not a valid type definition${problems.length > 1 ? "s" : ""}:\n${problems.join("\n")}`,
+      );
+      return 1;
+    }
     return withStore(
       v,
       env,
@@ -2049,13 +2149,21 @@ async function cmdOntology(
         // place (`refuseKindChange`) rather than here: a flip like fact→relation would leave stored
         // facts injected as entities while `add fact` is refused as a relation, and a per-caller count
         // that looks only at entities cannot see the flip that has stored rows to lose.
-        const refusal = await refuseKindChange(store, def as TypeDef, ns);
-        if (refusal) {
-          console.error(refusal);
-          return 1;
+        // Every kind flip checked before any write, for the reason the validation loop above is also
+        // whole-file: a fragment half-applied is a database whose ontology nobody declared.
+        for (const def of defs) {
+          const refusal = await refuseKindChange(store, def, ns);
+          if (refusal) {
+            console.error(refusal);
+            return 1;
+          }
         }
-        await store.saveOntology([def], ns);
-        emit(v, `saved type: ${def.name}`, def);
+        await store.saveOntology(defs, ns);
+        emit(
+          v,
+          `saved type${defs.length > 1 ? "s" : ""}: ${defs.map((d) => d.name).join(", ")}`,
+          defs.length === 1 ? defs[0] : defs,
+        );
         return 0;
         // add-type is the other bootstrap path: it IS how a fresh (e.g. shard tenant) ontology gets
         // seeded, so it must be allowed to create the store — see the comment above.
@@ -2161,6 +2269,53 @@ async function cmdConnect(
     }
     return runIngest(makeAdrConnector({ dir }), v, env);
   }
+  if (source === "backstage") {
+    const url = v.host ?? env.BACKSTAGE_URL;
+    if (!url) {
+      console.error(
+        "usage: yoke connect backstage --host https://backstage.acme.com [--actor a]\n" +
+          "  or set BACKSTAGE_URL; BACKSTAGE_TOKEN if the catalog needs one",
+      );
+      return 1;
+    }
+    const ns = resolveNs(v.ns, env);
+    return withStore(v, env, async (store) => {
+      const ontology = requireOntology(store, ns, v, env);
+      if (!ontology) return 1;
+      // Refused rather than run: without the catalog types every row would fail ontology validation and
+      // the run would report "0 imported, 12 errors", which reads as a broken catalog rather than a
+      // missing fragment.
+      const missing = ["service", "api", "datastore", "depends_on"].filter(
+        (t) => !ontology.some((d) => d.name === t),
+      );
+      if (missing.length) {
+        console.error(
+          `the catalog types are not in this database's ontology (missing: ${missing.join(", ")}).\n` +
+            "Load them first: yoke ontology add-type ontology/catalog.json",
+        );
+        return 1;
+      }
+      const result = await ingestCatalog(
+        store,
+        ontology,
+        makeBackstageConnector({
+          url,
+          token: env.BACKSTAGE_TOKEN,
+          fetchImpl: fetch,
+        }),
+        now(),
+        ns,
+        makeFetchEmbedder(env),
+      );
+      emit(
+        v,
+        `imported ${result.entities} records, ${result.edges} edges, ${result.docs} doc links` +
+          (result.errors ? `, ${result.errors} errors` : ""),
+        result,
+      );
+      return result.errors ? 1 : 0;
+    });
+  }
   if (source === "tracker") {
     // One token variable per tracker, because they are different credentials and a single YOKE_TRACKER_TOKEN
     // would silently send a Linear key to Jira as basic auth — a 401 that reads as a permissions problem.
@@ -2239,8 +2394,8 @@ async function cmdConnect(
   if (source !== "github-pr" || !v.repo) {
     console.error(
       "usage: yoke connect <github-pr --repo owner/name | slack --channel C123 | notes <dir> |\n" +
-        "  adr <dir> | tracker [--host url] [--project KEY] | raw <dir> | rdb --mapping f.json>\n" +
-        "  [--since ts] [--actor a]",
+        "  adr <dir> | tracker [--host url] [--project KEY] | backstage --host url |\n" +
+        "  raw <dir> | rdb --mapping f.json> [--since ts] [--actor a]",
     );
     return 1;
   }
@@ -2797,6 +2952,10 @@ const COMMAND_USAGE: Record<string, string> = {
     "usage: yoke overview [--limit n] [--since ts]\n" +
     "  --since    also report what was captured since ts, by type and by author",
   conflicts: "usage: yoke conflicts",
+  catalog:
+    "usage: yoke catalog [--owner <group-id>] [--stale]\n" +
+    "  what the org runs, most-rotted first. --stale keeps only rows with something stale\n" +
+    "  attached (needs the catalog types: yoke ontology add-type ontology/catalog.json)",
   owner:
     "usage: yoke owner <id>\n" +
     "  who is on the hook for a record: its author, their group, the work it belongs to,\n" +
@@ -2916,6 +3075,8 @@ export async function runCli(
         return await cmdAudit(values, env);
       case "conflicts":
         return await cmdConflicts(values, env);
+      case "catalog":
+        return await cmdCatalog(values, env);
       case "owner":
         return await cmdOwner(rest, values, env);
       case "overview":

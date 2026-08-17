@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/ontology/", key: "ontology" },
   { href: "/persona/", key: "persona" },
   { href: "/collaboration/", key: "collaboration" },
+  { href: "/catalog/", key: "catalog" },
   { href: "/browse/", key: "browse" },
   { href: "/inject/", key: "inject" },
   { href: "/graph/", key: "graph" },

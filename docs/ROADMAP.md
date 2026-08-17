@@ -740,6 +740,33 @@ Plan: docs/PLAN-V7.md. The gap this closes is that the headline was measured out
       not the same person: author, inheriting group, owning work, last confirmer. One command, names not
       ULIDs, and the routing decision printed beside the edges it was made from
 
+## v7.3 — the portal, and the line it had to move
+
+- [x] **7.3.1 WEB-UI.md's line moves, in writing, first.** Test 1 forbade "look something up", so the
+      amendment is dated and argued in the document the way that document demands — a screen may answer
+      "what do we run and who owns it" **only while every row carries effective status, freshness and
+      owner**, because a catalog that cannot be read without its rot is the one surface on which catalog
+      decay is visible. Tests 2 and 3 untouched; the refused list (no answers, no second catalog, no green
+      without evidence) is written down beside it
+- [x] **7.3.2 catalog types as a fragment.** `service`, `api`, `datastore`, `depends_on` in
+      `ontology/catalog.json` — core changed by zero lines. Not seeded: a knowledge database should not
+      presume every tenant runs services. `ontology add-type` now takes an array, validating the whole
+      file before writing any of it, because a fragment is a set (`depends_on` means nothing without
+      `service`) and four files is four chances to load half of one
+- [x] **7.3.3 `yoke connect backstage`.** The catalog API → records, `owns` edges onto v7.2's group ids,
+      `depends_on`, TechDocs as `resource`. Verified on import under the `connect rdb` exception, and
+      carrying the fragment's TTL, which is the whole reason this beats mirroring: a descriptor is only as
+      fresh as its last PR, so an unsynced catalog goes stale in the queue instead of lying. Re-import
+      re-versions, so it is safe on a schedule. The API rather than `catalog-info.yaml` by glob — the API
+      is those descriptors aggregated, and a YAML parser would be this repo's first dependency for a
+      format it never otherwise reads; an org with descriptors but no Backstage is a stated gap
+- [x] **7.3.4 `/catalog` and `yoke catalog`.** One core read behind both (the doc's parity floor), rows
+      ordered most-rotted-first because the rot is the finding, and each row carrying its own citation —
+      a catalog row is a record, and the citation is what tells a hand-typed service from an imported one
+- [x] **7.3.5 a service reads as a service on the page that already exists.** A type-aware panel on
+      `/entity` rather than a `/service` route: the detail response already carries every edge, so a second
+      page would be a second thing to keep in sync. Non-catalog types render byte-identically
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

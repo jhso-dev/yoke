@@ -83,12 +83,36 @@ export const en = {
     page: (page: number, pages: number, total: number) =>
       `Page ${page} of ${pages} · ${total} total`,
   },
+  catalog: {
+    title: "Catalog",
+    hint: "What the org runs. Every row carries its status, what has gone stale, and who owns it — a catalog you can read without seeing the rot is the rot.",
+    staleOnly: "only rows with something stale",
+    empty:
+      "No catalog records. Import one with 'yoke connect backstage', after loading ontology/catalog.json.",
+    owner: "owner",
+    unowned: "nobody owns it",
+    deps: (out: number, incoming: number) =>
+      `depends on ${out} · ${incoming} depend on it`,
+    docs: (n: number) => (n === 0 ? "no docs" : `${n} docs`),
+    stale: (n: number) => `${n} stale`,
+    conflicts: (n: number) => `${n} in conflict`,
+    panelTitle: "Catalog",
+    dependsOnLabel: "depends on",
+    dependentsLabel: "depended on by",
+    docsLabel: "docs",
+    none: "none",
+    noDocs: "nothing documents it",
+    lastDecision: "last decision",
+    summary: (total: number, stale: number, unowned: number) =>
+      `${total} records · ${stale} with something stale · ${unowned} unowned`,
+  },
   nav: {
     review: "review",
     conflicts: "conflicts",
     ontology: "ontology",
     persona: "persona",
     collaboration: "collaboration",
+    catalog: "catalog",
     browse: "browse",
     inject: "inject",
     graph: "graph",
