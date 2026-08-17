@@ -50,6 +50,7 @@ When in doubt, cut. A smaller diff that removes is worth more than a larger one 
 - `docs/ROADMAP.md` — per-version tasks, in the order they were built
 - `docs/PLAN.md` — the detailed v1 implementation plan (task = one commit, with files, signatures, tests, and DoD)
 - `docs/PLAN-V2.md` — the v2.0 → v3.6 plan, plus the dated record of which non-goals were later reversed and why
+- `docs/PLAN-V7.md` — the v7.0 → v7.6 plan: the five gaps the Portal comparison exposed (measurement, capture density, the people model, yoke's own portal, distribution) and the commit that closes each. v7.3.1 moves WEB-UI.md's line to admit portal screens — read that amendment before adding one
 - `docs/MARKET.md` — the competitive landscape and strategy (surveyed 2026-07)
 - `docs/ENTERPRISE.md` — multi-tenancy, auth, RBAC, and distribution design, plus the backward-compatibility constraints that hold from v0.1
 - `docs/BACKENDS.md` — backend adapter extension and the RDB read-mapping design

@@ -375,6 +375,7 @@ totals.
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
 | [WEB-UI](docs/WEB-UI.md) | The governance workbench — the twelve screens and the line we don't cross |
 | [ROADMAP](docs/ROADMAP.md) | v0.1 → v6.1 built, in order, each section a record |
+| [PLAN-V7](docs/PLAN-V7.md) | v7.0 → v7.6 planned — reproducible measurement, capture density, groups, the portal, distribution |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
 | [MARKET](docs/MARKET.md) | Competitive landscape and positioning |
