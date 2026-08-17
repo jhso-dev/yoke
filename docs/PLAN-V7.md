@@ -364,10 +364,24 @@ DoD: `yoke overview` output on the project's own DB in the README, dated.
 
 ---
 
-## Open decisions
+## Decided while building
 
-1. **7.6.1 name** — scoped publish or product rename. Blocks 7.6.2/7.6.3, and touches every doc, so
-   decide before v7.3 starts to avoid re-editing the portal docs too.
+1. **7.6.1 name — scoped publish.** `@jhso-dev/yoke` at `0.7.0`. The bare name is `sintaxi/yoke` on npm
+   (a preprocessor, 0.1.3), and a scope keeps the binary, the docs and the ontology vocabulary unchanged,
+   which a rename would not. Reversible: nothing outside `package.json` names the package.
+2. **7.3.1 seed or fragment — fragment.** `ontology/catalog.json`, loaded on demand and shipped inside the
+   package, because a knowledge database should not presume every tenant runs services. It made
+   `add-type` take an array (a fragment is a set) and take a bare name (`add-type catalog`), so the
+   refusals that tell people to load it name something a global install actually has.
+
+## Still open, and why
+
+- **7.6.2 / 7.6.3 — the first publish and the registry listings.** Outward actions, prepared and not
+  taken: the package packs clean and `prepublishOnly` gates it on the four checks, but publishing is the
+  owner's call. README's install still documents the installer script rather than an npm command that
+  does not resolve yet.
+- **7.0.4 — the full 589-query run.** Needs an answering endpoint. `npm run bench` is the command, and it
+  refuses to start until the harness is pinned.
 
 ## What stays out, and why the portal is still whole without it
 
