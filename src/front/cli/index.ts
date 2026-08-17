@@ -57,6 +57,7 @@ import {
   downstreamOf,
   listVersions,
   staleEntities,
+  staleOwners,
   verify,
 } from "../../core/lifecycle.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
@@ -440,6 +441,7 @@ const COMMANDS = [
   "history",
   "conflicts",
   "overview",
+  "owner",
   "ontology",
   "persona",
   "connect",
@@ -1088,16 +1090,23 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
         consumptionCounts(store.listAudit({ ns, limit: CONSUMPTION_WINDOW })),
       );
       // This queue exists to name a person to go and ask, so an unresolved id is the column doing the
-      // opposite of its job.
+      // opposite of its job. The owner comes from `staleOwners`, never from `provenance.actor`: that
+      // field is the PROMOTER on any verified record, so keying on it routes the whole corpus's expiry
+      // to whoever ran the sweep. `via` rides along because "their group inherited this" and "this is
+      // the author" are different instructions to the person reading the queue.
+      const owners = await staleOwners(store, ranked, ns);
       const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
       await prefetch(ranked);
       const lines = await Promise.all(
-        ranked.map(
-          async (e) =>
-            `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${
-              (await nameOf(e.provenance.actor)) ?? e.provenance.actor
-            }  injected ${e.injections}x  last confirmed ${e.last_confirmed}`,
-        ),
+        ranked.map(async (e) => {
+          const owner = owners.get(e.id);
+          const who = owner
+            ? ((await nameOf(owner.actor)) ?? owner.actor)
+            : e.provenance.actor;
+          const via =
+            owner && owner.via !== "author" ? ` (via ${owner.via})` : "";
+          return `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${who}${via}  injected ${e.injections}x  last confirmed ${e.last_confirmed}`;
+        }),
       );
       // The scan is bounded, so say what it covered — "3 stale" alone reads as "3 stale in the whole
       // corpus", which is a claim this walk did not make.
@@ -1595,6 +1604,77 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
     ].join("\n");
     emit(v, human, o);
     auditRead(store, overviewEvent);
+    return 0;
+  });
+}
+
+/**
+ * `yoke owner <id>` — the question a catalog exists to answer, over one record.
+ *
+ * Four different people can be involved with one record and they are routinely not the same: whoever
+ * wrote it, the group that inherited it, the work it belongs to, and whoever last vouched for it. Before
+ * this, the only way to ask was to read a citation and know that `provenance.actor` means the promoter on
+ * anything verified — which is exactly the misreading v7.1.2 found in the stale queue.
+ */
+async function cmdOwner(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const id = positionals[0];
+  if (!id) {
+    console.error(COMMAND_USAGE.owner);
+    return 1;
+  }
+  const ns = resolveNs(v.ns, env);
+  return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
+    const entity = await store.getEntity(id);
+    if (!entity || normalizeNs(entity.ns) !== normalizeNs(ns)) {
+      console.error(`no such record: ${id}`);
+      return 1;
+    }
+    // The same resolver the stale queue routes by, so "who owns this" has one answer in this product.
+    const routed = (await staleOwners(store, [entity], ns)).get(id);
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+    await prefetch([entity]);
+    const name = async (actor: string | undefined) =>
+      actor ? ((await nameOf(actor)) ?? actor) : undefined;
+    const author = (await store.neighbors(id, "authored_by", "out"))[0]?.to;
+    const groups = author
+      ? (await store.neighbors(author, "member_of", "out")).map((r) => r.to)
+      : [];
+    const owned = (await store.neighbors(id, "owns", "in")).map((r) => r.from);
+    const answer = {
+      record: id,
+      type: entity.type,
+      // `routed` is what the expiry queue will actually do, stated separately from the raw edges so a
+      // reader can see both the decision and what it was made from.
+      routesTo: routed?.actor,
+      routesVia: routed?.via,
+      author,
+      groups,
+      accountable: owned,
+      lastConfirmedBy: entity.provenance.actor,
+      lastConfirmedAt: entity.last_confirmed,
+    };
+    const lines = [
+      `${summarize(entity, ontology)}  [${entity.type}]`,
+      `  routes to        ${(await name(routed?.actor)) ?? "(nobody)"}${routed ? ` (via ${routed.via})` : ""}`,
+      `  author           ${(await name(author)) ?? "(no authored_by edge — 'yoke backfill' re-derives it)"}`,
+      `  groups           ${(await Promise.all(groups.map(name))).join(", ") || "(none)"}`,
+      `  accountable      ${(await Promise.all(owned.map(name))).join(", ") || "(nothing claims to own it)"}`,
+      `  last confirmed   ${(await name(entity.provenance.actor)) ?? entity.provenance.actor} at ${entity.last_confirmed}`,
+    ];
+    emit(v, lines.join("\n"), answer);
+    auditRead(store, {
+      actor: resolveActor(v, env),
+      action: "read",
+      detail: `owner -> ${id}`,
+      at: now(),
+      ns,
+    });
     return 0;
   });
 }
@@ -2717,6 +2797,10 @@ const COMMAND_USAGE: Record<string, string> = {
     "usage: yoke overview [--limit n] [--since ts]\n" +
     "  --since    also report what was captured since ts, by type and by author",
   conflicts: "usage: yoke conflicts",
+  owner:
+    "usage: yoke owner <id>\n" +
+    "  who is on the hook for a record: its author, their group, the work it belongs to,\n" +
+    "  and who last vouched for it",
   backfill:
     "usage: yoke backfill [--embeddings] [--rebuild] [--limit n] [--after cursor]\n" +
     "  no flags       re-derive missing authorship edges\n" +
@@ -2832,6 +2916,8 @@ export async function runCli(
         return await cmdAudit(values, env);
       case "conflicts":
         return await cmdConflicts(values, env);
+      case "owner":
+        return await cmdOwner(rest, values, env);
       case "overview":
         return await cmdOverview(values, env);
       case "ontology":

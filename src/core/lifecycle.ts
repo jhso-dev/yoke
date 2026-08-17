@@ -359,6 +359,108 @@ const STALE_SCAN_PAGE = 500;
  * and freshness moves with the clock. If a corpus ever makes this too slow, the fix is a materialized
  * `expires_at` per row maintained by verify, not a smarter walk.
  */
+/** Who a stale record should go back to, and which edge said so. */
+export interface StaleOwner {
+  /** A person or group id, or an actor handle when nothing better resolved. */
+  actor: string;
+  /**
+   * `author` — the `authored_by` edge, i.e. whoever's judgment this is.
+   * `group` — the author's `member_of` group, because the author is not a record in this namespace.
+   * `collaboration` — the work the record is attached to, because the author has no group either.
+   * `promoter` — head provenance, the last resort. Nothing about this record says who knows it.
+   */
+  via: "author" | "group" | "collaboration" | "promoter";
+}
+
+/**
+ * Resolve the routing target for each stale record.
+ *
+ * This exists because `provenance.actor` is the WRONG answer and reads like the right one. `verify`
+ * replaces provenance (`transition` below), so on any promoted record that field is the promoter — and a
+ * stale queue keyed on it routes every expiring record in the organisation to whoever ran the weekly
+ * sweep, while the person whose judgment it was never hears that it expired. Reproduced through the CLI
+ * with a zero-TTL type: written by person:author-ann, promoted by person:reviewer-bob, listed as owned by
+ * reviewer-bob. The `authored_by` edge is the durable claim (promotion does not pass through the gate),
+ * so it is what this reads first.
+ *
+ * The fallbacks handle the case the author cannot be asked: an author id that names no `person` record in
+ * this namespace is an agent handle (`ci:adr`) or someone who is gone. Then the question becomes "who
+ * inherited this", and a group answers it before the work does.
+ *
+ * One function because two front adapters render this column, and two derivations of "who owns it" is how
+ * one queue starts naming two different people.
+ */
+export async function staleOwners(
+  port: StoragePort,
+  entities: Entity[],
+  ns?: string | null,
+): Promise<Map<string, StaleOwner>> {
+  const out = new Map<string, StaleOwner>();
+  const scope = normalizeNs(ns);
+  /**
+   * id -> is there someone at this id who can be asked, in this namespace.
+   *
+   * A `deprecated` record is NOT answerable, and that is the whole point: retirement is the only way yoke
+   * has to say someone left (there is no delete), so `yoke deprecate person:x` is how an org marks a
+   * departure — and their expiring knowledge has to reach whoever inherited it rather than sitting in a
+   * queue addressed to someone who is gone. Cached because a sweep's records share authors.
+   */
+  const answerable = new Map<string, boolean>();
+  const canAsk = async (id: string): Promise<boolean> => {
+    const cached = answerable.get(id);
+    if (cached !== undefined) return cached;
+    const e = await port.getEntity(id);
+    const ok =
+      e !== null && normalizeNs(e.ns) === scope && e.status !== "deprecated";
+    answerable.set(id, ok);
+    return ok;
+  };
+  for (const entity of entities) {
+    const authored = (await port.neighbors(entity.id, "authored_by", "out"))[0];
+    const author = authored?.to;
+    if (author && (await canAsk(author))) {
+      out.set(entity.id, { actor: author, via: "author" });
+      continue;
+    }
+    // The author cannot be asked — gone (a deprecated person record), or never a record at all (an agent
+    // handle like `ci:nightly`, or an author whose record lives in another namespace). Their group
+    // inherits, read off the author id even when no person record backs it, because an org chart mirrored
+    // from an IdP names its members by the same handle the connector wrote.
+    const group = author
+      ? (await port.neighbors(author, "member_of", "out"))[0]?.to
+      : undefined;
+    if (group && (await canAsk(group))) {
+      out.set(entity.id, { actor: group, via: "group" });
+      continue;
+    }
+    const work = (await port.neighbors(entity.id, "relates_to", "out")).map(
+      (r) => r.to,
+    );
+    let anchored: string | undefined;
+    for (const id of work) {
+      const target = await port.getEntity(id);
+      if (
+        target &&
+        target.type === "collaboration" &&
+        normalizeNs(target.ns) === scope
+      ) {
+        anchored = id;
+        break;
+      }
+    }
+    out.set(
+      entity.id,
+      anchored
+        ? { actor: anchored, via: "collaboration" }
+        : // Head provenance last. It is the promoter, and saying so is the point: a queue that shows
+          // `promoter` on many rows is telling the reader its authorship edges are missing
+          // (`yoke backfill` re-derives them), not that one person owns the corpus.
+          { actor: entity.provenance.actor, via: "promoter" },
+    );
+  }
+  return out;
+}
+
 export async function staleEntities(
   port: StoragePort,
   ontology: TypeDef[],

@@ -166,6 +166,50 @@ export function createServeServer(deps: ServeDeps): ServeServer {
     await verify(store, [id], id, ts, ns);
   }
 
+  /**
+   * Mirror the IdP's `groups` claim into `group` records and `member_of` edges, on login.
+   *
+   * The org chart belongs to the IdP, so this syncs rather than asks anyone to retype it. Both halves go
+   * through the commit gate like everything else, and both are verified immediately for the same reason
+   * `connect rdb` maps a verified source: the IdP already IS the organisation's system of record for who
+   * works where, and a draft group edge would sit in the review queue while the routing it exists to fix
+   * stays broken.
+   *
+   * Membership is additive here. A group the claim no longer lists is left in place, because a token is a
+   * snapshot of one login and treating an absent claim as a departure would unfile someone's membership
+   * every time they authenticate with a differently-scoped token. Removing a person from a group is a
+   * governance act with an audit trail, not a side effect of a login.
+   */
+  async function syncGroups(personId: string, groups: string[]): Promise<void> {
+    for (const name of groups) {
+      // Deterministic id from the claim, so two logins mirror one group rather than two.
+      const id = `group:${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      const ts = now();
+      if (!(await store.getEntity(id))) {
+        await commit(
+          store,
+          store.loadOntology(ns),
+          { type: "group", attributes: { name } },
+          { actor: personId, origin: "oidc", occurred_at: ts },
+          ts,
+          { existingId: id, ns },
+        );
+        await verify(store, [id], personId, ts, ns);
+      }
+      const already = await store.neighbors(personId, "member_of", "out");
+      if (already.some((r) => r.to === id)) continue;
+      const edge = await commit(
+        store,
+        store.loadOntology(ns),
+        { type: "member_of", attributes: {}, from: personId, to: id },
+        { actor: personId, origin: "oidc", occurred_at: ts },
+        ts,
+        { ns },
+      );
+      await verify(store, [edge.entity.id], personId, ts, ns);
+    }
+  }
+
   async function authenticate(cred: string): Promise<Principal | null> {
     // API token first (a plain secret, no dots). Then OIDC JWT.
     const tok = store.verifyToken(cred);
@@ -175,6 +219,9 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       if (sub) {
         const id = `oidc:${sub.subject}`;
         await provisionPerson(id, sub.subject);
+        // Groups are mirrored for ROUTING, never for authorization — the scopes below come from
+        // `claimedScopes` alone, so an IdP group cannot silently confer `verify`.
+        if (sub.groups.length) await syncGroups(id, sub.groups);
         // A verified identity is a VIEWER by default. write and verify are the governance
         // permissions — ENTERPRISE.md: "the verify permission IS the knowledge-governance
         // permission" — so they come only from an explicit grant, never from the mere fact of

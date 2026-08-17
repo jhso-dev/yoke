@@ -10,11 +10,12 @@ import {
   effectiveStatus,
   isFresh,
   staleEntities,
+  staleOwners,
   verify,
   versionAsOf,
 } from "./lifecycle.js";
 import { seedOntology } from "./ontology.js";
-import type { Provenance } from "./types.js";
+import type { Entity, Provenance } from "./types.js";
 
 const ont = seedOntology();
 const now = "2026-07-12T00:00:00Z";
@@ -522,5 +523,184 @@ describe("retiring what is already retired records nothing", () => {
     const [again] = await verify(port, [f], "admin", "2026-07-14T00:00:00Z");
     expect(again.version).toBe(3);
     expect(again.last_confirmed).toBe("2026-07-14T00:00:00.000Z");
+  });
+});
+
+describe("staleOwners", () => {
+  // The defect this exists for: `provenance.actor` is the PROMOTER on anything verified, so a queue
+  // keyed on it routes the whole corpus's expiry to whoever swept last, and the person whose judgment
+  // it was never hears that it expired.
+  const at = "2026-08-17T00:00:00Z";
+  const provAt = (actor: string) => ({
+    actor,
+    origin: "cli" as const,
+    occurred_at: at,
+  });
+
+  let store: SqliteStorage;
+  beforeEach(async () => {
+    store = new SqliteStorage(":memory:");
+    await store.init();
+  });
+
+  const person = async (id: string, name: string) => {
+    await commit(
+      store,
+      ont,
+      { type: "person", attributes: { name } },
+      provAt("yoke:system"),
+      at,
+      { existingId: id },
+    );
+    await verify(store, [id], "yoke:system", at);
+    return id;
+  };
+
+  const record = async (author: string) => {
+    const r = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { statement: "something worth keeping" } },
+      provAt(author),
+      at,
+    );
+    await verify(store, [r.entity.id], "person:reviewer", at);
+    return (await store.getEntity(r.entity.id)) as Entity;
+  };
+
+  it("routes to the author, not to whoever promoted it", async () => {
+    const author = await person("person:ann", "Ann Author");
+    const entity = await record(author);
+    // Head provenance now names the reviewer — this is exactly the value that must NOT be used.
+    expect(entity.provenance.actor).toBe("person:reviewer");
+
+    const owner = (await staleOwners(store, [entity])).get(entity.id);
+    expect(owner).toEqual({ actor: "person:ann", via: "author" });
+  });
+
+  it("falls back to the author's group when the author is not a record here", async () => {
+    // An agent handle, or someone who is gone: nothing to ask, so the group inherits.
+    const entity = await record("ci:nightly");
+    const group = await person("group:platform", "Platform"); // any present record with the id
+    // `derived: true` skips endpoint validation, which is what an org-chart mirror needs: an IdP names
+    // its members by the same handle the connector wrote, and that handle is routinely not a record.
+    await commit(
+      store,
+      ont,
+      { type: "member_of", attributes: {}, from: "ci:nightly", to: group },
+      provAt("yoke:system"),
+      at,
+      { derived: true },
+    );
+    const owner = (await staleOwners(store, [entity])).get(entity.id);
+    expect(owner).toEqual({ actor: "group:platform", via: "group" });
+  });
+
+  it("falls back to the work the record belongs to", async () => {
+    const entity = await record("ci:nightly");
+    const collab = await commit(
+      store,
+      ont,
+      { type: "collaboration", attributes: { title: "PAY-42" } },
+      provAt("yoke:system"),
+      at,
+    );
+    await commit(
+      store,
+      ont,
+      {
+        type: "relates_to",
+        attributes: {},
+        from: entity.id,
+        to: collab.entity.id,
+      },
+      provAt("yoke:system"),
+      at,
+    );
+    const owner = (await staleOwners(store, [entity])).get(entity.id);
+    expect(owner).toEqual({ actor: collab.entity.id, via: "collaboration" });
+  });
+
+  it("says `promoter` when nothing else resolves, so a broken corpus is legible", async () => {
+    const entity = await record("ci:nightly");
+    const owner = (await staleOwners(store, [entity])).get(entity.id);
+    // Many rows reading `promoter` means the authorship edges are missing (`yoke backfill` re-derives
+    // them) — not that one person owns everything.
+    expect(owner).toEqual({ actor: "person:reviewer", via: "promoter" });
+  });
+
+  it("does not route across namespaces", async () => {
+    const entity = await record(await person("person:ann", "Ann"));
+    // Asked as another tenant, the author record is not present, so this must not name them.
+    const owner = (await staleOwners(store, [entity], "acme")).get(entity.id);
+    expect(owner?.via).not.toBe("author");
+  });
+});
+
+describe("staleOwners — a departure", () => {
+  const at = "2026-08-17T00:00:00Z";
+  let store: SqliteStorage;
+  beforeEach(async () => {
+    store = new SqliteStorage(":memory:");
+    await store.init();
+  });
+
+  it("routes a departed author's knowledge to their group", async () => {
+    const prov = (actor: string) => ({
+      actor,
+      origin: "cli" as const,
+      occurred_at: at,
+    });
+    for (const [id, name] of [
+      ["person:ann", "Ann Author"],
+      ["group:platform", "Platform"],
+    ]) {
+      await commit(
+        store,
+        ont,
+        {
+          type: id.startsWith("group:") ? "group" : "person",
+          attributes: { name },
+        },
+        prov("yoke:system"),
+        at,
+        { existingId: id },
+      );
+      await verify(store, [id], "yoke:system", at);
+    }
+    await commit(
+      store,
+      ont,
+      {
+        type: "member_of",
+        attributes: {},
+        from: "person:ann",
+        to: "group:platform",
+      },
+      prov("yoke:system"),
+      at,
+    );
+    const r = await commit(
+      store,
+      ont,
+      { type: "fact", attributes: { statement: "how the ledger settles" } },
+      prov("person:ann"),
+      at,
+    );
+    await verify(store, [r.entity.id], "person:reviewer", at);
+
+    const entity = (await store.getEntity(r.entity.id)) as Entity;
+    expect((await staleOwners(store, [entity])).get(entity.id)).toEqual({
+      actor: "person:ann",
+      via: "author",
+    });
+
+    // Ann leaves. Retirement is the only way yoke can say so, and her expiring knowledge must not sit in
+    // a queue addressed to her.
+    await deprecate(store, ["person:ann"], "person:admin", at);
+    expect((await staleOwners(store, [entity])).get(entity.id)).toEqual({
+      actor: "group:platform",
+      via: "group",
+    });
   });
 });

@@ -407,6 +407,17 @@ export function seedOntology(): TypeDef[] {
       attrs: { name: { type: "string", required: true } },
       structural: true,
     },
+    // A team, squad or department (v7.2). Structural for the same reason `person` is: a group NAMES
+    // something knowledge attaches to and is never injectable knowledge itself, so the authors ranking
+    // and the capture-density window both leave it out — importing an org chart is not a productive week.
+    // `name` is declared because every surface that shows a group shows its name, and the ontology-driven
+    // create form offers exactly the declared fields.
+    {
+      name: "group",
+      kind: "entity",
+      attrs: { name: { type: "string", required: true } },
+      structural: true,
+    },
     // Declared, and in this order, because the ontology is what tells `summarize` which attribute
     // carries the meaning; an undeclared type is guessed at and offers zero fields in the create form.
     //
@@ -524,5 +535,14 @@ export function seedOntology(): TypeDef[] {
     // it passes `scopeRel: 'authored_by'`, so it never traverses this and cannot present a fact the
     // person did not author as their judgment.
     { name: "derived_from", kind: "relation", attrs: {} },
+    // Who a person belongs to (v7.2). `membership: true` for the same reason `works_on` carries it: an
+    // org chart is not knowledge, and a briefing anchored on a group must not hand an agent its roster
+    // as findings. What it IS for is routing — `review --stale` falls back to a record's author's group
+    // when the author is no longer a member of one, so expiring knowledge reaches someone.
+    { name: "member_of", kind: "relation", attrs: {}, membership: true },
+    // Who is accountable for something (v7.2). NOT `membership`: unlike a roster, "the payments squad
+    // owns the ledger service" is a claim about the world that a briefing should reach — it is the
+    // answer to "who do I ask", which is the question a catalog exists to answer.
+    { name: "owns", kind: "relation", attrs: {} },
   ];
 }

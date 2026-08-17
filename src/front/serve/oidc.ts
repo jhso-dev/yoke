@@ -18,6 +18,30 @@ export interface OidcConfig {
   jwks?: JwksResolver;
 }
 
+/**
+ * The `groups` claim, as a list of non-empty names.
+ *
+ * Providers disagree on shape — an array of strings (Okta, Auth0, Entra) or one space-separated string
+ * (some SAML bridges) — so both are read. Anything else yields nothing rather than a group named
+ * `[object Object]`, because a junk group in the org chart routes real expiring knowledge to nobody.
+ */
+export function groupClaims(payload: Record<string, unknown>): string[] {
+  const raw = payload.groups;
+  const list = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? raw.split(/[\s,]+/)
+      : [];
+  return [
+    ...new Set(
+      list
+        .filter((g): g is string => typeof g === "string")
+        .map((g) => g.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
 export interface OidcSubject {
   /** Stable identity: email claim if present, else sub. Maps to the actor / person id. */
   subject: string;
@@ -27,6 +51,16 @@ export interface OidcSubject {
    * grants nothing — serve then falls back to read-only, because holding an SSO account is not a
    * governance grant. See claimedScopes. */
   scopes: string[];
+  /**
+   * Group names the IdP says this subject belongs to (`groups`, the claim every provider spells the
+   * same). Names, not ids: the IdP owns the org chart, so yoke mirrors it rather than asking anyone to
+   * retype it — see `syncGroups` in serve.
+   *
+   * Deliberately NOT used for authorization. Scopes come from `claimedScopes` alone, so an IdP that adds
+   * a group cannot silently grant `verify`; this claim only answers "who inherits this person's
+   * knowledge when they are not the one to ask" (the stale-routing fallback).
+   */
+  groups: string[];
 }
 
 /** Build config from env, or null when OIDC is not configured. */
@@ -94,6 +128,7 @@ export function makeOidcVerifier(
         subject,
         ns: claimNs,
         scopes: claimedScopes(payload, claimNs),
+        groups: groupClaims(payload),
       };
     } catch {
       return null; // expired, wrong audience/issuer, bad signature — all read as "not authenticated"

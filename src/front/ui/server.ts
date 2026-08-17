@@ -22,6 +22,7 @@ import {
   effectiveStatus,
   listVersions,
   staleEntities,
+  staleOwners,
   verify,
 } from "../../core/lifecycle.js";
 import { normalizeNs } from "../../core/namespace.js";
@@ -599,10 +600,17 @@ export function createUiHandler(
         // `scanned` travels with the rows: the walk is bounded, so a screen that printed only the
         // count would be claiming a corpus-wide number this did not compute. `consumptionWindow` is
         // the count's own bound — never a silent slice: the screen can say what "injections" counts.
+        // Owner from `staleOwners`, not from the row's provenance: that field is the promoter on every
+        // verified record, so a queue keyed on it routes the corpus's expiry to whoever swept last.
+        // Same core resolver the CLI uses — two derivations of "who owns this" is how one queue names
+        // two different people.
+        const owners = await staleOwners(store, ranked, ns);
         sendJson(res, 200, {
           items: (await rowsOf(ranked)).map((r, i) => ({
             ...r,
             injections: ranked[i].injections,
+            owner: owners.get(ranked[i].id)?.actor,
+            ownerVia: owners.get(ranked[i].id)?.via,
           })),
           next,
           scanned,

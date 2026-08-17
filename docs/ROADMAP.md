@@ -715,6 +715,31 @@ Plan: docs/PLAN-V7.md. The gap this closes is that the headline was measured out
       runs, idempotent by `external_id`, filling the review queue while the human habits are still
       forming
 
+## v7.2 — an org chart, and knowledge that reaches whoever can answer for it
+
+- [x] **7.2.1 `group`, `member_of`, `owns` in the seed.** `group` is structural like `person`, so an
+      imported org chart is not counted as a productive week by the capture window and never ranks as
+      knowledge. `member_of` is `membership` (a roster is not a finding); `owns` deliberately is NOT,
+      because "the payments squad owns the ledger" is the answer to "who do I ask" and a briefing should
+      reach it
+- [x] **7.2.2 the IdP's `groups` claim is mirrored on login.** Both array and space-separated shapes,
+      through the commit gate, verified immediately for the same reason `connect rdb` maps a verified
+      source — the IdP already is the system of record for who works where. Membership is additive: a
+      claim that omits a group is a snapshot of one login, not a departure, and unfiling someone on every
+      token would break the routing this exists to fix. **Never authorization** — scopes still come from
+      `claimedScopes` alone, so an IdP group cannot silently confer `verify`
+- [x] **7.2.3 the stale queue routes to whoever can answer.** `staleOwners` in core, called by both front
+      adapters: author (from `authored_by`) → their group → the work it belongs to → the promoter, with
+      `via` on every row so "their group inherited this" reads differently from "this is the author". A
+      *deprecated* person is not answerable, which is how an org says someone left — retirement is the
+      only mechanism yoke has, so `yoke deprecate person:x` now moves their expiring knowledge to their
+      group instead of leaving it addressed to someone who is gone. Verified through the CLI on the same
+      zero-TTL reproduction that exposed the defect: the row that read `person:reviewer-bob` now reads
+      `Ann Author`
+- [x] **7.2.4 `yoke owner <id>`.** Four different people can be involved with one record and routinely are
+      not the same person: author, inheriting group, owning work, last confirmer. One command, names not
+      ULIDs, and the routing decision printed beside the edges it was made from
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.
