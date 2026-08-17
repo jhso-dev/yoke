@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Citation } from "../../components/Citation";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -21,7 +22,7 @@ import { useAsync } from "../../lib/useAsync";
  * verified record that field is whoever promoted it, which is the defect v7.1.2 found in the stale queue.
  * A screen built on it would show the reviewer the whole organisation's backlog and every author nothing.
  */
-export default function Owner() {
+function OwnerBody() {
   const t = useT();
   const id = useSearchParams().get("id") ?? "";
   const load = useAsync(
@@ -117,5 +118,15 @@ export default function Owner() {
         </>
       ) : null}
     </>
+  );
+}
+
+/** useSearchParams must sit under a Suspense boundary or the static export build fails. */
+export default function OwnerPage() {
+  const t = useT();
+  return (
+    <Suspense fallback={<p className="muted">{t.common.loading}</p>}>
+      <OwnerBody />
+    </Suspense>
   );
 }
