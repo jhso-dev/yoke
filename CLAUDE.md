@@ -56,6 +56,7 @@ When in doubt, cut. A smaller diff that removes is worth more than a larger one 
 - `docs/WEB-UI.md` — the governance workbench UI design
 - `docs/SCALE.md` — what breaks at 10M records, measured, and the ceiling that remains
 - `docs/RESEARCH.md` — outside findings that bear on decisions not yet made (multi-reviewer verify, dissent preservation, and where GraphRAG's measured wins do and do not apply to us). §1–4 are unimplemented; §5 names the SPEC clauses it produced
+- `docs/ADOPTION.md` — the maker-org rollout playbook: the shared capture→verify→inject loop, per-role capture/consumption, the three rituals that build capture density, and the scale rehearsal (`scripts/gen-kraftonway-corpus.mjs`)
 
 ## Commands
 

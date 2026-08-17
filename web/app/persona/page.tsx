@@ -94,11 +94,17 @@ function Roster() {
                     <StatusBadge status={p.effectiveStatus} />
                   </div>
                 </CardHeader>
-                {/* No record count on the card: the list payload carries `summary`, not a tally,
-                    and one persona query per card to print a number would be an N+1 for a number
-                    nobody acts on. The count is on the person's own page. */}
+                {/* The person's role, not the record's citation: the roster is seeded by the steward,
+                    so every citation reads "steward" and says nothing about who this is. Role is what
+                    tells a PO card from a developer card. Falls back to the citation when a person has
+                    no role. No record count: the list payload carries `summary`, not a tally, and one
+                    persona query per card to print a number would be an N+1 nobody acts on. */}
                 <CardContent className="px-4">
-                  <Citation row={p} />
+                  {p.role ? (
+                    <span className="muted">{p.role}</span>
+                  ) : (
+                    <Citation row={p} />
+                  )}
                 </CardContent>
               </Card>
             </Link>

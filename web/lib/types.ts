@@ -22,6 +22,9 @@ export interface Knowledge {
    * ('yoke:system') and for person ids that no longer resolve, so render `actorName ?? actor`
    * and keep the id reachable — it is what the citation points at. */
   actorName?: string;
+  /** The record's own `role` attribute, when it has one (person entities do). Sent so the persona
+   * roster can label a card by the person's role, not by who seeded the roster row (the steward). */
+  role?: string;
   occurred_at: string;
   /** `[type:id@vN] actor, occurred_at` — built by core, never reassembled here. */
   citation: string;

@@ -1,0 +1,1313 @@
+{
+  "role": "dev",
+  "collaboration": {
+    "id": "collab:pubg-eng",
+    "title": "블루홀/크래프톤 엔지니어링: TERA MMO 서버에서 배틀그라운드 100인 dedicated 매치까지의 기술 결정 기록 (합성 테스트 데이터)"
+  },
+  "people": [
+    {
+      "id": "person:dev-lee-seongwoo",
+      "name": "이성우",
+      "role": "서버 테크리드",
+      "team": "서버플랫폼팀"
+    },
+    {
+      "id": "person:dev-jang-minseok",
+      "name": "장민석",
+      "role": "게임서버 엔지니어",
+      "team": "게임서버팀"
+    },
+    {
+      "id": "person:dev-choi-jiwon",
+      "name": "최지원",
+      "role": "클라이언트 엔지니어",
+      "team": "클라이언트팀"
+    },
+    {
+      "id": "person:dev-han-dohyun",
+      "name": "한도현",
+      "role": "엔진 프로그래머",
+      "team": "엔진팀"
+    },
+    {
+      "id": "person:dev-oh-seunghwan",
+      "name": "오승환",
+      "role": "네트워크 엔지니어",
+      "team": "넷코드팀"
+    },
+    {
+      "id": "person:dev-yoon-garam",
+      "name": "윤가람",
+      "role": "데브옵스/SRE",
+      "team": "인프라팀"
+    },
+    {
+      "id": "person:dev-kang-taehee",
+      "name": "강태희",
+      "role": "매치메이킹 엔지니어",
+      "team": "매치메이킹팀"
+    },
+    {
+      "id": "person:dev-seo-junho",
+      "name": "서준호",
+      "role": "안티치트 엔지니어",
+      "team": "게임보안팀"
+    },
+    {
+      "id": "person:dev-nam-jihye",
+      "name": "남지혜",
+      "role": "백엔드 엔지니어",
+      "team": "플랫폼팀"
+    },
+    {
+      "id": "person:dev-baek-hyunwoo",
+      "name": "백현우",
+      "role": "렌더링 엔지니어",
+      "team": "렌더링팀"
+    },
+    {
+      "id": "person:dev-jeong-eunbi",
+      "name": "정은비",
+      "role": "빌드/툴 엔지니어",
+      "team": "개발생산성팀"
+    },
+    {
+      "id": "person:dev-moon-taeyang",
+      "name": "문태양",
+      "role": "데이터/텔레메트리 엔지니어",
+      "team": "데이터플랫폼팀"
+    },
+    {
+      "id": "person:dev-cho-wonjae",
+      "name": "조원재",
+      "role": "클라우드 아키텍트",
+      "team": "인프라팀"
+    },
+    {
+      "id": "person:dev-shin-arum",
+      "name": "신아름",
+      "role": "게임플레이 프로그래머",
+      "team": "게임플레이팀"
+    }
+  ],
+  "records": [
+    {
+      "key": "dec-ue-adoption",
+      "type": "decision",
+      "author": "person:kim-changhan",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "배틀로열 신규 프로젝트의 엔진으로 Unreal Engine 4.14를 채택한다. 자체 엔진 신규 개발과 기타 상용 엔진은 배제한다.",
+        "rationale": "GDD 승인(2015-11) 이후 12주 안에 플레이 가능한 100인 프로토타입을 내부에 보여줘야 했고, 소규모 팀으로 렌더러·물리·애니메이션·에디터를 자체 구축할 여력이 없었다. UE4는 소스 접근이 가능해 replication과 dedicated server 경로를 우리가 직접 뜯어고칠 수 있었고, 대규모 오픈월드에 필요한 World Composition/level streaming이 이미 존재했다. TERA에서 쓰던 자체 엔진 스택은 존 기반 MMO에 특화돼 있어 매치 단위 슈터로 재사용하기 어려웠다(fact-tera-launch-server 참조).",
+        "rejected_alternatives": [
+          "자체 엔진 신규 개발 — 렌더/툴체인 구축에만 18개월 이상 소요 추정, 배틀로열 시장 선점 실패 위험",
+          "Unity 5 — 당시 dedicated server headless 모드와 대규모 스트리밍 성숙도가 UE4 대비 부족",
+          "TERA 자체 엔진 포팅 — MMORPG 존 서버 가정이 깊게 박혀 있어 100인 매치 모델로 재작성 비용이 신규 개발과 유사"
+        ]
+      }
+    },
+    {
+      "key": "dec-tera-server-arch",
+      "type": "decision",
+      "author": "person:park-yonghyun",
+      "size": "half",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "TERA 서버는 존(zone) 단위 프로세스 분할 + 채널 복제 구조로 간다. 한 존 서버가 수백 명 동시 접속을 처리하고, 필드는 채널로 나눠 부하를 분산한다.",
+        "rationale": "전 리니지3 팀이 축적한 seamless/zone 하이브리드 MMO 서버 자산을 계승했다. 논타깃팅 액션 전투 때문에 좌표·충돌 갱신 빈도가 기존 타깃팅 MMO보다 높아, 존 서버당 인원 상한을 보수적으로 잡고 채널을 늘리는 수평 확장을 택했다. AOI(area of interest) 기반 관심 영역 필터로 브로드캐스트 양을 제한했다.",
+        "rejected_alternatives": [
+          "단일 월드 seamless 무채널 — 논타깃팅 전투의 갱신 부하에서 존 경계 없이 확장 시 tick 예산 초과",
+          "인스턴스 던전만으로 구성 — 오픈필드 대규모 전투가 TERA 핵심 경험이라 배제"
+        ]
+      }
+    },
+    {
+      "key": "dec-pubg-dedicated-server",
+      "type": "decision",
+      "author": "person:dev-lee-seongwoo",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "배틀그라운드 서버는 매치 단위 dedicated server로 재설계한다. 한 프로세스가 정확히 한 매치(최대 100인)를 소유하고, 매치 종료와 함께 프로세스를 회수한다. TERA식 상주 존 서버 모델은 폐기한다.",
+        "rationale": "배틀로열은 매치가 25~35분이면 끝나고 인원이 100으로 고정된, 수명이 짧은 세션형 워크로드다. 존 서버처럼 상주시키면 유휴 자원이 낭비되고 장애 격리 단위가 커진다. 매치=프로세스로 두면 크래시가 한 매치로 국한되고, 매치 종료 시 상태를 통째로 버릴 수 있어 GC/메모리 관리가 단순해진다. dec-tera-server-arch의 존 모델은 세션형 워크로드 가정과 맞지 않아 계승하지 않는다.",
+        "rejected_alternatives": [
+          "TERA 존 서버 재사용 — 상주형 가정, 매치 격리 단위 부재로 회수 비효율",
+          "한 프로세스에 여러 매치 멀티플렉싱 — 크래시 격리 실패 시 다수 매치 동반 종료 위험",
+          "P2P 호스트 — 100인 규모 치트/NAT/호스트 이탈 문제로 배제"
+        ]
+      }
+    },
+    {
+      "key": "dec-tickrate-policy",
+      "type": "decision",
+      "author": "person:dev-oh-seunghwan",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "라이브 서버 시뮬레이션 틱은 초기 20Hz 고정으로 운영하고, 프로 씬·랭크 큐에 한해 별도 30Hz 풀을 둔다.",
+        "rationale": "fact-tickrate-cost 측정에서 20Hz→30Hz 전환 시 매치당 CPU가 약 1.5배로 늘고 대규모 리전에서 인스턴스 비용이 비례해 증가했다. 캐주얼 큐 다수 유저는 20Hz와 30Hz의 체감 차이를 블라인드 테스트에서 유의하게 구분하지 못해, 비용/반응성 트레이드오프에서 20Hz를 기본값으로 고정했다.",
+        "rejected_alternatives": [
+          "전 큐 30Hz 일괄 — 서버 비용 급증, 저사양 리전 커버리지 축소",
+          "가변 틱(부하 따라 15~30Hz) — 히트판정 재현성이 틱에 민감해 QA 재현 불가 리스크"
+        ]
+      }
+    },
+    {
+      "key": "dec-netcode-replication",
+      "type": "decision",
+      "author": "person:dev-oh-seunghwan",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "네트워크 동기화는 UE4 액터 replication 위에 network relevancy(관심 영역) 커스텀 레이어를 얹어, 각 클라이언트에 반경/시야 기반으로 필요한 액터만 복제한다.",
+        "rationale": "8x8km 맵에 100인이 흩어진 상태에서 전체 액터를 모두 복제하면 대역폭이 폭증한다. distance-based relevancy와 dormancy(움직이지 않는 액터 복제 중단)를 조합해 클라이언트당 평균 relevant actor를 60~90개로 제한했다. TERA의 AOI 관심영역 개념을 슈터의 시야·거리 모델로 재해석한 것이다.",
+        "rejected_alternatives": [
+          "전 액터 무조건 복제 — 대역폭 상한 초과, 저사양 회선 매치 진입 불가",
+          "고정 그리드 셀 구독만 — 원거리 저격/차량 등 셀 경계 넘는 상호작용에서 팝인 심함"
+        ]
+      }
+    },
+    {
+      "key": "dec-mm-v1-single-region",
+      "type": "decision",
+      "author": "person:dev-kang-taehee",
+      "size": "para",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "얼리액세스 초기 매치메이킹은 단일 큐 + 단일 리전(북미 오레곤) 기반으로 출시한다. 지역 선택은 클라이언트 수동 옵션으로만 제공한다.",
+        "rationale": "2017-03 얼리액세스 시점 목표는 '빠르게 매칭이 성립하는가'였고, 동접 규모가 불확실해 리전을 분산하면 각 풀이 얇아져 큐타임이 오히려 늘 위험이 있었다. 단일 대형 풀로 시작해 큐 성립을 보장했다.",
+        "rejected_alternatives": [
+          "출시부터 다중 리전 자동 라우팅 — 초기 얇은 풀에서 큐 파편화로 대기시간 악화",
+          "스킬 기반 매칭 우선 — 표본 부족으로 MMR 신뢰도 낮아 후순위"
+        ]
+      }
+    },
+    {
+      "key": "dec-mm-v2-region-expansion",
+      "type": "decision",
+      "author": "person:dev-kang-taehee",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "글로벌 동접 급증에 대응해 매치메이킹을 5개 리전(NA, EU, AS, SEA, SA)으로 확장하고, 클라이언트 ping 프로브 기반 자동 리전 선정 + 큐타임 상한 초과 시 인접 리전 폴백을 도입한다.",
+        "rationale": "fact-region-expansion-numbers에서 단일 리전 시절 아시아 유저 p99 latency가 210ms를 넘겼고, 리전 확장 후 90ms대로 떨어졌다. 각 리전 풀이 충분히 두꺼워진 뒤 파편화 위험이 사라져, dec-mm-v1-single-region의 단일 풀 전제를 폐기하고 지연 최적화로 전환했다. 큐타임이 상한(예: 아시아 90초)을 넘으면 인접 리전으로 폴백해 매칭 성립을 보장한다.",
+        "rejected_alternatives": [
+          "리전 고정 수동 선택 유지 — 유저가 최적 리전을 모르는 경우 다수, 체감 지연 악화",
+          "전 세계 단일 글로벌 풀 유지 — 물리적 RTT 한계로 원거리 유저 반응성 회복 불가"
+        ]
+      }
+    },
+    {
+      "key": "dec-anticheat-adoption",
+      "type": "decision",
+      "author": "person:dev-seo-junho",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "상용 안티치트(3rd-party) 클라이언트 모듈을 도입해 알려진 핵/인젝션 시그니처를 런타임에 차단한다.",
+        "rationale": "얼리액세스 직후 aimbot/ESP 판매 시장이 급성장했고, 우리 인력만으로 시그니처를 실시간 갱신하기 어려웠다. 검증된 상용 안티치트를 1차 방어선으로 채택해 알려진 위협의 대량 유입을 막고, 자체 인력은 서버사이드 이상탐지에 집중하기로 했다.",
+        "rejected_alternatives": [
+          "안티치트 없이 서버 검증만 — 클라이언트 메모리 조작형 핵(ESP 등) 탐지 사각지대",
+          "완전 자체 안티치트 신규 개발 — 초기 인력·시간 부족, 위협 갱신 속도 못 따라감"
+        ]
+      }
+    },
+    {
+      "key": "dec-anticheat-kernel",
+      "type": "decision",
+      "author": "person:dev-seo-junho",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "클라이언트 안티치트를 유저 모드에서 커널 레벨 드라이버로 격상해, 드라이버 기반 핵과 프로세스 은닉을 무결성 검사한다.",
+        "rationale": "핵 제작자들이 유저 모드 후킹 탐지를 우회하려 커널 드라이버로 내려가면서, 같은 특권 레벨이 아니면 관측이 불가능해졌다. fact-anticheat-ban-rate에서 유저모드 시절 놓친 커널형 치터가 밴 전체의 상당 비중을 차지해, 방어선을 커널로 올렸다. dec-anticheat-adoption의 유저모드 전제를 대체한다. 오탐(fact-anticheat-fp) 리스크가 커널에서 더 위험하므로 스테이징 롤아웃과 하드웨어 호환 화이트리스트를 병행한다.",
+        "rejected_alternatives": [
+          "유저모드 유지 — 커널형 핵/드라이버 조작에 원천적으로 관측 불가",
+          "서버사이드 탐지에만 의존 — 시각 정보 핵(ESP)은 서버가 볼 수 없어 근본 탐지 불가"
+        ]
+      }
+    },
+    {
+      "key": "dec-anticheat-server-heuristic",
+      "type": "decision",
+      "author": "person:dev-seo-junho",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "클라이언트 안티치트와 별개로, 서버사이드에 통계적 이상탐지(비정상 명중률·시야각 스냅·이동속도 위반)를 상시 가동해 클라 안티치트를 우회한 치트를 사후 탐지한다.",
+        "rationale": "클라이언트 방어는 언젠가 우회된다는 전제로, 서버가 관측 가능한 궤적·명중 패턴만으로 이상치를 집계했다. 예: 헤드샷 비율 + 조준 각속도 분포가 상위 0.1% 꼬리에 지속적으로 머무는 계정을 리뷰 큐에 올린다. 클라 신호가 아니라 서버 관측이므로 커널 우회 핵도 흔적을 남긴다.",
+        "rejected_alternatives": [
+          "즉시 자동 밴 — 오탐 시 정당 유저 피해, 프로 플레이어 통계 꼬리와 구분 어려움",
+          "클라 안티치트 신호만 신뢰 — 우회 핵 완전 사각지대"
+        ]
+      }
+    },
+    {
+      "key": "dec-map-streaming",
+      "type": "decision",
+      "author": "person:dev-choi-jiwon",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "8x8km 맵은 UE4 World Composition 기반 그리드 level streaming으로 로드한다. 플레이어·낙하지점 주변 셀만 상주시키고 나머지는 언로드한다.",
+        "rationale": "맵 전체를 메모리에 상주시키면 콘솔 메모리 예산(fact-memory-oom 참조)을 초과한다. 셀 단위 스트리밍으로 활성 메모리를 제한하되, 낙하산 강하 구간에서 원거리 지형이 팝인되지 않도록 원거리는 저해상 프록시 지형(distance mesh)으로 대체했다.",
+        "rejected_alternatives": [
+          "맵 전체 상주 — 콘솔/저사양 PC 메모리 초과, OOM 크래시",
+          "동적 스트리밍 없이 청크 프리로드만 — 초기 로딩 시간 급증, 매치 진입 지연"
+        ]
+      }
+    },
+    {
+      "key": "dec-cloud-provider",
+      "type": "decision",
+      "author": "person:dev-cho-wonjae",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "게임 dedicated server는 AWS를 1차 클라우드로 리전 전개하되, 특정 리전(예: 중국)은 로컬 파트너 데이터센터를 병용하는 멀티 프로바이더 전략을 취한다.",
+        "rationale": "AWS의 글로벌 리전 커버리지와 스팟/온디맨드 혼합으로 세션형 워크로드의 급증 대응이 유리했다. 다만 규제·네트워크 사정으로 AWS 커버리지가 얇은 리전은 로컬 파트너 IDC로 보완해 p99 latency 목표(<100ms)를 유지했다.",
+        "rejected_alternatives": [
+          "단일 온프레미스 IDC 전면 — 글로벌 급증 트래픽에 탄력 확장 불가",
+          "단일 클라우드 전면 락인 — 규제 리전 커버리지 공백, 협상력 저하"
+        ]
+      }
+    },
+    {
+      "key": "dec-dedicated-orchestration",
+      "type": "decision",
+      "author": "person:dev-yoon-garam",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "dedicated server 프로세스 수명주기(할당·헬스체크·회수)를 Kubernetes 위 게임서버 오케스트레이터(Agones류)로 관리한다.",
+        "rationale": "매치=프로세스 모델(dec-pubg-dedicated-server)에서 분당 수천 개 서버가 뜨고 진다. 이 세션형 라이프사이클을 일반 웹 디플로이먼트로는 다루기 어려워, GameServer 리소스와 Allocation API를 제공하는 오케스트레이터로 매치메이커가 준비된 서버를 원자적으로 예약하도록 했다.",
+        "rejected_alternatives": [
+          "자체 프로세스 매니저 스크립트 — 헬스체크·드레이닝·오토스케일을 다시 구현하는 중복 투자",
+          "일반 Deployment/HPA — 세션 소유·드레이닝 개념 부재로 진행 중 매치 강제 종료 위험"
+        ]
+      }
+    },
+    {
+      "key": "dec-lang-server",
+      "type": "decision",
+      "author": "person:dev-jang-minseok",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "게임 시뮬레이션 서버는 UE4와 동일한 C++ 코드베이스로 작성해 클라/서버 시뮬레이션 로직을 공유한다.",
+        "rationale": "히트판정·이동 예측을 클라와 서버가 같은 코드로 돌려야 lag compensation 재현이 일치한다. 별도 언어로 서버를 짜면 두 시뮬레이션이 미세하게 갈라져 desync가 난다.",
+        "rejected_alternatives": [
+          "서버만 별도 언어(예: C#/Go) — 클라와 시뮬레이션 로직 이원화로 desync",
+          "스크립트 언어 시뮬레이션 — 100인 틱 예산 내 성능 미달"
+        ]
+      }
+    },
+    {
+      "key": "dec-lang-platform",
+      "type": "decision",
+      "author": "person:dev-nam-jihye",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "계정·인벤토리·상점 등 플랫폼 백엔드 서비스는 JVM(Kotlin/Java) 기반 마이크로서비스로 작성한다.",
+        "rationale": "게임 시뮬레이션과 달리 플랫폼은 트랜잭션·과금 정합성이 핵심이라 성숙한 JVM 생태계(ORM, 결제, 관측)를 활용하는 편이 유리했다. 게임서버의 C++과 언어를 분리해도 이 경계는 네트워크 API라 desync 문제와 무관하다.",
+        "rejected_alternatives": [
+          "게임서버와 동일 C++ 통일 — 트랜잭션/과금 도메인에서 생산성·라이브러리 열세",
+          "Node.js 단일 스택 — 결제 정합성/스레드 모델에서 리스크"
+        ]
+      }
+    },
+    {
+      "key": "dec-db-player-store",
+      "type": "decision",
+      "author": "person:dev-nam-jihye",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "플레이어 프로필·인벤토리 정합 데이터는 PostgreSQL을 소스 오브 트루스로 두고, 매치 통계·전적 조회는 별도 읽기 최적화 저장소(카산드라 계열)로 CQRS 분리한다.",
+        "rationale": "과금·소유권은 강한 트랜잭션 정합성이 필요해 RDB가 적합하다. 반면 전적/랭킹 조회는 쓰기 폭주 + 대량 시계열 읽기라 특성이 달라, 쓰기 확장이 쉬운 wide-column 저장소로 분리했다.",
+        "rejected_alternatives": [
+          "단일 RDB에 전적까지 — 매치 종료 시 대량 쓰기 폭주로 과금 트랜잭션 지연 전파",
+          "전면 NoSQL — 인벤토리/결제 정합성 보장 비용 과다"
+        ]
+      }
+    },
+    {
+      "key": "dec-telemetry-pipeline",
+      "type": "decision",
+      "author": "person:dev-moon-taeyang",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "게임 텔레메트리(교전·이동·데미지 이벤트)는 Kafka 수집 → 스트림 집계 → 데이터레이크(S3/Parquet) 적재의 파이프라인으로 처리하고, 원본 이벤트는 90일 보존한다.",
+        "rationale": "밸런싱·안티치트·장애 분석 모두 매치 원본 이벤트를 요구한다. fact-telemetry-volume 기준 하루 수십 TB가 유입돼, 백프레셔 흡수를 위해 Kafka로 버퍼링하고 배치 집계로 비용을 낮췄다. 안티치트 이상탐지(dec-anticheat-server-heuristic)도 이 스트림을 소비한다.",
+        "rejected_alternatives": [
+          "게임서버가 DB에 직접 insert — 매치 종료 동시 쓰기 폭주로 서버 틱 예산 침해",
+          "샘플링만 저장 — 치트 사후 조사·희귀 버그 재현에 필요한 원본 소실"
+        ]
+      }
+    },
+    {
+      "key": "dec-loot-server-authoritative",
+      "type": "decision",
+      "author": "person:dev-shin-arum",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "아이템 스폰·루팅·인벤토리 이동은 전적으로 서버 권위(server-authoritative)로 처리하고, 클라이언트는 예측 표시만 한다.",
+        "rationale": "루팅을 클라이언트가 확정하면 아이템 복제/순간획득 익스플로잇에 노출된다(fact-loot-exploit 참조). 서버가 스폰 테이블·소유권을 소유하고, 클라이언트의 픽업 요청을 검증 후 확정한다. 표시는 예측하되 서버 거절 시 롤백한다.",
+        "rejected_alternatives": [
+          "클라이언트 확정 후 서버 통보 — 아이템 복제/무한획득 익스플로잇",
+          "완전 무예측(서버 왕복 후에만 표시) — 픽업 반응성 저하로 체감 렉"
+        ]
+      }
+    },
+    {
+      "key": "dec-hit-registration",
+      "type": "decision",
+      "author": "person:dev-oh-seunghwan",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "히트 판정은 lag compensation(서버 측 rewind) 방식으로, 발사 시점의 사수 RTT만큼 대상 히트박스를 과거 위치로 되돌려 판정한다. 되감기 상한은 200ms로 클램프한다.",
+        "rationale": "슈터에서 '내 화면에서 맞았는데 안 맞음' 민원(fact-hit-reg-complaint)의 근본 원인은 사수 화면과 서버 상태의 시간차다. 발사 시점 스냅샷으로 되감아 판정하면 사수 체감과 일치한다. 다만 무제한 되감기는 고핑 사수가 이미 엄폐한 대상을 맞히는 'peeker's advantage' 역전을 키우므로 200ms로 상한을 뒀다.",
+        "rejected_alternatives": [
+          "클라이언트 히트 신뢰 — 명중 조작 핵에 무방비",
+          "되감기 없는 서버 현재 위치 판정 — 고핑에서 명중 체감 붕괴, 민원 폭증",
+          "무제한 되감기 — 저격/원거리에서 엄폐 후 피격 역전 심화"
+        ]
+      }
+    },
+    {
+      "key": "dec-replay-system",
+      "type": "decision",
+      "author": "person:dev-choi-jiwon",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "킬캠·데스캠·매치 리플레이는 UE4 Replay(Demo Net Driver) 기반으로 매치 replication 스트림을 기록해 재생한다.",
+        "rationale": "replication 스트림을 그대로 직렬화하면 별도 리플레이 포맷을 만들지 않고 실제 매치 상태를 결정론적으로 재생할 수 있다. 이 스트림은 안티치트 리뷰(치터 신고 검증)에도 재사용한다.",
+        "rejected_alternatives": [
+          "클라이언트 화면 영상 녹화 — 용량 과다, 서버가 관측하지 못한 시점 재구성 불가",
+          "커스텀 이벤트 로그 재생 — replication과 이원화되어 재현 불일치"
+        ]
+      }
+    },
+    {
+      "key": "dec-crossplay",
+      "type": "decision",
+      "author": "person:dev-kang-taehee",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "콘솔(Xbox/PS) 크로스플레이는 콘솔 간에만 우선 허용하고 PC 풀과는 기본 분리한다. PC-콘솔 혼합은 옵트인 파티에 한해 검토한다.",
+        "rationale": "입력 방식(마우스 vs 패드) 조준 정확도 격차 때문에 PC-콘솔 혼합은 공정성 논란이 크다. 콘솔 간은 입력이 유사해 풀을 합쳐 큐타임을 줄이는 이득이 명확하다. PC 혼합은 aim assist 정책이 확정되지 않아 draft 상태로 둔다.",
+        "rejected_alternatives": [
+          "전 플랫폼 완전 통합 풀 — 입력 격차로 공정성 붕괴",
+          "플랫폼 완전 분리 유지 — 콘솔 풀이 얇은 리전에서 큐타임 악화"
+        ]
+      }
+    },
+    {
+      "key": "dec-server-region-selection",
+      "type": "decision",
+      "author": "person:dev-kang-taehee",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "클라이언트는 매치 진입 전 각 리전 게이트웨이로 ping을 프로브해 최저 지연 리전을 자동 선정하되, 유저가 수동으로 리전을 고정할 수 있는 오버라이드를 남긴다.",
+        "rationale": "대다수 유저는 최적 리전을 모르므로 자동 선정이 기본이어야 한다. 다만 국경 근처·파티 플레이 등에서 특정 리전을 강제할 필요가 있어 수동 오버라이드를 유지했다. 프로브는 게이트웨이 anycast IP(term-anycast)로 향한다.",
+        "rejected_alternatives": [
+          "GeoIP만으로 리전 배정 — 실제 라우팅 경로와 불일치하는 경우 다수",
+          "자동만 제공, 수동 불가 — 파티/특수 상황 커버 불가"
+        ]
+      }
+    },
+    {
+      "key": "dec-vehicle-physics",
+      "type": "decision",
+      "author": "person:dev-shin-arum",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "차량 물리는 운전자 클라이언트가 시뮬레이션 권위를 갖고 서버는 검증·중계한다(client-authoritative with server validation). 탑승자·원격 관찰자는 보간한다.",
+        "rationale": "차량은 매 프레임 물리 상태 변화가 커서 완전 서버 권위로 하면 대역폭·틱 예산이 폭증하고 운전 체감이 무뎌진다. 운전자에게 물리 권위를 주되, 서버가 속도·위치 델타의 물리적 타당성을 검증해 순간이동/부스팅 치트를 걸러낸다(fact-vehicle-desync에서 검증 누락 시 순간이동 버그 확인).",
+        "rejected_alternatives": [
+          "완전 서버 권위 물리 — 대역폭/틱 예산 초과, 운전 반응성 저하",
+          "검증 없는 클라 권위 — 속도핵/순간이동 치트에 무방비"
+        ]
+      }
+    },
+    {
+      "key": "dec-build-pipeline",
+      "type": "decision",
+      "author": "person:dev-jeong-eunbi",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "빌드는 분산 컴파일(예: IncrediBuild/FASTBuild류) + UE 파생 데이터 캐시(DDC) 공유 서버로 구성해, 풀 빌드와 라이팅/쉐이더 쿠킹 시간을 단축한다.",
+        "rationale": "UE 대형 프로젝트의 풀 리빌드가 fact-build-time 기준 수 시간대라, 분산 컴파일과 공유 DDC로 개별 개발자가 파생 데이터를 재생성하지 않게 했다. 쿠킹 산출물을 캐시 공유하면 클린 체크아웃 뒤에도 반복 쿠킹을 피한다.",
+        "rejected_alternatives": [
+          "로컬 단일 머신 빌드 — 팀 규모 확장 시 대기시간 병목",
+          "DDC 개인 로컬만 — 신규 브랜치/머신마다 쉐이더 재쿠킹 반복"
+        ]
+      }
+    },
+    {
+      "key": "dec-hotfix-strategy",
+      "type": "decision",
+      "author": "person:dev-yoon-garam",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "긴급 수정은 클라 재빌드 없이 서버 사이드 설정·밸런스 값과 dedicated server 바이너리 롤링 교체로 반영하고, 클라 필수 패치는 점검 창(maintenance window)에 묶는다.",
+        "rationale": "매치=프로세스라 신규 매치부터 새 서버 바이너리로 뜨게 하면 진행 중 매치에 영향 없이 롤링 교체가 가능하다. 밸런스 수치는 서버 구성으로 빼두어 스토어 심사 없이 즉시 조정한다. 클라 바이너리 변경은 스토어 심사·강제 업데이트가 필요해 점검에 묶는다.",
+        "rejected_alternatives": [
+          "모든 수정에 클라 패치 동반 — 스토어 심사 지연으로 긴급 대응 불가",
+          "진행 중 매치까지 강제 서버 교체 — 플레이 중 유저 강제 종료"
+        ]
+      }
+    },
+    {
+      "key": "dec-observability-stack",
+      "type": "decision",
+      "author": "person:dev-yoon-garam",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "관측은 메트릭 Prometheus + 대시보드 Grafana + 로그 중앙집계(ELK)로 구성하고, 게임서버는 매치 lifecycle·틱 예산·relevant actor 수를 표준 메트릭으로 노출한다.",
+        "rationale": "매치가 초 단위로 뜨고 지므로 프로세스 단위가 아니라 매치·리전·큐 단위 집계 메트릭이 필요했다. 틱 오버런(fact-server-tick-drift)과 relevancy 폭증을 조기에 잡으려면 게임서버가 직접 도메인 메트릭을 내보내야 한다.",
+        "rejected_alternatives": [
+          "인프라 메트릭(CPU/메모리)만 — 틱 오버런·매치 품질 저하를 사후에야 인지",
+          "로그만 수집 — 실시간 급증 탐지 지연"
+        ]
+      }
+    },
+    {
+      "key": "dec-matchmaking-mmr",
+      "type": "decision",
+      "author": "person:dev-kang-taehee",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "랭크 큐 매칭은 배틀로열 특성(1v99, 순위 기반 결과)에 맞춘 커스텀 스킬 레이팅을 쓰되, 매칭 폭을 큐타임에 따라 점진 완화한다.",
+        "rationale": "체스식 1:1 Elo/TrueSkill을 그대로 쓰기 어렵다 — 한 매치에 100명이 있고 결과가 순위 분포다. 킬·생존시간·순위를 가중한 커스텀 레이팅을 시험 중이며, 얇은 시간대엔 스킬 매칭보다 큐타임 성립을 우선한다. 파라미터가 미확정이라 draft.",
+        "rejected_alternatives": [
+          "표준 Elo 1:1 이식 — 100인 순위 결과를 표현 못 함",
+          "스킬 무시 랜덤 매칭 — 상위 유저 경험 저하, 리텐션 리스크"
+        ]
+      }
+    },
+    {
+      "key": "dec-network-protocol-udp",
+      "type": "decision",
+      "author": "person:dev-oh-seunghwan",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "게임 트래픽은 UE 커스텀 UDP 위 선택적 신뢰 전송을 쓴다. 이동/좌표 갱신은 비신뢰(최신값 우선), 이벤트/RPC는 신뢰 채널로 보낸다.",
+        "rationale": "TCP의 head-of-line blocking은 실시간 슈터에서 치명적이다 — 한 패킷 유실이 뒤 좌표 갱신 전부를 지연시킨다. 좌표는 유실되면 다음 최신값으로 덮으면 되므로 비신뢰가 맞고, 발사/피격 같은 이벤트만 순서·도달을 보장했다.",
+        "rejected_alternatives": [
+          "전면 TCP — head-of-line blocking으로 좌표 갱신 지연 누적",
+          "전면 신뢰 UDP — 유실 좌표 재전송 대기 중 최신값 지연"
+        ]
+      }
+    },
+    {
+      "key": "dec-render-api",
+      "type": "decision",
+      "author": "person:dev-baek-hyunwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "PC 렌더 백엔드는 DirectX 11을 기본으로 출시하고, DirectX 12/Vulkan은 저사양 CPU에서 드로우콜 병목 완화용으로 옵트인 제공한다.",
+        "rationale": "얼리액세스 시점 DX11 드라이버 안정성이 가장 넓은 하드웨어에서 검증돼 있었다. 100인 오픈월드는 드로우콜이 많아 CPU 바운드가 심한데, DX12/Vulkan의 멀티스레드 커맨드 기록이 저사양 CPU에서 이득이라 옵션으로 뒀다(안정성 검증 후 확대).",
+        "rejected_alternatives": [
+          "출시부터 DX12 전면 — 초기 드라이버 편차로 크래시·성능 회귀 리스크",
+          "DX11만 고정 — CPU 바운드 유저의 드로우콜 병목 개선 여지 포기"
+        ]
+      }
+    },
+    {
+      "key": "dec-lod-culling",
+      "type": "decision",
+      "author": "person:dev-baek-hyunwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "원거리 지형·건물은 계층적 LOD(HLOD) 병합 프록시로 대체하고, 오클루전 컬링 + 거리 컬링으로 드로우콜을 억제한다. 플레이어 캐릭터는 컬링 대상에서 제외한다.",
+        "rationale": "8x8km 시야에서 개별 메시를 다 그리면 드로우콜이 폭증한다. HLOD로 원거리 클러스터를 단일 프록시로 병합해 드로우콜을 줄였다. 단, 플레이어를 거리 컬링하면 원거리 저격 대상이 사라지는 게임플레이 버그가 되므로 캐릭터는 별도 규칙으로 항상 relevant 유지.",
+        "rejected_alternatives": [
+          "컬링 없이 전량 렌더 — 드로우콜 폭증으로 프레임 붕괴",
+          "플레이어도 일괄 거리 컬링 — 원거리 적 미표시로 저격 게임플레이 파손"
+        ]
+      }
+    },
+    {
+      "key": "dec-server-fps-cap",
+      "type": "decision",
+      "author": "person:dev-lee-seongwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "게임서버는 시뮬레이션 틱당 CPU 예산을 명시적으로 캡(20Hz 기준 프레임당 50ms 예산의 60% 상한)하고, 초과 시 relevancy·AI 업데이트를 우선 스로틀한다.",
+        "rationale": "틱이 예산을 넘기면 서버가 뒤처지며 전 클라이언트에 렉으로 전파된다(fact-server-tick-drift). 예산을 초과할 때 필수(이동·히트판정) 대신 부가(원거리 relevancy 갱신, 봇 AI)를 먼저 줄여 핵심 시뮬레이션 틱을 지켰다.",
+        "rejected_alternatives": [
+          "예산 캡 없음 — 후반 교전 밀집 시 틱 드리프트 전면 렉",
+          "초과 시 무차별 스로틀 — 히트판정까지 지연되어 명중 체감 붕괴"
+        ]
+      }
+    },
+    {
+      "key": "dec-datacenter-latency-routing",
+      "type": "decision",
+      "author": "person:dev-cho-wonjae",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "리전 게이트웨이는 anycast IP + GeoDNS로 배포해, 클라이언트가 가장 가까운 엣지로 라우팅되게 한다. 게임 매치 서버 IP는 매치 할당 시점에 직접 전달한다.",
+        "rationale": "게이트웨이 접속만 anycast로 최근접 엣지에 붙이고, 실제 매치 서버는 할당 리전의 구체 IP를 클라에 내려줘 매치 중 라우팅이 흔들리지 않게 했다. dec-server-region-selection의 ping 프로브도 이 anycast 게이트웨이를 향한다.",
+        "rejected_alternatives": [
+          "단일 글로벌 엔드포인트 — 원거리 유저 초기 접속 지연",
+          "매치 서버까지 anycast — 세션 중 경로 변경 시 매치 끊김 위험"
+        ]
+      }
+    },
+    {
+      "key": "dec-persistence-sharding",
+      "type": "decision",
+      "author": "person:dev-nam-jihye",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "계정/인벤토리 저장소는 account_id 해시 기반 수평 샤딩으로 확장한다(계획). 크로스 샤드 트랜잭션은 회피하도록 소유권 경계를 계정 단위로 정렬한다.",
+        "rationale": "글로벌 유저 증가로 단일 PostgreSQL 쓰기 상한이 보이기 시작해 샤딩을 설계 중이다. 계정 단위로 데이터가 자기완결적이면 크로스 샤드 조인/트랜잭션을 피할 수 있다. 아직 라이브 검증 전이라 draft.",
+        "rejected_alternatives": [
+          "수직 확장만 — 단일 인스턴스 쓰기 IOPS 상한에서 벽",
+          "기능 단위 샤딩 — 계정 하나의 데이터가 여러 샤드에 흩어져 크로스 샤드 트랜잭션 유발"
+        ]
+      }
+    },
+    {
+      "key": "dec-client-memory-budget",
+      "type": "decision",
+      "author": "person:dev-choi-jiwon",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "클라이언트 런타임 메모리는 최저 사양(콘솔 5GB 게임 예산) 기준으로 예산을 배분하고, 텍스처 스트리밍 풀·오디오 뱅크·스트리밍 셀 상한을 하드 예산으로 강제한다.",
+        "rationale": "최저 사양을 초과하면 콘솔에서 OOM 크래시가 난다(fact-memory-oom). 자유 방임 대신 서브시스템별 하드 예산을 정하고 초과 시 텍스처 밉을 강등하는 백프레셔를 넣어 크래시 대신 화질 저하로 흡수했다.",
+        "rejected_alternatives": [
+          "예산 미강제, 필요 시 할당 — 밀집 지역에서 OOM 크래시 반복",
+          "고사양 기준 예산 — 콘솔/저사양 미지원"
+        ]
+      }
+    },
+    {
+      "key": "dec-tera-netcode-inhouse",
+      "type": "decision",
+      "author": "person:park-yonghyun",
+      "size": "para",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "TERA 넷코드는 자체 프로토콜로, 논타깃팅 액션 전투를 위해 좌표·시전 상태를 고빈도로 브로드캐스트하고 서버가 스킬 판정을 확정한다.",
+        "rationale": "논타깃팅 회피가 핵심 재미라 클라 입력 반응성과 서버 판정을 함께 만족해야 했다. 자체 엔진·자체 넷코드로 스킬 히트박스와 회피 프레임을 직접 튜닝했다. 이 자산은 배틀그라운드의 UE replication 모델(dec-netcode-replication)로 계승되지 않았고, 슈터에 맞게 새로 설계됐다.",
+        "rejected_alternatives": [
+          "타깃팅 자동판정 전투 — TERA의 액션성 상실",
+          "상용 미들웨어 넷코드 — 스킬 판정 세부 튜닝 자유도 부족"
+        ]
+      }
+    },
+    {
+      "key": "dec-crash-reporting",
+      "type": "decision",
+      "author": "person:dev-jeong-eunbi",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "클라/서버 크래시는 자동 미니덤프 수집 + 심볼 서버 기반 자동 스택 그룹핑으로 상위 크래시 버킷을 라이브 대시보드에 노출한다.",
+        "rationale": "수백만 동접에서 크래시는 개별 리포트가 아니라 버킷 빈도로 봐야 우선순위가 선다. 미니덤프를 심볼 서버로 자동 해석해 같은 콜스택을 묶어 상위 N개를 추적한다.",
+        "rejected_alternatives": [
+          "수동 유저 신고 — 표본 편향·빈도 파악 불가",
+          "덤프 미수집 로그만 — 네이티브 크래시 원인 규명 불가"
+        ]
+      }
+    },
+    {
+      "key": "fact-launch-2018-postmortem",
+      "type": "fact",
+      "author": "person:dev-yoon-garam",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "title": "2018 글로벌 신규 리전 확장 런칭 서버 과부하 포스트모템 (합성)",
+        "statement": "요약: 신규 아시아 리전 정식 오픈 첫 주말, 예상 대비 2.4배 동접이 몰리며 매치 할당 실패율이 피크 시간대 34%까지 치솟았다. 유저에게는 '서버를 찾을 수 없음' 오류로 노출됐다.\n\n타임라인(UTC 기준, 날짜 합성): D-day 11:00 정식 오픈. 12:20 아시아 리전 동접이 예측 곡선을 상회하기 시작. 12:50 오케스트레이터의 준비된(Ready) 게임서버 풀이 고갈되어 매치메이커의 Allocation 호출이 타임아웃. 13:05 매치메이커가 실패한 할당을 재시도하며 오케스트레이터 API에 재시도 폭풍(retry storm)을 유발, 컨트롤 플레인 지연이 p99 4.5s로 악화. 13:30 오토스케일러가 신규 노드를 띄우기 시작했으나 게임서버 이미지 pull + 워밍업에 노드당 약 6분이 걸려 수요를 따라가지 못함. 14:10 인접 리전 폴백이 발동했으나 폴백 대상 리전도 연쇄 포화. 15:40 수동으로 예비 용량(pre-warmed buffer)을 3배로 상향하고 매치메이커 재시도에 지수 백오프 + 지터를 긴급 배포. 16:20 할당 실패율 5% 이하로 회복. 18:00 정상화.\n\n근본 원인 세 가지. (1) 예비 버퍼 용량 산정이 '평균 동접' 기준이라 주말 급증 피크를 흡수 못 함 — 버퍼는 피크 증가율(초당 신규 매치 생성률) 기준이어야 했다. (2) 매치메이커의 할당 재시도가 고정 간격 즉시 재시도라 컨트롤 플레인에 retry storm을 만들었다. (3) 게임서버 콜드 스타트(이미지 pull+쿠킹된 에셋 로드)가 6분으로 너무 길어 오토스케일이 수요 곡선을 못 따라감.\n\n후속 조치. 예비 버퍼를 초당 매치 생성률 x 콜드스타트 시간으로 재정의(리틀의 법칙). 매치메이커 재시도에 지수 백오프+지터 상시화. 게임서버 이미지를 노드에 프리풀하고 에셋을 로컬 캐시에 프리워밍해 콜드스타트를 6분→90초로 단축. 리전별 '초당 매치 생성률'을 dec-observability-stack 대시보드의 1급 지표로 승격. 교훈: 세션형 워크로드의 용량은 '현재 동접'이 아니라 '증가 속도'가 지배한다."
+      }
+    },
+    {
+      "key": "fact-mm-queue-storm",
+      "type": "fact",
+      "author": "person:dev-kang-taehee",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "title": "매치메이킹 큐 폭주 및 매칭 지연 장애 포스트모템 (합성)",
+        "statement": "요약: 특정 이벤트 모드 오픈 직후, 유럽 리전 랭크 큐의 평균 대기시간이 평시 40초에서 6분 이상으로 치솟았고 일부 유저는 큐에 걸린 채 매칭이 성립하지 않았다.\n\n증상. 매치메이커는 스킬 밴드(MMR ±100) 안에서 100명이 모이면 매치를 확정한다. 이벤트 모드가 별도 큐로 분리되면서 각 스킬 밴드의 유입이 얇아졌고, 상위·하위 티어에서 100명이 모이는 데 시간이 폭증했다. 동시에 큐타임 완화 로직(시간이 지나면 밴드를 넓히는 relaxation)이 이벤트 큐에 적용되지 않은 설정 누락이 있었다.\n\n타임라인(합성). T+0 이벤트 큐 오픈. T+8m 상위 티어 큐타임이 3분 돌파. T+15m 큐 상태 저장소(Redis)의 큐별 인원 집계 키에 핫스팟이 생겨 매치메이커 워커들이 같은 키에 경합, 매칭 사이클 지연. T+22m 밴드 relaxation 미적용 확인 — 이벤트 큐 구성에서 relaxation 파라미터가 누락돼 밴드가 영원히 ±100 고정. T+30m relaxation 파라미터 핫픽스(dec-hotfix-strategy 서버 설정 경로로 즉시 반영)로 시간당 밴드를 ±100→최대 ±600까지 완화하게 배포. T+38m 큐타임 평시 수준 회복.\n\n근본 원인. (1) 신규 큐를 추가할 때 relaxation 기본값이 상속되지 않고 명시 설정을 요구했는데 이벤트 큐에서 누락됨 — 설정 검증기가 '알려진 키만 확인'하고 필수 키 누락을 잡지 못했다(값이 없으면 완화 없음으로 조용히 동작). (2) 큐 인원 집계가 단일 Redis 키라 워커 경합 핫스팟. \n\n후속 조치. 큐 설정 스키마에 relaxation을 필수 필드로 지정하고 누락 시 부팅 실패로 전환. 큐 인원 집계를 샤드 카운터로 분산. 큐타임 p95를 리전x큐x티어 단위로 dec-observability-stack에 알람 임계 설정. 교훈: '값이 없으면 안전한 기본'이 아니라 '값이 없으면 완화 없음'이었다 — 검증기는 자기가 아는 키의 철자만 확인하지 말고, 필수 키의 부재를 거부해야 한다."
+      }
+    },
+    {
+      "key": "fact-100player-sync-design",
+      "type": "fact",
+      "author": "person:dev-oh-seunghwan",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "title": "100인 동시 매치 네트워크 동기화 설계 요약 (합성)",
+        "statement": "문제 정의. 8x8km 맵에 최대 100명이 동시에 존재하고, 후반부로 갈수록 자기장(플레이존)이 좁아지며 밀집도가 급상승한다. 초반 낙하 국면은 인원이 넓게 흩어져 관심 대상이 적고, 종반 원형 축소 국면은 좁은 공간에 수십 명이 몰려 relevant actor가 폭증한다 — 한 매치 안에서 부하 프로파일이 정반대로 바뀐다.\n\n동기화 모델. 서버 권위 시뮬레이션 20Hz(dec-tickrate-policy). 각 클라이언트로의 복제는 network relevancy로 필터링(dec-netcode-replication): 거리 기반 relevancy + 정지 액터 dormancy. 이동은 비신뢰 UDP로 최신값 우선 갱신, 발사/피격/아이템 이벤트는 신뢰 채널(dec-network-protocol-udp).\n\n대역폭 예산. 클라이언트 하향 대역폭 목표는 평균 128kbps, 피크(종반 밀집) 상한 256kbps. relevant actor를 60~90개로 제한해 이 예산 안에 들도록 우선순위 기반 replication(중요 액터 우선, 나머지 대역폭 남으면 갱신)을 적용. 우선순위는 거리·시야·최근 상호작용으로 산정.\n\n히트판정. lag compensation 서버 rewind, 되감기 상한 200ms(dec-hit-registration). 사수 화면과의 일치를 위해 발사 시점 스냅샷으로 대상 히트박스를 되돌려 판정.\n\n밀집 국면 대응. 종반 relevant actor 폭증 시 dec-server-fps-cap의 틱 예산 캡이 발동해 원거리 relevancy 갱신 빈도를 먼저 낮추고 근접 교전 액터는 풀레이트 유지. 이로써 '가장 중요한 순간(파이널 서클)'에 틱 드리프트가 나지 않게 함.\n\n검증. 100봇 밀집 시나리오를 CI 부하 테스트로 상시 회귀 검증(정은비 팀 협업). 측정 지표: 서버 틱 오버런 비율, 클라이언트 수신 대역폭 p95, 히트 확인 왕복 p99. 이 설계 문서의 ADR 포인터는 res-100player-adr."
+      }
+    },
+    {
+      "key": "fact-tickrate-cost",
+      "type": "fact",
+      "author": "person:dev-oh-seunghwan",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "틱레이트별 서버 CPU/비용 측정 (합성)",
+        "statement": "동일 매치 시나리오(종반 30인 밀집)를 20Hz와 30Hz로 각각 프로파일링한 결과, 매치당 평균 서버 CPU 사용이 20Hz 대비 30Hz에서 약 1.5배로 증가했다. 인스턴스당 수용 가능한 동시 매치 수가 20Hz에서 8개, 30Hz에서 5개로 떨어져 리전 인스턴스 비용이 매치당 약 1.6배가 됐다. 블라인드 체감 테스트에서 캐주얼 유저의 20/30Hz 구분 정답률은 우연 수준이었다. 이 측정이 dec-tickrate-policy의 근거."
+      }
+    },
+    {
+      "key": "fact-p99-latency-region",
+      "type": "fact",
+      "author": "person:dev-moon-taeyang",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "리전별 인게임 RTT p99 (합성)",
+        "statement": "리전 확장 정착 후 인게임 RTT p99: NA 82ms, EU 76ms, AS 91ms, SEA 105ms, SA 118ms. 목표선은 전 리전 p99 <120ms이며 SA가 상한 근처라 추가 엣지 검토 대상."
+      }
+    },
+    {
+      "key": "fact-ccu-peak",
+      "type": "fact",
+      "author": "person:dev-moon-taeyang",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "최대 동시접속 및 동시 매치 수 (합성)",
+        "statement": "합성 피크 기준 전 세계 동시접속(CCU) 약 3.2M, 동시 진행 매치 약 34,000개, 분당 신규 매치 생성률 피크 약 2,100 matches/min. 이 생성률이 예비 버퍼 산정의 지배 변수(fact-launch-2018-postmortem)."
+      }
+    },
+    {
+      "key": "fact-anticheat-ban-rate",
+      "type": "fact",
+      "author": "person:dev-seo-junho",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "안티치트 밴 통계 및 커널형 비중 (합성)",
+        "statement": "월간 합성 밴 통계에서 자동 밴의 약 62%가 클라이언트 안티치트 시그니처, 약 27%가 서버사이드 이상탐지(dec-anticheat-server-heuristic), 약 11%가 수동 리뷰 확정이었다. 유저모드 안티치트만 쓰던 기간에는 커널형 드라이버 핵이 사후 신고 표본의 상당 비중을 차지했고, 이것이 dec-anticheat-kernel로 격상한 직접 근거다."
+      }
+    },
+    {
+      "key": "fact-map-streaming-hitch",
+      "type": "fact",
+      "author": "person:dev-baek-hyunwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "맵 스트리밍 히칭 측정 (합성)",
+        "statement": "차량 고속 주행 시 셀 경계 진입에서 프레임 히칭이 관측됐다. 초기 구현에서 셀 로드가 게임 스레드에서 동기 발생해 최대 34ms 스파이크. 로드를 비동기 워커로 옮기고 진행 방향 셀을 선제 프리로드(속도 기반 예측)한 뒤 히칭이 8ms 이하로 감소. dec-map-streaming의 원거리 프록시 지형이 팝인을 가렸다."
+      }
+    },
+    {
+      "key": "fact-desync-postmortem",
+      "type": "fact",
+      "author": "person:dev-oh-seunghwan",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "title": "이동 예측 desync 장애 요약 (합성)",
+        "statement": "특정 클라 패치 후 일부 유저에서 캐릭터가 순간적으로 뒤로 밀리는 리컨실리에이션 튐(rubber-banding)이 급증했다. 원인은 클라 이동 예측과 서버 이동 시뮬레이션에서 마찰 계수 처리가 미세하게 갈라진 것 — 클라와 서버가 같은 C++ 코드(dec-lang-server)를 공유하지만, 클라 전용 최적화 경로 하나가 서버에는 없어 예측이 서버 상태로 자주 리컨실됐다. 두 경로를 공통 함수로 합치자 튐이 사라졌다. 교훈: 같은 값을 두 곳에서 계산하면 결국 갈라진다 — 두 번째로 계산하는 쪽이 첫 번째를 호출해야 한다."
+      }
+    },
+    {
+      "key": "fact-vehicle-desync",
+      "type": "fact",
+      "author": "person:dev-shin-arum",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "차량 순간이동 버그 (합성)",
+        "statement": "차량 client-authoritative 물리(dec-vehicle-physics)에서 서버 검증이 위치 델타만 보고 시간 간격을 무시하는 버그가 있어, 패킷 지연 후 몰아친 업데이트를 정상으로 통과시켜 차량이 순간이동했다. 검증을 '위치 델타/시간 = 속도'가 물리 상한을 넘는지로 바꾸자 순간이동 및 속도핵이 함께 막혔다. 보호는 케이스가 아니라 연산(속도 산출) 자체에 걸어야 했다."
+      }
+    },
+    {
+      "key": "fact-dedicated-server-cost",
+      "type": "fact",
+      "author": "person:dev-yoon-garam",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "title": "dedicated server 매치당 비용 (합성)",
+        "statement": "스팟 인스턴스 혼합 운영 기준 매치당 서버 원가는 20Hz에서 약 x, 30Hz 풀에서 약 1.6x(fact-tickrate-cost 반영). 콜드스타트 프리풀·프리워밍 도입 후 유휴 예비 버퍼 비용이 콜드스타트 단축(6분→90초)만큼 줄어, 같은 실패율 목표를 더 얇은 버퍼로 달성했다."
+      }
+    },
+    {
+      "key": "fact-hit-reg-complaint",
+      "type": "fact",
+      "author": "person:dev-oh-seunghwan",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "히트판정 민원 분포 (합성)",
+        "statement": "'맞았는데 안 맞음' 민원은 사수 RTT 120ms 이상 구간에 집중됐고, lag compensation 되감기 상한을 100ms→200ms로 올린 뒤 해당 구간 민원이 유의하게 감소했다. 상한을 더 올리자 이번엔 '엄폐했는데 맞음' 역민원이 늘어 200ms에서 타협."
+      }
+    },
+    {
+      "key": "fact-tera-launch-server",
+      "type": "fact",
+      "author": "person:park-yonghyun",
+      "size": "para",
+      "state": "stale",
+      "attributes": {
+        "title": "TERA 런칭기 존 서버 부하 (합성)",
+        "statement": "TERA 정식 출시(2011-01) 초기, 인기 필드의 대규모 논타깃팅 교전에서 존 서버 tick이 예산을 초과해 스킬 반응이 밀리는 현상이 있었다. 채널 증설과 AOI 반경 축소로 브로드캐스트를 줄여 완화했다. 이 존 기반 상주 모델의 한계 경험이 훗날 배틀그라운드에서 매치=프로세스(dec-pubg-dedicated-server)로 전환하는 배경이 됐다."
+      }
+    },
+    {
+      "key": "fact-region-expansion-numbers",
+      "type": "fact",
+      "author": "person:dev-kang-taehee",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "리전 확장 전후 큐타임/지연 (합성)",
+        "statement": "단일 리전(북미) 시절 아시아 유저 인게임 RTT p99가 약 210ms, 평균 큐타임 55초였다. 5개 리전 확장(dec-mm-v2-region-expansion) 후 아시아 p99가 91ms, 큐타임 38초로 개선됐다. 각 리전 풀이 충분히 두꺼워져 초기 우려했던 풀 파편화로 인한 큐타임 악화는 관측되지 않았다."
+      }
+    },
+    {
+      "key": "fact-crash-rate",
+      "type": "fact",
+      "author": "person:dev-jeong-eunbi",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "클라이언트 크래시율 (합성)",
+        "statement": "합성 라이브 기준 세션당 클라 크래시율 약 0.6%. 상위 크래시 버킷은 콘솔 텍스처 스트리밍 OOM(fact-memory-oom)과 특정 GPU 드라이버 조합. 자동 미니덤프 그룹핑(dec-crash-reporting)으로 상위 3개 버킷이 전체의 절반 이상."
+      }
+    },
+    {
+      "key": "fact-build-time",
+      "type": "fact",
+      "author": "person:dev-jeong-eunbi",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "빌드/쿠킹 소요 (합성)",
+        "statement": "클린 풀 빌드는 단일 워크스테이션에서 약 3시간 20분, 분산 컴파일 + 공유 DDC(dec-build-pipeline) 적용 후 약 42분. 증분 빌드는 5분 내외. 쉐이더 쿠킹은 공유 DDC 히트 시 재쿠킹 생략."
+      }
+    },
+    {
+      "key": "fact-loot-exploit",
+      "type": "fact",
+      "author": "person:dev-shin-arum",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "아이템 복제 익스플로잇 사건 (합성)",
+        "statement": "초기 빌드에서 근접한 두 플레이어가 같은 아이템을 동시에 픽업 요청하면 서버가 두 요청을 각각 승인해 아이템이 복제되는 레이스가 있었다. 픽업 확정을 아이템 인스턴스 단위 원자적 소유권 이전(compare-and-set)으로 바꿔 막았다. dec-loot-server-authoritative의 서버 권위가 이 클래스의 익스플로잇을 원천 차단하는 근거."
+      }
+    },
+    {
+      "key": "fact-udp-packet-loss",
+      "type": "fact",
+      "author": "person:dev-oh-seunghwan",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "패킷 로스 구간 동기화 품질 (합성)",
+        "statement": "인위적으로 3% 패킷 로스를 주입한 테스트에서, 이동을 비신뢰 최신값 우선(dec-network-protocol-udp)으로 처리한 덕에 좌표 갱신은 다음 패킷으로 자연 복구됐고 체감 튐이 적었다. 반면 신뢰 채널의 발사 이벤트는 재전송으로 도달을 보장하되, 재전송 지연이 명중 확인 p99를 소폭 늘렸다."
+      }
+    },
+    {
+      "key": "fact-memory-oom",
+      "type": "fact",
+      "author": "person:dev-choi-jiwon",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "콘솔 OOM 크래시 (합성)",
+        "statement": "특정 인기 도심 지역에 다수 플레이어가 밀집하면 텍스처 스트리밍 풀과 파티클이 동시에 팽창해 콘솔 게임 메모리 예산(약 5GB)을 초과, OOM 크래시가 발생했다. 서브시스템별 하드 예산(dec-client-memory-budget)과 초과 시 텍스처 밉 강등 백프레셔로 크래시 대신 일시적 화질 저하로 흡수했다."
+      }
+    },
+    {
+      "key": "fact-anticheat-fp",
+      "type": "fact",
+      "author": "person:dev-seo-junho",
+      "size": "para",
+      "state": "draft",
+      "attributes": {
+        "title": "안티치트 오탐 사건 (합성)",
+        "statement": "커널 안티치트(dec-anticheat-kernel) 롤아웃 중 특정 오버클럭 유틸리티/RGB 드라이버가 치트 시그니처와 충돌해 정당 유저를 오탐 차단하는 사건이 있었다. 하드웨어 호환 화이트리스트와 스테이징 카나리 롤아웃을 강화하고, 커널 차단은 즉시 밴이 아니라 매치 진입 차단 + 리뷰 큐로 우회하게 정책을 바꿨다."
+      }
+    },
+    {
+      "key": "fact-telemetry-volume",
+      "type": "fact",
+      "author": "person:dev-moon-taeyang",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "텔레메트리 볼륨 (합성)",
+        "statement": "게임 이벤트 텔레메트리 유입 합성 피크 약 하루 40TB(교전·이동·데미지·아이템 이벤트). Kafka 파티션 수는 리전x이벤트타입으로 스케일. 원본 90일 보존, 집계본은 장기 보존(dec-telemetry-pipeline)."
+      }
+    },
+    {
+      "key": "fact-server-tick-drift",
+      "type": "fact",
+      "author": "person:dev-lee-seongwoo",
+      "size": "para",
+      "state": "verified",
+      "attributes": {
+        "title": "서버 틱 드리프트와 전파 (합성)",
+        "statement": "종반 밀집 국면에서 relevancy 갱신이 폭증하면 20Hz 틱이 목표 50ms를 넘겨 드리프트가 누적되고, 이 지연이 전 클라이언트에 렉으로 전파됐다. dec-server-fps-cap의 틱 예산 캡 + 부가 업데이트 우선 스로틀 도입 후, 파이널 서클에서도 히트판정 틱은 예산 내 유지됐다. 관측은 dec-observability-stack의 틱 오버런 메트릭으로."
+      }
+    },
+    {
+      "key": "term-tick-rate",
+      "type": "term",
+      "author": "person:dev-oh-seunghwan",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "틱레이트(tick rate)",
+        "statement": "서버가 초당 게임 시뮬레이션을 갱신·전파하는 횟수(Hz). 높을수록 반응성·히트판정 정밀도가 오르나 CPU/대역폭 비용이 비례해 증가한다. yoke 코퍼스 기준 라이브 20Hz, 랭크 30Hz(dec-tickrate-policy)."
+      }
+    },
+    {
+      "key": "term-replication",
+      "type": "term",
+      "author": "person:dev-oh-seunghwan",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "replication(액터 복제)",
+        "statement": "서버 권위 액터의 상태를 클라이언트로 동기화하는 UE 메커니즘. 어떤 액터를 누구에게 보낼지는 network relevancy로 필터링한다(dec-netcode-replication)."
+      }
+    },
+    {
+      "key": "term-lag-compensation",
+      "type": "term",
+      "author": "person:dev-oh-seunghwan",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "lag compensation(서버 rewind)",
+        "statement": "발사 시점 사수의 RTT만큼 서버가 대상 히트박스를 과거 위치로 되돌려 명중을 판정하는 기법. 사수 화면과 서버 판정을 일치시킨다. 되감기 상한 200ms(dec-hit-registration)."
+      }
+    },
+    {
+      "key": "term-dedicated-server",
+      "type": "term",
+      "author": "person:dev-lee-seongwoo",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "dedicated server(전용 서버)",
+        "statement": "플레이어 호스트가 아니라 사업자가 운영하는 권위 서버가 매치를 시뮬레이션하는 구조. yoke 코퍼스에서는 매치=프로세스 단위로 할당·회수된다(dec-pubg-dedicated-server)."
+      }
+    },
+    {
+      "key": "term-matchmaking-mmr",
+      "type": "term",
+      "author": "person:dev-kang-taehee",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "MMR(matchmaking rating)",
+        "statement": "매칭에 쓰는 내부 스킬 지표. 배틀로열은 100인 순위 결과라 1:1 Elo를 그대로 못 쓰고 킬·생존·순위 가중 커스텀 레이팅을 쓴다(dec-matchmaking-mmr, draft)."
+      }
+    },
+    {
+      "key": "term-level-streaming",
+      "type": "term",
+      "author": "person:dev-choi-jiwon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "level streaming(레벨 스트리밍)",
+        "statement": "맵을 그리드 셀로 나눠 필요한 셀만 메모리에 로드/언로드하는 기법. 대형 오픈월드의 메모리 예산을 지키는 핵심(dec-map-streaming)."
+      }
+    },
+    {
+      "key": "term-relevancy-culling",
+      "type": "term",
+      "author": "person:dev-oh-seunghwan",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "network relevancy(관심 영역 필터)",
+        "statement": "각 클라이언트에게 거리·시야·상호작용 기준으로 필요한 액터만 복제하도록 거르는 규칙. dormancy는 변하지 않는 액터의 복제를 중단해 대역폭을 아낀다."
+      }
+    },
+    {
+      "key": "term-authoritative-server",
+      "type": "term",
+      "author": "person:dev-shin-arum",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "server-authoritative(서버 권위)",
+        "statement": "게임 상태의 확정을 서버가 소유하고 클라이언트는 예측·표시만 하는 원칙. 루팅·히트판정에 적용해 익스플로잇을 차단한다(dec-loot-server-authoritative)."
+      }
+    },
+    {
+      "key": "term-anycast",
+      "type": "term",
+      "author": "person:dev-cho-wonjae",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "anycast / GeoDNS",
+        "statement": "동일 IP를 여러 엣지에 광고해 클라이언트가 네트워크상 최근접 엣지로 라우팅되게 하는 기법. 리전 게이트웨이 접속에 사용(dec-datacenter-latency-routing). 매치 서버는 세션 안정성 때문에 anycast를 쓰지 않는다."
+      }
+    },
+    {
+      "key": "term-hitbox-rollback",
+      "type": "term",
+      "author": "person:dev-oh-seunghwan",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "히트박스 rollback",
+        "statement": "lag compensation을 위해 서버가 과거 틱들의 대상 히트박스 위치 히스토리를 버퍼링했다가 발사 시점으로 되돌리는 것. 버퍼 길이가 곧 되감기 상한(200ms)을 결정한다."
+      }
+    },
+    {
+      "key": "term-agones",
+      "type": "term",
+      "author": "person:dev-yoon-garam",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "게임서버 오케스트레이션(Agones류)",
+        "statement": "Kubernetes 위에서 GameServer 리소스와 Allocation API로 세션형 dedicated server의 할당·헬스체크·드레이닝·회수를 관리하는 계층(dec-dedicated-orchestration)."
+      }
+    },
+    {
+      "key": "res-100player-adr",
+      "type": "resource",
+      "author": "person:dev-oh-seunghwan",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "ADR-014: 100인 매치 동기화 설계 (합성 포인터)",
+        "statement": "relevancy·dormancy·대역폭 예산·lag compensation 상한의 결정 배경과 측정치를 담은 ADR. fact-100player-sync-design의 원문 포인터.",
+        "url": "https://example.test/kraftonway/adr/014-100player-sync"
+      }
+    },
+    {
+      "key": "res-netcode-runbook",
+      "type": "resource",
+      "author": "person:dev-oh-seunghwan",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "넷코드 장애 대응 런북 (합성)",
+        "statement": "desync/rubber-banding/대역폭 스파이크 발생 시 진단 순서와 relevancy·틱 예산 메트릭 확인 절차.",
+        "url": "https://example.test/kraftonway/runbook/netcode"
+      }
+    },
+    {
+      "key": "res-launch-postmortem-doc",
+      "type": "resource",
+      "author": "person:dev-yoon-garam",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "런칭 과부하 포스트모템 원문 (합성)",
+        "statement": "fact-launch-2018-postmortem의 타임라인·근본원인·후속조치 상세와 용량 산정 공식(리틀의 법칙) 유도.",
+        "url": "https://example.test/kraftonway/postmortem/launch-2018"
+      }
+    },
+    {
+      "key": "res-anticheat-design",
+      "type": "resource",
+      "author": "person:dev-seo-junho",
+      "size": "line",
+      "state": "draft",
+      "attributes": {
+        "title": "안티치트 다층 방어 설계 (합성, 대외비 초안)",
+        "statement": "클라 유저모드→커널 격상, 서버사이드 이상탐지, 오탐 롤아웃 정책을 묶은 설계. 세부 시그니처는 비공개.",
+        "url": "https://example.test/kraftonway/design/anticheat"
+      }
+    },
+    {
+      "key": "res-region-expansion-rfc",
+      "type": "resource",
+      "author": "person:dev-kang-taehee",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "RFC: 매치메이킹 리전 확장 (합성)",
+        "statement": "단일 리전에서 5리전 자동 라우팅 + 폴백으로 전환하는 RFC. dec-mm-v2-region-expansion의 배경 문서.",
+        "url": "https://example.test/kraftonway/rfc/region-expansion"
+      }
+    },
+    {
+      "key": "res-ue-eval",
+      "type": "resource",
+      "author": "person:dev-han-dohyun",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "엔진 평가 문서: UE4 vs 자체엔진 vs Unity (합성)",
+        "statement": "프로토타입 기간·소스 접근성·dedicated server 성숙도·대규모 스트리밍을 축으로 한 평가표. dec-ue-adoption 근거.",
+        "url": "https://example.test/kraftonway/eval/engine-2015"
+      }
+    },
+    {
+      "key": "res-observability-dashboard",
+      "type": "resource",
+      "author": "person:dev-yoon-garam",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "라이브 운영 대시보드 정의 (합성)",
+        "statement": "초당 매치 생성률·큐타임 p95·틱 오버런·리전 latency p99를 1급 지표로 노출하는 Grafana 대시보드 정의(dec-observability-stack).",
+        "url": "https://example.test/kraftonway/dashboard/live-ops"
+      }
+    },
+    {
+      "key": "res-map-streaming-doc",
+      "type": "resource",
+      "author": "person:dev-choi-jiwon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "맵 스트리밍 설계 노트 (합성)",
+        "statement": "World Composition 그리드 셀 크기, 프리로드 예측, 원거리 프록시 지형(distance mesh) 파라미터 정리. dec-map-streaming 상세.",
+        "url": "https://example.test/kraftonway/design/map-streaming"
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "supersedes",
+      "from": "dec-pubg-dedicated-server",
+      "to": "dec-tera-server-arch"
+    },
+    {
+      "type": "supersedes",
+      "from": "dec-mm-v2-region-expansion",
+      "to": "dec-mm-v1-single-region"
+    },
+    {
+      "type": "supersedes",
+      "from": "dec-anticheat-kernel",
+      "to": "dec-anticheat-adoption"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-tickrate-policy",
+      "to": "fact-tickrate-cost"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-hit-registration",
+      "to": "fact-hit-reg-complaint"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-netcode-replication",
+      "to": "fact-100player-sync-design"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-mm-v2-region-expansion",
+      "to": "fact-region-expansion-numbers"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-anticheat-kernel",
+      "to": "fact-anticheat-ban-rate"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-anticheat-kernel",
+      "to": "fact-anticheat-fp"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-loot-server-authoritative",
+      "to": "fact-loot-exploit"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-vehicle-physics",
+      "to": "fact-vehicle-desync"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-map-streaming",
+      "to": "fact-map-streaming-hitch"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-map-streaming",
+      "to": "fact-memory-oom"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-client-memory-budget",
+      "to": "fact-memory-oom"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-dedicated-orchestration",
+      "to": "fact-launch-2018-postmortem"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-hotfix-strategy",
+      "to": "fact-mm-queue-storm"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-server-fps-cap",
+      "to": "fact-server-tick-drift"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-telemetry-pipeline",
+      "to": "fact-telemetry-volume"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-anticheat-server-heuristic",
+      "to": "dec-telemetry-pipeline"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-lang-server",
+      "to": "fact-desync-postmortem"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-build-pipeline",
+      "to": "fact-build-time"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-ue-adoption",
+      "to": "res-ue-eval"
+    },
+    {
+      "type": "relates_to",
+      "from": "fact-100player-sync-design",
+      "to": "res-100player-adr"
+    },
+    {
+      "type": "relates_to",
+      "from": "fact-launch-2018-postmortem",
+      "to": "res-launch-postmortem-doc"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-mm-v2-region-expansion",
+      "to": "res-region-expansion-rfc"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-tera-netcode-inhouse",
+      "to": "dec-netcode-replication"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-datacenter-latency-routing",
+      "to": "dec-server-region-selection"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-anticheat-kernel",
+      "to": "dec-anticheat-server-heuristic"
+    }
+  ],
+  "conflicts": [
+    {
+      "key": "conflict-tickrate",
+      "topic": "라이브 서버 틱레이트를 20Hz로 고정할 것인가, 30Hz 이상으로 올릴 것인가",
+      "a": {
+        "type": "decision",
+        "author": "person:dev-oh-seunghwan",
+        "age_days": 120,
+        "attributes": {
+          "conclusion": "기본 20Hz 고정. 비용 대비 체감 이득이 낮다.",
+          "rationale": "fact-tickrate-cost에서 30Hz는 매치당 CPU 1.5배, 인스턴스 비용 1.6배인데 캐주얼 유저는 블라인드로 구분 못 한다. 그 예산을 리전 커버리지 확대에 쓰는 편이 전체 체감 지연을 더 줄인다.",
+          "rejected_alternatives": ["전 큐 30Hz", "가변 틱"]
+        }
+      },
+      "b": {
+        "type": "decision",
+        "author": "person:dev-kang-taehee",
+        "age_days": 95,
+        "attributes": {
+          "conclusion": "최소 30Hz로 올려야 한다. 경쟁·랭크 경험의 반응성이 리텐션을 좌우한다.",
+          "rationale": "상위 유저와 스트리머의 체감 명중·피격 일관성은 20Hz에서 한계가 있고, 경쟁 씬 인식이 게임 수명을 좌우한다. 비용은 스팟 혼합·리전 최적화로 흡수 가능하다.",
+          "rejected_alternatives": ["20Hz 유지", "프로 씬만 예외"]
+        }
+      }
+    },
+    {
+      "key": "conflict-engine",
+      "topic": "배틀로열 엔진을 상용(UE4)으로 갈 것인가, TERA 자체 엔진 자산을 재활용할 것인가",
+      "a": {
+        "type": "decision",
+        "author": "person:dev-han-dohyun",
+        "age_days": 300,
+        "attributes": {
+          "conclusion": "UE4를 채택한다. 프로토타입 속도와 dedicated server·스트리밍 성숙도가 결정적이다.",
+          "rationale": "12주 안에 100인 프로토타입이 필요했고 소스 접근으로 replication을 직접 수정할 수 있다. 렌더/툴/에디터를 자체 구축할 여력이 없다(res-ue-eval).",
+          "rejected_alternatives": ["자체 엔진 신규", "Unity", "TERA 엔진 포팅"]
+        }
+      },
+      "b": {
+        "type": "decision",
+        "author": "person:park-yonghyun",
+        "age_days": 305,
+        "attributes": {
+          "conclusion": "자체 엔진/자체 넷코드 자산을 재활용해 핵심 판정 튜닝 자유도를 지켜야 한다.",
+          "rationale": "TERA에서 논타깃팅 판정과 넷코드를 밑바닥부터 튜닝해 본 자산이 있다(dec-tera-netcode-inhouse). 상용 엔진에 종속되면 히트판정·네트워크 세부를 원하는 만큼 못 건드릴 위험이 있다.",
+          "rejected_alternatives": ["상용 엔진 전면 채택"]
+        }
+      }
+    },
+    {
+      "key": "conflict-anticheat-approach",
+      "topic": "치트 방어의 무게중심을 커널 레벨 클라이언트 안티치트에 둘 것인가, 서버사이드 검증/이상탐지에 둘 것인가",
+      "a": {
+        "type": "decision",
+        "author": "person:dev-seo-junho",
+        "age_days": 60,
+        "attributes": {
+          "conclusion": "커널 레벨 클라이언트 안티치트가 1차 방어선이어야 한다.",
+          "rationale": "ESP·시각 정보 핵은 서버가 관측할 수 없어 클라이언트에서만 잡힌다. 핵이 커널로 내려가므로 같은 특권 레벨이 아니면 관측이 불가능하다(dec-anticheat-kernel, fact-anticheat-ban-rate).",
+          "rejected_alternatives": ["유저모드 유지", "서버 검증만 의존"]
+        }
+      },
+      "b": {
+        "type": "decision",
+        "author": "person:dev-lee-seongwoo",
+        "age_days": 58,
+        "attributes": {
+          "conclusion": "서버사이드 권위·이상탐지를 중심에 두고 커널 침습은 최소화해야 한다.",
+          "rationale": "커널 드라이버는 오탐 시 정당 유저 피해와 시스템 안정성 리스크가 크다(fact-anticheat-fp). 서버 권위(히트·루팅)와 통계 이상탐지로 관측 가능한 대부분을 잡을 수 있고, 커널은 결국 우회된다.",
+          "rejected_alternatives": ["전면 커널 침습", "클라 신호만 신뢰"]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1295 @@
+{
+  "role": "biz",
+  "collaboration": {
+    "id": "collab:krafton-corp",
+    "title": "블루홀에서 크래프톤까지 — 소송·감원·매각 거부·M&A 연합·리브랜딩을 거쳐 2021 코스피 IPO에 이른 사업/전략 의사결정 기록 (합성 테스트 데이터)"
+  },
+  "people": [
+    {
+      "id": "person:biz-lee-jaewon",
+      "name": "이재원",
+      "role": "사업개발 리드",
+      "team": "사업개발"
+    },
+    {
+      "id": "person:biz-park-sunyoung",
+      "name": "박선영",
+      "role": "CFO / 재무총괄",
+      "team": "재무"
+    },
+    {
+      "id": "person:biz-choi-donghyun",
+      "name": "최동현",
+      "role": "전략기획 실장",
+      "team": "전략기획"
+    },
+    {
+      "id": "person:biz-jung-mina",
+      "name": "정미나",
+      "role": "HR 총괄",
+      "team": "인사"
+    },
+    {
+      "id": "person:biz-han-seokjin",
+      "name": "한석진",
+      "role": "법무 자문",
+      "team": "법무"
+    },
+    {
+      "id": "person:biz-yoon-jiho",
+      "name": "윤지호",
+      "role": "투자 / IR 담당",
+      "team": "투자"
+    },
+    {
+      "id": "person:biz-kang-hyewon",
+      "name": "강혜원",
+      "role": "M&A 담당",
+      "team": "사업개발"
+    },
+    {
+      "id": "person:biz-oh-taeyang",
+      "name": "오태양",
+      "role": "경영관리",
+      "team": "재무"
+    },
+    {
+      "id": "person:biz-seo-yerin",
+      "name": "서예린",
+      "role": "조직문화 / 보상 설계",
+      "team": "인사"
+    },
+    {
+      "id": "person:biz-nam-gicheol",
+      "name": "남기철",
+      "role": "회계 / 공시",
+      "team": "재무"
+    },
+    {
+      "id": "person:biz-baek-seunghoon",
+      "name": "백승훈",
+      "role": "전략기획 시니어",
+      "team": "전략기획"
+    }
+  ],
+  "records": [
+    {
+      "key": "dec-found-bluehole",
+      "type": "decision",
+      "author": "person:jang-byeonggyu",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2007년 3월, 전 NCsoft 리니지3 개발팀 핵심 인력과 함께 블루홀을 창업하고 대형 MMORPG(테라)를 정면으로 개발한다.",
+        "rationale": "검증된 팀을 통째로 옮겨야 '한 번에 걸작'을 낼 확률이 높다고 판단했다. 흩어진 인재를 새로 모으는 데 드는 2~3년의 팀 빌딩 시간을 절약하는 것이 소송 리스크보다 전략적 가치가 크다고 봤다. 창업 자본은 장병규 개인 자산과 초기 투자로 약 170억 원 규모를 확보했다.",
+        "rejected_alternatives": [
+          "기존 회사에 잔류하며 신규 IP를 사내에서 추진 — 대작 MMO를 독립적으로 소유할 수 없음",
+          "핵심 인력 없이 신규 채용만으로 팀 구성 — 개발 리스크와 리드타임이 과도",
+          "소규모 캐주얼 게임으로 시작해 자금을 모은 뒤 대작 도전 — 창업 멤버의 역량/의지와 불일치"
+        ]
+      }
+    },
+    {
+      "key": "dec-ncsoft-litigation-stance",
+      "type": "decision",
+      "author": "person:biz-han-seokjin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "NCsoft가 제기한 약 650억 원 규모의 영업비밀 침해 소송에 합의하지 않고 정면 대응하되, 개발 산출물은 클린룸(clean-room) 절차로 독립성을 입증한다.",
+        "rationale": "합의금 지급은 침해 인정으로 비칠 수 있어 후속 채용/투자에 독소가 된다. 코드·아트·기획 산출물의 독립 개발 로그를 확보해 두면 장기전에서 유리하다.",
+        "rejected_alternatives": [
+          "조기 합의금 지급으로 사건 종결 — 자금 소진 + 침해 프레임 고착",
+          "핵심 인력 일부를 프로젝트에서 배제해 리스크 완화 — 개발 역량 훼손"
+        ]
+      }
+    },
+    {
+      "key": "dec-single-masterpiece",
+      "type": "decision",
+      "author": "person:jang-byeonggyu",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "회사의 모든 자원을 단일 대작(테라) 하나에 집중한다 — '하나의 걸작' 전략.",
+        "rationale": "제한된 자본과 인재로 두세 개 프로젝트를 병행하면 어느 것도 완성도에 도달하지 못한다. 대작 하나의 성공이 회사 전체를 견인한다는 판단.",
+        "rejected_alternatives": [
+          "복수 프로젝트 병행으로 리스크 분산 — 자원 분산으로 완성도 저하",
+          "외주/퍼블리싱 병행으로 캐시카우 확보 — 조직 정체성 희석 우려"
+        ]
+      }
+    },
+    {
+      "key": "dec-2012-layoff",
+      "type": "decision",
+      "author": "person:kim-gangseok",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2012년 겨울, 전사 인력의 약 20%(약 60명)를 감원해 월 번레이트를 낮추고 다음 게임까지의 런웨이를 확보한다.",
+        "rationale": "테라의 국내 매출이 손익분기 아래로 내려오면서 월 순현금 유출이 급증했다. 인위적 구조조정 없이는 12개월 내 현금 고갈이 예상됐다. 감원은 고통스럽지만 회사 존속을 위한 최소 조치로 판단.",
+        "rejected_alternatives": [
+          "감원 없이 추가 투자로만 버티기 — 성과 없는 상태의 다운라운드 위험",
+          "전 직원 급여 일괄 삭감 — 핵심 인재 이탈 가속",
+          "프로젝트 전면 중단 — 회복 불가능한 개발 모멘텀 상실"
+        ]
+      }
+    },
+    {
+      "key": "dec-2013-pangyo-move",
+      "type": "decision",
+      "author": "person:biz-park-sunyoung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2013년 2월, 본사를 강남에서 판교로 이전해 임대료 등 고정비를 연간 약 18억 원 절감한다.",
+        "rationale": "강남 오피스 임대료는 판교 대비 평당 2배 이상. 게임업계 인재 풀이 판교로 이동 중이라 채용 접근성도 개선된다. 번레이트 축소의 가장 큰 단일 레버.",
+        "rejected_alternatives": [
+          "강남 유지하되 층수 축소 — 절감폭 제한적",
+          "재택/분산 근무 — 당시 대작 개발 협업 밀도상 비현실적"
+        ]
+      }
+    },
+    {
+      "key": "dec-cash-runway-priority",
+      "type": "decision",
+      "author": "person:biz-park-sunyoung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2013년 재무 최우선 지표를 '다음 게임 출시까지의 런웨이(개월 수)'로 통일하고, 모든 지출을 이 지표에 대한 기여로 평가한다.",
+        "rationale": "매출·이익 목표는 대작 출시 전까지 무의미하다. 조직 전체가 하나의 생존 지표를 공유해야 자원 배분 논쟁이 줄어든다.",
+        "rejected_alternatives": [
+          "매출 성장률을 최우선 KPI로 유지 — 출시 전 단계에 부적합",
+          "부서별 개별 예산 자율권 확대 — 전사 런웨이 통제 불가"
+        ]
+      }
+    },
+    {
+      "key": "dec-2013-explore-sale",
+      "type": "decision",
+      "author": "person:jang-byeonggyu",
+      "size": "half",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "2013년 여름, 회사 매각 또는 경영권 이전을 진지하게 검토한다 — 잠재 인수 후보와 예비 접촉을 개시한다.",
+        "rationale": "런웨이가 6개월 내로 좁혀진 상황에서, 직원과 투자자의 자산을 지키는 가장 책임 있는 선택이 통제된 매각일 수 있다는 판단. 창업자로서 '버티기'의 감정적 관성을 경계해야 한다고 봄.",
+        "rejected_alternatives": [
+          "매각 검토 없이 버티기 — 현금 고갈 시 무질서한 청산 위험",
+          "즉시 청산 — 잔여 가치 극대화 실패"
+        ]
+      }
+    },
+    {
+      "key": "dec-2013-no-sale",
+      "type": "decision",
+      "author": "person:kim-gangseok",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2013년 여름, 매각하지 않고 '다음 게임까지 버틴다'. 김강석이 장병규를 설득해 매각 검토를 철회한다.",
+        "rationale": "지금 매각하면 팀과 축적된 개발 역량의 가치가 헐값에 평가된다. 파이프라인의 차기작이 한 번의 반등을 만들 수 있고, 그 옵션 가치가 현재 매각가보다 크다는 확신. 감원·이전으로 번레이트를 이미 낮춰 시간을 벌었다.",
+        "rejected_alternatives": [
+          "지금 매각하여 확실한 exit — 팀 가치 저평가 + 잔존 인원 대량 이탈",
+          "청산 후 자산 분배 — IP/인재 옵션 가치 전부 소멸"
+        ]
+      }
+    },
+    {
+      "key": "dec-2013-decline-buyout-offer",
+      "type": "decision",
+      "author": "person:kim-gangseok",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2013년 하반기, 외부 게임사가 제시한 경영권 인수 제안(추정 밸류 약 900억 원)을 거부한다.",
+        "rationale": "제시 밸류가 테라의 글로벌 잠재력과 차기작 파이프라인을 반영하지 못했다. 락업·잔류 조건도 창업팀 자율성을 크게 제약했다.",
+        "rejected_alternatives": [
+          "제안 수락으로 즉시 유동성 확보 — 저평가 매각 + 자율성 상실",
+          "가격만 재협상 — 인수자의 상한이 파이프라인 가치에 못 미침"
+        ]
+      }
+    },
+    {
+      "key": "dec-2013-bridge-financing",
+      "type": "decision",
+      "author": "person:biz-yoon-jiho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2013년, 기존 주주 대상 약 200억 원 규모 브릿지 라운드를 클로징해 차기작 출시까지의 런웨이를 12개월 이상 연장한다.",
+        "rationale": "신규 재무적 투자자를 새로 유치하면 실사·협상에 수개월이 걸린다. 회사를 이미 아는 기존 주주가 속도와 조건 모두 유리하다. 전환우선주 구조로 다운사이드를 방어.",
+        "rejected_alternatives": [
+          "신규 VC 유치 — 시간 소요 + 다운라운드 가능성",
+          "은행 차입 — 매출 없는 개발사에 여신 불가",
+          "무증자 버티기 — 런웨이 부족"
+        ]
+      }
+    },
+    {
+      "key": "dec-bluehole-2.0-ma",
+      "type": "decision",
+      "author": "person:biz-kang-hyewon",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2013~2014년 '블루홀 2.0' — 소규모 개발 스튜디오를 주식교환 중심으로 흡수하는 M&A 연합 전략을 채택한다.",
+        "rationale": "단일 대작 리스크를 여러 팀·장르로 분산하고, 검증된 소형 팀을 통째로 편입해 개발 역량을 빠르게 확장한다. 현금 소모를 최소화하기 위해 지분 교환(stock swap)을 주된 대가로 사용.",
+        "rejected_alternatives": [
+          "내부 신규 팀 육성만으로 확장 — 시간과 실패율이 높음",
+          "전액 현금 인수 — 당시 현금 여력 부족",
+          "단일 대작 집중 유지 — 리스크 집중"
+        ]
+      }
+    },
+    {
+      "key": "dec-portfolio-pivot",
+      "type": "decision",
+      "author": "person:biz-choi-donghyun",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "전략 축을 '하나의 걸작'에서 '다수 스튜디오 포트폴리오'로 전환한다. 회사는 단일 대작의 흥행에 회사 존속을 거는 대신, 독립적으로 운영되는 복수 스튜디오의 파이프라인으로 흥행 분산과 반복 시도를 구조화한다.",
+        "rationale": "이 전환의 근거는 세 가지 관찰에서 나온다. 첫째, 대작 MMORPG의 흥행은 본질적으로 저확률·고분산 사건이다. 테라 한 편에 회사의 생사를 걸었던 2012~2013년의 경험은, 단일 베팅의 분산이 재무적으로 감당 불가능하다는 것을 실측으로 보여줬다 — 출시 후 6개월 만에 런웨이가 6개월 아래로 떨어졌고, 감원과 판교 이전이라는 고통스러운 조치 없이는 회사가 존속하지 못했다. 이 경험에서 얻은 교훈은 '더 좋은 대작을 만들자'가 아니라 '한 편의 성패에 회사를 걸지 말자'였다. 둘째, 흥행은 예측 불가능하지만 '시도 횟수'는 통제 가능하다. 서로 다른 장르·플랫폼·팀 문화를 가진 스튜디오를 여러 개 보유하면, 각 스튜디오가 독립적으로 베팅을 반복하고 회사 전체로는 큰 수의 법칙이 작동한다. 개별 프로젝트의 성공 확률을 인위적으로 끌어올리는 것은 어렵지만, 서로 상관관계가 낮은 베팅의 개수를 늘리는 것은 자본 배분의 문제이므로 경영이 통제할 수 있다. 하나가 실패해도 회사가 무너지지 않고, 하나가 성공하면 회사를 재정의한다 — 이것이 포트폴리오의 비대칭적 상방이다. 셋째, 소형 스튜디오는 대부분 '좋은 팀 + 부족한 자본/퍼블리싱'의 조합이다. 우리가 자본과 글로벌 퍼블리싱을 제공하고 창작 자율성을 보장하면, 인수는 단순 규모 확장이 아니라 상호 보완이 된다. 시장에는 재능은 충분하나 자본과 배급망이 없어 잠재력을 실현하지 못하는 팀이 널려 있고, 그들을 저비용(지분 교환)으로 편입하는 것이 신규 팀을 밑바닥부터 육성하는 것보다 리드타임과 실패율 모두에서 유리하다. 운영 원칙은 다음과 같다. (1) 각 스튜디오는 독립 손익과 창작 자율권을 갖되, 자본 배분·글로벌 퍼블리싱·백오피스는 본사가 공유 인프라로 제공한다. 창작은 분산하고 사업 인프라는 규모의 경제로 집중한다. (2) 스튜디오 편입 시 현금보다 지분 교환을 우선해 현금 완충을 지킨다 — 현금은 런웨이이고, 우리는 다시는 런웨이를 6개월로 만들지 않는다. (3) 흥행이 나온 스튜디오의 성공을 다른 스튜디오로 강제 이식하지 않는다 — 성공 방정식은 팀마다 다르며, 표준화는 창작의 다양성을 죽인다. (4) 포트폴리오 전체의 목표는 '평균 타율'이 아니라 '한 번의 만루 홈런을 낼 수 있는 타석 수'다. 평균적으로 준수한 게임 열 개보다, 아홉 번 지고 한 번 시장을 바꾸는 구조가 이 산업에서 더 큰 가치를 만든다. 이 전략은 이후 배틀그라운드라는 단일 초대형 흥행이 실제로 등장했을 때, 그 팀(지노게임즈 계열)이 회사 안에 이미 들어와 있었다는 사실로 정당성을 얻는다 — 우리가 슈터 장르의 작은 팀을 acqui-hire로 편입해 두지 않았다면, 그 흥행은 우리 회사의 것이 아니었을 것이다. 다만 이 접근은 제품팀 관점과 근본적 긴장 관계에 있다 — 개별 스튜디오는 '우리 게임 하나에 온전히 집중'을 원하고, 본사는 '포트폴리오 차원의 분산과 자본 재배분'을 원한다. 스튜디오 입장에서 본사의 재배분은 자기 성공의 과실을 남의 실패를 메우는 데 쓰는 것으로 보인다. 이 긴장은 해소 대상이 아니라 상시 관리 대상이며, 가드레일(자본·퍼블리싱·핵심 리스크)의 최소주의로 균형을 잡는다. 마지막으로, 이 전략의 성패는 인수 후 통합(PMI)의 절제에 달려 있다. 대부분의 M&A 연합이 실패하는 이유는 본사가 편입된 팀을 본사 프로세스에 맞춰 '정상화'하려다 팀의 창작 동력을 꺼뜨리기 때문이다. 우리는 반대로 간다 — 편입 후에도 스튜디오의 의사결정 속도와 문화를 최대한 보존하고, 통합은 백오피스·퍼블리싱·자본에 한정한다. 좋은 팀을 사서 망치지 않는 것, 그것이 이 전략에서 본사가 지켜야 할 첫 번째 규율이다.",
+        "rejected_alternatives": [
+          "단일 대작 집중 전략 유지 — 분산 감당 불가로 이미 한 차례 존속 위기를 겪음",
+          "퍼블리싱 전업(자체 개발 축소) — 창작 역량이라는 핵심 자산을 포기하는 것",
+          "소수 정예 2~3개 프로젝트만 사내 운영 — 시도 횟수가 부족해 흥행 확률 상승 효과가 작음"
+        ]
+      }
+    },
+    {
+      "key": "dec-acquire-ginno",
+      "type": "decision",
+      "author": "person:biz-kang-hyewon",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2014년 11월, 지노게임즈를 인수한다(추정 인수 규모 약 130억 원, 현금+주식 혼합). 대표 김창한이 회사에 합류한다.",
+        "rationale": "인수의 핵심 대가는 회사가 아니라 사람과 팀이었다 — FPS/슈터 장르에 대한 실전 개발 역량과 리더십. 포트폴리오 전략에서 슈터 장르 공백을 메우고, 검증된 리더를 확보하는 acqui-hire 성격이 강했다.",
+        "rejected_alternatives": [
+          "슈터 장르 팀을 사내 신규 육성 — 리드타임과 실패율 과다",
+          "외부 스튜디오와 퍼블리싱 계약만 체결 — IP/인재 소유권 미확보",
+          "인수 보류 — 이후 배틀그라운드로 이어질 팀을 놓쳤을 것"
+        ]
+      }
+    },
+    {
+      "key": "dec-escrow-ma-terms",
+      "type": "decision",
+      "author": "person:biz-han-seokjin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "스튜디오 인수 표준 계약에 인수대가의 15%를 12~18개월 에스크로에 예치하고, 핵심 인력 잔류·마일스톤 달성 조건의 언아웃(earn-out)을 결합한다.",
+        "rationale": "acqui-hire의 최대 리스크는 인수 직후 핵심 인력 이탈과 진술·보장 위반이다. 에스크로는 표시·보장 위반에 대한 배상 재원, 언아웃은 리텐션 인센티브로 작동한다.",
+        "rejected_alternatives": [
+          "전액 클로징 시 일시 지급 — 이탈/위반 시 회수 수단 없음",
+          "리텐션을 계약 외 구두 합의로 처리 — 강제력 없음"
+        ]
+      }
+    },
+    {
+      "key": "dec-bluehole-identity",
+      "type": "decision",
+      "author": "person:kim-gangseok",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "회사의 대외 정체성을 'MMORPG 명가 블루홀'이라는 단일 스튜디오 브랜드로 유지한다.",
+        "rationale": "테라로 쌓은 MMORPG 개발사 브랜드 자산을 일관되게 강화하는 것이 채용·퍼블리싱 협상에 유리하다.",
+        "rejected_alternatives": [
+          "지주-스튜디오 멀티브랜드 체제 — 당시 조직 규모에 과함",
+          "IP별 개별 브랜드 — 브랜드 자산 분산"
+        ]
+      }
+    },
+    {
+      "key": "dec-rebrand-krafton",
+      "type": "decision",
+      "author": "person:biz-choi-donghyun",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2018년 11월, 사명을 '블루홀'에서 '크래프톤(KRAFTON)'으로 변경한다. 개별 스튜디오는 하위 브랜드로 유지하고, 크래프톤은 이들을 아우르는 연합(union of studios) 정체성을 갖는다.",
+        "rationale": "블루홀은 MMORPG 스튜디오 하나의 이름이었으나, 배틀그라운드 성공 이후 회사는 다수 스튜디오의 연합체가 됐다. 단일 스튜디오 브랜드가 오히려 포트폴리오 정체성을 가린다. '장인정신(craft)'을 담은 상위 브랜드로 리브랜딩해 글로벌 인지도와 채용 브랜드를 재정의한다.",
+        "rejected_alternatives": [
+          "블루홀 브랜드 유지 — 다스튜디오 정체성과 불일치",
+          "배틀그라운드/PUBG를 회사명으로 채택 — 단일 IP 의존 이미지 고착"
+        ]
+      }
+    },
+    {
+      "key": "dec-studio-restructure-2020",
+      "type": "decision",
+      "author": "person:kim-changhan",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2020년, 회사를 '퍼블리셔 본사 + 독립 제작 스튜디오' 체제로 재편한다. 본사는 자본·글로벌 퍼블리싱·플랫폼을 담당하고, 각 스튜디오는 창작과 손익을 책임진다.",
+        "rationale": "배틀그라운드 이후 조직이 급팽창하면서 의사결정 병목과 책임 소재 모호가 발생했다. 창작(스튜디오)과 사업·자본(본사)의 역할을 구조적으로 분리해, 스튜디오는 몰입을, 본사는 포트폴리오 배분을 각각 최적화한다. IPO를 앞두고 지배구조를 투자자에게 설명 가능한 형태로 정돈하는 목적도 있다.",
+        "rejected_alternatives": [
+          "단일 통합 조직 유지 — 병목과 책임 모호 지속",
+          "스튜디오 완전 분사(별도 법인 매각) — 포트폴리오 시너지/통제 상실"
+        ]
+      }
+    },
+    {
+      "key": "dec-tencent-partnership",
+      "type": "decision",
+      "author": "person:biz-yoon-jiho",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "배틀그라운드의 글로벌·중국 확장을 위해 텐센트를 전략적 파트너 겸 투자자로 유치한다(추정 지분 약 10%대).",
+        "rationale": "중국 시장 진입과 모바일 버전 개발/퍼블리싱에는 현지 최강 파트너가 필수다. 텐센트는 자본, 퍼블리싱, 모바일 개발 역량을 동시에 제공한다. 지분 희석을 감수하더라도 글로벌 스케일업 속도를 사는 거래.",
+        "rejected_alternatives": [
+          "자체 중국 진출 — 규제·현지화 장벽으로 사실상 불가",
+          "단순 퍼블리싱 계약만 체결 — 파트너의 장기적 이해관계 정렬 약함",
+          "타 글로벌 퍼블리셔와 제휴 — 중국 시장 접근성 열위"
+        ]
+      }
+    },
+    {
+      "key": "dec-global-publishing-self",
+      "type": "decision",
+      "author": "person:biz-lee-jaewon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "서구/글로벌 PC·콘솔 시장은 외부 퍼블리셔에 위탁하지 않고 자체 퍼블리싱 역량을 내재화한다.",
+        "rationale": "배틀그라운드급 IP의 라이브 운영·수익화 데이터와 이용자 관계를 외부에 넘기면 장기 IP 통제력을 잃는다. 자체 퍼블리싱은 초기 비용이 크지만 데이터·마진·IP 주권을 지킨다.",
+        "rejected_alternatives": [
+          "전 지역 외부 퍼블리셔 위탁 — 마진/데이터/IP 통제 상실",
+          "지역별 개별 퍼블리셔 난립 — 브랜드/운영 일관성 저하"
+        ]
+      }
+    },
+    {
+      "key": "dec-pubg-corporate-spinoff",
+      "type": "decision",
+      "author": "person:biz-choi-donghyun",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "배틀그라운드 사업을 담당하는 법인(PUBG 계열)을 별도로 두었다가, IPO를 앞두고 상장 주체(크래프톤)로 합병·통합해 단일 상장 구조를 만든다.",
+        "rationale": "초기에는 IP 사업의 독립성·집중을 위해 별도 법인이 유효했으나, 상장 시점에는 투자자에게 '하나의 통합된 이익 실체'를 제시해야 밸류에이션과 지배구조 설명이 명확해진다. 소수주주·크로스 지분 문제를 상장 전에 정리.",
+        "rejected_alternatives": [
+          "PUBG 법인 별도 상장 — 크래프톤 지주 밸류 훼손 + 중복 비용",
+          "합병 없이 지분법 반영으로 상장 — 이익 실체 불투명, 밸류 디스카운트"
+        ]
+      }
+    },
+    {
+      "key": "dec-holding-structure",
+      "type": "decision",
+      "author": "person:biz-han-seokjin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "상장 주체를 정점으로 스튜디오들을 자회사로 두는 단층 지배구조를 채택하고, 순환출자·교차 지분을 상장 전에 모두 해소한다.",
+        "rationale": "복잡한 지분 구조는 상장 심사에서 지배구조 디스카운트를 유발한다. 단순하고 설명 가능한 구조가 밸류에이션에 유리하고 향후 M&A 유연성도 높다.",
+        "rejected_alternatives": [
+          "다층 지주회사 구조 — 규제/설명 복잡성 증가",
+          "교차 지분 유지 — 상장 심사 리스크"
+        ]
+      }
+    },
+    {
+      "key": "dec-ipo-2021",
+      "type": "decision",
+      "author": "person:biz-park-sunyoung",
+      "size": "a4",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "2021년 8월, 코스피 시장에 신규 상장한다. 공모가는 밴드 상단인 498,000원으로 확정하고, 신주 발행과 구주 매출을 병행하되 신주 비중을 높여 성장 재원을 확보한다.",
+        "rationale": "상장의 목적은 세 가지 층위에서 정의된다. 첫째는 성장 재원이다. 글로벌 퍼블리싱 내재화, 신규 IP 파이프라인, 그리고 향후 대형 M&A를 자체 현금과 지분 교환만으로 감당하기에는 한계가 있다. 공모 신주로 유입되는 대규모 자본은 '단일 IP(배틀그라운드) 의존'이라는 최대 리스크를 다음 IP에 재투자해 헤지하는 재원이 된다. 단일 IP 매출 비중이 90% 안팎인 회사에서, 다음 흥행을 만들거나 사는 데 필요한 실탄을 확보하는 것은 선택이 아니라 생존의 문제다. 이 때문에 공모 구조에서 신주 비중을 의도적으로 높였다 — 구주 매출 위주였다면 자본이 회사가 아니라 기존 주주 주머니로만 흘렀을 것이고, 상장은 '창업자와 초기 투자자의 exit 이벤트'로 프레이밍됐을 것이다. 우리는 상장을 exit이 아니라 성장의 재장전으로 규정했다. 둘째는 인재 보상과 리텐션이다. 급성장기에 합류한 수천 명의 인력에게 부여한 스톡옵션·RSU가 상장으로 유동성을 얻어야 장기 리텐션이 실제로 작동한다. 비상장 상태의 종이 자산은 리텐션 도구로서 힘이 약하다 — 팔 수 없는 주식은 심리적으로 급여의 연장이 아니라 불확실한 약속에 가깝다. 상장은 이 약속을 현금화 가능한 자산으로 바꿔, 핵심 인력이 회사에 남을 경제적 이유를 강화한다. 특히 배틀그라운드 단일 IP의 핵심 개발·운영 인력 이탈은 회사의 최대 리스크 중 하나이므로, 이들의 정렬을 유지하는 보상 구조는 재무 전략의 일부다. 셋째는 지배구조와 신뢰의 externalization이다. 공적 시장의 공시·회계·거버넌스 규율을 받는 상장사가 되는 것은, 글로벌 파트너·퍼블리싱 협상·차기 대형 인수에서 신뢰 자본으로 작동한다. 상대가 우리의 재무 상태와 지배구조를 감사받은 공시로 검증할 수 있다는 사실 자체가 협상력이 된다. 공모가를 밴드 상단인 498,000원으로 확정한 판단의 근거는 두 가지다. 하나는 수요예측에서 기관 경쟁이 충분해 상단을 흡수할 수요가 확인됐다는 것이고, 다른 하나는 단일 IP 의존이라는 약점을 성장 스토리(글로벌 자체 퍼블리싱 + 신규 IP + 인도/중동 등 신흥시장 + IP 미디어 확장)로 상쇄할 수 있다고 봤다는 것이다. 다만 상단 공모가는 상장 직후 주가 변동성을 키우고 '고평가' 논란에 노출되는 트레이드오프를 안는다. 이 리스크는 세 가지로 관리한다. (1) 창업자·핵심 임원의 장기 락업(6개월~2년 차등)으로 오버행을 구조적으로 축소한다. (2) 조달금의 자본 배분 계획(신규 IP·M&A·신흥시장 비중)을 구체적으로 공시해 자금 사용의 불확실성을 줄인다. (3) 단일 IP 의존 리스크를 IR·증권신고서 최상단에 투명하게 명시해, 사후 신뢰 붕괴와 소송 리스크를 사전에 차단한다. 상장은 종착점이 아니라, 배틀그라운드라는 단 한 번의 흥행을 '반복 가능한 회사'로 전환하기 위한 자본 조달 이벤트로 규정한다. 이 규정이 공모 구조의 모든 세부 결정을 지배한다. 덧붙여, 상장 시점을 2021년 하반기로 잡은 것은 우연이 아니다. IPO 밸류에이션은 직전 실적 모멘텀과 게임 섹터 멀티플이 동시에 높은 구간에서 극대화되며, 그 창(window)은 짧다. 배틀그라운드 모바일 실적이 정점에 있고 섹터 멀티플이 우호적인 국면을 놓치면 조달액이 수천억 단위로 달라진다. 우리는 완벽한 회사를 기다린 것이 아니라, 시장이 우리의 성장 스토리에 가장 후한 값을 매기는 순간을 택했다. 조달한 자본을 다음 IP로 증명하는 것은 상장 이후 경영의 몫이며, 그 증명이 이 공모가를 정당화할 것이다.",
+        "rejected_alternatives": [
+          "상장을 1~2년 연기하고 사모 자금으로 성장 지속 — 인재 유동성/신뢰 자본 확보 지연, 시장 창(window) 상실 위험",
+          "구주 매출 위주 공모 — 회사 성장 재원 미확보, '창업자 exit' 프레임 리스크",
+          "공모가를 밴드 하단으로 보수적 확정 — 조달액 축소로 M&A/투자 여력 감소",
+          "나스닥 등 해외 상장 — 국내 투자자 접근성/규제 복잡성"
+        ]
+      }
+    },
+    {
+      "key": "dec-ipo-offer-structure",
+      "type": "decision",
+      "author": "person:biz-yoon-jiho",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "공모 총 규모 약 4.3조 원 수준에서, 우리사주조합 배정과 기관 의무보유확약(락업) 유도를 통해 상장 직후 유통물량을 관리한다.",
+        "rationale": "상장 직후 오버행(대량 매도 대기물량)이 주가를 짓누른다. 우리사주 배정은 직원 보상+매도 지연 효과, 기관 의무보유확약은 초기 유통물량 축소 효과를 동시에 낸다. 안정적 초기 주가는 후속 자본조달과 인재 리텐션에 유리.",
+        "rejected_alternatives": [
+          "확약 유도 없이 물량 최대 배정 — 상장 직후 오버행 리스크",
+          "우리사주 배정 최소화 — 직원 보상/리텐션 효과 약화"
+        ]
+      }
+    },
+    {
+      "key": "dec-ipo-timing-2021",
+      "type": "decision",
+      "author": "person:biz-park-sunyoung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "상장 시점을 2021년 하반기로 확정한다 — 게임 섹터 밸류에이션 정점과 배틀그라운드 모바일 실적 피크를 상장 창(window)으로 활용한다.",
+        "rationale": "IPO 밸류에이션은 시장 사이클과 직전 실적 모멘텀에 크게 좌우된다. 실적과 섹터 멀티플이 동시에 높은 구간을 놓치면 조달액이 수천억 단위로 달라진다.",
+        "rejected_alternatives": [
+          "2022년 이후로 연기 — 섹터 멀티플 하락 시 밸류 훼손 위험",
+          "실적 확인 없이 조기 상장 — 성장 스토리 설득력 약화"
+        ]
+      }
+    },
+    {
+      "key": "dec-secondary-share-sale",
+      "type": "decision",
+      "author": "person:biz-yoon-jiho",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "공모에서 재무적 투자자(기존 VC/PE)의 구주 매출은 허용하되, 창업자·핵심 경영진의 구주 매출은 최소화하고 대신 장기 락업을 건다.",
+        "rationale": "초기 FI의 회수(exit)는 정당하고 자연스럽다. 그러나 창업자·경영진의 대량 구주 매출은 '경영진이 정점에서 판다'는 신호로 읽혀 신규 투자자 신뢰를 훼손한다. 경영진은 유동성보다 장기 정렬을 택해야 한다.",
+        "rejected_alternatives": [
+          "창업자 구주 대량 매출 — 유동성은 크나 신뢰/정렬 훼손",
+          "구주 매출 전면 금지 — 초기 FI 회수 경로 차단으로 초기 투자 유인 약화"
+        ]
+      }
+    },
+    {
+      "key": "dec-esop-redesign",
+      "type": "decision",
+      "author": "person:biz-seo-yerin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "상장을 앞두고 임직원 보상을 스톡옵션 중심에서 RSU(양도제한조건부주식) 중심으로 재설계하고, 4년 베스팅·1년 클리프를 표준화한다.",
+        "rationale": "스톡옵션은 주가 하락 시 수중가치(underwater)로 리텐션 효과가 사라진다. RSU는 하락장에서도 잔존 가치가 남아 리텐션이 안정적이다. 급성장기 대규모 채용에 예측 가능한 표준 패키지가 필요.",
+        "rejected_alternatives": [
+          "스톡옵션 유지 — 주가 변동 시 리텐션 붕괴",
+          "현금 인센티브 확대 — 장기 정렬 효과 약함, 현금 부담"
+        ]
+      }
+    },
+    {
+      "key": "dec-founder-lockup",
+      "type": "decision",
+      "author": "person:biz-han-seokjin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "창업자와 핵심 임원 지분에 상장 후 최소 6개월, 일부는 2년까지 차등 의무보유(lock-up)를 적용한다.",
+        "rationale": "경영진의 장기 락업은 신규 투자자에게 '스킨 인 더 게임'을 보여주는 가장 강한 신호다. 상장 직후 매도 우려를 구조적으로 차단해 초기 주가 안정에 기여.",
+        "rejected_alternatives": [
+          "법정 최소 락업만 적용 — 신뢰 신호 약함",
+          "락업 없이 자율 매도 — 오버행/신뢰 리스크"
+        ]
+      }
+    },
+    {
+      "key": "dec-retention-package-keystaff",
+      "type": "decision",
+      "author": "person:biz-seo-yerin",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "배틀그라운드 핵심 개발/운영 인력에 대해 상장 전후 별도 리텐션 패키지(추가 RSU + 2년 조건부 보너스)를 설계한다.",
+        "rationale": "단일 IP의 핵심 인력 이탈은 회사 최대 리스크 중 하나다. 상장으로 종이 부(富)를 실현한 직후가 이탈 위험이 가장 높은 구간이므로, 이 시점을 겨냥한 정렬 장치가 필요하다.",
+        "rejected_alternatives": [
+          "전사 일괄 패키지만 운영 — 핵심 인력 차별적 리텐션 효과 부족",
+          "리텐션 미설계 — 상장 직후 이탈 리스크 방치"
+        ]
+      }
+    },
+    {
+      "key": "dec-org-scaling-hr",
+      "type": "decision",
+      "author": "person:biz-jung-mina",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "배틀그라운드 흥행 이후 급성장기(1년 내 인력 2배 이상)에는 '채용 속도'보다 '온보딩 품질과 스튜디오 문화 보존'을 우선한다.",
+        "rationale": "폭발적 채용은 조직 문화를 희석하고, 검증 안 된 대량 채용은 급성장 이후 구조조정을 부른다. 스튜디오별 문화가 창작 성과의 원천이므로, 성장 속도를 문화 흡수 속도에 맞춰 조절한다.",
+        "rejected_alternatives": [
+          "가능한 한 빠르게 대량 채용 — 문화 희석 + 후속 구조조정 리스크",
+          "채용 전면 동결 — 성장 기회 상실"
+        ]
+      }
+    },
+    {
+      "key": "dec-single-ip-hedge",
+      "type": "decision",
+      "author": "person:biz-choi-donghyun",
+      "size": "half",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "배틀그라운드 단일 IP 매출 의존(전사 매출의 대부분)을 최대 리스크로 명시하고, 공모 조달금의 상당 부분을 신규 IP·M&A·신흥시장에 배분한다.",
+        "rationale": "단일 IP는 사이클 하강, 경쟁작 등장, 플랫폼 정책 변화에 취약하다. 이 의존을 낮추는 유일한 길은 다음 흥행 IP를 만들거나 사는 것이며, 그 재원이 IPO 조달금의 존재 이유다.",
+        "rejected_alternatives": [
+          "배틀그라운드 수익화 극대화에만 재투자 — 의존 심화",
+          "배당으로 현금 환원 — 성장/헤지 재원 소진"
+        ]
+      }
+    },
+    {
+      "key": "dec-emerging-market-india",
+      "type": "decision",
+      "author": "person:biz-lee-jaewon",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "인도·중동 등 신흥시장을 배틀그라운드 IP의 차기 성장 축으로 삼고, 현지 법인·현지화 퍼블리싱에 선제 투자한다.",
+        "rationale": "성숙 시장의 성장은 둔화되나 인도 등은 모바일 이용자 기반이 폭발적으로 확대 중이다. 규제 리스크를 감수하더라도 초기 선점이 장기 점유율을 좌우한다.",
+        "rejected_alternatives": [
+          "성숙 시장에 집중 — 성장 여력 제한",
+          "신흥시장은 파트너 위탁만 — 데이터/통제 열위"
+        ]
+      }
+    },
+    {
+      "key": "dec-audit-bigfour",
+      "type": "decision",
+      "author": "person:biz-nam-gicheol",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "상장 2년 전부터 Big4 회계법인 감사 체계와 IFRS 기준 연결재무제표 작성 체계를 조기 도입한다.",
+        "rationale": "상장 심사와 글로벌 투자자 신뢰에는 검증된 감사 트랙레코드가 필요하다. 상장 임박 시점에 도입하면 과거 재무제표 재작성 리스크가 크므로 사전에 정비.",
+        "rejected_alternatives": [
+          "상장 임박 시점에 감사 체계 도입 — 재작성/일정 리스크",
+          "국내 GAAP 유지 — 글로벌 투자자 비교가능성 저하"
+        ]
+      }
+    },
+    {
+      "key": "dec-earnout-vs-cash",
+      "type": "decision",
+      "author": "person:biz-kang-hyewon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "성장 단계 스튜디오 인수는 밸류 갭이 클수록 언아웃(earn-out) 비중을 높여 리스크를 매도자와 분담한다.",
+        "rationale": "고성장·고불확실 자산에서 매수·매도자의 밸류 인식 차이가 크다. 언아웃은 미래 성과에 대가를 연동해 이 갭을 메우고, 고평가 인수 리스크를 방어한다.",
+        "rejected_alternatives": [
+          "전액 선지급 고정가 인수 — 미달 시 손실 전가 불가",
+          "밸류 갭으로 딜 무산 — 전략 자산 확보 실패"
+        ]
+      }
+    },
+    {
+      "key": "dec-live-service-reinvest",
+      "type": "decision",
+      "author": "person:biz-oh-taeyang",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "배틀그라운드 라이브 서비스 이익의 일정 비율을 룰 기반으로 신규 IP R&D에 자동 배분한다(내부 '전략 재투자율').",
+        "rationale": "흥행 IP의 현금흐름은 유혹적이라 단기 성과에 재투자가 쏠린다. 규칙 기반 배분이 없으면 다음 IP 투자가 항상 후순위로 밀린다. 규칙으로 미래 베팅을 강제한다.",
+        "rejected_alternatives": [
+          "매년 재량으로 R&D 예산 편성 — 미래 투자 상시 후순위화",
+          "전액 라이브 서비스 재투자 — 파이프라인 공백"
+        ]
+      }
+    },
+    {
+      "key": "dec-studio-autonomy-guardrails",
+      "type": "decision",
+      "author": "person:biz-choi-donghyun",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "스튜디오 창작 자율성은 보장하되, 본사가 통제하는 3개 가드레일(자본 배분·글로벌 퍼블리싱·핵심 리스크 관리)은 예외 없이 적용한다.",
+        "rationale": "완전 자율은 포트폴리오 통제를 무력화하고, 완전 통제는 창작을 죽인다. 최소한의 가드레일만 본사가 쥐고 나머지는 스튜디오에 위임하는 것이 균형점.",
+        "rejected_alternatives": [
+          "전면 위임 — 자본/리스크 통제 상실",
+          "본사 상세 관리 — 창작 자율성 훼손, 인재 이탈"
+        ]
+      }
+    },
+    {
+      "key": "dec-decline-early-royalty-buyout",
+      "type": "decision",
+      "author": "person:biz-lee-jaewon",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "conclusion": "초기 배틀그라운드의 해외 퍼블리싱 로열티 지분을 일시금으로 매각하라는 제안을 거부하고, 장기 로열티 스트림을 보유한다.",
+        "rationale": "일시금은 현금 확보에 유리하나, IP가 장기 흥행할 경우 로열티 스트림의 현재가치가 일시금을 크게 상회한다. IP 잠재력에 대한 확신으로 미래 현금흐름을 택함.",
+        "rejected_alternatives": [
+          "로열티 지분 일시금 매각 — 상방 포기",
+          "지분 일부만 매각 — 통제/정산 복잡성"
+        ]
+      }
+    },
+    {
+      "key": "dec-no-early-dividend",
+      "type": "decision",
+      "author": "person:biz-park-sunyoung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "상장 직후 수년간 현금 배당을 실시하지 않고, 잉여현금 전액을 신규 IP·M&A·자사주 정책에 배분한다.",
+        "rationale": "성장 국면의 회사에서 배당은 성장 재원을 소진하는 신호다. 투자자에게도 배당보다 성장 재투자가 총주주수익률(TSR) 관점에서 유리하다고 설득.",
+        "rejected_alternatives": [
+          "안정적 배당 정책 도입 — 성장 재원 소진, 성장주 밸류에 불리",
+          "일회성 특별배당 — 성장 스토리와 상충"
+        ]
+      }
+    },
+    {
+      "key": "dec-ip-media-expansion",
+      "type": "decision",
+      "author": "person:biz-lee-jaewon",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "배틀그라운드 IP를 게임에 가두지 않고 애니메이션·웹툰·라이선싱 등 미디어 프랜차이즈로 확장한다.",
+        "rationale": "단일 게임의 라이프사이클을 넘어 IP 자산의 수명을 늘리고, 게임 외 접점으로 신규 이용자 유입을 만든다. 단일 IP 의존 헤지의 보조 축.",
+        "rejected_alternatives": [
+          "게임 내 확장에만 집중 — IP 수명/도달 한계",
+          "외부 라이선시에 IP 전면 위임 — 브랜드 통제/마진 열위"
+        ]
+      }
+    },
+    {
+      "key": "dec-share-based-vs-cash-ma",
+      "type": "decision",
+      "author": "person:biz-park-sunyoung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "비상장 시기의 스튜디오 인수는 지분 교환 우선, 상장 이후의 대형 인수는 현금·신주 혼합으로 방침을 전환한다.",
+        "rationale": "비상장 시기엔 현금이 희소해 지분 교환이 합리적이었다. 상장 후엔 시장가 있는 주식과 조달 현금을 무기로 쓸 수 있어 대가 구성의 유연성이 커진다.",
+        "rejected_alternatives": [
+          "항상 현금 인수 고수 — 비상장 시기 현금 여력 부족",
+          "항상 지분 교환 고수 — 상장 후 대형 딜에서 지분 희석 과다"
+        ]
+      }
+    },
+    {
+      "key": "dec-post-ipo-buyback-policy",
+      "type": "decision",
+      "author": "person:biz-oh-taeyang",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "conclusion": "상장 후 주가가 내재가치 대비 과도하게 하락할 경우에 한해 자사주 매입을 주주환원 수단으로 사용한다(배당보다 우선).",
+        "rationale": "성장주에서 배당은 성장 포기 신호지만, 저평가 구간의 자사주 매입은 주당 가치를 높이면서 성장 재투자와 병행 가능하다. 조건부·기회주의적으로 운용.",
+        "rejected_alternatives": [
+          "정기 배당 도입 — 성장 재원 소진",
+          "주주환원 전무 — 저평가 방치 리스크"
+        ]
+      }
+    },
+    {
+      "key": "dec-transparency-single-ip-risk",
+      "type": "decision",
+      "author": "person:biz-yoon-jiho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "conclusion": "IR·증권신고서에서 단일 IP 의존 리스크를 숨기지 않고 최상단 리스크로 명시 공시한다.",
+        "rationale": "핵심 리스크를 감추면 상장 후 주가 급락 시 신뢰가 붕괴하고 소송 리스크도 커진다. 리스크를 투명하게 공시하되 헤지 전략(신규 IP·M&A·신흥시장)과 함께 제시하는 것이 장기 신뢰에 유리.",
+        "rejected_alternatives": [
+          "리스크 최소 언급 — 사후 신뢰/법적 리스크",
+          "성장 스토리만 강조 — 밴드 이후 변동성 관리 실패"
+        ]
+      }
+    },
+    {
+      "key": "fact-2007-founding",
+      "type": "fact",
+      "author": "person:jang-byeonggyu",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "블루홀 설립 (2007-03)",
+        "statement": "블루홀은 2007년 3월 설립됐다. 창업 초기 확보 자본은 창업자 자산과 초기 투자 합산 약 170억 원 규모(합성 값)."
+      }
+    },
+    {
+      "key": "fact-ncsoft-suit-amount",
+      "type": "fact",
+      "author": "person:biz-han-seokjin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "NCsoft 영업비밀 침해 소송 규모",
+        "statement": "NCsoft가 전 리니지3 팀의 블루홀 합류를 문제 삼아 제기한 손해배상 청구 규모는 약 650억 원(공개 보도 기준)."
+      }
+    },
+    {
+      "key": "fact-litigation-outcome",
+      "type": "fact",
+      "author": "person:biz-han-seokjin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "소송 경과",
+        "statement": "민사·형사 다년간의 분쟁을 거쳐 회사 존속에 치명적이지 않은 선에서 정리됐다. 소송은 초기 채용·자금 조달에 실질적 제약으로 작용했다."
+      }
+    },
+    {
+      "key": "fact-2012-layoff-scale",
+      "type": "fact",
+      "author": "person:biz-jung-mina",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "2012년 겨울 감원 규모",
+        "statement": "전사 인력의 약 20%, 인원수로 약 60명(합성 값)을 감원했다."
+      }
+    },
+    {
+      "key": "fact-2013-runway",
+      "type": "fact",
+      "author": "person:biz-park-sunyoung",
+      "size": "short",
+      "state": "stale",
+      "attributes": {
+        "title": "2013년 현금 런웨이",
+        "statement": "2013년 상반기 기준 월 순현금 유출(번레이트) 약 12억 원, 잔여 현금 기준 런웨이 약 6개월(합성 값)까지 좁혀졌다."
+      }
+    },
+    {
+      "key": "fact-2013-bridge-amount",
+      "type": "fact",
+      "author": "person:biz-yoon-jiho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "2013년 브릿지 라운드 규모",
+        "statement": "기존 주주 대상 전환우선주 브릿지 약 200억 원(합성 값)을 클로징해 런웨이를 12개월 이상 연장."
+      }
+    },
+    {
+      "key": "fact-ginno-acquisition-terms",
+      "type": "fact",
+      "author": "person:biz-kang-hyewon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "지노게임즈 인수 (2014-11)",
+        "statement": "2014년 11월 지노게임즈 인수. 추정 규모 약 130억 원, 현금+주식 혼합(합성 값). 김창한 대표 합류."
+      }
+    },
+    {
+      "key": "fact-studio-count",
+      "type": "fact",
+      "author": "person:biz-choi-donghyun",
+      "size": "line",
+      "state": "draft",
+      "attributes": {
+        "title": "연합 스튜디오 수",
+        "statement": "블루홀 2.0~크래프톤 전환기를 거치며 독립 스튜디오는 10여 개 수준으로 확장(합성 값)."
+      }
+    },
+    {
+      "key": "fact-tencent-stake",
+      "type": "fact",
+      "author": "person:biz-yoon-jiho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "텐센트 지분",
+        "statement": "텐센트(계열 포함) 지분은 상장 전 기준 약 10%대(합성 값)로 2대 주주급."
+      }
+    },
+    {
+      "key": "fact-2018-rename",
+      "type": "fact",
+      "author": "person:biz-nam-gicheol",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "사명 변경 (2018-11)",
+        "statement": "2018년 11월 '블루홀' → '크래프톤(KRAFTON)' 사명 변경 공시."
+      }
+    },
+    {
+      "key": "fact-ipo-price",
+      "type": "fact",
+      "author": "person:biz-nam-gicheol",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "IPO 공모가 (2021-08)",
+        "statement": "2021년 8월 코스피 상장. 확정 공모가 498,000원(밴드 상단)."
+      }
+    },
+    {
+      "key": "fact-ipo-valuation",
+      "type": "fact",
+      "author": "person:biz-park-sunyoung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "IPO 밸류에이션",
+        "statement": "공모가 기준 예상 시가총액 약 24조 원 규모(합성 값). 국내 게임 상장사 최상위권."
+      }
+    },
+    {
+      "key": "fact-ipo-proceeds",
+      "type": "fact",
+      "author": "person:biz-yoon-jiho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "IPO 공모 규모",
+        "statement": "총 공모 규모 약 4.3조 원(신주+구주, 합성 값). 이 중 신주 발행으로 회사 유입되는 성장 재원 비중을 의도적으로 높임."
+      }
+    },
+    {
+      "key": "fact-founder-stake",
+      "type": "fact",
+      "author": "person:jang-byeonggyu",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "창업자 지분율",
+        "statement": "장병규 의장의 상장 시점 지분율은 약 14%대(합성 값). 공모에서 창업자 구주 매출은 최소화."
+      }
+    },
+    {
+      "key": "fact-revenue-2020",
+      "type": "fact",
+      "author": "person:biz-oh-taeyang",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "2020년 매출·수익성",
+        "statement": "2020년 연결 매출 약 1.7조 원, 영업이익률 40%대(합성 값). 매출의 대부분이 배틀그라운드 IP에서 발생."
+      }
+    },
+    {
+      "key": "fact-pubg-revenue-share",
+      "type": "fact",
+      "author": "person:biz-oh-taeyang",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "단일 IP 매출 비중",
+        "statement": "배틀그라운드(PC/콘솔/모바일) IP가 전사 매출의 대부분(상장 시점 기준 약 90% 안팎, 합성 값)을 차지."
+      }
+    },
+    {
+      "key": "fact-headcount-growth",
+      "type": "fact",
+      "author": "person:biz-jung-mina",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "조직 규모 추이",
+        "statement": "2013년 감원 후 약 200명대 → 배틀그라운드 흥행 이후 급팽창하여 상장 시점 수천 명 규모(연결 기준, 합성 값)."
+      }
+    },
+    {
+      "key": "fact-2013-move-savings",
+      "type": "fact",
+      "author": "person:biz-park-sunyoung",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "판교 이전 절감 효과",
+        "statement": "강남→판교 이전으로 연간 고정비 약 18억 원 절감(합성 값)."
+      }
+    },
+    {
+      "key": "term-burn-rate",
+      "type": "term",
+      "author": "person:biz-park-sunyoung",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "번레이트 (burn rate)",
+        "statement": "일정 기간(주로 월) 동안 회사가 소진하는 순현금. 매출 없는 개발 단계에서 회사 생존을 좌우하는 핵심 재무 지표."
+      }
+    },
+    {
+      "key": "term-runway",
+      "type": "term",
+      "author": "person:biz-park-sunyoung",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "런웨이 (runway)",
+        "statement": "현재 현금 잔고를 번레이트로 나눈 값. 추가 자금 없이 회사가 버틸 수 있는 개월 수."
+      }
+    },
+    {
+      "key": "term-ma",
+      "type": "term",
+      "author": "person:biz-kang-hyewon",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "M&A (인수합병)",
+        "statement": "다른 회사·팀·자산을 인수(acquisition)하거나 합병(merger)하는 것. 블루홀 2.0에서는 주로 소형 스튜디오를 지분 교환으로 흡수."
+      }
+    },
+    {
+      "key": "term-escrow",
+      "type": "term",
+      "author": "person:biz-han-seokjin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "에스크로 (escrow)",
+        "statement": "인수대가의 일부를 제3자 계좌에 일정 기간 예치하는 장치. 매도자의 진술·보장(reps & warranties) 위반 시 매수자의 배상 재원으로 사용된다."
+      }
+    },
+    {
+      "key": "term-earnout",
+      "type": "term",
+      "author": "person:biz-kang-hyewon",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "언아웃 (earn-out)",
+        "statement": "인수대가의 일부를 인수 후 성과(매출·마일스톤·핵심 인력 잔류)에 연동해 사후 지급하는 구조. 매수·매도자의 밸류 인식 차이를 메우고 리텐션 인센티브로 작동."
+      }
+    },
+    {
+      "key": "term-lockup",
+      "type": "term",
+      "author": "person:biz-han-seokjin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "락업 / 의무보유확약 (lock-up)",
+        "statement": "상장 후 일정 기간 대주주·경영진·기관투자자가 보유 주식을 팔지 못하도록 하는 약정. 상장 직후 오버행을 줄여 초기 주가를 안정시킨다."
+      }
+    },
+    {
+      "key": "term-offer-price",
+      "type": "term",
+      "author": "person:biz-yoon-jiho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "공모가 (offer price)",
+        "statement": "IPO에서 주식을 일반·기관 투자자에게 배정하는 확정 가격. 수요예측(book-building)으로 정한 희망 밴드 안에서 최종 확정된다. 크래프톤은 밴드 상단 498,000원."
+      }
+    },
+    {
+      "key": "term-secondary-offering",
+      "type": "term",
+      "author": "person:biz-yoon-jiho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "구주 매출 vs 신주 발행",
+        "statement": "신주 발행은 새 주식을 찍어 회사에 자금이 유입되는 것(성장 재원). 구주 매출(secondary)은 기존 주주가 보유 주식을 파는 것으로 대금이 회사가 아닌 매도 주주에게 간다."
+      }
+    },
+    {
+      "key": "term-esop",
+      "type": "term",
+      "author": "person:biz-seo-yerin",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "스톡옵션 / RSU / ESOP",
+        "statement": "스톡옵션은 정해진 행사가에 주식을 살 권리(주가 하락 시 무가치). RSU는 조건 충족 시 주식 자체를 부여(하락장에서도 잔존가치). ESOP은 임직원 주식보상 제도 전반."
+      }
+    },
+    {
+      "key": "term-valuation",
+      "type": "term",
+      "author": "person:biz-park-sunyoung",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "밸류에이션 (valuation)",
+        "statement": "기업 가치 평가. 게임사 IPO에서는 직전 실적 모멘텀과 섹터 멀티플(비교기업 PER/EV/EBITDA)에 크게 좌우되며, 상장 시점(window) 선택이 조달액을 좌우한다."
+      }
+    },
+    {
+      "key": "term-bridge-financing",
+      "type": "term",
+      "author": "person:biz-yoon-jiho",
+      "size": "short",
+      "state": "verified",
+      "attributes": {
+        "title": "브릿지 파이낸싱 (bridge financing)",
+        "statement": "다음 정식 라운드나 주요 이벤트(출시·상장)까지의 간극을 메우는 단기 자금 조달. 주로 기존 주주가 전환우선주 등으로 신속히 참여한다."
+      }
+    },
+    {
+      "key": "term-overhang",
+      "type": "term",
+      "author": "person:biz-oh-taeyang",
+      "size": "short",
+      "state": "draft",
+      "attributes": {
+        "title": "오버행 (overhang)",
+        "statement": "잠재적 대량 매도 대기 물량. 락업 해제 예정 물량이나 미행사 옵션 등이 주가를 짓누르는 요인으로 작용한다."
+      }
+    },
+    {
+      "key": "res-ipo-prospectus",
+      "type": "resource",
+      "author": "person:biz-nam-gicheol",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "크래프톤 증권신고서 / 투자설명서 포인터",
+        "statement": "공모 구조·리스크(단일 IP 의존)·자금 사용 계획이 담긴 상장 공시 문서. (합성 테스트 링크)",
+        "url": "https://example.com/krafton/ipo/prospectus-2021"
+      }
+    },
+    {
+      "key": "res-2021-ir-deck",
+      "type": "resource",
+      "author": "person:biz-yoon-jiho",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "2021 IPO IR 덱",
+        "statement": "성장 스토리(글로벌 자체 퍼블리싱·신규 IP·신흥시장)와 단일 IP 헤지 전략을 담은 기관 대상 IR 자료. (합성 테스트 링크)",
+        "url": "https://example.com/krafton/ir/deck-2021"
+      }
+    },
+    {
+      "key": "res-rename-disclosure",
+      "type": "resource",
+      "author": "person:biz-nam-gicheol",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "사명 변경 공시 (2018)",
+        "statement": "블루홀 → 크래프톤 상호 변경 관련 공시 포인터. (합성 테스트 링크)",
+        "url": "https://example.com/krafton/disclosure/rename-2018"
+      }
+    },
+    {
+      "key": "res-ginno-spa",
+      "type": "resource",
+      "author": "person:biz-kang-hyewon",
+      "size": "line",
+      "state": "draft",
+      "attributes": {
+        "title": "지노게임즈 인수 SPA 요지",
+        "statement": "지분양수도계약(SPA)의 대가 구성·에스크로·언아웃·리텐션 조항 요지. 내부 보관. (합성 테스트 링크)",
+        "url": "https://example.com/krafton/ma/ginno-spa-2014"
+      }
+    },
+    {
+      "key": "res-tencent-investment-agreement",
+      "type": "resource",
+      "author": "person:biz-han-seokjin",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "텐센트 투자계약서 요지",
+        "statement": "지분·이사회·중국 퍼블리싱 권리 관련 주요 조항 포인터. 내부 보관. (합성 테스트 링크)",
+        "url": "https://example.com/krafton/investment/tencent-agreement"
+      }
+    },
+    {
+      "key": "res-annual-report-2020",
+      "type": "resource",
+      "author": "person:biz-oh-taeyang",
+      "size": "line",
+      "state": "verified",
+      "attributes": {
+        "title": "2020 연결 사업보고서",
+        "statement": "매출·수익성·단일 IP 매출 비중·조직 규모가 담긴 감사받은 연결재무제표. (합성 테스트 링크)",
+        "url": "https://example.com/krafton/ir/annual-report-2020"
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "supersedes",
+      "from": "dec-bluehole-2.0-ma",
+      "to": "dec-single-masterpiece"
+    },
+    {
+      "type": "supersedes",
+      "from": "dec-portfolio-pivot",
+      "to": "dec-bluehole-2.0-ma"
+    },
+    {
+      "type": "supersedes",
+      "from": "dec-rebrand-krafton",
+      "to": "dec-bluehole-identity"
+    },
+    {
+      "type": "supersedes",
+      "from": "dec-studio-restructure-2020",
+      "to": "dec-rebrand-krafton"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-2013-no-sale",
+      "to": "dec-2013-explore-sale"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-portfolio-pivot",
+      "to": "dec-single-masterpiece"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-secondary-share-sale",
+      "to": "dec-single-ip-hedge"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-2012-layoff",
+      "to": "dec-2013-pangyo-move"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-2013-pangyo-move",
+      "to": "dec-cash-runway-priority"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-2013-no-sale",
+      "to": "dec-2013-bridge-financing"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-2013-no-sale",
+      "to": "dec-2013-decline-buyout-offer"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-bluehole-2.0-ma",
+      "to": "dec-acquire-ginno"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-acquire-ginno",
+      "to": "dec-escrow-ma-terms"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-escrow-ma-terms",
+      "to": "dec-earnout-vs-cash"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-portfolio-pivot",
+      "to": "dec-single-ip-hedge"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-rebrand-krafton",
+      "to": "dec-studio-restructure-2020"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-pubg-corporate-spinoff",
+      "to": "dec-holding-structure"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-holding-structure",
+      "to": "dec-ipo-2021"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-ipo-2021",
+      "to": "dec-ipo-offer-structure"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-ipo-2021",
+      "to": "dec-ipo-timing-2021"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-ipo-2021",
+      "to": "dec-secondary-share-sale"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-ipo-offer-structure",
+      "to": "dec-founder-lockup"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-esop-redesign",
+      "to": "dec-retention-package-keystaff"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-single-ip-hedge",
+      "to": "dec-emerging-market-india"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-single-ip-hedge",
+      "to": "dec-ip-media-expansion"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-single-ip-hedge",
+      "to": "dec-live-service-reinvest"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-ipo-2021",
+      "to": "dec-audit-bigfour"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-ipo-2021",
+      "to": "dec-no-early-dividend"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-no-early-dividend",
+      "to": "dec-post-ipo-buyback-policy"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-single-ip-hedge",
+      "to": "dec-transparency-single-ip-risk"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-found-bluehole",
+      "to": "dec-ncsoft-litigation-stance"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-found-bluehole",
+      "to": "fact-ncsoft-suit-amount"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-ipo-2021",
+      "to": "res-ipo-prospectus"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-tencent-partnership",
+      "to": "fact-tencent-stake"
+    },
+    {
+      "type": "relates_to",
+      "from": "dec-2012-layoff",
+      "to": "fact-2013-runway"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-2013-explore-sale",
+      "to": "dec-2013-no-sale"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-single-masterpiece",
+      "to": "dec-portfolio-pivot"
+    },
+    {
+      "type": "conflicts_with",
+      "from": "dec-secondary-share-sale",
+      "to": "dec-single-ip-hedge"
+    }
+  ]
+}

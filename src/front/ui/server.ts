@@ -128,9 +128,13 @@ function row(
   summary: string;
   actor: string;
   actorName?: string;
+  role?: string;
   occurred_at: string;
   citation: string;
 } {
+  // The record's own `role`, when it carries one — a person does. The persona roster labels a card
+  // by this rather than by the record's citation, which for a seeded roster is always the steward.
+  const role = (e.attributes as Record<string, unknown>).role;
   return {
     id: e.id,
     type: e.type,
@@ -140,6 +144,7 @@ function row(
     summary: summarize(e, ontology),
     actor: e.provenance.actor,
     ...(actorName === undefined ? {} : { actorName }),
+    ...(typeof role === "string" && role ? { role } : {}),
     occurred_at: e.provenance.occurred_at,
     citation: citation(e),
   };

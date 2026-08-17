@@ -1,0 +1,325 @@
+{
+  "corpus": "scripts/kraftonway-corpus",
+  "about": [
+    "크래프톤/블루홀/PUBG 제품·엔지니어링·게임디자인·사업 의사결정 (합성 테스트 데이터)",
+    "배틀그라운드 배틀로열 코어 디자인과 라이브 서비스 운영",
+    "TERA MMO 서버에서 100인 dedicated 매치까지의 기술 결정",
+    "블루홀→크래프톤 매각 거부·M&A 연합·2021 코스피 IPO"
+  ],
+  "queries": [
+    {
+      "q": "회사가 대작 한 편에 다 걸던 방식을 접고 여러 스튜디오로 위험을 나누기로 한 제품 전략은?",
+      "shape": "question",
+      "relevant": [
+        "po.json#dec-portfolio-bluehole2",
+        "po.json#res-bluehole2-memo"
+      ]
+    },
+    {
+      "q": "배틀로열 게임 디자인 문서 승인 시점",
+      "shape": "keywords",
+      "relevant": ["po.json#dec-br-gdd-approval"]
+    },
+    {
+      "q": "간판 타이틀을 테라에서 배그로 옮긴 결정은 언제 어떤 근거로 내려졌어?",
+      "shape": "question",
+      "relevant": ["po.json#dec-flagship-shift"]
+    },
+    {
+      "q": "얼리액세스 판매 가격 책정",
+      "shape": "keywords",
+      "relevant": ["po.json#dec-ea-price-point"]
+    },
+    {
+      "q": "성능을 파는 아이템을 왜 아예 안 넣고 외형 상품만 팔기로 했어?",
+      "shape": "question",
+      "relevant": ["po.json#dec-cosmetic-only-monetization"]
+    },
+    {
+      "q": "시즌 보상 트랙 도입",
+      "shape": "keywords",
+      "relevant": [
+        "po.json#dec-battlepass-adoption",
+        "po.json#fact-battlepass-conversion"
+      ]
+    },
+    {
+      "q": "치트 잡는 걸 신규 콘텐츠보다 앞세운 이유가 뭐야?",
+      "shape": "question",
+      "relevant": ["po.json#dec-anti-cheat-priority"]
+    },
+    {
+      "q": "매출에서 국내 밖이 차지하는 비중",
+      "shape": "keywords",
+      "relevant": [
+        "po.json#fact-global-revenue-share",
+        "po.json#dec-pubg-bm-global"
+      ]
+    },
+    {
+      "q": "신고가 많이 들어왔다고 자동으로 밴하지 않은 이유는?",
+      "shape": "question",
+      "relevant": ["po.json#dec-report-based-ban"]
+    },
+    {
+      "q": "콘솔 버전 이식 타이밍",
+      "shape": "keywords",
+      "relevant": ["po.json#dec-console-port-timing"]
+    },
+    {
+      "q": "대회 체계에 초반부터 돈을 넣고 관전 기능까지 같이 만든 이유는?",
+      "shape": "question",
+      "relevant": ["po.json#dec-esports-circuit-invest"]
+    },
+    {
+      "q": "스팀 최대 동시접속자 기록",
+      "shape": "keywords",
+      "relevant": ["po.json#fact-concurrent-peak"]
+    },
+    {
+      "q": "모바일 버전을 왜 PC 팀이 직접 안 만들고 외부에 맡겼어?",
+      "shape": "question",
+      "relevant": ["po.json#dec-mobile-separate-track"]
+    },
+
+    {
+      "q": "배그 프로토타입을 왜 언리얼4로 갔고 자체 엔진은 왜 접었어?",
+      "shape": "question",
+      "relevant": ["dev.json#dec-ue-adoption", "dev.json#res-ue-eval"]
+    },
+    {
+      "q": "매치 하나당 프로세스 하나 전용 서버 구조",
+      "shape": "keywords",
+      "relevant": ["dev.json#dec-pubg-dedicated-server"]
+    },
+    {
+      "q": "서버 시뮬레이션을 20Hz로 고정하고 랭크만 따로 간 이유가 뭐야?",
+      "shape": "question",
+      "relevant": [
+        "dev.json#dec-tickrate-policy",
+        "dev.json#fact-tickrate-cost"
+      ]
+    },
+    {
+      "q": "100명 동시 매치 네트워크 동기화 설계",
+      "shape": "keywords",
+      "relevant": [
+        "dev.json#fact-100player-sync-design",
+        "dev.json#dec-netcode-replication"
+      ]
+    },
+    {
+      "q": "총 쏜 순간으로 되감아서 명중을 판정하는데 되감기 한계를 얼마로 뒀어?",
+      "shape": "question",
+      "relevant": [
+        "dev.json#dec-hit-registration",
+        "dev.json#fact-hit-reg-complaint"
+      ]
+    },
+    {
+      "q": "매치메이킹 지역 서버 확장",
+      "shape": "keywords",
+      "relevant": ["dev.json#dec-mm-v2-region-expansion"]
+    },
+    {
+      "q": "안티치트를 유저 모드에서 커널 드라이버로 올린 배경은?",
+      "shape": "question",
+      "relevant": ["dev.json#dec-anticheat-kernel"]
+    },
+    {
+      "q": "아이템 복제 익스플로잇 사건",
+      "shape": "keywords",
+      "relevant": [
+        "dev.json#fact-loot-exploit",
+        "dev.json#dec-loot-server-authoritative"
+      ]
+    },
+    {
+      "q": "새 아시아 리전 열었을 때 서버가 못 버틴 그 장애의 근본 원인이 뭐였어?",
+      "shape": "question",
+      "relevant": ["dev.json#fact-launch-2018-postmortem"]
+    },
+    {
+      "q": "차량 순간이동 치트 방어",
+      "shape": "keywords",
+      "relevant": [
+        "dev.json#fact-vehicle-desync",
+        "dev.json#dec-vehicle-physics"
+      ]
+    },
+    {
+      "q": "전적 조회용 저장소를 결제 데이터랑 왜 분리했어?",
+      "shape": "question",
+      "relevant": ["dev.json#dec-db-player-store"]
+    },
+    {
+      "q": "게임 트래픽 UDP 전송 방식",
+      "shape": "keywords",
+      "relevant": ["dev.json#dec-network-protocol-udp"]
+    },
+    {
+      "q": "콘솔에서 메모리 넘쳐 죽는 문제는 어떻게 흡수했어?",
+      "shape": "question",
+      "relevant": [
+        "dev.json#fact-memory-oom",
+        "dev.json#dec-client-memory-budget"
+      ]
+    },
+
+    {
+      "q": "이 게임 한 판이 어떻게 굴러가는지 그 기본 반복 사이클을 어떻게 못박았어?",
+      "shape": "question",
+      "relevant": ["pd.json#dec-core-loop"]
+    },
+    {
+      "q": "자기장 축소 페이즈 곡선 설계",
+      "shape": "keywords",
+      "relevant": [
+        "pd.json#dec-bluezone-curve",
+        "pd.json#fact-final-circle-count"
+      ]
+    },
+    {
+      "q": "총기를 실제처럼 반동이랑 탄 떨어짐까지 넣기로 한 톤 방향은?",
+      "shape": "question",
+      "relevant": ["pd.json#dec-realism-tone"]
+    },
+    {
+      "q": "인벤토리를 무게 대신 칸으로",
+      "shape": "keywords",
+      "relevant": ["pd.json#dec-inventory-slot"]
+    },
+    {
+      "q": "낙하를 어떻게 만들었길래 착지 지점 놓고 경쟁이 붙어?",
+      "shape": "question",
+      "relevant": [
+        "pd.json#dec-freefall-parachute",
+        "pd.json#fact-drop-dispersion"
+      ]
+    },
+    {
+      "q": "회복 아이템 사용 시간 채널링",
+      "shape": "keywords",
+      "relevant": ["pd.json#dec-healing-channel"]
+    },
+    {
+      "q": "기본은 3인칭인데 조준할 때만 1인칭으로 바꾼 시점 설계 이유는?",
+      "shape": "question",
+      "relevant": ["pd.json#dec-perspective-3p1p"]
+    },
+    {
+      "q": "무기 종류별 처치 소요 시간 밸런스",
+      "shape": "keywords",
+      "relevant": [
+        "pd.json#dec-weapon-tier-balance",
+        "pd.json#fact-ttk-by-weapon"
+      ]
+    },
+    {
+      "q": "한 판을 몇 분짜리로 잡고 자기장을 거기 맞춰 역산했어?",
+      "shape": "question",
+      "relevant": ["pd.json#dec-match-duration"]
+    },
+    {
+      "q": "발소리 방향 3D 사운드",
+      "shape": "keywords",
+      "relevant": [
+        "pd.json#dec-sound-directional",
+        "pd.json#fact-footstep-winrate"
+      ]
+    },
+    {
+      "q": "PC에서 조준 도와주는 기능을 아예 뺀 이유가 뭐야?",
+      "shape": "question",
+      "relevant": ["pd.json#dec-no-aim-assist"]
+    },
+    {
+      "q": "최상급 무기 항공 보급 상자",
+      "shape": "keywords",
+      "relevant": ["pd.json#dec-care-package"]
+    },
+    {
+      "q": "초보가 총 한 발도 못 맞히고 죽는다는 데이터가 실제로 있었어?",
+      "shape": "question",
+      "relevant": ["pd.json#fact-early-newuser-accuracy"]
+    },
+
+    {
+      "q": "엔씨소프트가 건 영업비밀 침해 소송 청구 금액",
+      "shape": "keywords",
+      "relevant": ["biz.json#fact-ncsoft-suit-amount"]
+    },
+    {
+      "q": "2013년에 회사 인수 제안이 들어왔는데 왜 안 팔았어?",
+      "shape": "question",
+      "relevant": [
+        "biz.json#dec-2013-decline-buyout-offer",
+        "biz.json#dec-2013-no-sale"
+      ]
+    },
+    {
+      "q": "강남에서 판교로 이전한 고정비 절감 효과",
+      "shape": "keywords",
+      "relevant": ["biz.json#dec-2013-pangyo-move"]
+    },
+    {
+      "q": "현금이 마르던 2012년에 인력을 얼마나 줄였어?",
+      "shape": "question",
+      "relevant": [
+        "biz.json#dec-2012-layoff",
+        "biz.json#fact-2012-layoff-scale"
+      ]
+    },
+    {
+      "q": "지노게임즈 인수 조건",
+      "shape": "keywords",
+      "relevant": [
+        "biz.json#dec-acquire-ginno",
+        "biz.json#fact-ginno-acquisition-terms"
+      ]
+    },
+    {
+      "q": "텐센트를 단순 계약이 아니라 지분 투자자로 끌어들인 이유는?",
+      "shape": "question",
+      "relevant": ["biz.json#dec-tencent-partnership"]
+    },
+    {
+      "q": "상장 확정 공모가",
+      "shape": "keywords",
+      "relevant": ["biz.json#fact-ipo-price"]
+    },
+    {
+      "q": "상장 직후 매도 물량이 쏟아지는 걸 어떻게 눌렀어?",
+      "shape": "question",
+      "relevant": ["biz.json#dec-ipo-offer-structure"]
+    },
+    {
+      "q": "임직원 보상을 스톡옵션에서 양도제한주식으로 재설계",
+      "shape": "keywords",
+      "relevant": ["biz.json#dec-esop-redesign"]
+    },
+    {
+      "q": "매출이 배그 한 IP에 쏠린 위험을 어떻게 분산하려 했어?",
+      "shape": "question",
+      "relevant": [
+        "biz.json#dec-single-ip-hedge",
+        "biz.json#fact-pubg-revenue-share"
+      ]
+    },
+    {
+      "q": "상장 전 회계 감사 체계 조기 도입",
+      "shape": "keywords",
+      "relevant": ["biz.json#dec-audit-bigfour"]
+    },
+    {
+      "q": "고성장 스튜디오 살 때 가격 인식 차이를 어떻게 메웠어?",
+      "shape": "question",
+      "relevant": ["biz.json#dec-earnout-vs-cash"]
+    },
+    {
+      "q": "상장 직후 배당 정책",
+      "shape": "keywords",
+      "relevant": ["biz.json#dec-no-early-dividend"]
+    }
+  ]
+}
