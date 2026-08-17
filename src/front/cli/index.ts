@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
+import { makeAdrConnector } from "../../connectors/adr.js";
 import { makeFetchExtractor, numEnv } from "../../connectors/extract.js";
 import { makeGithubPrConnector } from "../../connectors/github-pr.js";
 import { ingest } from "../../connectors/ingest.js";
@@ -34,6 +35,7 @@ import {
   relateText,
 } from "../../connectors/relate.js";
 import { makeSlackConnector } from "../../connectors/slack.js";
+import { makeTrackerConnector } from "../../connectors/tracker.js";
 import type { Connector } from "../../connectors/types.js";
 import { overview } from "../../core/aggregate.js";
 import {
@@ -135,6 +137,8 @@ type Values = {
   stale?: boolean;
   /** `review --cluster`: group the draft queue by the duplicate threshold. */
   cluster?: boolean;
+  /** `connect tracker --project`: Jira project key or Linear team key. */
+  project?: string;
   embeddings?: boolean;
   rebuild?: boolean;
   "occurred-at"?: boolean;
@@ -151,6 +155,7 @@ const OPTIONS = {
   ns: { type: "string" },
   port: { type: "string" },
   host: { type: "string" },
+  project: { type: "string" },
   attr: { type: "string", multiple: true },
   version: { type: "string" },
   type: { type: "string" },
@@ -479,7 +484,7 @@ getting started:
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
   overview                  the shape of the whole corpus: types, hubs, authors (--limit n)
   link <from> <relation> <to>   record a relation (works_on, supersedes, relates_to …)
-capture:    connect github-pr|slack|notes|rdb
+capture:    connect github-pr|slack|notes|adr|tracker|rdb
   connect raw <dir>         a model proposes records from unstructured material (needs YOKE_LLM_*)
   relate                    a model proposes the links BETWEEN stored records (needs YOKE_LLM_*)
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
@@ -2068,6 +2073,42 @@ async function cmdConnect(
     }
     return runIngest(makeNotesConnector({ dir }), v, env);
   }
+  if (source === "adr") {
+    const dir = positionals[1];
+    if (!dir) {
+      console.error("usage: yoke connect adr <dir> [--actor a]");
+      return 1;
+    }
+    return runIngest(makeAdrConnector({ dir }), v, env);
+  }
+  if (source === "tracker") {
+    // One token variable per tracker, because they are different credentials and a single YOKE_TRACKER_TOKEN
+    // would silently send a Linear key to Jira as basic auth — a 401 that reads as a permissions problem.
+    const jiraToken = env.JIRA_TOKEN;
+    const linearToken = env.LINEAR_TOKEN;
+    if (v.host && !jiraToken) {
+      console.error(
+        "JIRA_TOKEN environment variable is required, as email:api-token",
+      );
+      return 1;
+    }
+    if (!v.host && !linearToken) {
+      console.error(
+        "usage: yoke connect tracker [--host https://you.atlassian.net] [--project KEY] [--since ts]\n" +
+          "  Jira needs --host and JIRA_TOKEN (email:api-token); Linear needs LINEAR_TOKEN",
+      );
+      return 1;
+    }
+    return runIngest(
+      makeTrackerConnector({
+        token: (v.host ? jiraToken : linearToken) as string,
+        host: v.host,
+        project: v.project,
+      }),
+      v,
+      env,
+    );
+  }
   if (source === "raw") {
     const dir = positionals[1];
     if (!dir) {
@@ -2117,7 +2158,9 @@ async function cmdConnect(
   }
   if (source !== "github-pr" || !v.repo) {
     console.error(
-      "usage: yoke connect <github-pr --repo owner/name | slack --channel C123 | notes <dir> | raw <dir> | rdb --mapping f.json> [--since ts] [--actor a]",
+      "usage: yoke connect <github-pr --repo owner/name | slack --channel C123 | notes <dir> |\n" +
+        "  adr <dir> | tracker [--host url] [--project KEY] | raw <dir> | rdb --mapping f.json>\n" +
+        "  [--since ts] [--actor a]",
     );
     return 1;
   }

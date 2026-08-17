@@ -79,6 +79,24 @@
 3. **만료 재확인** — `yoke review --stale`(가장 많이 주입된 것 먼저)로 오래된 지식을 담당자에게 되돌린다. 만료를 고치는
    것이 아니라 바꿔야 할 사람에게 넘기는 것이 핵심.
 
+**의식 0 — 사람이 타이핑하지 않는 캡처.** 세 의식은 모두 사람의 습관에 걸려 있어서, 습관이 붙기 전 몇 주가 가장 위험하다.
+이미 조직 안에 쌓여 있는 것부터 넣는다. 커넥터는 전부 `--since`를 받고 `external_id`로 멱등하므로 cron에 그대로 걸 수 있다:
+
+```cron
+# 매일 03:00 — 어제 이후 바뀐 것만, 원본 시각으로 draft 적재
+0 3 * * * cd /srv/yoke && \
+  yoke connect adr docs/adr --actor ci:adr && \
+  yoke connect tracker --host https://acme.atlassian.net --project PAY --since "$(date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)" && \
+  yoke connect github-pr --repo acme/api --since "$(date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)"
+```
+
+- `adr`: 리포에 이미 있는 ADR 파일 → `decision`(결론·근거·기각 대안), **문서 자신의 날짜로**. 체크아웃 mtime을 쓰면
+  10년치 결정이 같은 날 만료되므로 `Date:` 줄 또는 파일명의 `YYYY-MM-DD`만 읽는다.
+- `tracker`: Jira(`--host` + `JIRA_TOKEN=email:api-token`) 또는 Linear(`LINEAR_TOKEN`). 완료된 이슈는 `decision`,
+  나머지는 `fact`. 완료 판정은 상태 **카테고리**로 하므로 컬럼 이름을 "Shipped"로 바꾼 프로젝트에서도 동작한다.
+- 적재는 전부 draft다 — cron이 늘리는 것은 검토 큐이고, 승격은 여전히 §4-2의 사람 몫이다. 큐가 감당 안 되면
+  `--since` 창을 좁히거나 `--project`로 범위를 줄인다.
+
 ## 5. 채택 순서 (bottom-up)
 
 위에서 강제로 깔지 않는다. 지식은 격리, 온톨로지(어휘)는 공유한다.

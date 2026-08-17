@@ -689,6 +689,32 @@ Plan: docs/PLAN-V7.md. The gap this closes is that the headline was measured out
       imposes — 13.5% against a reachable 16.5% at k=10, since the gold set names under two relevant
       records per query. Reported next to each other so neither reads as the other's number
 
+## v7.1 — capture density becomes visible, and promotion gets cheaper
+
+- [x] **7.1.1 `overview --since`.** Capture density by type and by author, dated off the `authored_by`
+      edge — the only capture instant promotion does not overwrite. Counts every status (a draft in the
+      queue is capture that happened) and excludes structural types (seeding a roster is not a
+      productive week). ADOPTION.md §6 now carries a runnable command per metric
+- [x] **7.1.2 verify friction measured, and a defect found while measuring it.** 20 drafts = 20 `verify`
+      invocations, 2.2s mechanical. The finding is bigger than the number: promotion moves the
+      stale-queue owner to the promoter on EVERY verify, not only `--all-drafts`, so a record's author
+      never learns their knowledge expired and one weekly reviewer inherits the whole expiry queue.
+      Reproduced through the CLI with a zero-TTL type. Persona and the author ranking read the edge and
+      are unaffected — the playbook's claim that `--all-drafts` breaks persona was wrong in the other
+      direction. Routing fixed in 7.2.3
+- [x] **7.1.3 the review queue clusters.** `yoke review --cluster` and `/api/review?cluster=1` group the
+      draft queue by the duplicate threshold with a paste-ready verify line per group; promotion stays
+      per record. `cosine` moves to embedding.ts because two callers now compare vectors. Measured
+      ceiling: at 0.85 this groups restatements, not subjects
+- [x] **7.1.4 two connectors where decisions already exist.** `adr` reads decision records off disk into
+      `decision` records with their own stated date (never the checkout mtime, which would expire a
+      decade of ADRs on one day) and keeps the rejected alternatives a `fact` would have dropped.
+      `tracker` reads Jira or Linear: completed issues become decisions, the rest facts, resolution
+      judged on the status CATEGORY so a renamed column still counts
+- [x] **7.1.5 capture that needs no typist.** ADOPTION.md gains ritual 0: a cron of `--since` connector
+      runs, idempotent by `external_id`, filling the review queue while the human habits are still
+      forming
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

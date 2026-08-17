@@ -125,7 +125,7 @@ Every record also arrives with its citation, which a pasted passage cannot do.
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
-| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → draft knowledge, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record, so its rows land verified. |
+| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `adr` (decision records already on disk), `tracker` (Jira/Linear issues), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → draft knowledge, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record, so its rows land verified. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
 | **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens · RBAC (the `verify` permission is the governance permission) · read replicas · online backup + point-in-time export. |
@@ -329,7 +329,7 @@ yoke graph [--limit n]                        # the corpus as edges
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
-yoke connect github-pr|slack|notes|raw|rdb ...
+yoke connect github-pr|slack|notes|adr|tracker|raw|rdb ...
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup <dest.db> [--force] | restore <src.db> [--force]
 yoke export --until <ts> --out <new.db>       # --shards <file> federates backends
