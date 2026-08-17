@@ -35,6 +35,13 @@ export interface CatalogRow {
   dependents: number;
   /** Doc `resource` records attached to it. 0 is a finding, not a blank. */
   docs: number;
+  /**
+   * Every knowledge record attached to it, of any type.
+   *
+   * The scorecard needs it to tell "nothing has rotted" from "nothing is recorded": both leave `stale` at
+   * 0, and reporting the first when the second is true is how a scorecard rewards silence.
+   */
+  attached: number;
   /** The most recent verified `decision` about it, if any — the "why is it like this" link. */
   latestDecision?: { id: string; summary: string; at: string };
   /**
@@ -117,18 +124,21 @@ async function describe(
   const owner = (await port.neighbors(entity.id, "owns", "in"))[0]?.from;
   const dependsOn = await port.neighbors(entity.id, "depends_on", "out");
   const dependents = await port.neighbors(entity.id, "depends_on", "in");
-  const attached = await port.neighbors(entity.id, "relates_to", "in");
+  const incoming = await port.neighbors(entity.id, "relates_to", "in");
   let docs = 0;
   let conflicts = 0;
+  /** Records in this namespace actually attached — `incoming` counts edges, including foreign ends. */
+  let attached = 0;
   // The row's own staleness counts: a service record nobody re-synced is the first thing that has rotted,
   // and a catalog that reported 0 stale next to its own expired row would be the lie this screen exists to
   // prevent.
   let stale = status === "stale" ? 1 : 0;
   let latestDecision: CatalogRow["latestDecision"];
-  for (const edge of attached) {
+  for (const edge of incoming) {
     const rec = await port.getEntity(edge.from);
     if (!rec || normalizeNs(rec.ns) !== ns) continue;
     const recStatus = effectiveStatus(rec, ontology, now);
+    attached++;
     if (rec.type === "resource") docs++;
     if (recStatus === "stale") stale++;
     conflicts += (await port.neighbors(rec.id, "conflicts_with")).length;
@@ -163,6 +173,7 @@ async function describe(
     dependsOn: dependsOn.length,
     dependents: dependents.length,
     docs,
+    attached,
     ...(latestDecision ? { latestDecision } : {}),
     stale,
     // Each pair is one edge seen from one end; halving would under-report a record conflicting with two

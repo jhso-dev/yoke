@@ -83,8 +83,10 @@ export default function Catalog() {
                       <span>
                         {t.catalog.owner}:{" "}
                         {r.owner ? (
+                          // To the owner's load, not to their record: the question a reader of this
+                          // column has is "what else is this group on the hook for".
                           <Link
-                            href={`/entity/?id=${encodeURIComponent(r.owner)}`}
+                            href={`/owner/?id=${encodeURIComponent(r.owner)}`}
                           >
                             {r.owner}
                           </Link>

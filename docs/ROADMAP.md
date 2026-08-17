@@ -767,6 +767,22 @@ Plan: docs/PLAN-V7.md. The gap this closes is that the headline was measured out
       `/entity` rather than a `/service` route: the detail response already carries every edge, so a second
       page would be a second thing to keep in sync. Non-catalog types render byte-identically
 
+## v7.4 — documents, and a scorecard that cannot be gamed by silence
+
+- [x] **7.4.1 `yoke connect docs`.** Confluence or Notion pages → `resource` records with the page's own
+      date, so `/browse?type=resource` IS the docs index — no new screen. Deliberately no extraction: `raw`
+      already turns prose into proposed records with a model, and a second extractor would be a second
+      answer to what a page claims. Confluence's CQL date literal is built here (an ISO instant gets a 400
+      naming the whole query) and Notion's title is found by property TYPE, so a renamed database still
+      works
+- [x] **7.4.2 `/scorecard` and `yoke scorecard`.** Four queries, no engine, no invented weights. The check
+      no descriptor-driven portal can run is the first: a service whose OWNER record is stale, retired,
+      unverified or absent is not green. Absence scores like rot, and where a check passes vacuously it says
+      so — "nothing recorded about it, so nothing to go stale" rather than a green that reads as health
+- [x] **7.4.3 `/owner`.** What a person or group is on the hook for: what they are accountable for, their
+      groups, their drafts awaiting verify, and their expired knowledge — all off the `authored_by` edge,
+      never `provenance.actor`, so the screen and the stale queue name the same person
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

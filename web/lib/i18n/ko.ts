@@ -104,6 +104,25 @@ export const ko: typeof en = {
     summary: (total: number, stale: number, unowned: number) =>
       `레코드 ${total}개 · 낡은 것 있음 ${stale}개 · 소유자 없음 ${unowned}개`,
   },
+  scorecard: {
+    title: "스코어카드",
+    hint: "카탈로그 레코드마다 4개 체크. 소유자 레코드가 낡거나 폐기됐거나 아예 없으면 초록이 아닙니다 — 아무것도 기록하지 않은 것도 썩은 것만큼 크게 실패합니다.",
+    empty: "점수를 낼 카탈로그 레코드가 없습니다.",
+    summary: (green: number, total: number) =>
+      `${total}개 중 ${green}개 전부 초록`,
+  },
+  owner: {
+    needsId: "레코드의 소유자에서 열거나 URL에 ?id=person:… 을 붙이세요.",
+    owns: "책임지는 것",
+    ownsNothing: "없음",
+    groups: "소속 그룹",
+    noGroups: "그룹 없음",
+    members: "구성원",
+    awaitingVerify: "이 사람의 검증 대기",
+    noDrafts: "대기 없음",
+    expiring: "만료된 이 사람의 지식",
+    noStale: "만료 없음",
+  },
   nav: {
     review: "리뷰",
     conflicts: "모순",
@@ -111,6 +130,7 @@ export const ko: typeof en = {
     persona: "페르소나",
     collaboration: "협업",
     catalog: "카탈로그",
+    scorecard: "스코어카드",
     browse: "둘러보기",
     inject: "주입",
     graph: "그래프",

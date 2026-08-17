@@ -21,6 +21,7 @@ import {
   ingestCatalog,
   makeBackstageConnector,
 } from "../../connectors/backstage.js";
+import { makeDocsConnector } from "../../connectors/docs.js";
 import { makeFetchExtractor, numEnv } from "../../connectors/extract.js";
 import { makeGithubPrConnector } from "../../connectors/github-pr.js";
 import { ingest } from "../../connectors/ingest.js";
@@ -81,6 +82,7 @@ import {
   renderPersonaSkill,
   safeName,
 } from "../../core/persona.js";
+import { scorecard } from "../../core/scorecard.js";
 import type { Entity, Relation } from "../../core/types.js";
 import {
   CONSUMPTION_WINDOW,
@@ -145,6 +147,8 @@ type Values = {
   cluster?: boolean;
   /** `catalog --owner`: only rows this group or person owns. */
   owner?: string;
+  /** `connect docs --space`: a Confluence space key. */
+  space?: string;
   /** `connect tracker --project`: Jira project key or Linear team key. */
   project?: string;
   embeddings?: boolean;
@@ -165,6 +169,7 @@ const OPTIONS = {
   host: { type: "string" },
   project: { type: "string" },
   owner: { type: "string" },
+  space: { type: "string" },
   attr: { type: "string", multiple: true },
   version: { type: "string" },
   type: { type: "string" },
@@ -451,6 +456,7 @@ const COMMANDS = [
   "overview",
   "owner",
   "catalog",
+  "scorecard",
   "ontology",
   "persona",
   "connect",
@@ -495,7 +501,7 @@ getting started:
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
   overview                  the shape of the whole corpus: types, hubs, authors (--limit n)
   link <from> <relation> <to>   record a relation (works_on, supersedes, relates_to …)
-capture:    connect github-pr|slack|notes|adr|tracker|backstage|rdb
+capture:    connect github-pr|slack|notes|adr|tracker|docs|backstage|rdb
   connect raw <dir>         a model proposes records from unstructured material (needs YOKE_LLM_*)
   relate                    a model proposes the links BETWEEN stored records (needs YOKE_LLM_*)
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
@@ -1753,6 +1759,44 @@ async function cmdCatalog(v: Values, env: Env): Promise<number> {
   });
 }
 
+/** `yoke scorecard` — the checks as queries, on the parity floor beside `/scorecard`. */
+async function cmdScorecard(v: Values, env: Env): Promise<number> {
+  const ns = resolveNs(v.ns, env);
+  return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
+    const ts = now();
+    const rows = await scorecard(store, ontology, ts, { ns, owner: v.owner });
+    if (rows.length === 0) {
+      emit(v, "no catalog records to score", []);
+      return 0;
+    }
+    const lines = rows.map((r) => {
+      const failed = r.checks.filter((c) => !c.pass);
+      return (
+        `${r.score}/${r.of}  ${r.name.padEnd(24)} ${r.type.padEnd(10)}` +
+        // The failing checks name themselves in the record's own terms; a bare score is a number nobody
+        // can act on.
+        (failed.length
+          ? `\n${failed.map((c) => `        ${c.id}: ${c.detail}`).join("\n")}`
+          : "")
+      );
+    });
+    lines.push(
+      `-- ${rows.filter((r) => r.score === r.of).length}/${rows.length} fully green`,
+    );
+    emit(v, lines.join("\n"), rows);
+    auditRead(store, {
+      actor: resolveActor(v, env),
+      action: "read",
+      detail: `scorecard -> ${rows.length} rows`,
+      at: ts,
+      ns,
+    });
+    return 0;
+  });
+}
+
 async function cmdConflicts(v: Values, env: Env): Promise<number> {
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
@@ -2316,6 +2360,28 @@ async function cmdConnect(
       return result.errors ? 1 : 0;
     });
   }
+  if (source === "docs") {
+    // Confluence and Notion take different credentials; one shared variable would send a Notion secret to
+    // Confluence as basic auth and produce a 401 that reads as a permissions problem.
+    const confluenceToken = env.CONFLUENCE_TOKEN;
+    const notionToken = env.NOTION_TOKEN;
+    if (v.host ? !confluenceToken : !notionToken) {
+      console.error(
+        "usage: yoke connect docs [--host https://acme.atlassian.net/wiki] [--space KEY] [--since ts]\n" +
+          "  Confluence needs --host and CONFLUENCE_TOKEN (email:api-token); Notion needs NOTION_TOKEN",
+      );
+      return 1;
+    }
+    return runIngest(
+      makeDocsConnector({
+        token: (v.host ? confluenceToken : notionToken) as string,
+        host: v.host,
+        space: v.space,
+      }),
+      v,
+      env,
+    );
+  }
   if (source === "tracker") {
     // One token variable per tracker, because they are different credentials and a single YOKE_TRACKER_TOKEN
     // would silently send a Linear key to Jira as basic auth — a 401 that reads as a permissions problem.
@@ -2394,7 +2460,8 @@ async function cmdConnect(
   if (source !== "github-pr" || !v.repo) {
     console.error(
       "usage: yoke connect <github-pr --repo owner/name | slack --channel C123 | notes <dir> |\n" +
-        "  adr <dir> | tracker [--host url] [--project KEY] | backstage --host url |\n" +
+        "  adr <dir> | tracker [--host url] [--project KEY] | docs [--host url] [--space KEY] |\n" +
+        "  backstage --host url |\n" +
         "  raw <dir> | rdb --mapping f.json> [--since ts] [--actor a]",
     );
     return 1;
@@ -2952,6 +3019,10 @@ const COMMAND_USAGE: Record<string, string> = {
     "usage: yoke overview [--limit n] [--since ts]\n" +
     "  --since    also report what was captured since ts, by type and by author",
   conflicts: "usage: yoke conflicts",
+  scorecard:
+    "usage: yoke scorecard [--owner <group-id>]\n" +
+    "  four checks per catalog record — verified owner, docs, a decision inside its TTL, nothing\n" +
+    "  stale — worst first. A record with nothing said about it cannot reach green",
   catalog:
     "usage: yoke catalog [--owner <group-id>] [--stale]\n" +
     "  what the org runs, most-rotted first. --stale keeps only rows with something stale\n" +
@@ -3075,6 +3146,8 @@ export async function runCli(
         return await cmdAudit(values, env);
       case "conflicts":
         return await cmdConflicts(values, env);
+      case "scorecard":
+        return await cmdScorecard(values, env);
       case "catalog":
         return await cmdCatalog(values, env);
       case "owner":

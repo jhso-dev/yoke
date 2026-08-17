@@ -222,6 +222,7 @@ export interface CatalogRow {
   dependsOn: number;
   dependents: number;
   docs: number;
+  attached: number;
   latestDecision?: { id: string; summary: string; at: string };
   stale: number;
   conflicts: number;
@@ -230,6 +231,26 @@ export interface CatalogRow {
   actor: string;
   occurred_at: string;
   version: number;
+}
+
+/** One scorecard row (v7.4.2). `detail` is the reason a check failed, in the record's own terms. */
+export interface ScorecardRow {
+  id: string;
+  name: string;
+  type: string;
+  checks: { id: string; pass: boolean; detail: string }[];
+  score: number;
+  of: number;
+}
+
+/** What a person or group is on the hook for (v7.4.3). */
+export interface OwnerLoad {
+  who: Knowledge;
+  owns: string[];
+  groups: string[];
+  members: string[];
+  drafts: Knowledge[];
+  stale: Knowledge[];
 }
 
 export interface Persona {

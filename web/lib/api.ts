@@ -16,8 +16,10 @@ import type {
   InjectPreview,
   Knowledge,
   Meta,
+  OwnerLoad,
   Page,
   Persona,
+  ScorecardRow,
   SearchResult,
   StaleQueue,
   TokenInfo,
@@ -102,6 +104,12 @@ export const api = {
   /** The catalog — what the org runs, most-rotted first (the server orders it; no second ranker here). */
   catalog: (p: { owner?: string; stale?: 1 } = {}) =>
     request<CatalogRow[]>(`/api/catalog${qs(p)}`),
+  /** The four checks per catalog record, worst first (the server sorts; no second ranker here). */
+  scorecard: (p: { owner?: string } = {}) =>
+    request<ScorecardRow[]>(`/api/scorecard${qs(p)}`),
+  /** What one person or group is on the hook for — the sweep's routing screen. */
+  owner: (id: string) =>
+    request<OwnerLoad>(`/api/owner/${encodeURIComponent(id)}`),
   ontology: () => request<TypeDef[]>("/api/ontology"),
   persona: (id: string) =>
     request<Persona>(`/api/persona/${encodeURIComponent(id)}`),

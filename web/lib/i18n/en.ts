@@ -106,6 +106,26 @@ export const en = {
     summary: (total: number, stale: number, unowned: number) =>
       `${total} records · ${stale} with something stale · ${unowned} unowned`,
   },
+  scorecard: {
+    title: "Scorecard",
+    hint: "Four checks per catalog record. A service whose owner record is stale, retired or absent is not green — and having nothing recorded fails as loudly as having it rot.",
+    empty: "No catalog records to score.",
+    summary: (green: number, total: number) =>
+      `${green} of ${total} fully green`,
+  },
+  owner: {
+    needsId:
+      "Open this screen from a record's owner, or add ?id=person:… to the URL.",
+    owns: "accountable for",
+    ownsNothing: "nothing",
+    groups: "member of",
+    noGroups: "no groups",
+    members: "members",
+    awaitingVerify: "Awaiting their verify",
+    noDrafts: "nothing waiting",
+    expiring: "Their knowledge that has expired",
+    noStale: "nothing expired",
+  },
   nav: {
     review: "review",
     conflicts: "conflicts",
@@ -113,6 +133,7 @@ export const en = {
     persona: "persona",
     collaboration: "collaboration",
     catalog: "catalog",
+    scorecard: "scorecard",
     browse: "browse",
     inject: "inject",
     graph: "graph",

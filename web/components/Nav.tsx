@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/persona/", key: "persona" },
   { href: "/collaboration/", key: "collaboration" },
   { href: "/catalog/", key: "catalog" },
+  { href: "/scorecard/", key: "scorecard" },
   { href: "/browse/", key: "browse" },
   { href: "/inject/", key: "inject" },
   { href: "/graph/", key: "graph" },

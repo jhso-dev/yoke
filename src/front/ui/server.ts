@@ -33,6 +33,7 @@ import {
   type PersonaResult,
   personaQuery,
 } from "../../core/persona.js";
+import { scorecard } from "../../core/scorecard.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
 import {
@@ -673,6 +674,77 @@ export function createUiHandler(
         rows.map((r) => r.id),
         "catalog",
       );
+      return;
+    }
+
+    // The scorecard (v7.4.2): the same four queries `yoke scorecard` runs. No engine, no thresholds of
+    // its own, and no green a database did not check — the row carries each failing check's reason in the
+    // record's own terms.
+    if (method === "GET" && path === "/api/scorecard") {
+      if (denied(res, "read")) return;
+      const rows = await scorecard(store, store.loadOntology(ns), now(), {
+        ns,
+        owner: url.searchParams.get("owner") ?? undefined,
+      });
+      sendJson(res, 200, rows);
+      auditRead(
+        "read",
+        rows.map((r) => r.id),
+        "scorecard",
+      );
+      return;
+    }
+
+    // What a person or group is on the hook for (v7.4.3). The routing screen for the weekly sweep and the
+    // expiry ritual: it answers with the same `staleOwners` resolution the stale queue routes by, so the
+    // screen and the queue cannot name two different people.
+    if (method === "GET" && path.startsWith("/api/owner/")) {
+      const id = decodeURIComponent(path.slice("/api/owner/".length));
+      if (denied(res, "read")) return;
+      const who = await store.getEntity(id);
+      if (!who || normalizeNs(who.ns) !== normalizeNs(ns)) {
+        sendJson(res, 404, { error: "not found" });
+        return;
+      }
+      const { asR } = serializers();
+      const ontology = store.loadOntology(ns);
+      const owned = (await store.neighbors(id, "owns", "out")).map((r) => r.to);
+      const members = (await store.neighbors(id, "member_of", "in")).map(
+        (r) => r.from,
+      );
+      const groups = (await store.neighbors(id, "member_of", "out")).map(
+        (r) => r.to,
+      );
+      // Their drafts and their stale records, from the edge that survives promotion — not from
+      // `provenance.actor`, which on a verified record is the promoter (v7.1.2).
+      const authored = (await store.neighbors(id, "authored_by", "in")).map(
+        (r) => r.from,
+      );
+      const records = await Promise.all(
+        authored.map(async (rid) => {
+          const e = await store.getEntity(rid);
+          return e && normalizeNs(e.ns) === normalizeNs(ns) ? e : null;
+        }),
+      );
+      const mine = records.filter(
+        (e): e is NonNullable<typeof e> => e !== null,
+      );
+      const at = now();
+      sendJson(res, 200, {
+        who: await asR(who),
+        owns: owned,
+        groups,
+        members,
+        drafts: await Promise.all(
+          mine.filter((e) => e.status === "draft").map(asR),
+        ),
+        stale: await Promise.all(
+          mine
+            .filter((e) => effectiveStatus(e, ontology, at) === "stale")
+            .map(asR),
+        ),
+      });
+      auditRead("read", [id], "owner");
       return;
     }
 
