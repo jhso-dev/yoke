@@ -157,4 +157,68 @@ describe("overview", () => {
       authors: [],
     });
   });
+
+  describe("captured window (--since)", () => {
+    const early = "2026-06-01T00:00:00Z";
+    const late = "2026-07-12T00:00:00Z";
+    /** Commit at an explicit instant, which is what the authorship edge is dated by. */
+    const addAt = async (
+      type: string,
+      attributes: Record<string, unknown>,
+      actor: string,
+      at: string,
+    ) =>
+      (
+        await commit(
+          port,
+          ont,
+          { type, attributes },
+          { ...prov, actor, occurred_at: at },
+          at,
+        )
+      ).entity.id;
+
+    it("counts only what the window covers, and credits the author not the promoter", async () => {
+      await addAt("fact", { statement: "old news" }, "alice", early);
+      const recent = await addAt(
+        "decision",
+        {
+          conclusion: "ship it",
+          rationale: "because",
+          rejected_alternatives: ["wait"],
+        },
+        "bob",
+        late,
+      );
+      // Promotion by a third party is exactly the case an authors list off head provenance gets wrong.
+      await verify(port, [recent], "reviewer", late);
+
+      const res = await overview(port, ont, late, { since: "2026-07-01T00:00:00Z" });
+      expect(res.captured).toEqual({
+        since: "2026-07-01T00:00:00Z",
+        byType: { decision: 1 },
+        byAuthor: [{ actor: "bob", records: 1 }],
+        total: 1,
+      });
+    });
+
+    it("counts a draft, and leaves structural records out", async () => {
+      // A draft is capture that happened — density measured off verified records only would credit the
+      // reviewer's backlog to the author's week.
+      await addAt("fact", { statement: "unreviewed" }, "alice", late);
+      // A seeded roster is scaffolding: counting it reports an import as a productive week.
+      await addAt("person", { name: "Carol" }, "alice", late);
+      await addAt("collaboration", { title: "PAY-42" }, "alice", late);
+
+      const res = await overview(port, ont, late, { since: early });
+      expect(res.captured?.byType).toEqual({ fact: 1 });
+      expect(res.captured?.total).toBe(1);
+    });
+
+    it("is absent without a window, so 'not asked' cannot read as 'nothing captured'", async () => {
+      await addAt("fact", { statement: "something" }, "alice", late);
+      const res = await overview(port, ont, late);
+      expect(res.captured).toBeUndefined();
+    });
+  });
 });

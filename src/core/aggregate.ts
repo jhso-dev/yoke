@@ -48,6 +48,18 @@ export interface Overview {
    * `authored_by` edge, not `provenance.actor`: see the note in the relation scan for why that
    * distinction is the difference between authors and reviewers. */
   authors: Array<{ actor: string; verified: number }>;
+  /** Present only when `opts.since` is given: what was captured in that window, which is the one number
+   * the adoption playbook's rituals are supposed to move (ADOPTION.md §6 "capture density"). Absent
+   * rather than zeroed without a window, so a reader cannot mistake "not asked" for "nothing captured". */
+  captured?: {
+    since: string;
+    /** Records whose authorship edge is dated at or after `since`, by type — every status, because a
+     * draft nobody has promoted yet is still capture that happened. */
+    byType: Record<string, number>;
+    /** Same window, by author. This is the per-person weekly number the review sweep is measured by. */
+    byAuthor: Array<{ actor: string; records: number }>;
+    total: number;
+  };
 }
 
 const EMPTY: StatusCounts = {
@@ -64,17 +76,32 @@ const EMPTY: StatusCounts = {
  *   overview taken at two instants over an unchanged corpus legitimately differs.
  * @param opts.top how many hubs and authors to return (default 10). Not a bound on the scan: the
  *   counts are always over everything, and only the two ranked lists are cut.
+ * @param opts.since adds the `captured` window. Dated off the `authored_by` edge's own
+ *   `provenance.occurred_at`, which is the capture act's instant and the only one that survives
+ *   promotion — an entity's head provenance is the promoter's. Consequence worth knowing before
+ *   quoting a weekly number: a connector stamps `occurred_at` from the SOURCE, so importing a
+ *   three-year archive credits those records to the weeks they happened in, not to the week they
+ *   arrived. That is the right answer for "when was this decided" and the wrong one for "how much did
+ *   we import"; the audit trail answers the second.
  */
 export async function overview(
   port: StoragePort,
   ontology: TypeDef[],
   now: string,
-  opts?: { ns?: string | null; top?: number },
+  opts?: { ns?: string | null; top?: number; since?: string },
 ): Promise<Overview> {
   const ns = normalizeNs(opts?.ns);
   const top = opts?.top ?? 10;
+  const since = opts?.since;
   const byType: Record<string, StatusCounts> = {};
   const authors = new Map<string, number>();
+  /** id -> type, for every entity in the namespace. Only built when a window was asked for: the
+   * captured counts are per TYPE and the authorship edge names only ids, so without this the window
+   * could report who captured but not what. One string per entity against `present`'s one string, and
+   * only on a path the caller opted into. */
+  const typeById = since ? new Map<string, string>() : null;
+  const capturedByType: Record<string, number> = {};
+  const capturedByAuthor = new Map<string, number>();
   /** Ids that exist in this namespace, so a dangling relation end does not become a hub. */
   const present = new Set<string>();
   /** Ids whose knowledge is injectable today. Authorship is credited off this set, not off every row.
@@ -113,6 +140,7 @@ export async function overview(
     const page = await port.listEntities({ ns, after, limit: 500 });
     for (const e of page.items) {
       present.add(e.id);
+      typeById?.set(e.id, e.type);
       const status = effectiveStatus(e, ontology, now);
       byType[e.type] ??= { ...EMPTY };
       byType[e.type][status]++;
@@ -143,6 +171,22 @@ export async function overview(
       // one of them cannot disagree.
       if (r.type === "authored_by" && injectable.has(r.from))
         authors.set(r.to, (authors.get(r.to) ?? 0) + 1);
+      // The capture window counts the same edge but over EVERY status, not just `injectable`: a draft
+      // waiting in the review queue is capture that happened, and measuring density off verified
+      // records only would credit the reviewer's backlog to the author's week. Structural types stay
+      // out for the same reason they stay out of the authors ranking — seeding 30 `person` rows is
+      // scaffolding, and counting it as capture reports a roster import as a productive week.
+      if (
+        since &&
+        r.type === "authored_by" &&
+        r.provenance.occurred_at >= since
+      ) {
+        const type = typeById?.get(r.from);
+        if (type && !structuralTypes.has(type)) {
+          capturedByType[type] = (capturedByType[type] ?? 0) + 1;
+          capturedByAuthor.set(r.to, (capturedByAuthor.get(r.to) ?? 0) + 1);
+        }
+      }
       if (notConnection.has(r.type)) continue;
       // Degree counts the edge once per end. A self-loop therefore counts twice, which is the honest
       // reading of "edges touching this node" and is also what the graph explorer draws.
@@ -183,5 +227,19 @@ export async function overview(
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .slice(0, top)
       .map(([actor, verified]) => ({ actor, verified })),
+    ...(since
+      ? {
+          captured: {
+            since,
+            byType: capturedByType,
+            // Not cut to `top`: a density report exists to find who has stopped capturing, and a
+            // ranked list truncated at ten hides exactly them.
+            byAuthor: [...capturedByAuthor.entries()]
+              .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+              .map(([actor, records]) => ({ actor, records })),
+            total: Object.values(capturedByType).reduce((a, n) => a + n, 0),
+          },
+        }
+      : {}),
   };
 }

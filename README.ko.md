@@ -300,7 +300,8 @@ yoke serve --auth --host 0.0.0.0   # 팀 공유. `yoke token create` 로 만든 
 yoke init | add | get | search | list | link | verify | deprecate
 yoke review [--stale]                         # 검토 대기 draft / TTL 지난 verified
 yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
-yoke overview | graph [--limit n]             # 코퍼스 한눈에 보기 / 엣지로 보기
+yoke overview [--limit n] [--since ts]        # 코퍼스 한눈에 보기; --since는 캡처 밀도 추가
+yoke graph [--limit n]                        # 코퍼스를 엣지로 보기
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]

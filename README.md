@@ -324,7 +324,8 @@ authenticate and therefore has no reason not to.
 yoke init | add | get | search | list | link | verify | deprecate
 yoke review [--stale]                         # drafts awaiting review / verified past their TTL
 yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
-yoke overview | graph [--limit n]             # the corpus at a glance / as edges
+yoke overview [--limit n] [--since ts]        # the corpus at a glance; --since adds capture density
+yoke graph [--limit n]                        # the corpus as edges
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]

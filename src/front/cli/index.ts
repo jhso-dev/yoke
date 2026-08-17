@@ -1489,8 +1489,9 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
     const top = intFlag(v.limit, "limit");
+    const since = instantFlag(v.since, "since");
     const ts = now();
-    const o = await overview(store, ontology, ts, { ns, top });
+    const o = await overview(store, ontology, ts, { ns, top, since });
     // Same audit row the MCP tool writes: a hub line carries a record's own text, and SPEC's audit
     // table says "the same actions are written wherever the act happens". Built here, written AFTER
     // emit (C7) so a locked trail cannot discard an overview a person already read.
@@ -1536,6 +1537,25 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
       "",
       "verified knowledge by author (from authored_by, not who promoted it)",
       ...(authorRows.length ? authorRows : ["  (none)"]),
+      // The capture-density block, only when a window was asked for. Every status counts here, unlike
+      // the ranking above: a draft in the review queue is capture that happened.
+      ...(o.captured
+        ? [
+            "",
+            `captured since ${o.captured.since} — ${o.captured.total} records, every status`,
+            ...(Object.entries(o.captured.byType)
+              .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+              .map(([type, n]) => `  ${String(n).padStart(4)}  ${type}`) ?? []),
+            ...(o.captured.byAuthor.length
+              ? [
+                  "  by author",
+                  ...o.captured.byAuthor.map(
+                    (a) => `  ${String(a.records).padStart(4)}  ${a.actor}`,
+                  ),
+                ]
+              : ["  (nothing captured in this window)"]),
+          ]
+        : []),
     ].join("\n");
     emit(v, human, o);
     auditRead(store, overviewEvent);
@@ -2618,7 +2638,9 @@ const COMMAND_USAGE: Record<string, string> = {
   audit:
     "usage: yoke audit [--since ts] [--until ts] [--limit n] [--shape]\n" +
     "  --shape    workload composition: anchored / briefing / plain injections",
-  overview: "usage: yoke overview [--limit n]",
+  overview:
+    "usage: yoke overview [--limit n] [--since ts]\n" +
+    "  --since    also report what was captured since ts, by type and by author",
   conflicts: "usage: yoke conflicts",
   backfill:
     "usage: yoke backfill [--embeddings] [--rebuild] [--limit n] [--after cursor]\n" +
