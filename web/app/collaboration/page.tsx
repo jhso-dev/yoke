@@ -155,8 +155,10 @@ function AttachRecord({
   onLinked,
 }: {
   to: string;
-  /** Entity type names the ontology marks `structural: true`. */
-  structural: Set<string>;
+  /** Entity type names the ontology marks `structural: true`, or **null when the ontology could not
+   * be read**. Null is not an empty set: with no flags we cannot tell which types are never
+   * injectable, and offering a seed we cannot vet is how the withheld guard turns itself off. */
+  structural: Set<string> | null;
   onLinked: () => void;
 }) {
   const t = useT();
@@ -205,12 +207,23 @@ function AttachRecord({
   // (structural is never injected as knowledge), so the click would look like it did nothing.
   // A repeat link needs no filter: relation identity is (type, from, to), so the gate answers
   // a duplicate with `existed` and the toast says so.
-  const rows = (results.data?.items ?? []).filter(
-    (r) => r.id !== to && !structural.has(r.type),
-  );
+  const rows = structural
+    ? (results.data?.items ?? []).filter(
+        (r) => r.id !== to && !structural.has(r.type),
+      )
+    : [];
   // Withholding is said out loud, per the briefing's own rule: browse shows these rows, so a
   // silent gap here reads as the search disagreeing with itself.
-  const withheld = (results.data?.items.length ?? 0) - rows.length;
+  const withheld = structural
+    ? (results.data?.items.length ?? 0) - rows.length
+    : 0;
+  // The preview body must belong to the record the title names. `useAsync` keeps the previous
+  // result while the next one loads, so keying the body to the id is what makes "wrong record's
+  // attributes under this record's name" unrepresentable rather than merely unlikely.
+  const detail =
+    preview && previewDetail.data?.entity.id === preview.id
+      ? previewDetail.data
+      : null;
   return (
     <div className="p-3">
       <form
@@ -233,31 +246,39 @@ function AttachRecord({
           <div className="empty">{t.common.loading}</div>
         ) : (
           <div className="mt-3">
-            {results.data?.truncated && (
+            {/* With no ontology there are no flags, so nothing here can tell a decision from a
+                person. Refusing to offer seeds is the honest state: a link this screen cannot vet
+                is the one that lands in no briefing and reports nothing. */}
+            {structural === null ? (
+              <Alert variant="warn">{t.collaboration.seedFlagsUnknown}</Alert>
+            ) : null}
+            {results.data?.truncated && structural !== null && (
               <Alert variant="info">
                 {t.browse.searchTruncated(results.data.limit)}
               </Alert>
             )}
-            <KnowledgeTable
-              rows={rows}
-              empty={t.browse.noSearchMatch}
-              onOpen={setPreview}
-              trailing={{
-                head: "",
-                cell: (r) => (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={linking !== ""}
-                    onClick={() => attach(r)}
-                  >
-                    {linking === r.id
-                      ? t.common.linking
-                      : t.collaboration.attach}
-                  </Button>
-                ),
-              }}
-            />
+            {structural !== null && (
+              <KnowledgeTable
+                rows={rows}
+                empty={t.browse.noSearchMatch}
+                onOpen={setPreview}
+                trailing={{
+                  head: "",
+                  cell: (r) => (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={linking !== ""}
+                      onClick={() => attach(r)}
+                    >
+                      {linking === r.id
+                        ? t.common.linking
+                        : t.collaboration.attach}
+                    </Button>
+                  ),
+                }}
+              />
+            )}
             {withheld > 0 && (
               <p className="muted">{t.collaboration.seedWithheld(withheld)}</p>
             )}
@@ -277,14 +298,12 @@ function AttachRecord({
               <Citation row={preview} />
             </p>
             <ErrorBanner error={previewDetail.error} />
-            {previewDetail.loading ? (
+            {previewDetail.error ? null : detail === null ? (
               <div className="empty">{t.common.loading}</div>
             ) : (
               <Table>
                 <TableBody>
-                  {Object.entries(
-                    previewDetail.data?.entity.attributes ?? {},
-                  ).map(([k, v]) => (
+                  {Object.entries(detail.entity.attributes).map(([k, v]) => (
                     <TableRow key={k}>
                       <TableHead scope="row" className="w-[30%]">
                         {k}
@@ -692,11 +711,13 @@ function CollaborationBody() {
         <AttachRecord
           to={id}
           structural={
-            new Set(
-              (ontology.data ?? [])
-                .filter((ty) => ty.structural)
-                .map((ty) => ty.name),
-            )
+            ontology.data
+              ? new Set(
+                  ontology.data
+                    .filter((ty) => ty.structural)
+                    .map((ty) => ty.name),
+                )
+              : null
           }
           onLinked={() => {
             detail.reload();

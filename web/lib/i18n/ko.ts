@@ -313,6 +313,8 @@ export const ko: typeof en = {
     recordAttached: (label: string) => `${label}을(를) 이 협업에 연결했습니다.`,
     alreadyAttached: (label: string) =>
       `${label}은(는) 이미 이 협업에 연결되어 있어 새로 기록하지 않았습니다.`,
+    seedFlagsUnknown:
+      "온톨로지를 불러오지 못해 어떤 타입이 지식으로 주입되지 않는지 알 수 없습니다. 연결 기능을 제공하지 않습니다 — 페이지를 새로고침하세요.",
     seedWithheld: (n: number) =>
       `일치한 레코드 ${n}건은 여기서 제외했습니다. 지식이 붙는 대상(사람, 이 협업)이라 지식으로 주입되지 않습니다. 사람은 위의 참여자 패널에서 추가하세요.`,
     truncated: (shown: number, total: number, rest: number) =>
