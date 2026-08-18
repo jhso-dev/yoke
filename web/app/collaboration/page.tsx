@@ -7,6 +7,7 @@ import { Suspense, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -30,6 +31,7 @@ import { DirectionIcon } from "../../components/DirectionIcon";
 import { DisputedLinks } from "../../components/DisputedLinks";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { KnowledgeTable } from "../../components/KnowledgeTable";
+import { Modal } from "../../components/Modal";
 import { Pagination, usePage } from "../../components/Pagination";
 import { Panel, PanelHead } from "../../components/Panel";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -136,6 +138,184 @@ function AddMember({
           {t.collaboration.peopleCapped(PEOPLE_LIMIT)}
         </Alert>
       )}
+    </div>
+  );
+}
+
+/** How many matches the seed search offers per query. Bounded like every list on this screen; the
+ * truncation notice names the bound when it bites. */
+const ATTACH_LIMIT = 10;
+
+/** Search stored records, link one here with `relates_to` — `yoke link <record> relates_to
+ * <collaboration>` in the browser, the same direction the gate's `--scope` commit writes. This is
+ * how a person seeds a working context by hand with knowledge that predates it. */
+function AttachRecord({
+  to,
+  structural,
+  onLinked,
+}: {
+  to: string;
+  /** Entity type names the ontology marks `structural: true`. */
+  structural: Set<string>;
+  onLinked: () => void;
+}) {
+  const t = useT();
+  const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
+  const [linking, setLinking] = useState("");
+  const [error, setError] = useState<unknown>(null);
+  // Clicking a result previews it in place instead of navigating to the entity screen: seeding is
+  // a mid-act flow, and leaving the page to read a candidate throws away the search and the intent.
+  const [preview, setPreview] = useState<Knowledge | null>(null);
+  const results = useAsync(
+    () =>
+      query
+        ? api.search({ q: query, limit: ATTACH_LIMIT })
+        : Promise.resolve(null),
+    [query],
+  );
+  const previewDetail = useAsync(
+    () => (preview ? api.entity(preview.id) : Promise.resolve(null)),
+    [preview?.id],
+  );
+  const attach = async (r: Knowledge) => {
+    setLinking(r.id);
+    setError(null);
+    try {
+      const { existed } = await api.link({
+        from: r.id,
+        type: "relates_to",
+        to,
+      });
+      announce(
+        existed
+          ? t.collaboration.alreadyAttached(recordLabel(r))
+          : t.collaboration.recordAttached(recordLabel(r)),
+      );
+      setPreview(null);
+      onLinked();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setLinking("");
+    }
+  };
+  // Neither the collaboration itself nor a structural type is offered as a seed: a `person`
+  // linked with `relates_to` joins neither the roster (that is `works_on`) nor the briefing
+  // (structural is never injected as knowledge), so the click would look like it did nothing.
+  // A repeat link needs no filter: relation identity is (type, from, to), so the gate answers
+  // a duplicate with `existed` and the toast says so.
+  const rows = (results.data?.items ?? []).filter(
+    (r) => r.id !== to && !structural.has(r.type),
+  );
+  // Withholding is said out loud, per the briefing's own rule: browse shows these rows, so a
+  // silent gap here reads as the search disagreeing with itself.
+  const withheld = (results.data?.items.length ?? 0) - rows.length;
+  return (
+    <div className="p-3">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          setQuery(draft.trim());
+        }}
+      >
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={t.collaboration.attachSearch}
+          aria-label={t.common.search}
+          className="w-auto min-w-60"
+        />
+      </form>
+      <ErrorBanner error={error ?? results.error} />
+      {query &&
+        (results.loading ? (
+          <div className="empty">{t.common.loading}</div>
+        ) : (
+          <div className="mt-3">
+            {results.data?.truncated && (
+              <Alert variant="info">
+                {t.browse.searchTruncated(results.data.limit)}
+              </Alert>
+            )}
+            <KnowledgeTable
+              rows={rows}
+              empty={t.browse.noSearchMatch}
+              onOpen={setPreview}
+              trailing={{
+                head: "",
+                cell: (r) => (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={linking !== ""}
+                    onClick={() => attach(r)}
+                  >
+                    {linking === r.id
+                      ? t.common.linking
+                      : t.collaboration.attach}
+                  </Button>
+                ),
+              }}
+            />
+            {withheld > 0 && (
+              <p className="muted">{t.collaboration.seedWithheld(withheld)}</p>
+            )}
+          </div>
+        ))}
+      <Modal
+        open={preview !== null}
+        title={preview ? recordLabel(preview) : ""}
+        onClose={() => setPreview(null)}
+        wide
+      >
+        {preview && (
+          <>
+            <p className="lede">
+              <span className="mono">{preview.type}</span>{" "}
+              <StatusBadge status={preview.effectiveStatus} />{" "}
+              <Citation row={preview} />
+            </p>
+            <ErrorBanner error={previewDetail.error} />
+            {previewDetail.loading ? (
+              <div className="empty">{t.common.loading}</div>
+            ) : (
+              <Table>
+                <TableBody>
+                  {Object.entries(
+                    previewDetail.data?.entity.attributes ?? {},
+                  ).map(([k, v]) => (
+                    <TableRow key={k}>
+                      <TableHead scope="row" className="w-[30%]">
+                        {k}
+                      </TableHead>
+                      <TableCell>
+                        <AttributeValue value={v} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+            <div className="controls">
+              <Button asChild variant="outline">
+                <Link href={`/entity/?id=${encodeURIComponent(preview.id)}`}>
+                  {t.common.openAsRecord}
+                </Link>
+              </Button>
+              <Button
+                type="button"
+                disabled={linking !== ""}
+                onClick={() => attach(preview)}
+              >
+                {linking === preview.id
+                  ? t.common.linking
+                  : t.collaboration.attach}
+              </Button>
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -443,12 +623,10 @@ function CollaborationBody() {
         ) : (
           <>
             {/* The cap is honest only if it says where the rest is — the same sentence the agent
-                gets from yoke_inject, so the screen and the tool cannot disagree.
-                `mx-3` replaces the `.panel > [data-slot="alert"]` rule in globals.css, which keyed on
-                the class this panel no longer carries; without it the notice's border lands on the
-                panel's own. */}
+                gets from yoke_inject, so the screen and the tool cannot disagree. The inset comes
+                from Panel's own alert rule; nothing to restate here. */}
             {(briefing.data?.omitted ?? 0) > 0 && (
-              <Alert variant="warn" className="mx-3">
+              <Alert variant="warn">
                 {t.collaboration.truncated(
                   briefing.data?.items.length ?? 0,
                   (briefing.data?.items.length ?? 0) +
@@ -462,7 +640,7 @@ function CollaborationBody() {
                 the empty-state from the linked-record count and named none of these on a partial
                 briefing. Same sentence as the inject preview, since it is the same inject(). */}
             {briefing.data?.withheld && (
-              <Alert variant="warn" className="mx-3">
+              <Alert variant="warn">
                 {t.inject.withheld(
                   briefing.data.withheld,
                   briefing.data.items.length,
@@ -507,6 +685,24 @@ function CollaborationBody() {
             {t.collaboration.attachedNote}
           </span>
         </PanelHead>
+        {/* Seeding by hand: the capture path (`--scope`) covers knowledge born inside this work;
+            this covers knowledge that predates it. The briefing reloads too — a verified record
+            linked here changes what an agent receives, and the panel above must not disagree with
+            the table below. */}
+        <AttachRecord
+          to={id}
+          structural={
+            new Set(
+              (ontology.data ?? [])
+                .filter((ty) => ty.structural)
+                .map((ty) => ty.name),
+            )
+          }
+          onLinked={() => {
+            detail.reload();
+            briefing.reload();
+          }}
+        />
         {attached.length === 0 ? (
           <div className="empty">{t.collaboration.attachedEmpty}</div>
         ) : (

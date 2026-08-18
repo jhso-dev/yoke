@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef } from "react";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
@@ -33,6 +34,7 @@ export function KnowledgeTable({
   paginate = false,
   select,
   trailing,
+  onOpen,
 }: {
   rows: Knowledge[];
   /** Required: a default here is an English literal that a call site can silently rely on. */
@@ -52,6 +54,10 @@ export function KnowledgeTable({
     head: string;
     cell: (r: Knowledge) => React.ReactNode;
   };
+  /** When given, the record cell opens a preview through this callback instead of navigating to
+   * the entity screen — for a flow that must not leave its page mid-act (seeding a
+   * collaboration). The caller owns the preview surface; this table only withholds the Link. */
+  onOpen?: (r: Knowledge) => void;
 }) {
   const t = useT();
   const paged = usePage(rows);
@@ -126,9 +132,20 @@ export function KnowledgeTable({
               )}
               <TableCell className="mono">{r.type}</TableCell>
               <TableCell>
-                <Link href={`/entity/?id=${encodeURIComponent(r.id)}`}>
-                  {recordLabel(r)}
-                </Link>
+                {onOpen ? (
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto p-0 text-left font-normal whitespace-normal"
+                    onClick={() => onOpen(r)}
+                  >
+                    {recordLabel(r)}
+                  </Button>
+                ) : (
+                  <Link href={`/entity/?id=${encodeURIComponent(r.id)}`}>
+                    {recordLabel(r)}
+                  </Link>
+                )}
               </TableCell>
               <TableCell>
                 <StatusBadge status={r.effectiveStatus} />

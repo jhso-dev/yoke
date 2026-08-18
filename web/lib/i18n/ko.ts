@@ -307,7 +307,14 @@ export const ko: typeof en = {
     attachedNote:
       "레코드가 이 협업을 가리킵니다. 협업을 폐기해도 연결된 레코드는 유지됩니다",
     attachedEmpty:
-      "연결된 레코드가 없습니다. --scope로 기록하면 여기에 표시됩니다",
+      "연결된 레코드가 없습니다. 위에서 검색해 연결하거나 --scope로 기록하세요",
+    attachSearch: "연결할 레코드 검색…",
+    attach: "이 일에 연결",
+    recordAttached: (label: string) => `${label}을(를) 이 협업에 연결했습니다.`,
+    alreadyAttached: (label: string) =>
+      `${label}은(는) 이미 이 협업에 연결되어 있어 새로 기록하지 않았습니다.`,
+    seedWithheld: (n: number) =>
+      `일치한 레코드 ${n}건은 여기서 제외했습니다. 지식이 붙는 대상(사람, 이 협업)이라 지식으로 주입되지 않습니다. 사람은 위의 참여자 패널에서 추가하세요.`,
     truncated: (shown: number, total: number, rest: number) =>
       `이 협업의 레코드 ${total}개 중 ${shown}개를 최근 확인 순서대로 표시합니다. 표시하지 않은 레코드도 삭제되지 않습니다. 에이전트가 구체적으로 질문하면 이 협업의 레코드를 우선해 전체 지식을 검색합니다. (${rest}개 미표시)`,
   },
@@ -380,16 +387,18 @@ export const ko: typeof en = {
       structural: number;
       superseded: number;
     }) =>
-      `이 사람에게는 이 화면에 담기지 않은 레코드가 있습니다: ${[
+      `이 화면에 담기지 않은 레코드가 ${
+        w.draft + w.stale + w.deprecated + w.superseded
+      }건 있습니다: ${[
         w.draft && `검토 대기 ${w.draft}건`,
-        w.stale && `신선도 기간이 지난 것 ${w.stale}건`,
-        w.deprecated && `폐기된 것 ${w.deprecated}건`,
-        w.superseded && `더 새로운 지식으로 대체된 것 ${w.superseded}건`,
+        w.stale && `신선도 만료 ${w.stale}건`,
+        w.deprecated && `폐기됨 ${w.deprecated}건`,
+        w.superseded && `새 지식으로 대체됨 ${w.superseded}건`,
       ]
         .filter(Boolean)
         .join(
-          ", ",
-        )} — 그러므로 어떤 주제에 대한 침묵이 그 사람이 그것을 기록한 적 없다는 증거는 아닙니다.`,
+          " · ",
+        )}. 어떤 주제에 답이 없다고 이 사람이 기록한 적 없다는 뜻은 아닙니다.`,
     identityUnion: (n: number) =>
       `same_as로 동일인으로 기록된 신원 레코드 ${n}건을 결합했습니다:`,
     identityUnionNote: (name: string) =>
@@ -424,21 +433,23 @@ export const ko: typeof en = {
         superseded: number;
       },
       sent: number,
-    ) =>
-      `${
-        sent === 0
-          ? "전달할 내용은 없지만 이 질문에 걸린 레코드는 있습니다"
-          : "위 표가 이 질문이 찾은 전부는 아닙니다 — 걸렸지만 전달되지 않은 레코드가 있습니다"
-      }: ${[
+    ) => {
+      const total =
+        w.draft + w.stale + w.deprecated + w.structural + w.superseded;
+      const parts = [
         w.draft && `검토 대기 ${w.draft}건`,
-        w.stale && `신선도 기간이 지난 것 ${w.stale}건`,
-        w.deprecated && `폐기된 것 ${w.deprecated}건`,
-        w.superseded && `더 새로운 지식으로 대체된 것 ${w.superseded}건`,
+        w.stale && `신선도 만료 ${w.stale}건`,
+        w.deprecated && `폐기됨 ${w.deprecated}건`,
+        w.superseded && `새 지식으로 대체됨 ${w.superseded}건`,
         w.structural &&
-          `지식이 붙는 대상을 가리키는 것 ${w.structural}건(지식으로 주입되지 않습니다)`,
+          `지식이 붙는 대상(사람·협업 등)이라 주입되지 않음 ${w.structural}건`,
       ]
         .filter(Boolean)
-        .join(", ")}.`,
+        .join(" · ");
+      return sent === 0
+        ? `전달되는 지식이 없습니다 — 검색에 걸린 ${total}건이 모두 전달 제외 상태입니다: ${parts}.`
+        : `이 밖에 ${total}건이 검색에는 걸렸지만 에이전트에게 전달되지 않습니다: ${parts}.`;
+    },
     asOf: "기준 시점",
     asOfHint:
       "그 시점이었다면 어떻게 답했을지 보여줍니다. 각 레코드를 그때 유효했던 버전으로 되돌리고, 신선도도 그 날짜로 판단합니다",

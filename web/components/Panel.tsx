@@ -26,7 +26,12 @@ export function Panel({
         // A control row inside a panel is inset; the pager is the same row by another name.
         "[&>.controls]:m-0 [&>.controls]:p-3 [&>.controls+.controls]:pt-0",
         // And a notice inside a panel is inset too, so its border does not land on the panel's.
-        "[&>[data-slot=alert]]:mx-3 [&>[data-slot=alert]]:mb-3",
+        // `w-auto` undoes the alert base's `w-full`: 100% width plus the side margins is 24px of
+        // right edge clipped off by this panel's `overflow-hidden`. Top margin only on the notice
+        // that directly follows the title bar — `mb-3` already spaces notice-to-notice, and a
+        // blanket top margin would double that gap.
+        "[&>[data-slot=alert]]:mx-3 [&>[data-slot=alert]]:mb-3 [&>[data-slot=alert]]:w-auto",
+        "[&>[data-slot=card-header]+[data-slot=alert]]:mt-3",
         className,
       )}
       {...props}

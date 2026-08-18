@@ -15,6 +15,15 @@ Competitors sell memory (automatic); yoke sells knowledge (governed). A memory l
 | GraphRAG frameworks | MS GraphRAG, LlamaIndex, txtai, RAGFlow, R2R | A pipeline, not a system of record |
 | Enterprise search SaaS | Glean, Onyx (open source), GoSearch, Guru, Dust | Document search, not structured knowledge management |
 
+### Update (2026-08): Spotify XIRP + Portal
+
+Spotify's Portal Workspaces bundle catalog entities, docs, ownership, and past session transcripts,
+and expose them to any agent over MCP — "build context once, use it across agents." A major
+platform-engineering vendor arriving at the same shape (a shared working-context anchor, delivered
+MCP-only) corroborates two of our bets: the `collaboration` briefing and invariant 3. The split that
+remains is the trust model — Portal shares session transcripts, yoke injects verified knowledge only.
+Watch item: if Portal adds a verification gate it enters our quadrant from above.
+
 ## An honest assessment
 
 Combine Cognee and Graphiti and roughly 70% of our technical design already exists. We can't differentiate on technology. **We differentiate on the trust model.**
@@ -45,3 +54,4 @@ Combine Cognee and Graphiti and roughly 70% of our technical design already exis
 - https://flur.ee/blog/enterprise-kg-buyers-guide-2026
 - https://www.firecrawl.dev/blog/best-open-source-rag-frameworks
 - https://onyx.app/insights/glean-alternatives
+- https://backstage.spotify.com/docs/xirp/xirp-and-portal (2026-08)
