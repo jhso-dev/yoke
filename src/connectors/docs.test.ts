@@ -98,9 +98,8 @@ describe("docs connector — notion", () => {
     const c = makeDocsConnector({
       token: "secret",
       fetchImpl: async (_u, init) => {
-        seen.push(
-          String((init?.headers as Record<string, string>)["notion-version"]),
-        );
+        const headers = (init?.headers ?? {}) as Record<string, string>;
+        seen.push(String(headers["notion-version"]));
         return call++ === 0
           ? json({
               results: [page({ id: "one" })],
