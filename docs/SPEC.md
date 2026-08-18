@@ -696,6 +696,24 @@ every retrieval path returns a top-k of a query, and the question is about the s
 `overview(port, ontology, now, { ns, top })` → type/status counts, a relation census, the most-connected
 records, and who the verified knowledge came from. Exposed as `yoke overview` and `yoke_overview`.
 
+**The portal reads (v7.3–7.4).** `owner`, `catalog` and `scorecard` are reads with no new write path and no
+ranker of their own, exposed on both the CLI and the HTTP API (`/api/catalog`, `/api/scorecard`,
+`/api/owner/:id`) at parity, and each writes a `read` audit row naming the ids it returned.
+
+- **`owner <id>`** resolves accountability from edges, never from `provenance.actor` — that field is the
+  PROMOTER on any verified record. The author comes from `authored_by`, their groups from `member_of`, what
+  claims the record from `owns`, and the routing target from the same `staleOwners` the stale queue uses, so
+  the queue and the screen cannot name two different people. Every edge target is re-checked against the
+  caller's namespace: `neighbors()` takes no `ns`, and an unfiltered list is an existence oracle for another
+  tenant's ids.
+- **`catalog`** returns one row per record of a catalog type (`service`/`api`/`datastore`, declared in
+  `ontology/catalog.json`, not seeded). Every row carries effective status, its stale count, its owners as a
+  LIST, and its own citation — the condition WEB-UI.md's amended test 1 admits the screen under. Absent
+  types mean an empty list, never a scan.
+- **`scorecard`** is four queries over those rows — a verified owner anyone can still ask, docs, a current
+  decision, nothing stale — with no weighting and no threshold of its own. Every named owner must pass;
+  absence scores like rot; a check that passes vacuously says so.
+
 - **Structure, never a summary.** GraphRAG answers this shape by LLM-summarising graph communities.
   yoke does not: this document already refuses synthesis and results framed as an answer, and a
   summary of knowledge is a claim nobody verified. What comes back is a map — counts, degrees, ids —
@@ -951,8 +969,11 @@ yoke verify <id...> [--all-drafts]   # promote (batch), refresh last_confirmed �
                                      # --all-drafts over an empty queue succeeds; no ids and no flag is the usage error
 yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction) — reports what derived_from it
 yoke inject <query> [--include-draft] [--limit n] [--scope id] [--depth n] [--as-of ts]   # retrieve, with citations
-yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
+yoke overview [--limit n] [--since ts]  # the corpus shape; --since adds what was captured in that window
 yoke conflicts             # list conflicts_with
+yoke owner <id>            # who is on the hook: author, their groups, what claims to own it, last confirmer
+yoke catalog [--owner g] [--stale]     # the portal's catalog rows, most-rotted first (needs the catalog types)
+yoke scorecard [--owner g] # four checks per catalog row, worst first (needs the catalog types)
 yoke history <id>          # every version of one id (the append-only rows)
 yoke audit [--since ts] [--until ts] [--limit n] [--shape]   # the audit trail; both bounds inclusive; --shape counts workload composition
 yoke ontology <subcmd>     # inspect types / migrate

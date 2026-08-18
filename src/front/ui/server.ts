@@ -707,25 +707,43 @@ export function createUiHandler(
       }
       const { asR } = serializers();
       const ontology = store.loadOntology(ns);
-      const owned = (await store.neighbors(id, "owns", "out")).map((r) => r.to);
-      const members = (await store.neighbors(id, "member_of", "in")).map(
-        (r) => r.from,
+      /** Edge targets in THIS namespace only. `neighbors()` takes no ns (the port says so), so every caller
+       * filters — `downstreamOf`, `identitySet` and `staleOwners` all do. Without it a cross-tenant edge,
+       * which the gate's existence-only endpoint check permits and `derived: true` skips entirely, turns
+       * this route into an existence oracle for another tenant's ids. */
+      const mine = async (ids: string[]): Promise<string[]> => {
+        const out: string[] = [];
+        for (const one of ids) {
+          const e = await store.getEntity(one);
+          if (e && normalizeNs(e.ns) === normalizeNs(ns)) out.push(one);
+        }
+        return out;
+      };
+      const owned = await mine(
+        (await store.neighbors(id, "owns", "out")).map((r) => r.to),
       );
-      const groups = (await store.neighbors(id, "member_of", "out")).map(
-        (r) => r.to,
+      const members = await mine(
+        (await store.neighbors(id, "member_of", "in")).map((r) => r.from),
       );
-      // Their drafts and their stale records, from the edge that survives promotion — not from
-      // `provenance.actor`, which on a verified record is the promoter (v7.1.2).
-      const authored = (await store.neighbors(id, "authored_by", "in")).map(
-        (r) => r.from,
+      const groups = await mine(
+        (await store.neighbors(id, "member_of", "out")).map((r) => r.to),
       );
+      // Whose records land on this page. For a person, their own; for a GROUP, its members' — because a
+      // group is a routing TARGET (staleOwners' `via: "group"`, and the catalog's owner column links here),
+      // and records are authored by people, so reading only the group's own `authored_by` in-edges rendered
+      // "nothing waiting / nothing expired" for exactly the records the sweep had routed to it.
+      const authors = who.type === "group" ? [id, ...members] : [id];
+      const authored: string[] = [];
+      for (const author of authors)
+        for (const r of await store.neighbors(author, "authored_by", "in"))
+          authored.push(r.from);
       const records = await Promise.all(
-        authored.map(async (rid) => {
+        [...new Set(authored)].map(async (rid) => {
           const e = await store.getEntity(rid);
           return e && normalizeNs(e.ns) === normalizeNs(ns) ? e : null;
         }),
       );
-      const mine = records.filter(
+      const theirs = records.filter(
         (e): e is NonNullable<typeof e> => e !== null,
       );
       const at = now();
@@ -735,10 +753,10 @@ export function createUiHandler(
         groups,
         members,
         drafts: await Promise.all(
-          mine.filter((e) => e.status === "draft").map(asR),
+          theirs.filter((e) => e.status === "draft").map(asR),
         ),
         stale: await Promise.all(
-          mine
+          theirs
             .filter((e) => effectiveStatus(e, ontology, at) === "stale")
             .map(asR),
         ),

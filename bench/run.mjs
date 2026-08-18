@@ -114,12 +114,22 @@ function runArm(arm) {
   });
 }
 
-/** The harness writes results under its own directory; keep the ones this run produced. */
-function collect(arm, stamp) {
+/**
+ * The harness writes results under its own directory; keep the ones THIS run produced.
+ *
+ * `seen` is why. The harness appends, so matching on the arm name alone re-collected every previous run's
+ * files, and rescore then pooled two rigs into one row — n=84 for a 42-question unit, silently averaged.
+ * That is the exact failure this script's closing note asks the reader to watch for, hidden by the script
+ * itself. Recorded before the first arm runs, so anything not in it is new.
+ */
+function collect(arm, stamp, seen) {
   const dir = join(AMB, "results");
   if (!existsSync(dir)) return [];
   const kept = [];
-  for (const f of readdirSync(dir).filter((f) => f.includes(arm) && f.endsWith(".json"))) {
+  for (const f of readdirSync(dir).filter(
+    (f) => f.includes(arm) && f.endsWith(".json") && !seen.has(f),
+  )) {
+    seen.add(f);
     const dest = `bench/results-${arm}-${stamp}-${f}`;
     copyFileSync(join(dir, f), dest);
     kept.push(dest);
@@ -140,10 +150,19 @@ if (problem) {
       .join(" ")}`,
   );
   const produced = [];
+  // Everything already in the harness's results dir belongs to an earlier run.
+  const resultsDir = join(AMB, "results");
+  const preexisting = new Set(
+    existsSync(resultsDir) ? readdirSync(resultsDir) : [],
+  );
   for (const arm of ARMS) {
     runArm(arm);
-    produced.push(...collect(arm, stamp));
+    produced.push(...collect(arm, stamp, preexisting));
   }
+  if (produced.length === 0)
+    console.error(
+      "\nbench: the harness produced no new result files — nothing was scored.",
+    );
   console.log("\nScored two ways — the harness's own number, and re-scored:");
   execFileSync("node", ["bench/rescore.mjs", ...produced], { stdio: "inherit" });
   console.log(

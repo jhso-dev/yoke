@@ -44,8 +44,6 @@ export interface ScorecardRow {
   of: number;
 }
 
-/** A decision older than this is not evidence of a current decision. `decision`'s own seeded TTL. */
-const DECISION_TTL_DAYS = 365;
 const DAY_MS = 86_400_000;
 
 /**
@@ -75,7 +73,7 @@ export async function scorecard(
         detail:
           row.docs > 0 ? `${row.docs} attached` : "no runbook or docs attached",
       },
-      decisionCheck(row, now),
+      decisionCheck(row, ontology, now),
       {
         id: "fresh",
         pass: row.stale === 0,
@@ -164,7 +162,22 @@ async function ownerCheck(
   };
 }
 
-function decisionCheck(row: CatalogRow, now: string): Check {
+/**
+ * Is there a decision about this that is still current?
+ *
+ * Freshness is `last_confirmed` against the type's own `ttl_days`, which is what `effectiveStatus` uses —
+ * NOT `occurred_at` against a copy of the number. Two bugs in one: a historical decision imported by
+ * `yoke connect adr` carries an event time from years ago and a `last_confirmed` of today, so aging it by
+ * event time failed every service on the adoption path this product advertises; and a tenant that changes
+ * `decision.ttl_days` through `ontology add-type` would have seen two different TTLs on one screen, while
+ * `ownerCheck` in this same file reads the ontology. The catalog row already reports the record's
+ * effective status, so this asks only "is one there, and is it current".
+ */
+function decisionCheck(
+  row: CatalogRow,
+  ontology: TypeDef[],
+  now: string,
+): Check {
   if (!row.latestDecision)
     return {
       id: "decision",
@@ -172,14 +185,19 @@ function decisionCheck(row: CatalogRow, now: string): Check {
       // Absence scores, which is what stops a service with nothing recorded about it from passing.
       detail: "no verified decision recorded about it",
     };
-  const age = Date.parse(now) - Date.parse(row.latestDecision.at);
-  const days = Math.floor(age / DAY_MS);
+  // `catalog()` only reports a decision whose effective status is `verified`, so reaching here means it is
+  // inside its TTL. The age is printed because "last decided 12d ago" and "last decided 300d ago" are
+  // different things to a reader even when both pass.
+  const ttl = ontology.find((t) => t.name === "decision")?.ttl_days;
+  const days = Math.floor(
+    (Date.parse(now) - Date.parse(row.latestDecision.at)) / DAY_MS,
+  );
   return {
     id: "decision",
-    pass: days <= DECISION_TTL_DAYS,
+    pass: true,
     detail:
-      days <= DECISION_TTL_DAYS
+      ttl === undefined
         ? `last decided ${days}d ago`
-        : `last decision is ${days}d old, past the ${DECISION_TTL_DAYS}d TTL`,
+        : `last decided ${days}d ago, confirmed inside its ${ttl}d TTL`,
   };
 }

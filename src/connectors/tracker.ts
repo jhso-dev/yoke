@@ -27,14 +27,37 @@ interface Issue {
 
 const trimmed = (s: unknown): string => (typeof s === "string" ? s.trim() : "");
 
-/** Jira's ADF description arrives as a node tree; take its text leaves in order. */
+/** ADF node types that are their own line. Everything else is inline and concatenates. */
+const ADF_BLOCK = new Set([
+  "paragraph",
+  "heading",
+  "listItem",
+  "blockquote",
+  "codeBlock",
+  "panel",
+  "rule",
+]);
+
+/**
+ * Jira's ADF description arrives as a node tree; take its text leaves in order.
+ *
+ * The separator is chosen per CHILD, not per parent. Choosing it from the parent joined the inline spans
+ * INSIDE a paragraph with newlines — so any description containing bold, code or a link, which is most of
+ * them, came out one line per span and became the `decision.rationale` in that state. It also joined a
+ * bulletList's items with nothing, running the entries together.
+ */
 export function adfText(node: unknown): string {
   if (!node || typeof node !== "object") return "";
   const n = node as { type?: string; text?: string; content?: unknown[] };
   if (typeof n.text === "string") return n.text;
-  const inner = (n.content ?? []).map(adfText).filter(Boolean);
-  // Block nodes become their own line so paragraph boundaries survive into the record's text.
-  return inner.join(n.type === "paragraph" || n.type === "doc" ? "\n" : "");
+  let out = "";
+  for (const child of n.content ?? []) {
+    const text = adfText(child);
+    if (!text) continue;
+    const type = (child as { type?: string })?.type ?? "";
+    out += out && ADF_BLOCK.has(type) ? `\n${text}` : text;
+  }
+  return out;
 }
 
 interface JiraIssue {
@@ -76,19 +99,23 @@ export function makeTrackerConnector(opts: {
   async function* jira(since?: string): AsyncIterable<Issue> {
     const clauses = [
       opts.project ? `project = "${opts.project}"` : "",
-      // JQL's own date literal, which is minute-resolution and space-separated — not ISO. Converted
-      // here rather than passed through, because Jira answers an ISO instant with a 400 that names the
-      // whole JQL string instead of the field, and the run would read as a broken query.
+      // JQL's own date literal, which is minute-resolution and space-separated — not ISO. Converted here
+      // rather than passed through, because Jira answers an ISO instant with a 400 that names the whole JQL
+      // string instead of the field, and the run would read as a broken query.
       since ? `updated >= "${since.slice(0, 16).replace("T", " ")}"` : "",
     ].filter(Boolean);
     const jql = `${clauses.join(" AND ")}${clauses.length ? " " : ""}ORDER BY updated ASC`;
-    for (let startAt = 0; ; startAt += PAGE) {
-      const url = `${opts.host?.replace(/\/$/, "")}/rest/api/3/search?${new URLSearchParams(
+    // `/search/jql` with `nextPageToken`, not `/search` with `startAt`. Atlassian removed the offset-paged
+    // endpoint from Jira Cloud, so the old call returns 410/404 there — this connector could import nothing
+    // from a Cloud site while its tests, which stub fetch, stayed green.
+    let nextPageToken: string | undefined;
+    for (;;) {
+      const url = `${opts.host?.replace(/\/$/, "")}/rest/api/3/search/jql?${new URLSearchParams(
         {
           jql,
-          startAt: String(startAt),
           maxResults: String(PAGE),
           fields: "summary,description,resolutiondate,updated,status",
+          ...(nextPageToken ? { nextPageToken } : {}),
         },
       )}`;
       const res = await fetchImpl(url, {
@@ -101,9 +128,12 @@ export function makeTrackerConnector(opts: {
         throw new Error(
           `jira search failed (${res.status}): ${await res.text()}`,
         );
-      const body = (await res.json()) as { issues?: JiraIssue[] };
-      const issues = body.issues ?? [];
-      for (const i of issues) {
+      const body = (await res.json()) as {
+        issues?: JiraIssue[];
+        nextPageToken?: string;
+        isLast?: boolean;
+      };
+      for (const i of body.issues ?? []) {
         const f = i.fields ?? {};
         yield {
           key: i.key,
@@ -117,7 +147,9 @@ export function makeTrackerConnector(opts: {
           url: `${opts.host?.replace(/\/$/, "")}/browse/${i.key}`,
         };
       }
-      if (issues.length < PAGE) return;
+      // `isLast` is the documented signal; an absent token is the same answer from an older backend.
+      if (body.isLast || !body.nextPageToken) return;
+      nextPageToken = body.nextPageToken;
     }
   }
 

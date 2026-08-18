@@ -15,8 +15,27 @@ import * as fs from "node:fs";
 import { join } from "node:path";
 import type { Connector, SourceItem } from "./types.js";
 
+/**
+ * Headings this connector reads by name. A fallback must never land on one of them: a section that IS the
+ * conclusion cannot also be its reasoning.
+ */
+const NAMED_SECTIONS = new Set([
+  "decision",
+  "rationale",
+  "context",
+  "context and problem statement",
+  "consequences",
+  "rejected alternatives",
+  "alternatives considered",
+  "considered options",
+  "alternatives",
+  "status",
+]);
+
 /** `## Decision`, `### Context`, `Status:` — the headings MADR and Nygard-style ADRs share. */
-const SECTION = /^\s{0,3}#{1,4}\s*([A-Za-z][A-Za-z \-/]*?)\s*$/;
+// Digits and `:` included: `# ADR 0012: Adopt gRPC` is a heading, and excluding it made `firstHeading`
+// skip the title and return the first section instead.
+const SECTION = /^\s{0,3}#{1,4}\s*([A-Za-z0-9][A-Za-z0-9 :\-/]*?)\s*$/;
 
 /** Split a markdown document into `heading (lowercased) -> body`. Text before the first heading is "". */
 export function sections(text: string): Map<string, string> {
@@ -85,6 +104,28 @@ export function statedDate(text: string, filename: string): string | undefined {
   return new Date(iso).toISOString() === iso ? iso : undefined;
 }
 
+/**
+ * A section's text with its `Key: value` header lines removed, or undefined when nothing else is left.
+ *
+ * The block under an ADR's title is usually `Date:` / `Status:` / `Deciders:`, which is metadata rather than
+ * reasoning — filing it as the rationale is a record that reads like a form. Applied to the title fallback
+ * only: a real Context section's prose is taken as written.
+ */
+function prose(body: string | undefined): string | undefined {
+  if (!body) return undefined;
+  const kept = body
+    .split("\n")
+    .filter(
+      (l) =>
+        !/^\s*(?:[-*]\s*)?(?:\*\*)?[A-Za-z][A-Za-z ]{0,20}(?:\*\*)?\s*[:=]\s*\S/.test(
+          l,
+        ),
+    )
+    .join("\n")
+    .trim();
+  return kept || undefined;
+}
+
 /** `Rejected alternatives` / `Considered options` / `Alternatives`, one per list item. */
 function rejected(map: Map<string, string>): string[] {
   const body =
@@ -120,16 +161,24 @@ export function makeAdrConnector(opts: { dir: string }): Connector {
         // conventionally the decision itself ("Use Postgres for the event store").
         const conclusion = (map.get("decision") ?? title).trim();
         if (!conclusion) continue;
-        // A document with no standard headings keeps its prose under the TITLE heading, so reading only
-        // the named sections files the placeholder rationale and silently drops the body — measured on a
-        // Nygard-era ADR that had a title and two paragraphs. The title's own section, then the text
-        // before any heading, are the last two places the reasoning can be.
+        // A document with no standard headings keeps its prose under the TITLE heading, so reading only the
+        // named sections files the placeholder rationale and silently drops the body — measured on a
+        // Nygard-era ADR with a title and two paragraphs.
+        //
+        // But the title fallback must not resolve to a section that IS the conclusion. `SECTION` accepts
+        // only letters, so a numbered title (`# ADR 0012: Adopt gRPC`) is not a heading at all and
+        // `firstHeading` returns whatever the first real heading is — `decision` — making the rationale a
+        // verbatim copy of the conclusion. Named sections are excluded from the fallback for that reason.
+        const first = firstHeading(text);
+        const fallback = NAMED_SECTIONS.has(first)
+          ? undefined
+          : prose(map.get(first));
         const rationale = (
           map.get("rationale") ??
           map.get("context") ??
           map.get("context and problem statement") ??
           map.get("consequences") ??
-          map.get(firstHeading(text)) ??
+          fallback ??
           map.get("") ??
           ""
         ).trim();

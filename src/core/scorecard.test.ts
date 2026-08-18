@@ -156,6 +156,33 @@ describe("scorecard", () => {
     expect(check(row, "fresh")?.pass).toBe(false);
   });
 
+  it("passes a HISTORICAL decision that was confirmed today", async () => {
+    // The adoption path this product advertises is `yoke connect adr` over years of decision records, which
+    // arrive with an event time from years ago and a `last_confirmed` of today. Aging them by event time
+    // against a hardcoded 365 failed every service on that path; freshness is `last_confirmed` against the
+    // type's own TTL, which is what `effectiveStatus` uses.
+    await put("service:ledger", "service", { name: "Ledger" });
+    await commit(
+      port,
+      ont,
+      {
+        type: "decision",
+        attributes: { conclusion: "Adopt gRPC", rationale: "latency" },
+      },
+      { actor: "adr", origin: "adr", occurred_at: "2019-03-01T00:00:00Z" },
+      now,
+      { existingId: "decision:old" },
+    );
+    // Confirmed NOW, which is what an import does.
+    await verify(port, ["decision:old"], "person:lead", now);
+    await link("relates_to", "decision:old", "service:ledger");
+
+    const [row] = await scorecard(port, ont, now);
+    const d = check(row, "decision");
+    expect(d?.pass).toBe(true);
+    expect(d?.detail).toContain("TTL");
+  });
+
   it("sorts the worst first, because a scorecard is a work queue", async () => {
     await put("group:g", "group", { name: "G" });
     await put("service:better", "service", { name: "Better" });

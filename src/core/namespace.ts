@@ -16,3 +16,33 @@ export function resolveNs(
 ): string | null {
   return normalizeNs(flag ?? env.YOKE_NS);
 }
+
+/**
+ * The id a group name becomes.
+ *
+ * ONE derivation, because two places mint group ids — the IdP mirror in `serve` and `refToId` in the
+ * Backstage connector — and they disagreed: `platform_eng` from a claim became `group:platform-eng` while
+ * the same team from a descriptor became `group:platform_eng`. Two records for one team means the `owns`
+ * edge points at one and `member_of` at the other, so an owner page shows no members and the stale
+ * routing's group fallback never reaches the group that owns the service. That is the parallel org chart
+ * `refToId` says it exists to prevent, built by the two functions that were supposed to prevent it.
+ *
+ * Slugged rather than merely lowercased: an id with a space in it is unusable on a command line, and
+ * `Payments Team` is a real group name.
+ */
+export function groupId(name: string): string {
+  return `group:${slug(name)}`;
+}
+
+/** Same rule for a person minted from an external directory. */
+export function personId(name: string): string {
+  return `person:${slug(name)}`;
+}
+
+function slug(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}

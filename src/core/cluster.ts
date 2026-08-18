@@ -36,6 +36,15 @@ import type { Entity } from "./types.js";
 /** Same threshold as the gate's duplicate stage. Kept in one place per corpus, not re-tuned here. */
 export const CLUSTER_THRESHOLD = 0.85;
 
+/**
+ * How many embedding requests are in flight at once.
+ *
+ * Small on purpose: the endpoint is often one local server, and the whole point of the bound is that a
+ * 2,000-draft queue must not become 2,000 simultaneous requests. Four is what the extractor's default
+ * concurrency settled on for the same endpoint.
+ */
+const EMBED_CONCURRENCY = 4;
+
 export interface Cluster {
   /** Members, queue order preserved so a grouped queue reads in the same order as an ungrouped one. */
   members: Entity[];
@@ -88,11 +97,25 @@ export async function clusterDrafts(
   // no "give me this row's vector", and adding one would touch every backend and the conformance suite for
   // a screen-sized read. This is the same text the gate embedded (`serializeText`), so the comparison is
   // the gate's comparison.
-  const vectors = await Promise.all(
-    entities.map((e) =>
-      embedder(serializeText(e.type, JSON.stringify(e.attributes), ontology)),
-    ),
-  );
+  //
+  // Bounded, and that is not a detail. The callers hand this the WHOLE unpaginated draft queue, so an
+  // unbounded `Promise.all` fired one request per draft simultaneously — 2,000 drafts after a batch import
+  // is 2,000 concurrent POSTs at a local embedding server, which serializes or refuses them and takes the
+  // command down with it. The extractor already faced this and has YOKE_EXTRACT_CONCURRENCY; this uses the
+  // same shape of bound.
+  const vectors: (Float32Array | null)[] = [];
+  for (let start = 0; start < entities.length; start += EMBED_CONCURRENCY) {
+    const window = entities.slice(start, start + EMBED_CONCURRENCY);
+    vectors.push(
+      ...(await Promise.all(
+        window.map((e) =>
+          embedder(
+            serializeText(e.type, JSON.stringify(e.attributes), ontology),
+          ),
+        ),
+      )),
+    );
+  }
   const compared = new Set<number>();
   vectors.forEach((v, i) => {
     if (v) compared.add(i);

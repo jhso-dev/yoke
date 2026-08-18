@@ -103,3 +103,28 @@ describe("adr connector", () => {
     expect(map.get("context")).toBe("why");
   });
 });
+
+describe("adr connector — a numbered title", () => {
+  it("does not copy the conclusion into the rationale", async () => {
+    // `SECTION` accepted only letters, so `# ADR 0012: Adopt gRPC` was not a heading and the title fallback
+    // resolved to the Decision section — emitting a record whose rationale was its own conclusion, which is
+    // the opposite of this connector's stated reason for existing.
+    const d = dir();
+    writeFileSync(
+      join(d, "0012-grpc.md"),
+      "# ADR 0012: Adopt gRPC between services\n\n" +
+        "Date: 2026-02-02\nStatus: Accepted\n\n" +
+        "## Decision\nUse gRPC for service-to-service calls.\n\n" +
+        "## Considered Options\n- REST over JSON\n",
+    );
+    const [item] = await collect(d);
+    expect(item.attributes.conclusion).toBe(
+      "Use gRPC for service-to-service calls.",
+    );
+    expect(item.attributes.rationale).not.toBe(item.attributes.conclusion);
+    // With no Context section the honest answer is the placeholder that cites the file.
+    expect(item.attributes.rationale).toBe("Recorded in 0012-grpc.md");
+    expect(item.attributes.rejected_alternatives).toEqual(["REST over JSON"]);
+    expect(item.occurredAt).toBe("2026-02-02T00:00:00.000Z");
+  });
+});

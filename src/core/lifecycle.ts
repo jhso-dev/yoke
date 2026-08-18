@@ -426,11 +426,24 @@ export async function staleOwners(
     // handle like `ci:nightly`, or an author whose record lives in another namespace). Their group
     // inherits, read off the author id even when no person record backs it, because an org chart mirrored
     // from an IdP names its members by the same handle the connector wrote.
-    const group = author
-      ? (await port.neighbors(author, "member_of", "out"))[0]?.to
-      : undefined;
-    if (group && (await canAsk(group))) {
-      out.set(entity.id, { actor: group, via: "group" });
+    //
+    // EVERY membership, not the first. `neighbors()` has no ORDER BY, so taking `[0]` meant a departed
+    // author who belonged to two groups routed to whichever edge storage happened to return — and if that
+    // one was retired, the record fell through to `promoter`, which is the exact defect this function
+    // exists to prevent. Sorted so two backends describing one corpus answer identically (invariant 2).
+    const groups = author
+      ? (await port.neighbors(author, "member_of", "out"))
+          .map((r) => r.to)
+          .sort()
+      : [];
+    let inherited: string | undefined;
+    for (const group of groups)
+      if (await canAsk(group)) {
+        inherited = group;
+        break;
+      }
+    if (inherited) {
+      out.set(entity.id, { actor: inherited, via: "group" });
       continue;
     }
     const work = (await port.neighbors(entity.id, "relates_to", "out")).map(

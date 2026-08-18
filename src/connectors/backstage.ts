@@ -24,6 +24,7 @@
 import { commit } from "../core/commit.js";
 import type { Embedder } from "../core/embedding.js";
 import { verify } from "../core/lifecycle.js";
+import { groupId, personId } from "../core/namespace.js";
 import type { TypeDef } from "../core/ontology.js";
 import type { StoragePort } from "../ports/storage.js";
 
@@ -80,10 +81,12 @@ export function refToId(ref: string): string {
   const name = rest.includes("/") ? rest.split("/").pop() : rest;
   const kind = kindPart.toLowerCase();
   const slug = (name ?? "").toLowerCase();
-  // `group:`/`user:` map onto v7.2's ids so `owns` lands on the same record the IdP sync mirrors, rather
-  // than minting a parallel org chart nobody joins to.
-  if (kind === "group") return `group:${slug}`;
-  if (kind === "user") return `person:${slug}`;
+  // `group:`/`user:` go through the SAME derivation the IdP mirror uses (core/namespace.ts), because a
+  // team named `platform_eng` in a claim and `platform_eng` in a descriptor has to be one record — this
+  // function lowercased where the mirror slugged, and the two ids differed for any name with `_`, `.` or a
+  // space. That is the parallel org chart this comment claims to prevent.
+  if (kind === "group") return groupId(name ?? "");
+  if (kind === "user") return personId(name ?? "");
   return `${KIND_MAP[kind] ?? kind}:${slug}`;
 }
 
@@ -153,7 +156,10 @@ export function makeBackstageConnector(opts: {
           dependsOn: (e.spec?.dependsOn ?? []).map(refToId),
           docs: techdocs
             ? {
-                id: `resource:docs-${name.toLowerCase()}`,
+                // The KIND stays in the id: a Component and an API may share a name (Backstage keeps them
+                // apart by kind), and dropping it collided their docs onto one record that each sync
+                // rewrote, so one of the two services always linked to the other's page.
+                id: `resource:docs-${kind}-${name.toLowerCase()}`,
                 url: techdocs,
                 title: `${e.metadata?.title || name} docs`,
               }
@@ -188,9 +194,13 @@ export async function ingestCatalog(
   now: string,
   ns?: string | null,
   embedder?: Embedder,
+  /** Who ran the import. `--actor` is advertised in the command's own usage, so it has to arrive here. */
+  actor = "backstage",
 ): Promise<CatalogResult> {
   const out: CatalogResult = { entities: 0, edges: 0, docs: 0, errors: 0 };
-  const prov = { actor: "backstage", origin: "backstage", occurred_at: now };
+  // `origin` names the connector the way every other connector's does (`connector:<name>` shape), so a
+  // reader can tell which import filed a record; `actor` is the person who ran it, not the tool.
+  const prov = { actor, origin: "backstage", occurred_at: now };
   const items: CatalogItem[] = [];
   /** Ids this import has stored, so pass 2 can tell a forward reference from a dangling one. */
   const present = new Set<string>();
@@ -208,7 +218,7 @@ export async function ingestCatalog(
       });
       // Verified for the reason in the file header. Promotion is a second step because the gate is the
       // only write path — reaching `verified` any other way would be a second one.
-      await verify(port, [id], "backstage", now, ns);
+      await verify(port, [id], actor, now, ns);
       present.add(id);
       return true;
     } catch (e) {

@@ -24,7 +24,7 @@ import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { verify } from "../../core/lifecycle.js";
-import { resolveNs } from "../../core/namespace.js";
+import { groupId as groupIdOf, resolveNs } from "../../core/namespace.js";
 import { createYokeMcpServer } from "../mcp/index.js";
 import { openStore, type YokeStore } from "../store.js";
 import {
@@ -125,6 +125,8 @@ export function createServeServer(deps: ServeDeps): ServeServer {
   const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
   const oidcVerify = deps.oidc ? makeOidcVerifier(deps.oidc) : null;
+  /** Said once per process: a per-request line about a missing type is noise, not information. */
+  let warnedNoGroupTypes = false;
 
   // ceiling: interval-pull snapshot replica — refresh = close store, re-copy primary via .backup(),
   // reopen. A tiny swap window; move to WAL shipping if a staleness SLO ever demands it. better-sqlite3
@@ -181,14 +183,34 @@ export function createServeServer(deps: ServeDeps): ServeServer {
    * governance act with an audit trail, not a side effect of a login.
    */
   async function syncGroups(personId: string, groups: string[]): Promise<void> {
+    const ontology = store.loadOntology(ns);
+    // A database created before v7.2 has no `group`/`member_of` in its STORED ontology, and `yoke init`
+    // does not re-seed an initialized store — so committing them threw `unknown type: group` out of
+    // `authenticate()`, which `handle()` answers as HTTP 400. Every authenticated request on every
+    // existing tenant, not a degraded feature. Mirroring is skipped with one line naming the fix instead:
+    // an org chart nobody asked for must never be the reason SSO stops working.
+    const missing = ["group", "member_of"].filter(
+      (t) => !ontology.some((d) => d.name === t),
+    );
+    if (missing.length) {
+      if (!warnedNoGroupTypes) {
+        warnedNoGroupTypes = true;
+        console.error(
+          `yoke: not mirroring the IdP's groups — this database's ontology has no ${missing.join("/")}. ` +
+            "Run 'yoke ontology add-type' with those types to enable owner routing by group.",
+        );
+      }
+      return;
+    }
     for (const name of groups) {
-      // Deterministic id from the claim, so two logins mirror one group rather than two.
-      const id = `group:${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      // The same derivation `refToId` uses, so a team named by an IdP and by a Backstage descriptor is one
+      // record rather than two (core/namespace.ts groupId).
+      const id = groupIdOf(name);
       const ts = now();
       if (!(await store.getEntity(id))) {
         await commit(
           store,
-          store.loadOntology(ns),
+          ontology,
           { type: "group", attributes: { name } },
           { actor: personId, origin: "oidc", occurred_at: ts },
           ts,
@@ -198,15 +220,18 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       }
       const already = await store.neighbors(personId, "member_of", "out");
       if (already.some((r) => r.to === id)) continue;
-      const edge = await commit(
+      // NOT verified. `lifecycle.transition` refuses a relation by design ("relations are not promoted:
+      // no read filters on an edge's status"), so the promote call that used to be here threw out of
+      // authenticate() and answered HTTP 400 — the edge was stored, so the NEXT login for that group
+      // succeeded, which is why it read as intermittent. An edge needs no promotion to route anything.
+      await commit(
         store,
-        store.loadOntology(ns),
+        ontology,
         { type: "member_of", attributes: {}, from: personId, to: id },
         { actor: personId, origin: "oidc", occurred_at: ts },
         ts,
         { ns },
       );
-      await verify(store, [edge.entity.id], personId, ts, ns);
     }
   }
 

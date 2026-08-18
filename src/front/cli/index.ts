@@ -499,8 +499,12 @@ getting started:
   inject <query>            retrieve verified knowledge with citations (--scope id, --depth n)
 
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
-  overview                  the shape of the whole corpus: types, hubs, authors (--limit n)
+  overview                  the shape of the whole corpus: types, hubs, authors (--limit n, --since ts)
   link <from> <relation> <to>   record a relation (works_on, supersedes, relates_to …)
+portal:     catalog, scorecard, owner   (needs the catalog types: ontology add-type catalog)
+  catalog                   what the org runs, most-rotted first (--owner g, --stale)
+  scorecard                 four checks per catalog record, worst first (--owner g)
+  owner <id>                who is on the hook: author, group, owned records, last confirmer
 capture:    connect github-pr|slack|notes|adr|tracker|docs|backstage|module|rdb
   connect raw <dir>         a model proposes records from unstructured material (needs YOKE_LLM_*)
   relate                    a model proposes the links BETWEEN stored records (needs YOKE_LLM_*)
@@ -1655,11 +1659,26 @@ async function cmdOwner(
     await prefetch([entity]);
     const name = async (actor: string | undefined) =>
       actor ? ((await nameOf(actor)) ?? actor) : undefined;
+    // Every edge target re-checked against this namespace. `neighbors()` takes no ns, so each caller filters
+    // (`downstreamOf`, `identitySet`, `staleOwners` all do); without it a cross-tenant edge would print
+    // another tenant's ids.
+    const inNs = async (ids: string[]): Promise<string[]> => {
+      const out: string[] = [];
+      for (const one of ids) {
+        const e = await store.getEntity(one);
+        if (e && normalizeNs(e.ns) === normalizeNs(ns)) out.push(one);
+      }
+      return out;
+    };
     const author = (await store.neighbors(id, "authored_by", "out"))[0]?.to;
     const groups = author
-      ? (await store.neighbors(author, "member_of", "out")).map((r) => r.to)
+      ? await inNs(
+          (await store.neighbors(author, "member_of", "out")).map((r) => r.to),
+        )
       : [];
-    const owned = (await store.neighbors(id, "owns", "in")).map((r) => r.from);
+    const owned = await inNs(
+      (await store.neighbors(id, "owns", "in")).map((r) => r.from),
+    );
     const answer = {
       record: id,
       type: entity.type,
@@ -2387,6 +2406,7 @@ async function cmdConnect(
         now(),
         ns,
         makeFetchEmbedder(env),
+        resolveActor(v, env),
       );
       emit(
         v,
@@ -3110,7 +3130,7 @@ const COMMAND_USAGE: Record<string, string> = {
   catalog:
     "usage: yoke catalog [--owner <group-id>] [--stale]\n" +
     "  what the org runs, most-rotted first. --stale keeps only rows with something stale\n" +
-    "  attached (needs the catalog types: yoke ontology add-type ontology/catalog.json)",
+    "  attached (needs the catalog types: yoke ontology add-type catalog)",
   owner:
     "usage: yoke owner <id>\n" +
     "  who is on the hook for a record: its author, their group, the work it belongs to,\n" +
