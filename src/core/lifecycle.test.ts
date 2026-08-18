@@ -621,6 +621,63 @@ describe("staleOwners", () => {
     expect(owner).toEqual({ actor: collab.entity.id, via: "collaboration" });
   });
 
+  // A collaboration is one thing being worked on FOR AS LONG AS IT LASTS: a standing team is never
+  // deprecated and keeps answering, a finished project is deprecated and cannot. That difference is
+  // lifecycle rather than schema, which only holds if this reads it — the group branch asks `canAsk`
+  // and this one did not, so a dissolved working group kept receiving its own expiring knowledge.
+  it("does not route to a collaboration that has been deprecated", async () => {
+    const entity = await record("ci:nightly");
+    const collab = await commit(
+      store,
+      ont,
+      { type: "collaboration", attributes: { title: "PAY-42, shipped" } },
+      provAt("yoke:system"),
+      at,
+    );
+    await commit(
+      store,
+      ont,
+      {
+        type: "relates_to",
+        attributes: {},
+        from: entity.id,
+        to: collab.entity.id,
+      },
+      provAt("yoke:system"),
+      at,
+    );
+    await deprecate(store, [collab.entity.id], "yoke:system", at);
+    const owner = (await staleOwners(store, [entity])).get(entity.id);
+    expect(owner?.actor).not.toBe(collab.entity.id);
+  });
+
+  it("finds the work when the link was recorded from the collaboration's end", async () => {
+    const entity = await record("ci:nightly");
+    const collab = await commit(
+      store,
+      ont,
+      { type: "collaboration", attributes: { title: "PAY-43" } },
+      provAt("yoke:system"),
+      at,
+    );
+    // `relates_to` is symmetric, so this is the SAME edge as the other way round and the gate keeps one
+    // row. A reader that scans one direction answers two ways about one corpus.
+    await commit(
+      store,
+      ont,
+      {
+        type: "relates_to",
+        attributes: {},
+        from: collab.entity.id,
+        to: entity.id,
+      },
+      provAt("yoke:system"),
+      at,
+    );
+    const owner = (await staleOwners(store, [entity])).get(entity.id);
+    expect(owner).toEqual({ actor: collab.entity.id, via: "collaboration" });
+  });
+
   it("says `promoter` when nothing else resolves, so a broken corpus is legible", async () => {
     const entity = await record("ci:nightly");
     const owner = (await staleOwners(store, [entity])).get(entity.id);

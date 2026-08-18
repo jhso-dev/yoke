@@ -446,17 +446,23 @@ export async function staleOwners(
       out.set(entity.id, { actor: inherited, via: "group" });
       continue;
     }
-    const work = (await port.neighbors(entity.id, "relates_to", "out")).map(
-      (r) => r.to,
-    );
+    // BOTH directions, and sorted. `relates_to` is symmetric, so the gate keeps ONE row in whichever
+    // direction it was first filed (`commit`'s symmetric dedup) — scanning `out` alone dropped every link
+    // recorded as `collab -> record`, which is a legal `yoke link` and the direction `catalog()` reads.
+    // Sorted because `neighbors()` has no ORDER BY, so two backends must not pick different anchors
+    // (invariant 2).
+    const work = (await port.neighbors(entity.id, "relates_to"))
+      .map((r) => (r.from === entity.id ? r.to : r.from))
+      .sort();
     let anchored: string | undefined;
     for (const id of work) {
       const target = await port.getEntity(id);
-      if (
-        target &&
-        target.type === "collaboration" &&
-        normalizeNs(target.ns) === scope
-      ) {
+      if (target?.type !== "collaboration") continue;
+      // Answerable, exactly as the group branch asks it. A deprecated collaboration is FINISHED work:
+      // routing an expiring record to a group that no longer meets is the failure this whole function
+      // exists to prevent, and `canAsk`'s own contract says a deprecated record cannot be asked. Keep
+      // scanning, because a record may name both a finished collaboration and a live one.
+      if (await canAsk(id)) {
         anchored = id;
         break;
       }
