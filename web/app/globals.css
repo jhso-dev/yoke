@@ -78,7 +78,13 @@ body {
   min-height: 100vh;
 }
 
+/* Sticky, not fixed: it stays a flex item in `.shell`, so nothing below needs a compensating offset
+   and the mobile menu can still grow the box downward. `z-index` sits under the dialog's 50 — a modal
+   must cover the nav, not sit beside it — and over every panel, whose stacking is the document's. */
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -86,6 +92,12 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--card);
   flex-wrap: wrap;
+}
+
+/* The skip link jumps to `#main`, and a sticky header would land on top of whatever it scrolled to.
+   Same reason every in-page anchor needs it: the scroll target's top is no longer the viewport's. */
+html {
+  scroll-padding-top: 60px;
 }
 
 .topbar-content {
@@ -167,8 +179,13 @@ body {
     margin-left: auto;
   }
 
+  /* Ten nav links stacked plus the auth cluster outgrows a short phone, and a sticky box cannot be
+     scrolled past — the entries below the fold would be unreachable, which is not how it behaved
+     when the header scrolled away with the page. Cap it and let the menu scroll itself. */
   .topbar[data-menu-open] {
     flex-wrap: wrap;
+    max-height: 100dvh;
+    overflow-y: auto;
   }
 
   .topbar-content {
