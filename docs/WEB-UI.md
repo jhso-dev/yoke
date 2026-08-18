@@ -114,16 +114,21 @@ The viewing set — reading what is already stored, never adding to it:
       something you would have to already know. The act it supports is "decide whether this
       working context is fit to brief an agent from", the same act the injection preview
       supports for a query.
-   2. **No synthesis.** It composes three existing routes (`/api/entities?type=collaboration`,
-      `/api/entity/:id`, `/api/inject?scope=`) and adds no endpoint. The briefing panel is the
-      real `inject()`, so its ranking is the injection ranker and nothing else.
-   3. **No new knowledge.** Read-only. The only mutations reachable from it are the lifecycle
-      transitions its rows already offer via the shared table.
+   2. **No synthesis.** It composes routes that already exist and adds no endpoint. The
+      briefing panel is the real `inject()`, so its ranking is the injection ranker and
+      nothing else.
+   3. **No editing, and no bypass.** Its mutations create relations through commands that
+      already exist — `yoke link <person> works_on` (the roster) and `yoke link <record>
+      relates_to` (seeding the working context by hand with knowledge that predates it) —
+      plus the lifecycle transitions the shared table offers. Nothing edits a record's
+      attributes.
 
    **Why this is not a search UI.** You do not arrive by querying: you pick from the list of
    collaborations that exist, then read what is attached — reachability-for-governing. The
    briefing panel is the injection-preview argument applied to a scope, and carries the same
-   `inject_preview` audit row.
+   `inject_preview` audit row. The seed search queries records to link, not collaborations to
+   reach, through the same bounded `/api/search` the browse screen argues for, with the same
+   `search` audit row.
 10. **Browse** — the whole namespace as rows, with type/status filters, keyset paging, and
     the query box argued above. A `search` audit row per query.
 11. **Tokens** — mint/list/revoke API tokens for `serve`. It governs ACCESS to knowledge

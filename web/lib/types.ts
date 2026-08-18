@@ -138,6 +138,10 @@ export interface TypeDef {
   /** A roster edge, not knowledge. Core skips these when it builds an anchored briefing; the graph
    * draws them as not-knowledge for the same reason. */
   membership?: boolean;
+  /** A type that names what knowledge is attached to (`person`, `collaboration`) rather than
+   * asserting anything. Core never injects these as knowledge; the seed search does not offer
+   * them as seeds for the same reason. */
+  structural?: boolean;
 }
 
 export interface AuditEntry {

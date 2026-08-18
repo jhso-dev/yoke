@@ -23,6 +23,7 @@ export function Modal({
   description,
   onClose,
   holdsForm = false,
+  wide = false,
   children,
 }: {
   open: boolean;
@@ -36,12 +37,16 @@ export function Modal({
    * deliberate — a misplaced click is not.
    */
   holdsForm?: boolean;
+  /** Widens the dialog for content that is itself a table — a record preview's attribute rows
+   * wrap into unreadability at the default width. Forms keep the default. */
+  wide?: boolean;
   children: React.ReactNode;
 }) {
   const t = useT();
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent
+        className={wide ? "sm:max-w-2xl" : undefined}
         closeLabel={t.common.close}
         onInteractOutside={holdsForm ? (e) => e.preventDefault() : undefined}
       >

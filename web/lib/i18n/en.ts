@@ -329,7 +329,14 @@ export const en = {
     attachedNote:
       "The record points to this collaboration. Deprecating the collaboration does not change its linked records",
     attachedEmpty:
-      "No linked records. Records captured with --scope will appear here",
+      "No linked records. Search above to link one, or capture records with --scope",
+    attachSearch: "search records to link…",
+    attach: "Link to this work",
+    recordAttached: (label: string) => `Linked ${label} to this collaboration.`,
+    alreadyAttached: (label: string) =>
+      `${label} is already linked to this collaboration — nothing new was recorded.`,
+    seedWithheld: (n: number) =>
+      `${n} matching record(s) are not offered here: they name what knowledge is attached to (a person, this collaboration) and are never injected as knowledge. Add people in the participants panel above.`,
     truncated: (shown: number, total: number, rest: number) =>
       `Showing ${shown} of ${total} records in this collaboration, most recently confirmed first. Records not shown are still available. A specific question searches all knowledge while prioritizing this collaboration's records. (${rest} not shown)`,
   },
@@ -409,7 +416,9 @@ export const en = {
       structural: number;
       superseded: number;
     }) =>
-      `This person has records this view does not contain: ${[
+      `This view leaves out ${
+        w.draft + w.stale + w.deprecated + w.superseded
+      } of this person's records: ${[
         w.draft && `${w.draft} awaiting review`,
         w.stale && `${w.stale} past its freshness window`,
         w.deprecated && `${w.deprecated} retired`,
@@ -418,7 +427,7 @@ export const en = {
         .filter(Boolean)
         .join(
           ", ",
-        )} — so its silence on a subject is not evidence they never recorded one.`,
+        )} — so silence on a subject does not mean they never recorded one.`,
     // A same_as union combines a second person's judgment under this name; the link is unreviewed, so
     // the merge is disclosed. The names follow this lead-in; the note (below) states the trust caveat.
     identityUnion: (n: number) =>
@@ -461,12 +470,10 @@ export const en = {
       // How many records ARE being sent. The lead-in turns on it: with a full table on screen the
       // reader's mistake is not "we know nothing" but "this is all we know".
       sent: number,
-    ) =>
-      `${
-        sent === 0
-          ? "Nothing will be sent, but this query did match records"
-          : `Also matched and NOT sent — the table above is not everything this query found`
-      }: ${[
+    ) => {
+      const total =
+        w.draft + w.stale + w.deprecated + w.structural + w.superseded;
+      const parts = [
         w.draft && `${w.draft} awaiting review`,
         w.stale && `${w.stale} past its freshness window`,
         w.deprecated && `${w.deprecated} retired`,
@@ -475,7 +482,11 @@ export const en = {
           `${w.structural} naming something knowledge is attached to, which is never injected as knowledge`,
       ]
         .filter(Boolean)
-        .join(", ")}.`,
+        .join(", ");
+      return sent === 0
+        ? `This query matched ${total} record(s), but none can be sent: ${parts}.`
+        : `${total} more record(s) matched but will not be sent: ${parts}.`;
+    },
     // As-of. Labelled as a question about the past rather than as a filter, because that is what it
     // answers, and banner-flagged whenever it is on: a historical result that looked like a current
     // one would be worse than not offering this at all.
