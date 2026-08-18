@@ -335,6 +335,8 @@ export const en = {
     recordAttached: (label: string) => `Linked ${label} to this collaboration.`,
     alreadyAttached: (label: string) =>
       `${label} is already linked to this collaboration — nothing new was recorded.`,
+    seedFlagsUnknown:
+      "The ontology could not be read, so this screen cannot tell which types are never injected as knowledge — linking is not offered. Reload the page.",
     seedWithheld: (n: number) =>
       `${n} matching record(s) are not offered here: they name what knowledge is attached to (a person, this collaboration) and are never injected as knowledge. Add people in the participants panel above.`,
     truncated: (shown: number, total: number, rest: number) =>
