@@ -28,8 +28,14 @@ export interface CatalogRow {
   status: Status;
   lifecycle?: string;
   repo?: string;
-  /** Group or person accountable, from the `owns` edge. Absent = nobody claims it. */
-  owner?: string;
+  /**
+   * Everyone accountable, from the `owns` edge. Empty = nobody claims it.
+   *
+   * A LIST, because a real estate has services two groups both claim, and reporting the first one is the
+   * screen reporting health it did not check — the thing WEB-UI.md's amended test 1 forbids. Contested
+   * ownership is itself the finding: "who do I ask" with two answers is not an answered question.
+   */
+  owners: string[];
   /** How many things this depends on, and how many depend on it. */
   dependsOn: number;
   dependents: number;
@@ -49,7 +55,12 @@ export interface CatalogRow {
    * screen sorts by: a service whose knowledge has rotted is the one to look at first.
    */
   stale: number;
-  /** Open `conflicts_with` pairs among its attached records. */
+  /**
+   * Distinct `conflicts_with` PAIRS among its attached records.
+   *
+   * Deduplicated by the unordered pair, because a contradiction between two records that are both attached
+   * to this row is seen once from each end — counted naively, one disagreement reads as two.
+   */
   conflicts: number;
   /**
    * The row's own source, in the authoritative form.
@@ -95,7 +106,7 @@ export async function catalog(
       const page = await port.listEntities({ ns, type, after, limit: 500 });
       for (const e of page.items) {
         const row = await describe(port, ontology, e, now, ns);
-        if (opts?.owner && row.owner !== opts.owner) continue;
+        if (opts?.owner && !row.owners.includes(opts.owner)) continue;
         if (opts?.staleOnly && row.stale === 0) continue;
         rows.push(row);
       }
@@ -121,12 +132,15 @@ async function describe(
   ns: string | null,
 ): Promise<CatalogRow> {
   const status = effectiveStatus(entity, ontology, now);
-  const owner = (await port.neighbors(entity.id, "owns", "in"))[0]?.from;
+  const owners = (await port.neighbors(entity.id, "owns", "in")).map(
+    (r) => r.from,
+  );
   const dependsOn = await port.neighbors(entity.id, "depends_on", "out");
   const dependents = await port.neighbors(entity.id, "depends_on", "in");
   const incoming = await port.neighbors(entity.id, "relates_to", "in");
   let docs = 0;
-  let conflicts = 0;
+  /** Unordered `a|b` keys, so one disagreement seen from both ends counts once. */
+  const conflictPairs = new Set<string>();
   /** Records in this namespace actually attached — `incoming` counts edges, including foreign ends. */
   let attached = 0;
   // The row's own staleness counts: a service record nobody re-synced is the first thing that has rotted,
@@ -141,7 +155,8 @@ async function describe(
     attached++;
     if (rec.type === "resource") docs++;
     if (recStatus === "stale") stale++;
-    conflicts += (await port.neighbors(rec.id, "conflicts_with")).length;
+    for (const c of await port.neighbors(rec.id, "conflicts_with"))
+      conflictPairs.add([c.from, c.to].sort().join("|"));
     if (rec.type === "decision" && recStatus === "verified") {
       const at = rec.provenance.occurred_at;
       // Newest by the knowledge's own event time, not by the promotion — the same rule the briefing sort
@@ -169,15 +184,13 @@ async function describe(
     ...(typeof entity.attributes.repo === "string"
       ? { repo: entity.attributes.repo }
       : {}),
-    ...(owner ? { owner } : {}),
+    owners,
     dependsOn: dependsOn.length,
     dependents: dependents.length,
     docs,
     attached,
     ...(latestDecision ? { latestDecision } : {}),
     stale,
-    // Each pair is one edge seen from one end; halving would under-report a record conflicting with two
-    // others, so this counts edges touching the attached records and says so in the type doc.
-    conflicts,
+    conflicts: conflictPairs.size,
   };
 }

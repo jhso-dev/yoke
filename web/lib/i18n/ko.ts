@@ -102,6 +102,7 @@ export const ko: typeof en = {
     noDocs: "문서가 없음",
     newService:
       "새 서비스를 시작하나요? 에이전트에게 물어보세요 — 규약은 검증된 레코드라 인용이 붙고 만료됩니다:",
+    contested: "(소유권 경합)",
     lastDecision: "최근 결정",
     summary: (total: number, stale: number, unowned: number) =>
       `레코드 ${total}개 · 낡은 것 있음 ${stale}개 · 소유자 없음 ${unowned}개`,

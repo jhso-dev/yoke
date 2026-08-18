@@ -6,8 +6,9 @@
 //
 // The check no descriptor-driven portal can run is the one that matters: **an owner a descriptor names is
 // not an owner anyone can still ask.** A retired group, one nobody ever verified, and one that is not a
-// record here all fail — and if the ontology gives the owner type a TTL, so does one nobody has
-// re-confirmed (see the ceiling on `ownerCheck`: the seed gives `group` no TTL, so that last state is
+// record here all fail — and EVERY named owner has to pass, since a service two groups claim with one of
+// them retired has half-broken routing. If the ontology gives the owner type a TTL, an owner nobody
+// re-confirmed fails too (see the ceiling in `ownerCheck`: the seed gives `group` none, so that state is
 // unreachable by default and this file does not pretend otherwise).
 //
 // Both failure directions score — absence (nothing recorded) and rot (recorded once and left) — so a
@@ -115,49 +116,52 @@ async function ownerCheck(
   row: CatalogRow,
   cache: Map<string, string | null>,
 ): Promise<Check> {
-  if (!row.owner) return { id: "owner", pass: false, detail: "nobody owns it" };
-  if (!cache.has(row.owner)) {
-    const e = await port.getEntity(row.owner);
-    cache.set(
-      row.owner,
-      e && normalizeNs(e.ns) === ns ? effectiveStatus(e, ontology, now) : null,
-    );
-  }
-  const state = cache.get(row.owner) ?? null;
-  // The check Backstage structurally cannot run. A descriptor names an owner and stops there; this asks
-  // whether that owner is a record anyone can still reach.
-  //
-  // ceiling: the `stale` branch below needs the owner's TYPE to declare a `ttl_days`, and the seed gives
-  // `group` and `person` none — verified in a scratch store, a group promoted in 2020 still reads
-  // `verified` in 2099. So on a default ontology this check fires on retired / never-verified / absent
-  // owners only, which are the three reachable states. A tenant that wants an org chart to expire
-  // declares it (`ontology add-type`), and then the branch is live; the test pins both configurations.
-  // What it does NOT do is quietly rely on the branch to back a claim about staleness.
-  if (state === null)
-    return {
-      id: "owner",
-      pass: false,
-      detail: `owner ${row.owner} is not a record here — nobody to ask`,
-    };
-  if (state === "stale")
-    return {
-      id: "owner",
-      pass: false,
-      detail: `owner ${row.owner} has not been confirmed since its type's TTL — not green`,
-    };
-  if (state === "deprecated")
-    return {
-      id: "owner",
-      pass: false,
-      detail: `owner ${row.owner} is retired`,
-    };
-  if (state === "draft")
-    return {
-      id: "owner",
-      pass: false,
-      detail: `owner ${row.owner} was never verified`,
-    };
-  return { id: "owner", pass: true, detail: row.owner };
+  if (row.owners.length === 0)
+    return { id: "owner", pass: false, detail: "nobody owns it" };
+  for (const owner of row.owners)
+    if (!cache.has(owner)) {
+      const e = await port.getEntity(owner);
+      cache.set(
+        owner,
+        e && normalizeNs(e.ns) === ns
+          ? effectiveStatus(e, ontology, now)
+          : null,
+      );
+    }
+  // EVERY named owner has to be answerable, not just the first. A service two groups claim, one of them
+  // retired, is a service whose routing is half broken — and passing on the first one that happens to be
+  // fine is the row reporting health it did not check.
+  const bad = row.owners
+    .map((owner) => ({ owner, state: cache.get(owner) ?? null }))
+    .map(({ owner, state }) => {
+      // The check Backstage structurally cannot run. A descriptor names an owner and stops there; this asks
+      // whether that owner is a record anyone can still reach.
+      //
+      // ceiling: the `stale` case needs the owner's TYPE to declare a `ttl_days`, and the seed gives
+      // `group` and `person` none — verified in a scratch store, a group promoted in 2020 still reads
+      // `verified` in 2099. So on a default ontology this fires on retired / never-verified / absent
+      // owners only, which are the three reachable states. A tenant that wants an org chart to expire
+      // declares it (`ontology add-type`), and then this is live; the test pins both configurations.
+      if (state === null)
+        return `${owner} is not a record here — nobody to ask`;
+      if (state === "stale")
+        return `${owner} has not been confirmed since its type's TTL — not green`;
+      if (state === "deprecated") return `${owner} is retired`;
+      if (state === "draft") return `${owner} was never verified`;
+      return null;
+    })
+    .filter((x): x is string => x !== null);
+  if (bad.length) return { id: "owner", pass: false, detail: bad.join("; ") };
+  // Contested ownership is not a failure — two groups may legitimately share one — but it is reported,
+  // because "who do I ask" with two answers is not an answered question.
+  return {
+    id: "owner",
+    pass: true,
+    detail:
+      row.owners.length > 1
+        ? `${row.owners.join(", ")} (contested — two claims on one record)`
+        : row.owners[0],
+  };
 }
 
 function decisionCheck(row: CatalogRow, now: string): Check {

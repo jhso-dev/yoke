@@ -1727,8 +1727,14 @@ async function cmdCatalog(v: Values, env: Env): Promise<number> {
     await prefetch([]);
     const lines = await Promise.all(
       rows.map(async (r) => {
-        const owner = r.owner
-          ? ((await nameOf(r.owner)) ?? r.owner)
+        // Every owner, not the first: a service two groups claim is a service whose routing has two
+        // answers, and printing one of them is the column doing the opposite of its job.
+        const owner = r.owners.length
+          ? (
+              await Promise.all(
+                r.owners.map(async (o) => (await nameOf(o)) ?? o),
+              )
+            ).join(", ")
           : "(unowned)";
         // The health columns first, because they are why this screen is allowed to exist.
         return (
@@ -1744,7 +1750,8 @@ async function cmdCatalog(v: Values, env: Env): Promise<number> {
     lines.push(
       `-- ${rows.length} record${rows.length === 1 ? "" : "s"}; ` +
         `${rows.filter((r) => r.stale > 0).length} with something stale, ` +
-        `${rows.filter((r) => !r.owner).length} unowned`,
+        `${rows.filter((r) => r.owners.length === 0).length} unowned, ` +
+        `${rows.filter((r) => r.owners.length > 1).length} contested`,
     );
     emit(v, lines.join("\n"), rows);
     auditRead(store, {

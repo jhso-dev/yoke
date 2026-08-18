@@ -218,7 +218,8 @@ export interface CatalogRow {
   status: Status;
   lifecycle?: string;
   repo?: string;
-  owner?: string;
+  /** A LIST: a service two groups claim has two answers to "who do I ask", and both are shown. */
+  owners: string[];
   dependsOn: number;
   dependents: number;
   docs: number;

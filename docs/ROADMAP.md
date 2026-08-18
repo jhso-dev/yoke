@@ -767,7 +767,12 @@ Plan: docs/PLAN-V7.md. The gap this closes is that the headline was measured out
       format it never otherwise reads; an org with descriptors but no Backstage is a stated gap
 - [x] **7.3.4 `/catalog` and `yoke catalog`.** One core read behind both (the doc's parity floor), rows
       ordered most-rotted-first because the rot is the finding, and each row carrying its own citation —
-      a catalog row is a record, and the citation is what tells a hand-typed service from an imported one
+      a catalog row is a record, and the citation is what tells a hand-typed service from an imported one.
+      **Adversarial review found two display defects**, both of them the row claiming what it had not
+      checked: a service two groups claim showed one owner and hid the other (`owners` is now a list, both
+      rendered, the contest named, and the scorecard requires EVERY named owner to be answerable), and one
+      disagreement between two attached records counted as two conflicts because each end sees the same
+      edge (deduplicated by unordered pair). Both are regression-tested
 - [x] **7.3.5 a service reads as a service on the page that already exists.** A type-aware panel on
       `/entity` rather than a `/service` route: the detail response already carries every edge, so a second
       page would be a second thing to keep in sync. Non-catalog types render byte-identically

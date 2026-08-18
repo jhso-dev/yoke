@@ -165,3 +165,61 @@ describe("scorecard", () => {
     expect(rows.map((r) => r.id)).toEqual(["service:worse", "service:better"]);
   });
 });
+
+describe("scorecard — contested and multiple owners", () => {
+  const at = "2026-08-18T00:00:00Z";
+  let store: SqliteStorage;
+  beforeEach(async () => {
+    store = new SqliteStorage(":memory:");
+    await store.init();
+  });
+  const prov = { actor: "x", origin: "cli" as const, occurred_at: at };
+  const put = async (
+    id: string,
+    type: string,
+    attributes: Record<string, unknown>,
+  ) => {
+    await commit(store, ont, { type, attributes }, prov, at, {
+      existingId: id,
+    });
+    await verify(store, [id], "x", at);
+  };
+  const link = async (type: string, from: string, to: string) => {
+    await commit(store, ont, { type, attributes: {}, from, to }, prov, at, {
+      derived: true,
+    });
+  };
+
+  it("fails when ANY named owner cannot be asked, not just the first", async () => {
+    // Half-broken routing is broken routing: passing on whichever `owns` edge came back first is the row
+    // reporting health it did not check.
+    await put("service:ledger", "service", { name: "Ledger" });
+    await put("group:live", "group", { name: "Live" });
+    await put("group:gone", "group", { name: "Gone" });
+    await link("owns", "group:live", "service:ledger");
+    await link("owns", "group:gone", "service:ledger");
+    await deprecate(store, ["group:gone"], "person:admin", at);
+
+    const [row] = await scorecard(store, ont, at);
+    const owner = row.checks.find((c) => c.id === "owner");
+    expect(owner?.pass).toBe(false);
+    expect(owner?.detail).toContain("group:gone is retired");
+    // And it names only the broken one — a reader fixes what is named.
+    expect(owner?.detail).not.toContain("group:live is");
+  });
+
+  it("passes two healthy owners but says the ownership is contested", async () => {
+    await put("service:ledger", "service", { name: "Ledger" });
+    await put("group:a", "group", { name: "A" });
+    await put("group:b", "group", { name: "B" });
+    await link("owns", "group:a", "service:ledger");
+    await link("owns", "group:b", "service:ledger");
+
+    const owner = (await scorecard(store, ont, at))[0].checks.find(
+      (c) => c.id === "owner",
+    );
+    // Not a failure — two groups may share one — but "who do I ask" with two answers is reported.
+    expect(owner?.pass).toBe(true);
+    expect(owner?.detail).toContain("contested");
+  });
+});

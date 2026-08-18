@@ -37,7 +37,7 @@ export default function Catalog() {
     t.catalog.summary(
       list.length,
       list.filter((r) => r.stale > 0).length,
-      list.filter((r) => !r.owner).length,
+      list.filter((r) => r.owners.length === 0).length,
     );
 
   return (
@@ -94,17 +94,31 @@ export default function Catalog() {
                     <div className="flex flex-wrap gap-3 text-sm">
                       <span>
                         {t.catalog.owner}:{" "}
-                        {r.owner ? (
-                          // To the owner's load, not to their record: the question a reader of this
-                          // column has is "what else is this group on the hook for".
-                          <Link
-                            href={`/owner/?id=${encodeURIComponent(r.owner)}`}
-                          >
-                            {r.owner}
-                          </Link>
-                        ) : (
+                        {r.owners.length === 0 ? (
                           // Not a blank: an unowned service is the finding this column exists for.
                           <span className="muted">{t.catalog.unowned}</span>
+                        ) : (
+                          // Every owner, linked to their load rather than their record — the question a
+                          // reader of this column has is "what else is this group on the hook for". Two
+                          // owners is itself a finding, so both are shown and the contest is named.
+                          <>
+                            {r.owners.map((o, i) => (
+                              <span key={o}>
+                                {i > 0 ? ", " : ""}
+                                <Link
+                                  href={`/owner/?id=${encodeURIComponent(o)}`}
+                                >
+                                  {o}
+                                </Link>
+                              </span>
+                            ))}
+                            {r.owners.length > 1 ? (
+                              <span className="warn">
+                                {" "}
+                                {t.catalog.contested}
+                              </span>
+                            ) : null}
+                          </>
                         )}
                       </span>
                       <span>{t.catalog.deps(r.dependsOn, r.dependents)}</span>

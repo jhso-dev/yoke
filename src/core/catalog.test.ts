@@ -81,7 +81,7 @@ describe("catalog", () => {
       name: "Ledger",
       status: "verified",
       lifecycle: "production",
-      owner: "group:payments",
+      owners: ["group:payments"],
       dependsOn: 1,
       docs: 1,
       stale: 0,
@@ -161,6 +161,44 @@ describe("catalog", () => {
       (await catalog(port, ont, now, { owner: "group:a" })).map((r) => r.id),
     ).toEqual(["service:mine"]);
     expect(await catalog(port, ont, now, { staleOnly: true })).toEqual([]);
+  });
+
+  it("shows EVERY owner, because two claims on one record is the finding", async () => {
+    // Reporting the first `owns` edge is the screen reporting health it did not check — the thing
+    // WEB-UI.md's amended test 1 forbids — and contested ownership means "who do I ask" has two answers.
+    await put("service:ledger", "service", { name: "Ledger" });
+    await put("group:payments", "group", { name: "Payments" });
+    await put("group:platform", "group", { name: "Platform" });
+    await link("owns", "group:payments", "service:ledger");
+    await link("owns", "group:platform", "service:ledger");
+
+    const [row] = await catalog(port, ont, now);
+    expect(row.owners.sort()).toEqual(["group:payments", "group:platform"]);
+    // And the owner filter matches either claim, not just the first one filed.
+    for (const g of ["group:payments", "group:platform"])
+      expect(
+        (await catalog(port, ont, now, { owner: g })).map((r) => r.id),
+      ).toEqual(["service:ledger"]);
+  });
+
+  it("counts one disagreement once, seen from both ends", async () => {
+    await put("service:ledger", "service", { name: "Ledger" });
+    await put("decision:a", "decision", {
+      conclusion: "settle nightly",
+      rationale: "cheaper",
+    });
+    await put("decision:b", "decision", {
+      conclusion: "settle continuously",
+      rationale: "nightly drifted",
+    });
+    await link("relates_to", "decision:a", "service:ledger");
+    await link("relates_to", "decision:b", "service:ledger");
+    await link("conflicts_with", "decision:a", "decision:b");
+
+    const [row] = await catalog(port, ont, now);
+    // Naively this is 2 — each attached record sees the same edge — and a row labelled "pairs" reporting
+    // two for one disagreement is a lie by a factor of the whole thing.
+    expect(row.conflicts).toBe(1);
   });
 
   it("does not read another namespace's catalog", async () => {

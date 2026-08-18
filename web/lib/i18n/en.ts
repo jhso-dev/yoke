@@ -104,6 +104,7 @@ export const en = {
     noDocs: "nothing documents it",
     newService:
       "Starting a new service? Ask your agent — the conventions are verified records, so they come with citations and they expire:",
+    contested: "(contested)",
     lastDecision: "last decision",
     summary: (total: number, stale: number, unowned: number) =>
       `${total} records · ${stale} with something stale · ${unowned} unowned`,
