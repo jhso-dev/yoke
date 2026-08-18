@@ -39,7 +39,8 @@ Three tests a screen must pass, argued in this document before the code exists:
      need the record editing test 3 forbids, and would reintroduce the two-places-to-
      update problem that makes catalogs rot.
    - **No green without evidence.** A row may not report health it did not check. A
-     service whose owner record is stale is not green — see the scorecard in v7.4.
+     service whose owner record is retired, unverified or missing is not green — see the scorecard
+     in v7.4, and the ceiling there on what staleness requires of the ontology.
 2. **No synthesis.** No model call, no relevance ranking outside the injection ranker,
    no generated text. A screen that needs a model to produce its output belongs in MCP.
 3. **No editing, and no bypass.** A screen may create records and relations through

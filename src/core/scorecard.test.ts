@@ -78,18 +78,37 @@ describe("scorecard", () => {
     expect(row.score).toBe(row.of);
   });
 
-  it("fails a service whose OWNER record is stale — the check no descriptor can run", async () => {
-    // `person` has no TTL in the seed, so the owner here is a `fact`-like record with one: the point is
-    // that the owner's own freshness decides the colour, which a descriptor naming a team cannot know.
+  it("fails a RETIRED owner — a descriptor still names them", async () => {
     await put("group:payments", "group", { name: "Payments" });
     await put("service:ledger", "service", { name: "Ledger" });
     await link("owns", "group:payments", "service:ledger");
 
-    // Retire the owner: a descriptor still names them, and this must not be green.
     await deprecate(port, ["group:payments"], "person:admin", now);
     const [row] = await scorecard(port, ont, now);
     expect(check(row, "owner")?.pass).toBe(false);
     expect(check(row, "owner")?.detail).toContain("retired");
+  });
+
+  it("cannot fail a STALE owner on the seed ontology, and can when the type declares a TTL", async () => {
+    // The claim "an owner nobody re-confirmed is not green" was written before this was checked, and it was
+    // wrong by default: the seed gives `group` no `ttl_days`, so a group promoted once reads `verified`
+    // forever. Both halves are pinned here so the ceiling in scorecard.ts cannot quietly stop being true.
+    await put("group:payments", "group", { name: "Payments" });
+    await put("service:ledger", "service", { name: "Ledger" });
+    await link("owns", "group:payments", "service:ledger");
+
+    const farFuture = "2099-01-01T00:00:00Z";
+    const [seedRow] = await scorecard(port, ont, farFuture);
+    expect(check(seedRow, "owner")?.pass).toBe(true);
+
+    // The same store, read against an ontology whose `group` expires — what a tenant declares with
+    // `yoke ontology add-type` when it wants the org chart to be re-confirmed.
+    const expiring = ont.map((t) =>
+      t.name === "group" ? { ...t, ttl_days: 180 } : t,
+    );
+    const [expiringRow] = await scorecard(port, expiring, farFuture);
+    expect(check(expiringRow, "owner")?.pass).toBe(false);
+    expect(check(expiringRow, "owner")?.detail).toContain("TTL");
   });
 
   it("fails an owner that no record backs, naming who was claimed", async () => {

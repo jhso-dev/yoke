@@ -253,8 +253,9 @@ with no ranking of its own.
 The CLI keeps parity per WEB-UI.md §"Parity is a floor on BOTH surfaces": `yoke catalog [--owner g]
 [--stale]`.
 
-DoD: `--json` and the screen return the same rows; a service whose owner record is stale is visibly not
-green on both.
+DoD: `--json` and the screen return the same rows; a service whose owner record is retired, unverified or
+missing is visibly not green on both. (Staleness of the OWNER needs the owner type to declare a TTL — the
+seed gives `group` none, so it is not part of this DoD; see the ceiling in core/scorecard.ts.)
 
 ### 7.3.5 a service reads as a service, on the page that already exists
 

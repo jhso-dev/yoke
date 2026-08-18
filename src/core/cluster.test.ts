@@ -6,6 +6,7 @@ import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { clusterDrafts } from "./cluster.js";
 import { commit } from "./commit.js";
 import type { Embedder } from "./embedding.js";
+import { verify } from "./lifecycle.js";
 import { seedOntology } from "./ontology.js";
 
 const ont = seedOntology();
@@ -48,7 +49,7 @@ describe("clusterDrafts", () => {
     const b = await draft("deploy only on Tuesday, before 11am");
     const c = await draft("oncall handover is Monday");
 
-    const groups = await clusterDrafts(port, ont, stub, [a, b, c] as never);
+    const groups = await clusterDrafts(ont, stub, [a, b, c] as never);
     expect(groups.map((g) => g.members.length)).toEqual([2, 1]);
     expect(groups[0].members.map((m) => m.id).sort()).toEqual(
       [a.id, b.id].sort(),
@@ -59,7 +60,7 @@ describe("clusterDrafts", () => {
   it("reports a record nobody could compare instead of grouping it by accident", async () => {
     // No topic word → the stub returns null, the same shape a store with no vector for a row produces.
     const orphan = await draft("something with no indexable topic");
-    const groups = await clusterDrafts(port, ont, stub, [orphan] as never);
+    const groups = await clusterDrafts(ont, stub, [orphan] as never);
     expect(groups).toHaveLength(1);
     expect(groups[0].compared).toBe(0);
   });
@@ -67,11 +68,44 @@ describe("clusterDrafts", () => {
   it("never groups a draft with a record outside the queue it was handed", async () => {
     const inQueue = await draft("deploy window is Tuesday morning");
     // Same topic, but not in the list — a group whose members cannot all be promoted is a group the
-    // reviewer has to un-pick.
+    // reviewer has to un-pick. Structural now: only the queue is compared at all.
     await draft("deploy freeze during the deploy holiday");
-    const groups = await clusterDrafts(port, ont, stub, [inQueue] as never);
+    const groups = await clusterDrafts(ont, stub, [inQueue] as never);
     expect(groups).toHaveLength(1);
     expect(groups[0].members).toHaveLength(1);
+  });
+
+  it("groups the queue even when the store holds records strictly closer to each member", async () => {
+    // The regression this rewrite exists for. Asking the port for the k nearest records returns the store's
+    // neighbours, and the queue's own pairs get pushed out of that list — measured before the fix: two
+    // drafts at cosine 0.9992 did not group with 30 closer verified records present, and no k fixes it.
+    const angled: Embedder = async (text) => {
+      const m = text.match(/@([0-9.]+)/);
+      const a = m ? Number(m[1]) : 0;
+      return Float32Array.from([Math.cos(a), Math.sin(a)]);
+    };
+    const put = async (statement: string) =>
+      (
+        await commit(
+          port,
+          ont,
+          { type: "fact", attributes: { statement } },
+          prov,
+          now,
+          { embedder: angled },
+        )
+      ).entity;
+    for (let i = 1; i <= 30; i++) {
+      const decoy = await put(
+        `verified decoy @${(0.3 + i * 0.0005).toFixed(4)}`,
+      );
+      await verify(port, [decoy.id], "person:lead", now);
+    }
+    const a = await put("draft one @0.30");
+    const b = await put("draft two @0.34");
+
+    const groups = await clusterDrafts(ont, angled, [a, b] as never);
+    expect(groups.map((g) => g.members.length)).toEqual([2]);
   });
 
   it("keeps queue order inside a group and puts the biggest group first", async () => {
@@ -80,7 +114,7 @@ describe("clusterDrafts", () => {
     const three = await draft("deploy is Tuesday only");
     const four = await draft("deploy needs two approvals");
 
-    const groups = await clusterDrafts(port, ont, stub, [
+    const groups = await clusterDrafts(ont, stub, [
       one,
       two,
       three,

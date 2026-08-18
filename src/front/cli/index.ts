@@ -1155,7 +1155,6 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
     // on one line to paste into `yoke verify`, which keeps every record's own authorship edge.
     if (v.cluster) {
       const groups = await clusterDrafts(
-        store,
         ontology,
         makeFetchEmbedder(env),
         drafts,

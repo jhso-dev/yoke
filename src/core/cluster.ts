@@ -6,11 +6,19 @@
 // forty, WITHOUT the shortcut that erases who wrote what: promotion is still per record, and
 // `yoke verify` already takes a list.
 //
-// Similarity comes from the same `port.similar()` + threshold the duplicate gate uses. That is
-// deliberate reuse rather than a second notion of "alike": if two records cluster here, the gate would
-// have called them duplicate candidates, so a reviewer seeing them side by side is seeing the same
-// judgment the gate already made. Records with no vector cluster alone — nothing was compared, and
-// pretending otherwise would group by accident.
+// The threshold is the duplicate gate's, so "alike" means one thing in this product — but the COMPARISON
+// is all-pairs within the queue, not a vector search over the store.
+//
+// That is not a shortcut, it is the fix for one. Asking `similar(vector, k)` returns the k nearest records
+// in the whole store and then only the queue members among them survive, so on a store that has been used
+// for a while the queue's own pairs get pushed out by closer verified records. Measured: two drafts at
+// cosine 0.9992 — far above the 0.85 threshold — failed to cluster with 30 verified records sitting
+// strictly closer to each of them, and no value of k fixes that, because any k can be swamped. The queue
+// is a KNOWN list, so comparing it against itself is both exact and simpler; it also means this needs no
+// vector search from the backend at all.
+//
+// Records with no vector cluster alone — nothing was compared, and pretending otherwise would group by
+// accident.
 //
 // ceiling: at 0.85 this groups RESTATEMENTS, not subjects. Measured with bge-m3 over six drafts: two
 // near-identical deploy facts grouped, while a third deploy fact phrased differently and two on-call
@@ -21,9 +29,7 @@
 // the source document), not a lower threshold: lowering it merges unrelated records, and a reviewer who
 // has to un-pick a group is slower than one deciding record by record.
 
-import type { StoragePort } from "../ports/storage.js";
 import { cosine, type Embedder, serializeText } from "./embedding.js";
-import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity } from "./types.js";
 
@@ -40,26 +46,22 @@ export interface Cluster {
 /**
  * Group entities that the duplicate threshold would call alike.
  *
- * Single-link agglomeration over the candidate lists: A joins B's group when either one retrieves the
- * other above threshold. Single-link chains (A~B, B~C ⇒ one group even if A and C are far apart), which
- * for a review queue is the forgiving direction — an over-large group still shows a reviewer records
- * that are related, while an over-split one hands them the same subject twice.
+ * Single-link agglomeration: A joins B's group when they are within threshold. Single-link chains
+ * (A~B, B~C ⇒ one group even if A and C are far apart), which for a review queue is the forgiving
+ * direction — an over-large group still shows a reviewer records that are related, while an over-split one
+ * hands them the same subject twice.
  *
- * @param neighbours how many candidates to ask the port for per record. The gate uses 5; a queue is
- *   denser than a commit, so 10 covers a batch import without turning this into a full scan.
- *   ceiling: one `similar()` call per draft. At a review queue's size (tens, occasionally hundreds)
- *   that is fine; a queue in the tens of thousands wants a clustering pass in the store instead.
+ * ceiling: one embedding call per draft, and an O(n²) comparison over the queue. A review queue is tens of
+ * records, occasionally hundreds, where n² in memory is nothing; a queue in the tens of thousands wants a
+ * clustering pass pushed into the store, and would want the embeddings read back rather than recomputed.
  */
 export async function clusterDrafts(
-  port: StoragePort,
   ontology: TypeDef[],
   embedder: Embedder,
   entities: Entity[],
-  opts?: { neighbours?: number; threshold?: number },
+  opts?: { threshold?: number },
 ): Promise<Cluster[]> {
-  const k = opts?.neighbours ?? 10;
   const threshold = opts?.threshold ?? CLUSTER_THRESHOLD;
-  const index = new Map(entities.map((e, i) => [e.id, i]));
   /** Union-find over queue positions. */
   const parent = entities.map((_, i) => i);
   const find = (i: number): number => {
@@ -82,32 +84,26 @@ export async function clusterDrafts(
     if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
   };
 
+  // Every queue member's vector, once. Re-embedded rather than read back: the port exposes `similar()` but
+  // no "give me this row's vector", and adding one would touch every backend and the conformance suite for
+  // a screen-sized read. This is the same text the gate embedded (`serializeText`), so the comparison is
+  // the gate's comparison.
+  const vectors = await Promise.all(
+    entities.map((e) =>
+      embedder(serializeText(e.type, JSON.stringify(e.attributes), ontology)),
+    ),
+  );
   const compared = new Set<number>();
-  // A backend with no vector search groups nothing, and says so through `compared: 0` on every group
-  // rather than by silently returning singletons that look like a clustering result.
-  const canCompare = port.similar !== undefined;
-  for (const [i, e] of canCompare ? entities.entries() : []) {
-    // Re-embedded rather than read back: the port has `similar()` but no "give me this row's vector",
-    // and adding one would touch every backend and the conformance suite for a screen-sized read. This
-    // is the same text the gate embedded (`serializeText`), so the comparison is the gate's comparison.
-    // ceiling: one embedding call per draft. A review queue is tens of records; a queue in the tens of
-    // thousands wants clustering pushed into the store instead of a call per row.
-    const vector = await embedder(
-      serializeText(e.type, JSON.stringify(e.attributes), ontology),
-    );
-    if (!vector) continue;
-    compared.add(i);
-    for (const c of (await port.similar?.(vector, k)) ?? []) {
-      if (c.id === e.id) continue;
-      // `similar()` takes no namespace, so a candidate is re-checked here — the same filtering the
-      // gate does on its own candidate list.
-      if (normalizeNs(c.ns) !== normalizeNs(e.ns)) continue;
-      const j = index.get(c.id);
-      // Only cluster within the queue that was handed in. A draft is not grouped with a verified record
-      // it resembles: this screen exists to promote drafts, and a group whose members cannot all be
-      // acted on is a group a reviewer has to un-pick.
-      if (j === undefined) continue;
-      if (c.embedding && cosine(vector, c.embedding) >= threshold) union(i, j);
+  vectors.forEach((v, i) => {
+    if (v) compared.add(i);
+  });
+  for (let i = 0; i < entities.length; i++) {
+    const a = vectors[i];
+    if (!a) continue;
+    for (let j = i + 1; j < entities.length; j++) {
+      const b = vectors[j];
+      if (!b) continue;
+      if (cosine(a, b) >= threshold) union(i, j);
     }
   }
 

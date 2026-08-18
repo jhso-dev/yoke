@@ -705,7 +705,12 @@ Plan: docs/PLAN-V7.md. The gap this closes is that the headline was measured out
 - [x] **7.1.3 the review queue clusters.** `yoke review --cluster` and `/api/review?cluster=1` group the
       draft queue by the duplicate threshold with a paste-ready verify line per group; promotion stays
       per record. `cosine` moves to embedding.ts because two callers now compare vectors. Measured
-      ceiling: at 0.85 this groups restatements, not subjects
+      ceiling: at 0.85 this groups restatements, not subjects.
+      **Adversarial review found the comparison itself wrong** — it asked the port for the k nearest records
+      in the STORE and kept the queue members among them, so on a used store the queue's own pairs get
+      pushed out: two drafts at cosine 0.9992 failed to group with 30 closer verified records present, and
+      no k fixes that. Rewritten as exact all-pairs over the queue, which is simpler, needs no vector search
+      from the backend, and drops a parameter; the constructed case is now a regression test
 - [x] **7.1.4 two connectors where decisions already exist.** `adr` reads decision records off disk into
       `decision` records with their own stated date (never the checkout mtime, which would expire a
       decade of ADRs on one day) and keeps the rejected alternatives a `fact` would have dropped.
@@ -776,8 +781,12 @@ Plan: docs/PLAN-V7.md. The gap this closes is that the headline was measured out
       naming the whole query) and Notion's title is found by property TYPE, so a renamed database still
       works
 - [x] **7.4.2 `/scorecard` and `yoke scorecard`.** Four queries, no engine, no invented weights. The check
-      no descriptor-driven portal can run is the first: a service whose OWNER record is stale, retired,
-      unverified or absent is not green. Absence scores like rot, and where a check passes vacuously it says
+      no descriptor-driven portal can run is the first: an owner a descriptor names is not an owner
+      anyone can still ask, so a retired, unverified or absent owner fails. **Adversarial review caught an
+      over-claim here** — the `stale` owner state needs the owner type to declare a `ttl_days` and the seed
+      gives `group` none (a group promoted in 2020 reads `verified` in 2099, verified in a scratch store),
+      so that branch is unreachable by default. The claim is narrowed to the three reachable states, the
+      branch keeps a ceiling naming its precondition, and a test pins both configurations. Absence scores like rot, and where a check passes vacuously it says
       so — "nothing recorded about it, so nothing to go stale" rather than a green that reads as health
 - [x] **7.4.3 `/owner`.** What a person or group is on the hook for: what they are accountable for, their
       groups, their drafts awaiting verify, and their expired knowledge — all off the `authored_by` edge,

@@ -4,10 +4,15 @@
 // schema: does this thing have a VERIFIED owner, a runbook, a decision inside its TTL, and how much of its
 // knowledge has rotted. Four questions over the catalog read, and a table.
 //
-// The check no descriptor-driven portal can run is the one that matters: **a service whose owner record is
-// stale is not green.** Both failure directions score — absence (nothing recorded) and rot (recorded once
-// and never re-confirmed) — so a service cannot pass by having nothing said about it, which is how a
-// scorecard built on presence alone rewards silence.
+// The check no descriptor-driven portal can run is the one that matters: **an owner a descriptor names is
+// not an owner anyone can still ask.** A retired group, one nobody ever verified, and one that is not a
+// record here all fail — and if the ontology gives the owner type a TTL, so does one nobody has
+// re-confirmed (see the ceiling on `ownerCheck`: the seed gives `group` no TTL, so that last state is
+// unreachable by default and this file does not pretend otherwise).
+//
+// Both failure directions score — absence (nothing recorded) and rot (recorded once and left) — so a
+// service cannot pass by having nothing said about it, which is how a scorecard built on presence alone
+// rewards silence.
 //
 // No thresholds invented here. A check is pass/fail on a fact the database holds, and the score is how
 // many passed — a weighting scheme would be a number chosen to be met (the same reasoning
@@ -120,7 +125,14 @@ async function ownerCheck(
   }
   const state = cache.get(row.owner) ?? null;
   // The check Backstage structurally cannot run. A descriptor names an owner and stops there; this asks
-  // whether that owner is a record anyone can still reach, and whether it has been confirmed lately.
+  // whether that owner is a record anyone can still reach.
+  //
+  // ceiling: the `stale` branch below needs the owner's TYPE to declare a `ttl_days`, and the seed gives
+  // `group` and `person` none — verified in a scratch store, a group promoted in 2020 still reads
+  // `verified` in 2099. So on a default ontology this check fires on retired / never-verified / absent
+  // owners only, which are the three reachable states. A tenant that wants an org chart to expire
+  // declares it (`ontology add-type`), and then the branch is live; the test pins both configurations.
+  // What it does NOT do is quietly rely on the branch to back a claim about staleness.
   if (state === null)
     return {
       id: "owner",
@@ -131,7 +143,7 @@ async function ownerCheck(
     return {
       id: "owner",
       pass: false,
-      detail: `owner ${row.owner} has not been confirmed since its TTL — not green`,
+      detail: `owner ${row.owner} has not been confirmed since its type's TTL — not green`,
     };
   if (state === "deprecated")
     return {

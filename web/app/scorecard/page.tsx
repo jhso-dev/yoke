@@ -15,9 +15,11 @@ import { useAsync } from "../../lib/useAsync";
  * the score is how many passed. Unweighted on purpose: a weighting scheme would be a number chosen to be
  * met, the same reason the retrieval eval has no pass mark.
  *
- * The check no descriptor-driven portal can run is the first one: a service whose OWNER record is stale,
- * retired or absent is not green. Absence scores as well as rot, so a service with nothing recorded about
- * it cannot pass by being quiet.
+ * The check no descriptor-driven portal can run is the first one: a descriptor names an owner, and this
+ * asks whether that owner is a record anyone can still ask — a retired group, an unverified one, or one
+ * that is not a record here all fail. (Staleness joins that list only for an ontology whose owner type
+ * declares a TTL; the seed's `group` has none. See the ceiling in core/scorecard.ts.) Absence scores as
+ * well as rot, so a service with nothing recorded about it cannot pass by being quiet.
  */
 export default function Scorecard() {
   const t = useT();

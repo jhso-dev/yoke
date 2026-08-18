@@ -110,7 +110,7 @@ export const en = {
   },
   scorecard: {
     title: "Scorecard",
-    hint: "Four checks per catalog record. A service whose owner record is stale, retired or absent is not green — and having nothing recorded fails as loudly as having it rot.",
+    hint: "Four checks per catalog record. An owner a descriptor names is not an owner anyone can still ask — retired, unverified or missing all fail — and having nothing recorded fails as loudly as having it rot.",
     empty: "No catalog records to score.",
     summary: (green: number, total: number) =>
       `${green} of ${total} fully green`,

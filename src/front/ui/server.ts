@@ -634,7 +634,6 @@ export function createUiHandler(
       // unchanged, so every record keeps its own authorship edge.
       if (url.searchParams.get("cluster") === "1") {
         const groups = await clusterDrafts(
-          store,
           store.loadOntology(ns),
           // The same embedder the gate uses on this deployment, so the grouping a reviewer sees is the
           // comparison the gate made. Absent → every group reports `compared: 0`.
