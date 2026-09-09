@@ -345,44 +345,53 @@ function AttachRecord({
   );
 }
 
-/** Author → type → outcome for one collaboration's knowledge, with who received it. */
+/**
+ * Author → type → recipient for one collaboration's knowledge.
+ *
+ * The unit is a DELIVERY, not a record: one record handed to three agents is three, and a record
+ * nobody has been handed is one "not yet". That is what makes the flow conserve — every column sums
+ * to the same number — and it is also the honest unit for the question, since a record read by the
+ * whole team is not the same event as one read once.
+ */
 function KnowledgeFlow({ flow }: { flow: CollaborationFlow }) {
   const t = useT();
-  const OUTCOMES = ["consumed", "linked", "isolated"] as const;
-  const label: Record<(typeof OUTCOMES)[number], string> = {
-    consumed: t.collaboration.consumed,
-    linked: t.collaboration.linkedOnly,
-    isolated: t.collaboration.isolated,
-  };
+  const NOBODY = "\u0000nobody";
+  // The recipient's readable name, resolved server-side; an unresolved actor keeps its id, which is
+  // what it is (an agent identity, not a person record).
+  const named = new Map(
+    flow.agents.map((a) => [a.actor, a.actorName ?? a.actor]),
+  );
   const nodes: SankeyNode[] = [];
   const bands: SankeyBand[] = [];
-  const bump = (
-    key: string,
-    col: number,
-    text: string,
-    tone?: string,
-  ): void => {
+  const bump = (key: string, col: number, text: string, tone?: string) => {
     const hit = nodes.find((x) => x.key === key);
     if (hit) hit.n += 1;
     else nodes.push({ key, label: text, n: 1, col, tone });
   };
   for (const r of flow.rows) {
     const who = r.author ?? r.authorId ?? t.collaboration.noAuthor;
-    bump(`a:${who}`, 0, who);
-    bump(`t:${r.type}`, 1, r.type, "neutral");
-    bump(`o:${r.outcome}`, 2, label[r.outcome], `fo-${r.outcome}`);
-    bands.push({ from: `a:${who}`, to: `t:${r.type}`, n: 1 });
-    bands.push({ from: `t:${r.type}`, to: `o:${r.outcome}`, n: 1 });
+    for (const to of r.agents.length > 0 ? r.agents : [NOBODY]) {
+      const reached = to !== NOBODY;
+      bump(`a:${who}`, 0, who);
+      bump(`t:${r.type}`, 1, r.type, "neutral");
+      bump(
+        `o:${to}`,
+        2,
+        reached ? (named.get(to) ?? to) : t.collaboration.nobodyYet,
+        reached ? "fo-consumed" : "fo-isolated",
+      );
+      bands.push({ from: `a:${who}`, to: `t:${r.type}`, n: 1 });
+      bands.push({ from: `t:${r.type}`, to: `o:${to}`, n: 1 });
+    }
   }
-  // Fixed outcome order, so the eye reads the same shape on every collaboration and the
-  // reached-an-agent band is always the top one.
-  const rank = (k: string) =>
-    k.startsWith("o:")
-      ? OUTCOMES.indexOf(k.slice(2) as (typeof OUTCOMES)[number])
-      : 0;
-  nodes.sort((x, y) => x.col - y.col || rank(x.key) - rank(y.key) || y.n - x.n);
-  // One band per record would be one SVG path per record; merging equal endpoints keeps the picture
-  // to a few dozen ribbons whatever the collaboration holds.
+  // "Not yet" sits last whatever its size, so the recipients read as a list and the gap reads as the
+  // gap. Everything else falls by volume.
+  nodes.sort(
+    (x, y) =>
+      x.col - y.col ||
+      Number(x.key === `o:${NOBODY}`) - Number(y.key === `o:${NOBODY}`) ||
+      y.n - x.n,
+  );
   const merged = [
     ...bands
       .reduce((m, b) => {
@@ -392,48 +401,50 @@ function KnowledgeFlow({ flow }: { flow: CollaborationFlow }) {
       }, new Map<string, SankeyBand>())
       .values(),
   ];
-  const count = (o: (typeof OUTCOMES)[number]) =>
-    flow.rows.filter((r) => r.outcome === o).length;
+  const deliveries = bands.filter((b) => b.from.startsWith("t:")).length;
+  const unreached = flow.rows.filter((r) => r.agents.length === 0);
   return (
     <>
       <Sankey
         nodes={nodes}
         bands={merged}
-        total={flow.rows.length}
+        total={deliveries}
         columns={[
           t.collaboration.flowAuthor,
           t.collaboration.flowType,
-          t.collaboration.flowOutcome,
+          t.collaboration.flowRecipient,
         ]}
         height={320}
         title={t.collaboration.flowHeading}
       />
       <Alert variant="info">
         {t.collaboration.flowSummary
-          .replace("{consumed}", String(count("consumed")))
           .replace("{total}", String(flow.rows.length))
-          .replace("{isolated}", String(count("isolated")))}
+          .replace("{reached}", String(flow.rows.length - unreached.length))
+          .replace("{people}", String(flow.agents.length))
+          .replace("{unreached}", String(unreached.length))}
       </Alert>
       <dl className="flow-legend">
-        <dt>{t.collaboration.consumed}</dt>
-        <dd>{t.collaboration.consumedNote}</dd>
-        <dt>{t.collaboration.linkedOnly}</dt>
-        <dd>{t.collaboration.linkedOnlyNote}</dd>
-        <dt>{t.collaboration.isolated}</dt>
-        <dd>{t.collaboration.isolatedNote}</dd>
-        {flow.agents.length > 0 && (
-          <>
-            <dt>{t.collaboration.receivedBy}</dt>
-            <dd>
-              {flow.agents
-                .map(
-                  (a) =>
-                    `${a.actorName ?? a.actor} (${t.collaboration.recordsSeen.replace("{n}", String(a.records))})`,
-                )
-                .join(", ")}
-            </dd>
-          </>
-        )}
+        <dt>{t.collaboration.flowRecipient}</dt>
+        <dd>{t.collaboration.recipientNote}</dd>
+        <dt>{t.collaboration.nobodyYet}</dt>
+        <dd>
+          {t.collaboration.nobodyYetNote}
+          {/* Of the records nobody has been handed, the ones other knowledge stands on are a
+              different problem from the ones nothing touches at all — the queue to work is the
+              second. The classification is the server's; this only reports it. */}
+          {unreached.some((r) => r.outcome === "isolated") && (
+            <>
+              {" "}
+              {t.collaboration.isolatedNote.replace(
+                "{n}",
+                String(
+                  unreached.filter((r) => r.outcome === "isolated").length,
+                ),
+              )}
+            </>
+          )}
+        </dd>
       </dl>
     </>
   );

@@ -275,23 +275,18 @@ export const ko: typeof en = {
   collaboration: {
     flowHeading: "이 일의 지식은 어디로 갔나",
     flowLede:
-      "누가 기록했고, 에이전트에게 전달된 적이 있는지. 레코드마다 결과는 하나라서 띠의 합이 붙어 있는 지식 수와 같습니다.",
+      '누가 기록했고, 실제로 누구에게 전달됐는지. 띠 하나가 전달 1건입니다 — 한 레코드가 세 에이전트에게 갔으면 3건, 아무에게도 안 갔으면 "아직" 1건입니다.',
     flowAuthor: "기록한 사람",
     flowType: "타입",
-    flowOutcome: "무엇이 되었나",
-    consumed: "에이전트에 전달됨",
-    linkedOnly: "다른 지식을 떠받침",
-    isolated: "아직 아무 데도",
-    consumedNote:
-      "에이전트가 실제로 받아갔습니다 — 횟수는 최근 감사 구간의 주입 횟수입니다",
-    linkedOnlyNote:
-      "에이전트는 본 적 없지만 다른 레코드가 이것을 딛고 서 있습니다",
-    isolatedNote:
-      "기록되고 붙어 있지만 아직 아무 작용도 없습니다. 인용도 없고 전달된 적도 없습니다",
-    receivedBy: "받아간 에이전트",
-    recordsSeen: "{n}건",
+    flowRecipient: "전달된 곳",
+    nobodyYet: "아직 아무에게도",
+    recipientNote:
+      "최근 감사 구간에서 이 협업의 지식이 실제로 주입된 에이전트와 사람",
+    nobodyYetNote:
+      "여기 붙어 있지만 어떤 에이전트나 사람에게도 전달된 적이 없습니다.",
+    isolatedNote: "그중 {n}건은 다른 레코드가 인용하지도 않습니다.",
     flowSummary:
-      "붙어 있는 {total}건 중 {consumed}건이 에이전트에 전달됐습니다. {isolated}건은 아직 아무 데도 가지 않았습니다.",
+      "붙어 있는 {total}건 중 {reached}건이 누군가에게 전달됐고, 받은 곳은 {people}곳입니다. {unreached}건은 아직 아무에게도 가지 않았습니다.",
     noAuthor: "작성자 기록 없음",
     heading: "협업",
     headingOne: "협업",

@@ -14,7 +14,17 @@
  */
 
 const W = 900;
-const TOP = 18;
+/** Room above the columns for their headers, and below the headers before the first bar. */
+const TOP = 30;
+/**
+ * Side inset, in SVG coordinates rather than CSS padding on the wrapper.
+ *
+ * The wrapper is the horizontal scroll container, and padding on a scroll container is not honoured
+ * on the trailing edge once it scrolls — the right-hand column would sit flush against the panel
+ * border at exactly the narrow widths the scrolling exists for. Insetting the coordinate space
+ * instead holds on both edges at every width.
+ */
+const PADX = 14;
 const PAD = 8;
 const BAR = 22;
 
@@ -63,8 +73,9 @@ export function Sankey({
   title: string;
 }) {
   const last = columns.length - 1;
+  const span = W - BAR - PADX * 2;
   const colX = (c: number) =>
-    last === 0 ? 0 : Math.round((c / last) * (W - BAR));
+    last === 0 ? PADX : PADX + Math.round((c / last) * span);
   const scale = (n: number) =>
     (n / Math.max(total, 1)) * (height - TOP - PAD * 6);
 
@@ -116,7 +127,7 @@ export function Sankey({
           <text
             key={label}
             x={i === last ? colX(i) + BAR : colX(i)}
-            y={10}
+            y={16}
             textAnchor={i === last ? "end" : "start"}
             className="flow-col"
           >
