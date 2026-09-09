@@ -25,6 +25,32 @@ speaks only knowledge that carries a source, survived review, and is still
 current — and it cites its sources. Memory layers automate *what your AI
 remembers*; yoke governs *what your AI is allowed to believe*.
 
+## What it looks like
+
+Ask what an agent would be handed, and see what was held back — and why. Here
+one record matched the query but is still awaiting review, so it is not sent:
+
+![Injection preview: two verified records with citations, and a notice naming what was withheld and why](docs/assets/ui-inject.png)
+
+New knowledge lands as a `draft`, quarantined from injection until a person
+promotes it. Agents can record; only people can verify:
+
+![Review queue: three drafts with their authors, and Verify / Deprecate actions](docs/assets/ui-review.png)
+
+A `decision` keeps the alternatives that were rejected — the half of a judgment
+that a conclusion alone throws away — and every version stays readable, with
+the author preserved across promotion:
+
+![Decision detail: conclusion, rationale, rejected alternatives, provenance, and a draft to verified version history](docs/assets/ui-decision.png)
+
+When two verified records contradict each other, yoke keeps both and asks a
+person. Injection serves both sides marked as disputed rather than picking one:
+
+![Conflicts screen: two verified facts giving 21 days and 7 days for the same deadline, side by side](docs/assets/ui-conflicts.png)
+
+All four screens are `yoke ui` — a local browser tier over the same core the
+CLI and the MCP server use. Every action they offer is available from the CLI.
+
 ## Why you can trust it
 
 Trust isn't a promise here — it's five mechanisms, each enforced in code:
@@ -143,6 +169,61 @@ yoke add decision \
 
 `rejected_alternatives` is a list, and a repeated `--attr` is how the CLI builds one — a single
 occurrence is a string, which the gate rejects for a list-typed attribute.
+
+## Where to start, by who you are
+
+The same product answers three different complaints. Start from the one that
+sounds like yours.
+
+<details open>
+<summary><b>You are one developer, and your agent keeps forgetting</b></summary>
+
+Every session starts by re-explaining the same constraints, and the agent still
+invents an answer when it does not know one — with no way to tell which is which.
+
+Install, attach it to your agent over MCP ([below](#mcp-setup)), and record
+decisions as you make them. Injection is scoped to what you are working on, and
+every claim arrives with a citation, so "the agent made this up" becomes a
+checkable question. `yoke verify --all-drafts` keeps the cold start cheap.
+
+Read next: [MCP setup](#mcp-setup) · [Less context, not more](#less-context-not-more)
+
+</details>
+
+<details>
+<summary><b>You lead a team, and judgment leaves when people do</b></summary>
+
+The conclusion survives in a ticket; the reasoning and the rejected options do
+not. Six months later nobody can answer "why didn't we do it the other way?",
+and a teammate on leave is a blocked decision.
+
+Pin a `collaboration` so the team and its agents share one working context, and
+capture `decision` records with their rejected alternatives — that is the raw
+material a **persona** is generated from, so a colleague's recorded judgment
+stays queryable and cited rather than impersonated. The lever is capture
+density, not code: docs/ADOPTION.md lays out per-role capture and the three
+rituals that build it.
+
+Read next: [Shared working context](#shared-working-context) · [docs/ADOPTION.md](docs/ADOPTION.md)
+
+</details>
+
+<details>
+<summary><b>You are accountable for what the AI tells people</b></summary>
+
+An agent stated an internal policy confidently and it was out of date. Nobody
+can say where it got that, who approved it, or what else it is repeating.
+
+Verification is a permission (`verify`), and it is the governance permission —
+agents can propose, only authorized people promote. Storage is append-only with
+no delete, so any past state is reconstructible and every injection is audited.
+Point it at the database that is already your system of record with
+`connect rdb` — read-only, no migration — and knowledge expires on a TTL
+instead of quietly aging into misinformation.
+
+Read next: [Measuring quality](#measuring-quality) · [docs/ENTERPRISE.md](docs/ENTERPRISE.md) · [docs/KNOWLEDGE-POLICY.md](docs/KNOWLEDGE-POLICY.md)
+
+</details>
 
 ## MCP setup
 
