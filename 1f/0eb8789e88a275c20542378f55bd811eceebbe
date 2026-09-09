@@ -1,0 +1,30 @@
+src/front/display.ts
+  s_03673cb32bfdc1::t_cb3109c94eda52 323-324,429
+web/lib/types.ts
+  s_03673cb32bfdc1::t_cb3109c94eda52 151
+web/lib/i18n/en.ts
+  s_03673cb32bfdc1::t_6e047adcb5f8f9 305
+  s_03673cb32bfdc1::t_9e32e2b654d35a 301-302
+web/app/collaboration/page.tsx
+  s_03673cb32bfdc1::t_6e047adcb5f8f9 398-403
+  s_03673cb32bfdc1::t_1263f79b87ebfe 49,350,352-358,362,367-377,380,383,385,388,391,395,397,404-407,409,426-428
+web/lib/i18n/ko.ts
+  s_03673cb32bfdc1::t_9e32e2b654d35a 278-279
+  s_03673cb32bfdc1::t_6e047adcb5f8f9 282
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1f0eb8789e88a275c20542378f55bd811eceebbe",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
