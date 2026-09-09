@@ -624,3 +624,74 @@ td.num {
 /* Nothing here styles the dialog or the forms inside it: both are components/ui (dialog.tsx and the
    field primitives), and a tall form's `max-height: calc(100vh - 64px); overflow: auto` is a
    contract carried by DialogContent itself. */
+
+/* --- flow (Sankey): where knowledge goes --- */
+/* Coloured by the status/outcome a band ENDS at, reusing the badge tones so a ribbon and a badge
+   for the same status are the same colour on every screen. Ribbons are translucent so a crossing
+   reads as a crossing rather than as a new colour. */
+.flow-band {
+  fill: var(--tone-verified);
+  opacity: 0.28;
+}
+.flow-band:hover {
+  opacity: 0.55;
+}
+.flow-s-draft,
+.flow-o-withheld {
+  fill: var(--tone-draft);
+}
+.flow-s-stale {
+  fill: var(--tone-stale);
+}
+.flow-s-deprecated {
+  fill: var(--tone-deprecated);
+}
+.flow-o-structural {
+  fill: var(--muted-foreground);
+}
+.flow-node {
+  fill: var(--muted-foreground);
+  opacity: 0.75;
+}
+.flow-node.flow-s-verified,
+.flow-node.flow-o-injected {
+  fill: var(--tone-verified);
+  opacity: 1;
+}
+.flow-node.flow-s-draft,
+.flow-node.flow-o-withheld {
+  fill: var(--tone-draft);
+  opacity: 1;
+}
+.flow-node.flow-s-stale {
+  fill: var(--tone-stale);
+  opacity: 1;
+}
+.flow-node.flow-s-deprecated {
+  fill: var(--tone-deprecated);
+  opacity: 1;
+}
+.flow-label {
+  fill: var(--foreground);
+  font-size: 11px;
+}
+.flow-legend {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  padding: 12px;
+  font-size: 13px;
+}
+.flow-legend dt {
+  font-weight: 600;
+}
+.flow-legend dd {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+.flow-col {
+  fill: var(--muted-foreground);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}

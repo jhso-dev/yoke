@@ -92,6 +92,7 @@ export const en = {
     browse: "browse",
     inject: "inject",
     graph: "graph",
+    flow: "flow",
     audit: "audit",
     tokens: "tokens",
     screens: "screens",
@@ -341,6 +342,27 @@ export const en = {
       `${n} matching record(s) are not offered here: they name what knowledge is attached to (a person, this collaboration) and are never injected as knowledge. Add people in the participants panel above.`,
     truncated: (shown: number, total: number, rest: number) =>
       `Showing ${shown} of ${total} records in this collaboration, most recently confirmed first. Records not shown are still available. A specific question searches all knowledge while prioritizing this collaboration's records. (${rest} not shown)`,
+  },
+  flow: {
+    heading: "Where knowledge goes",
+    lede: "Every record in this namespace, from what it is to whether an agent can be told it today. The width of a band is how many records take that path.",
+    empty: "nothing recorded yet",
+    colType: "type",
+    colStatus: "status",
+    colOutcome: "reaches agents?",
+    injected: "injected",
+    withheld: "withheld",
+    structural: "structural",
+    injectedNote: "verified and still fresh — this is what an agent receives",
+    withheldNote:
+      "matches a query but is not sent, and the reason travels with the answer",
+    structuralNote:
+      "names what knowledge attaches to (a person, a piece of work) rather than asserting anything, so it is never injected as knowledge",
+    reasonDraft: "awaiting review",
+    reasonStale: "past its freshness window",
+    reasonDeprecated: "retired",
+    summary:
+      "{injectable} of {total} records can be injected today. The rest is not lost — it is waiting on a person, or on a re-confirmation.",
   },
   conflicts: {
     heading: "Conflicts",

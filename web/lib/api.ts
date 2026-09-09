@@ -15,6 +15,7 @@ import type {
   InjectPreview,
   Knowledge,
   Meta,
+  Overview,
   Page,
   Persona,
   SearchResult,
@@ -99,6 +100,7 @@ export const api = {
     request<StaleQueue>(`/api/review${qs({ ...p, stale: 1 })}`),
   conflicts: () => request<ConflictPair[]>("/api/conflicts"),
   ontology: () => request<TypeDef[]>("/api/ontology"),
+  overview: () => request<Overview>("/api/overview"),
   persona: (id: string) =>
     request<Persona>(`/api/persona/${encodeURIComponent(id)}`),
   entities: (p: {

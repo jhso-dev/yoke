@@ -16,6 +16,7 @@ const LINKS = [
   { href: "/browse/", key: "browse" },
   { href: "/inject/", key: "inject" },
   { href: "/graph/", key: "graph" },
+  { href: "/flow/", key: "flow" },
   { href: "/audit/", key: "audit" },
   { href: "/tokens/", key: "tokens" },
 ] as const;

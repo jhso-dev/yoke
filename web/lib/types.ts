@@ -144,6 +144,22 @@ export interface TypeDef {
   structural?: boolean;
 }
 
+/** Counts per effective status — `stale` computed at read time, so this is what is injectable today. */
+export interface StatusCounts {
+  draft: number;
+  verified: number;
+  stale: number;
+  deprecated: number;
+}
+
+/** The whole namespace counted once (core `overview`). The flow screen renders it; it recounts nothing. */
+export interface Overview {
+  entities: { total: number; byType: Record<string, StatusCounts> };
+  relations: { total: number; byType: Record<string, number> };
+  hubs: Array<{ entity: Knowledge; degree: number }>;
+  authors: Array<{ actor: string; actorName?: string; verified: number }>;
+}
+
 export interface AuditEntry {
   actor: string;
   /** Resolved for reading; the trail itself records only the id. */

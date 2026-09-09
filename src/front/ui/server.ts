@@ -11,6 +11,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { fileURLToPath } from "node:url";
+import { overview } from "../../core/aggregate.js";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
@@ -775,6 +776,19 @@ export function createUiHandler(
         })),
       );
       sendJson(res, 200, pairs);
+      return;
+    }
+
+    // The whole namespace, counted once: type × effective status, which is where `stale` is computed
+    // and therefore the only place "stored verified" and "injectable today" differ by a number. The
+    // same core call `yoke overview` makes — the flow screen renders it, it does not recount.
+    if (method === "GET" && path === "/api/overview") {
+      if (denied(res, "read")) return;
+      sendJson(
+        res,
+        200,
+        await overview(store, store.loadOntology(ns), now(), { ns }),
+      );
       return;
     }
 

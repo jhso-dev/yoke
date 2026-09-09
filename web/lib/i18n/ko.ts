@@ -90,6 +90,7 @@ export const ko: typeof en = {
     browse: "둘러보기",
     inject: "주입",
     graph: "그래프",
+    flow: "흐름",
     audit: "감사 로그",
     tokens: "토큰",
     screens: "화면",
@@ -319,6 +320,27 @@ export const ko: typeof en = {
       `일치한 레코드 ${n}건은 여기서 제외했습니다. 지식이 붙는 대상(사람, 이 협업)이라 지식으로 주입되지 않습니다. 사람은 위의 참여자 패널에서 추가하세요.`,
     truncated: (shown: number, total: number, rest: number) =>
       `이 협업의 레코드 ${total}개 중 ${shown}개를 최근 확인 순서대로 표시합니다. 표시하지 않은 레코드도 삭제되지 않습니다. 에이전트가 구체적으로 질문하면 이 협업의 레코드를 우선해 전체 지식을 검색합니다. (${rest}개 미표시)`,
+  },
+  flow: {
+    heading: "지식은 어디로 가는가",
+    lede: "이 네임스페이스의 모든 레코드가 무엇인지부터 오늘 에이전트에게 전달될 수 있는지까지. 띠의 굵기가 그 경로를 지나는 레코드 수입니다.",
+    empty: "아직 기록된 것이 없습니다",
+    colType: "타입",
+    colStatus: "상태",
+    colOutcome: "에이전트에 전달되나",
+    injected: "주입됨",
+    withheld: "보류됨",
+    structural: "구조",
+    injectedNote: "검증됐고 아직 신선함 — 에이전트가 실제로 받는 것",
+    withheldNote:
+      "질의에 걸리지만 전달되지 않으며, 그 이유가 답과 함께 전달됩니다",
+    structuralNote:
+      "무엇에 지식이 붙는지를 가리킬 뿐(사람, 일감) 주장을 담지 않으므로 지식으로 주입되지 않습니다",
+    reasonDraft: "검토 대기",
+    reasonStale: "신선도 기한 초과",
+    reasonDeprecated: "폐기됨",
+    summary:
+      "전체 {total}건 중 {injectable}건이 오늘 주입될 수 있습니다. 나머지는 사라진 것이 아니라 사람의 검토나 재확인을 기다리는 중입니다.",
   },
   conflicts: {
     heading: "모순",
