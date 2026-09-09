@@ -117,6 +117,7 @@ type Values = {
   mapping?: string;
   dsn?: string;
   sqlite?: string;
+  neo4j?: string;
   channel?: string;
   name?: string;
   scope?: string;
@@ -160,6 +161,7 @@ const OPTIONS = {
   mapping: { type: "string" },
   dsn: { type: "string" },
   sqlite: { type: "string" },
+  neo4j: { type: "string" },
   channel: { type: "string" },
   name: { type: "string" },
   scope: { type: "string" },
@@ -2082,7 +2084,7 @@ async function cmdConnect(
 async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
   if (!v.mapping) {
     console.error(
-      "usage: yoke connect rdb --mapping <file.json> [--dsn postgres://...] [--sqlite <path>]",
+      "usage: yoke connect rdb --mapping <file.json> [--dsn postgres://...] [--sqlite <path>] [--neo4j http://user:pass@host:7474/db]",
     );
     return 1;
   }
@@ -2095,7 +2097,8 @@ async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
   }
 
   // Source driver: --dsn → Postgres (pg, lazy-imported so the sqlite path never needs pg);
-  // --sqlite → local better-sqlite3 file (no server needed for local/demo use).
+  // --sqlite → local better-sqlite3 file (no server needed for local/demo use);
+  // --neo4j → HTTP transactional endpoint via fetch (labels as tables — see rdb-neo4j.ts).
   let query: (sql: string) => Promise<Record<string, unknown>[]>;
   let closeSrc = (): void => {};
   if (v.dsn) {
@@ -2105,8 +2108,11 @@ async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
     const src = new Database(v.sqlite, { readonly: true });
     query = async (sql) => src.prepare(sql).all() as Record<string, unknown>[];
     closeSrc = () => src.close();
+  } else if (v.neo4j) {
+    const { makeNeo4jQuery } = await import("../../connectors/rdb-neo4j.js");
+    query = makeNeo4jQuery(v.neo4j);
   } else {
-    console.error("connect rdb requires --dsn or --sqlite");
+    console.error("connect rdb requires --dsn, --sqlite or --neo4j");
     return 1;
   }
 
