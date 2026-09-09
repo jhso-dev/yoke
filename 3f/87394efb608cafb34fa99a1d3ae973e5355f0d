@@ -1,0 +1,45 @@
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_2e3f79f218f3d5 782-794
+  s_03673cb32bfdc1::t_2588de6b2c2c68 14
+web/lib/api.ts
+  s_03673cb32bfdc1::t_623a4434c74c53 103
+  s_03673cb32bfdc1::t_3b43f2b7615a3d 18
+web/app/globals.css
+  s_03673cb32bfdc1::t_834658aa409cac 692-697
+  s_03673cb32bfdc1::t_12686295877ad8 627-691
+web/lib/types.ts
+  s_03673cb32bfdc1::t_623a4434c74c53 147-162
+web/components/Nav.tsx
+  s_03673cb32bfdc1::t_cfb846ed77d4de 19
+web/app/flow/page.tsx
+  s_03673cb32bfdc1::t_0562c69dc32b6d 114-115,161-163,167
+  s_03673cb32bfdc1::t_44f983df463733 255-257
+  s_03673cb32bfdc1::t_861a4b73a94cdf 1-6,8-32,36-79,81-82,84-113,116-160,164-166,168-169,171-179,183-193,209-238,240-254,258-265
+  s_03673cb32bfdc1::t_12686295877ad8 7,180-182
+  s_03673cb32bfdc1::t_77aaf9d227c270 33,170,239
+  s_03673cb32bfdc1::t_834658aa409cac 34-35,80,83,194-208
+web/lib/i18n/en.ts
+  s_03673cb32bfdc1::t_0562c69dc32b6d 357-360
+  s_03673cb32bfdc1::t_4cadcccbc5a05f 95,346-356,361-365
+  s_03673cb32bfdc1::t_a40cf7415402f2 366
+web/lib/i18n/ko.ts
+  s_03673cb32bfdc1::t_0562c69dc32b6d 335-338
+  s_03673cb32bfdc1::t_4cadcccbc5a05f 93,324-334,339-343
+  s_03673cb32bfdc1::t_b80590e57deb85 344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3f87394efb608cafb34fa99a1d3ae973e5355f0d",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "unknown"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
