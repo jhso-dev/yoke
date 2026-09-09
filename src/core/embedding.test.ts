@@ -2,7 +2,11 @@
 // No real API calls (global fetch is stubbed with vi). Verifying against a real provider is on the human-check list.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { makeFetchEmbedder, serializeText } from "./embedding.js";
+import {
+  makeFetchEmbedder,
+  resolveEmbedConfig,
+  serializeText,
+} from "./embedding.js";
 import { seedOntology } from "./ontology.js";
 
 afterEach(() => {
@@ -14,10 +18,11 @@ afterEach(() => {
 });
 
 describe("makeFetchEmbedder", () => {
-  it("returns a no-op (null) embedder when URL/MODEL unset", async () => {
-    const embed = makeFetchEmbedder({});
+  it("returns a no-op (null) embedder when URL/MODEL unset and auto-detection is off", async () => {
+    const embed = makeFetchEmbedder({ YOKE_NO_AUTO_EMBED: "1" });
     expect(await embed("hello")).toBeNull();
-    // URL present but model missing → still a no-op.
+    // Half-configured is NOT a probe: a URL with no model is a mistake to report, not a reason to
+    // silently reach for a different provider than the one that was named.
     const embed2 = makeFetchEmbedder({ YOKE_EMBED_URL: "http://x" });
     expect(await embed2("hello")).toBeNull();
   });
@@ -146,5 +151,73 @@ describe("serializeText", () => {
     // An index that throws on a malformed row is worse than one that indexes it verbatim.
     expect(serializeText("fact", "not json", ont)).toBe("fact not json");
     expect(serializeText("fact", "[1,2]", ont)).toBe("fact [1,2]");
+  });
+});
+
+describe("resolveEmbedConfig", () => {
+  /** An Ollama /api/tags stub. `models` is what that host reports as installed. */
+  const tags = (models: string[], ok = true) =>
+    (async () => ({
+      ok,
+      json: async () => ({ models: models.map((name) => ({ name })) }),
+    })) as unknown as typeof fetch;
+
+  it("prefers explicit configuration over anything installed locally", async () => {
+    const cfg = await resolveEmbedConfig(
+      { YOKE_EMBED_URL: "http://pinned/v1", YOKE_EMBED_MODEL: "m" },
+      tags(["bge-m3:latest"]),
+    );
+    expect(cfg).toEqual({
+      url: "http://pinned/v1",
+      model: "m",
+      key: undefined,
+    });
+    expect(cfg?.auto).toBeUndefined();
+  });
+
+  it("uses a local embedding model with no configuration, and reports the resolved tag", async () => {
+    const cfg = await resolveEmbedConfig(
+      {},
+      tags(["llama3:8b", "bge-m3:567m"]),
+    );
+    // The TAG, not the family name: it is what the endpoint is asked for.
+    expect(cfg).toMatchObject({ model: "bge-m3:567m", auto: true });
+    expect(cfg?.url).toContain("11434");
+  });
+
+  it("picks the multilingual model when both it and an English-only one are installed", async () => {
+    // Order is the guarantee: an English-centric model on a non-English corpus is indistinguishable
+    // from having no embedder, so it must never win over a multilingual one that is present.
+    const cfg = await resolveEmbedConfig(
+      {},
+      tags(["nomic-embed-text:latest", "bge-m3:latest"]),
+    );
+    expect(cfg?.model).toBe("bge-m3:latest");
+  });
+
+  it("still selects an English-only model when it is the only one installed", async () => {
+    const cfg = await resolveEmbedConfig({}, tags(["nomic-embed-text:latest"]));
+    expect(cfg?.model).toBe("nomic-embed-text:latest");
+  });
+
+  it("resolves to nothing when the host runs no embedding model, or none at all", async () => {
+    expect(await resolveEmbedConfig({}, tags(["llama3:8b"]))).toBeNull();
+    expect(await resolveEmbedConfig({}, tags([], false))).toBeNull();
+    const down = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    expect(await resolveEmbedConfig({}, down)).toBeNull();
+  });
+
+  it("does not probe at all when auto-detection is opted out", async () => {
+    let called = false;
+    const spy = (async () => {
+      called = true;
+      return { ok: true, json: async () => ({ models: [] }) };
+    }) as unknown as typeof fetch;
+    expect(
+      await resolveEmbedConfig({ YOKE_NO_AUTO_EMBED: "1" }, spy),
+    ).toBeNull();
+    expect(called).toBe(false);
   });
 });
