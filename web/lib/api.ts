@@ -7,6 +7,7 @@
 import { clearCredential, getCredential } from "./credential";
 import type {
   AuditEntry,
+  CollaborationFlow,
   ConflictPair,
   CreatedToken,
   Edge,
@@ -101,6 +102,8 @@ export const api = {
   conflicts: () => request<ConflictPair[]>("/api/conflicts"),
   ontology: () => request<TypeDef[]>("/api/ontology"),
   overview: () => request<Overview>("/api/overview"),
+  flow: (scope: string) =>
+    request<CollaborationFlow>(`/api/flow?scope=${encodeURIComponent(scope)}`),
   persona: (id: string) =>
     request<Persona>(`/api/persona/${encodeURIComponent(id)}`),
   entities: (p: {

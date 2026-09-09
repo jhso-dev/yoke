@@ -34,12 +34,18 @@ import { KnowledgeTable } from "../../components/KnowledgeTable";
 import { Modal } from "../../components/Modal";
 import { Pagination, usePage } from "../../components/Pagination";
 import { Panel, PanelHead } from "../../components/Panel";
+import {
+  Sankey,
+  type SankeyBand,
+  type SankeyNode,
+} from "../../components/Sankey";
 import { StatusBadge } from "../../components/StatusBadge";
 import { api } from "../../lib/api";
 import { recordLabel } from "../../lib/citation";
 import { useT } from "../../lib/i18n";
 import { announce } from "../../lib/toast";
 import {
+  type CollaborationFlow,
   type InjectedKnowledge,
   isMissing,
   type Knowledge,
@@ -339,6 +345,100 @@ function AttachRecord({
   );
 }
 
+/** Author → type → outcome for one collaboration's knowledge, with who received it. */
+function KnowledgeFlow({ flow }: { flow: CollaborationFlow }) {
+  const t = useT();
+  const OUTCOMES = ["consumed", "linked", "isolated"] as const;
+  const label: Record<(typeof OUTCOMES)[number], string> = {
+    consumed: t.collaboration.consumed,
+    linked: t.collaboration.linkedOnly,
+    isolated: t.collaboration.isolated,
+  };
+  const nodes: SankeyNode[] = [];
+  const bands: SankeyBand[] = [];
+  const bump = (
+    key: string,
+    col: number,
+    text: string,
+    tone?: string,
+  ): void => {
+    const hit = nodes.find((x) => x.key === key);
+    if (hit) hit.n += 1;
+    else nodes.push({ key, label: text, n: 1, col, tone });
+  };
+  for (const r of flow.rows) {
+    const who = r.author ?? r.authorId ?? t.collaboration.noAuthor;
+    bump(`a:${who}`, 0, who);
+    bump(`t:${r.type}`, 1, r.type, "neutral");
+    bump(`o:${r.outcome}`, 2, label[r.outcome], `fo-${r.outcome}`);
+    bands.push({ from: `a:${who}`, to: `t:${r.type}`, n: 1 });
+    bands.push({ from: `t:${r.type}`, to: `o:${r.outcome}`, n: 1 });
+  }
+  // Fixed outcome order, so the eye reads the same shape on every collaboration and the
+  // reached-an-agent band is always the top one.
+  const rank = (k: string) =>
+    k.startsWith("o:")
+      ? OUTCOMES.indexOf(k.slice(2) as (typeof OUTCOMES)[number])
+      : 0;
+  nodes.sort((x, y) => x.col - y.col || rank(x.key) - rank(y.key) || y.n - x.n);
+  // One band per record would be one SVG path per record; merging equal endpoints keeps the picture
+  // to a few dozen ribbons whatever the collaboration holds.
+  const merged = [
+    ...bands
+      .reduce((m, b) => {
+        const k = `${b.from}->${b.to}`;
+        m.set(k, { ...b, n: (m.get(k)?.n ?? 0) + b.n });
+        return m;
+      }, new Map<string, SankeyBand>())
+      .values(),
+  ];
+  const count = (o: (typeof OUTCOMES)[number]) =>
+    flow.rows.filter((r) => r.outcome === o).length;
+  return (
+    <>
+      <Sankey
+        nodes={nodes}
+        bands={merged}
+        total={flow.rows.length}
+        columns={[
+          t.collaboration.flowAuthor,
+          t.collaboration.flowType,
+          t.collaboration.flowOutcome,
+        ]}
+        height={320}
+        title={t.collaboration.flowHeading}
+      />
+      <Alert variant="info">
+        {t.collaboration.flowSummary
+          .replace("{consumed}", String(count("consumed")))
+          .replace("{total}", String(flow.rows.length))
+          .replace("{isolated}", String(count("isolated")))}
+      </Alert>
+      <dl className="flow-legend">
+        <dt>{t.collaboration.consumed}</dt>
+        <dd>{t.collaboration.consumedNote}</dd>
+        <dt>{t.collaboration.linkedOnly}</dt>
+        <dd>{t.collaboration.linkedOnlyNote}</dd>
+        <dt>{t.collaboration.isolated}</dt>
+        <dd>{t.collaboration.isolatedNote}</dd>
+        {flow.agents.length > 0 && (
+          <>
+            <dt>{t.collaboration.receivedBy}</dt>
+            <dd>
+              {flow.agents
+                .map(
+                  (a) =>
+                    `${a.actorName ?? a.actor} (${t.collaboration.recordsSeen.replace("{n}", String(a.records))})`,
+                )
+                .join(", ")}
+            </dd>
+          </>
+        )}
+      </dl>
+    </>
+  );
+}
+
 /**
  * The shared working context, made visible.
  *
@@ -368,6 +468,12 @@ function CollaborationBody() {
   // `yoke_inject` anchored here. If this disagrees with what an agent sees, this screen is lying.
   const briefing = useAsync(
     () => (id ? api.inject({ scope: id, limit: 50 }) : Promise.resolve(null)),
+    [id],
+  );
+  // Author → type → what became of each attached record. The server classifies (front/display
+  // `collaborationFlow`, the same aggregate `yoke flow` prints); this screen only groups for drawing.
+  const flow = useAsync(
+    () => (id ? api.flow(id) : Promise.resolve(null)),
     [id],
   );
   // The create form is built from the ontology, so a tenant that renamed this type or added an
@@ -631,6 +737,16 @@ function CollaborationBody() {
           </>
         )}
       </Panel>
+
+      {flow.data && flow.data.rows.length > 0 && (
+        <Panel>
+          <PanelHead>
+            <CardTitle>{t.collaboration.flowHeading}</CardTitle>
+            <span className="muted">{t.collaboration.flowLede}</span>
+          </PanelHead>
+          <KnowledgeFlow flow={flow.data} />
+        </Panel>
+      )}
 
       <Panel>
         <PanelHead>

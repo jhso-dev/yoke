@@ -35,6 +35,7 @@ import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
 import {
   CONSUMPTION_WINDOW,
+  collaborationFlow,
   consumptionCounts,
   injectDetail,
   makeActorNames,
@@ -788,6 +789,31 @@ export function createUiHandler(
         res,
         200,
         await overview(store, store.loadOntology(ns), now(), { ns }),
+      );
+      return;
+    }
+
+    // One collaboration, followed from the people who wrote its knowledge to whether an agent was
+    // ever handed it. Same aggregate `yoke flow` prints — the screen renders it, it does not classify.
+    if (method === "GET" && path === "/api/flow") {
+      if (denied(res, "read")) return;
+      const scope = url.searchParams.get("scope");
+      if (!scope) throw new Error("scope is required");
+      const anchor = await store.getEntity(scope);
+      if (!anchor || normalizeNs(anchor.ns) !== normalizeNs(ns)) {
+        sendJson(res, 404, { error: "not found" });
+        return;
+      }
+      sendJson(
+        res,
+        200,
+        await collaborationFlow(
+          store,
+          store.loadOntology(ns),
+          scope,
+          store.listAudit({ ns, limit: CONSUMPTION_WINDOW }),
+          ns,
+        ),
       );
       return;
     }

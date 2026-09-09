@@ -296,6 +296,25 @@ export const en = {
     alreadyLinked: "These were already linked — nothing new was recorded.",
   },
   collaboration: {
+    flowHeading: "Where this work's knowledge went",
+    flowLede:
+      "Who recorded it, and whether an agent was ever handed it. One outcome per record, so the bands sum to what is attached.",
+    flowAuthor: "recorded by",
+    flowType: "type",
+    flowOutcome: "what became of it",
+    consumed: "reached an agent",
+    linkedOnly: "holds up other knowledge",
+    isolated: "nowhere yet",
+    consumedNote:
+      "an agent was actually handed it — the count is injections over the recent audit window",
+    linkedOnlyNote: "no agent has seen it, but other records stand on it",
+    isolatedNote:
+      "recorded, attached, and so far inert. Nothing cites it and nobody has been told it",
+    receivedBy: "received by",
+    recordsSeen: "{n} records",
+    flowSummary:
+      "{consumed} of {total} attached records have reached an agent. {isolated} have gone nowhere yet.",
+    noAuthor: "no recorded author",
     heading: "Collaborations",
     headingOne: "Collaboration",
     lede: "View the people and knowledge linked to one collaboration. Set its scope to make agents prioritize this collaboration's context.",

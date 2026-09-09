@@ -144,6 +144,23 @@ export interface TypeDef {
   structural?: boolean;
 }
 
+/** One record attached to a collaboration, and what became of it (front/display `collaborationFlow`). */
+export interface FlowRow {
+  id: string;
+  type: string;
+  author?: string;
+  authorId?: string;
+  outcome: "consumed" | "linked" | "isolated";
+  injections: number;
+  agents: string[];
+}
+
+export interface CollaborationFlow {
+  scope: string;
+  rows: FlowRow[];
+  agents: Array<{ actor: string; actorName?: string; records: number }>;
+}
+
 /** Counts per effective status — `stale` computed at read time, so this is what is injectable today. */
 export interface StatusCounts {
   draft: number;

@@ -695,3 +695,24 @@ td.num {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+/* Collaboration flow outcomes: reaching an agent is the verified tone, inert is the draft tone that
+   marks everything else awaiting a person. */
+.flow-fo-consumed {
+  fill: var(--tone-verified);
+}
+.flow-fo-linked {
+  fill: var(--muted-foreground);
+}
+.flow-fo-isolated {
+  fill: var(--tone-draft);
+}
+.flow-node.flow-fo-consumed,
+.flow-node.flow-fo-linked,
+.flow-node.flow-fo-isolated {
+  opacity: 1;
+}
+/* A column that carries no judgement (a type, an author): the ribbon into it must not borrow the
+   verified tone the default band uses. */
+.flow-neutral {
+  fill: var(--muted-foreground);
+}

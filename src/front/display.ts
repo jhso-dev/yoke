@@ -316,6 +316,140 @@ export function rankByConsumption<T extends { id: string }>(
     .map(({ e, injections }) => ({ ...e, injections }));
 }
 
+/** One record attached to a collaboration, and what became of it. */
+export interface FlowRow {
+  id: string;
+  type: string;
+  /** The `authored_by` edge, resolved for reading — never `provenance.actor`, which on a promoted
+   * record names whoever verified it (SPEC "never provenance.actor"). */
+  author?: string;
+  authorId?: string;
+  /** Where this record went. One outcome per record, so the bands sum to the attached total. */
+  outcome: "consumed" | "linked" | "isolated";
+  /** Times an agent was handed it, over CONSUMPTION_WINDOW. */
+  injections: number;
+  /** The agent identities that received it, most recent window only. */
+  agents: string[];
+}
+
+export interface CollaborationFlow {
+  scope: string;
+  rows: FlowRow[];
+  /** Who received this collaboration's knowledge, and how many of its records each one saw. */
+  agents: Array<{ actor: string; actorName?: string; records: number }>;
+}
+
+/**
+ * Where one collaboration's knowledge came from and what became of it: author → record → outcome.
+ *
+ * The three outcomes are ordered, and a record takes the FIRST that applies, so every record lands in
+ * exactly one band and the bands sum to the attached total:
+ *
+ *   `consumed` — an agent was actually handed it. The point of the product, so it outranks the rest.
+ *   `linked`   — no agent has seen it, but other knowledge stands on it (`relates_to`, `supersedes`,
+ *                `conflicts_with` to a non-structural record). It is holding something up.
+ *   `isolated` — neither. Recorded, attached, and so far inert.
+ *
+ * `isolated` is the number this function exists to produce. A collaboration screen listing 47
+ * attached records reads as 47 records of value; knowing that 30 of them have never left the
+ * database is the difference between a corpus and an archive, and no other surface says it.
+ *
+ * Consumption is read the same way the stale queue reads it — `consumptionCounts` over the same
+ * bounded window — rather than re-deriving it here, so "injected 12x" means one thing product-wide.
+ */
+export async function collaborationFlow(
+  store: YokeStore,
+  ontology: TypeDef[],
+  scope: string,
+  events: Array<{ actor: string; action: string; detail: string }>,
+  ns?: string | null,
+): Promise<CollaborationFlow> {
+  const wantNs = normalizeNs(ns);
+  const structural = new Set(
+    ontology
+      .filter((d) => d.kind === "entity" && d.structural)
+      .map((d) => d.name),
+  );
+  // Attached knowledge: what points at this collaboration and is not a roster edge. `authored_by`
+  // points at a person, so it can never name a member here, but filtering by TYPE rather than by
+  // direction keeps this agreeing with the collaboration screen's own list.
+  const edges = (await store.neighbors(scope)).filter(
+    (r) =>
+      normalizeNs(r.ns) === wantNs &&
+      r.type !== "works_on" &&
+      r.type !== "authored_by",
+  );
+  const ids = [
+    ...new Set(edges.map((r) => (r.from === scope ? r.to : r.from))),
+  ];
+  const records = (await readEntities(store, ids)).filter(
+    (e) => normalizeNs(e.ns) === wantNs && !structural.has(e.type),
+  );
+
+  const counts = consumptionCounts(events);
+  // Which agents saw which record — the same `detail` grammar consumptionCounts parses, kept in step
+  // by reading it the same way rather than by remembering to.
+  const seenBy = new Map<string, Set<string>>();
+  for (const e of events) {
+    if (e.action !== "inject" && e.action !== "persona") continue;
+    const arrow = e.detail.lastIndexOf(" -> ");
+    if (arrow === -1) continue;
+    for (const id of e.detail.slice(arrow + 4).split(" ")) {
+      if (!id) continue;
+      if (!seenBy.has(id)) seenBy.set(id, new Set());
+      seenBy.get(id)?.add(e.actor);
+    }
+  }
+
+  const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+  const rows: FlowRow[] = [];
+  for (const e of records) {
+    const near = (await store.neighbors(e.id)).filter(
+      (r) => normalizeNs(r.ns) === wantNs,
+    );
+    const authorId = near.find(
+      (r) => r.type === "authored_by" && r.from === e.id,
+    )?.to;
+    // "Holds something up" is about OTHER KNOWLEDGE, so the collaboration it hangs off and the person
+    // who wrote it do not count — otherwise every attached record is linked by construction and the
+    // band says nothing.
+    const others = near
+      .filter((r) => r.type !== "authored_by")
+      .map((r) => (r.from === e.id ? r.to : r.from))
+      .filter((id) => id !== scope);
+    const linked = (await readEntities(store, [...new Set(others)])).some(
+      (o) => normalizeNs(o.ns) === wantNs && !structural.has(o.type),
+    );
+    const injections = counts.get(e.id) ?? 0;
+    rows.push({
+      id: e.id,
+      type: e.type,
+      authorId,
+      author: authorId ? await nameOf(authorId) : undefined,
+      outcome: injections > 0 ? "consumed" : linked ? "linked" : "isolated",
+      injections,
+      agents: [...(seenBy.get(e.id) ?? [])].sort(),
+    });
+  }
+
+  const perAgent = new Map<string, number>();
+  for (const r of rows)
+    for (const a of r.agents) perAgent.set(a, (perAgent.get(a) ?? 0) + 1);
+  await prefetch(
+    [...perAgent.keys()].map((actor) => ({ provenance: { actor } })),
+  );
+  const agents = await Promise.all(
+    [...perAgent]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(async ([actor, records]) => ({
+        actor,
+        actorName: await nameOf(actor),
+        records,
+      })),
+  );
+  return { scope, rows, agents };
+}
+
 /**
  * An empty injection, said in words: what matched, and why none of it could be handed over.
  *

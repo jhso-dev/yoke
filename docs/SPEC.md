@@ -952,6 +952,8 @@ yoke verify <id...> [--all-drafts]   # promote (batch), refresh last_confirmed â
 yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction) â€” reports what derived_from it
 yoke inject <query> [--include-draft] [--limit n] [--scope id] [--depth n] [--as-of ts]   # retrieve, with citations
 yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
+yoke flow <collaboration-id>  # whose knowledge one unit of work holds, and what became of each record:
+                              # reached an agent / holds up other knowledge / nowhere yet, plus who received it
 yoke conflicts             # list conflicts_with
 yoke history <id>          # every version of one id (the append-only rows)
 yoke audit [--since ts] [--until ts] [--limit n] [--shape]   # the audit trail; both bounds inclusive; --shape counts workload composition

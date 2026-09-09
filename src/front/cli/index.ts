@@ -76,8 +76,10 @@ import type { Entity, Relation } from "../../core/types.js";
 import {
   CONSUMPTION_WINDOW,
   citeActors,
+  collaborationFlow,
   consumptionCounts,
   describeWithheld,
+  type FlowRow,
   injectDetail,
   injectShape,
   makeActorNames,
@@ -423,6 +425,7 @@ const COMMANDS = [
   "get",
   "list",
   "graph",
+  "flow",
   "search",
   "review",
   "verify",
@@ -474,6 +477,7 @@ getting started:
 
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
   overview                  the shape of the whole corpus: types, hubs, authors (--limit n)
+  flow <collaboration-id>   whose knowledge it holds, and what became of each record
   link <from> <relation> <to>   record a relation (works_on, supersedes, relates_to …)
 capture:    connect github-pr|slack|notes|rdb
   connect raw <dir>         a model proposes records from unstructured material (needs YOKE_LLM_*)
@@ -791,6 +795,8 @@ async function cmdLink(
 }
 
 const GET_USAGE = "usage: yoke get <id> [--version n] [--relations]";
+const FLOW_USAGE =
+  "usage: yoke flow <collaboration-id>\n  whose knowledge it holds, and whether an agent was ever handed it";
 
 async function cmdGet(
   positionals: string[],
@@ -1631,6 +1637,75 @@ async function cmdRenameType(
       to,
       rows,
     });
+    return 0;
+  });
+}
+
+// flow — whose knowledge a collaboration holds, and what became of each record. The counterpart to
+// `overview`: that one counts the whole namespace by status, this one follows ONE unit of work from
+// the people who wrote its knowledge to whether an agent was ever handed it.
+async function cmdFlow(
+  positionals: string[],
+  v: Values,
+  env: Env,
+): Promise<number> {
+  const scope = positionals[0];
+  if (!scope) {
+    console.error(FLOW_USAGE);
+    return 1;
+  }
+  const ns = resolveNs(v.ns, env);
+  return withStore(v, env, async (store) => {
+    const ontology = requireOntology(store, ns, v, env);
+    if (!ontology) return 1;
+    const anchor = await store.getEntity(scope);
+    if (!anchor || normalizeNs(anchor.ns) !== normalizeNs(ns)) {
+      console.error(
+        `no such record${ns ? ` in namespace ${ns}` : ""}: ${scope}`,
+      );
+      return 1;
+    }
+    // Same bounded window the stale queue counts over, and named on the summary line for the same
+    // reason: "injected 12x" must not read as an all-time total.
+    const flow = await collaborationFlow(
+      store,
+      ontology,
+      scope,
+      store.listAudit({ ns, limit: CONSUMPTION_WINDOW }),
+      ns,
+    );
+    const by = (o: FlowRow["outcome"]) =>
+      flow.rows.filter((r) => r.outcome === o);
+    const authors = new Map<string, FlowRow[]>();
+    for (const r of flow.rows) {
+      const k = r.author ?? r.authorId ?? "(no recorded author)";
+      authors.set(k, [...(authors.get(k) ?? []), r]);
+    }
+    const lines = [
+      `${summarize(anchor, ontology)}  [${scope}]`,
+      `${flow.rows.length} records attached`,
+      "",
+      "by author",
+      ...[...authors]
+        .sort((a, b) => b[1].length - a[1].length)
+        .map(([name, rs]) => {
+          const c = rs.filter((r) => r.outcome === "consumed");
+          const shots = c.reduce((a, r) => a + r.injections, 0);
+          return `  ${name}: ${rs.length} — ${c.length} reached an agent (${shots} injections), ${rs.filter((r) => r.outcome === "linked").length} linked only, ${rs.filter((r) => r.outcome === "isolated").length} nowhere yet`;
+        }),
+      "",
+      "what became of them",
+      `  consumed: ${by("consumed").length}`,
+      `  linked only: ${by("linked").length}`,
+      `  nowhere yet: ${by("isolated").length}`,
+      "",
+      flow.agents.length
+        ? `received by (most recent ${CONSUMPTION_WINDOW} audit rows)\n${flow.agents
+            .map((a) => `  ${a.actorName ?? a.actor}: ${a.records} records`)
+            .join("\n")}`
+        : "no agent has been handed any of it yet",
+    ];
+    emit(v, lines.join("\n"), flow);
     return 0;
   });
 }
@@ -2737,6 +2812,8 @@ export async function runCli(
         return await cmdConflicts(values, env);
       case "overview":
         return await cmdOverview(values, env);
+      case "flow":
+        return await cmdFlow(rest, values, env);
       case "ontology":
         return await cmdOntology(rest, values, env);
       case "connect":

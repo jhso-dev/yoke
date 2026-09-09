@@ -273,6 +273,26 @@ export const ko: typeof en = {
     alreadyLinked: "이미 연결돼 있어 새로 기록하지 않았습니다.",
   },
   collaboration: {
+    flowHeading: "이 일의 지식은 어디로 갔나",
+    flowLede:
+      "누가 기록했고, 에이전트에게 전달된 적이 있는지. 레코드마다 결과는 하나라서 띠의 합이 붙어 있는 지식 수와 같습니다.",
+    flowAuthor: "기록한 사람",
+    flowType: "타입",
+    flowOutcome: "무엇이 되었나",
+    consumed: "에이전트에 전달됨",
+    linkedOnly: "다른 지식을 떠받침",
+    isolated: "아직 아무 데도",
+    consumedNote:
+      "에이전트가 실제로 받아갔습니다 — 횟수는 최근 감사 구간의 주입 횟수입니다",
+    linkedOnlyNote:
+      "에이전트는 본 적 없지만 다른 레코드가 이것을 딛고 서 있습니다",
+    isolatedNote:
+      "기록되고 붙어 있지만 아직 아무 작용도 없습니다. 인용도 없고 전달된 적도 없습니다",
+    receivedBy: "받아간 에이전트",
+    recordsSeen: "{n}건",
+    flowSummary:
+      "붙어 있는 {total}건 중 {consumed}건이 에이전트에 전달됐습니다. {isolated}건은 아직 아무 데도 가지 않았습니다.",
+    noAuthor: "작성자 기록 없음",
     heading: "협업",
     headingOne: "협업",
     lede: "하나의 협업에 참여하는 사람과 연결된 지식을 확인합니다. scope를 지정하면 에이전트가 이 협업의 맥락을 우선해 답합니다.",
