@@ -148,6 +148,7 @@ export interface TypeDef {
 export interface FlowRow {
   id: string;
   type: string;
+  summary: string;
   author?: string;
   authorId?: string;
   outcome: "consumed" | "linked" | "isolated";

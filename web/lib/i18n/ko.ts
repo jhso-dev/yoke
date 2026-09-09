@@ -275,11 +275,11 @@ export const ko: typeof en = {
   collaboration: {
     flowHeading: "이 일의 지식은 어디로 갔나",
     flowLede:
-      '누가 기록했고, 실제로 누구에게 전달됐는지. 띠 하나가 전달 1건입니다 — 한 레코드가 세 에이전트에게 갔으면 3건, 아무에게도 안 갔으면 "아직" 1건입니다.',
-    flowAuthor: "기록한 사람",
-    flowType: "타입",
+      '여기 붙어 있는 레코드 하나하나가 실제로 누구에게 전달됐는지. 띠 하나가 전달 1건입니다 — 한 레코드가 세 에이전트에게 갔으면 3건, 아무에게도 안 갔으면 "아직" 1건입니다. 이름이 나오는 것은 가장 많이 전달된 레코드들입니다.',
+    flowKnowledge: "지식",
     flowRecipient: "전달된 곳",
     nobodyYet: "아직 아무에게도",
+    otherRecords: "그 외 레코드",
     recipientNote:
       "최근 감사 구간에서 이 협업의 지식이 실제로 주입된 에이전트와 사람",
     nobodyYetNote:
@@ -287,7 +287,6 @@ export const ko: typeof en = {
     isolatedNote: "그중 {n}건은 다른 레코드가 인용하지도 않습니다.",
     flowSummary:
       "붙어 있는 {total}건 중 {reached}건이 누군가에게 전달됐고, 받은 곳은 {people}곳입니다. {unreached}건은 아직 아무에게도 가지 않았습니다.",
-    noAuthor: "작성자 기록 없음",
     heading: "협업",
     headingOne: "협업",
     lede: "하나의 협업에 참여하는 사람과 연결된 지식을 확인합니다. scope를 지정하면 에이전트가 이 협업의 맥락을 우선해 답합니다.",

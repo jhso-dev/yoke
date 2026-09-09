@@ -320,6 +320,8 @@ export function rankByConsumption<T extends { id: string }>(
 export interface FlowRow {
   id: string;
   type: string;
+  /** The record in a few words, for a surface that names records rather than counting them. */
+  summary: string;
   /** The `authored_by` edge, resolved for reading — never `provenance.actor`, which on a promoted
    * record names whoever verified it (SPEC "never provenance.actor"). */
   author?: string;
@@ -424,6 +426,7 @@ export async function collaborationFlow(
     rows.push({
       id: e.id,
       type: e.type,
+      summary: summarize(e, ontology),
       authorId,
       author: authorId ? await nameOf(authorId) : undefined,
       outcome: injections > 0 ? "consumed" : linked ? "linked" : "isolated",

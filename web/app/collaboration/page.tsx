@@ -46,6 +46,7 @@ import { useT } from "../../lib/i18n";
 import { announce } from "../../lib/toast";
 import {
   type CollaborationFlow,
+  type FlowRow,
   type InjectedKnowledge,
   isMissing,
   type Knowledge,
@@ -346,51 +347,66 @@ function AttachRecord({
 }
 
 /**
- * Author → type → recipient for one collaboration's knowledge.
+ * This collaboration's knowledge, record by record, and who has been handed each one.
  *
- * The unit is a DELIVERY, not a record: one record handed to three agents is three, and a record
- * nobody has been handed is one "not yet". That is what makes the flow conserve — every column sums
- * to the same number — and it is also the honest unit for the question, since a record read by the
- * whole team is not the same event as one read once.
+ * Records, not categories: the question is which piece of knowledge reached whom, and a type column
+ * answers a different one. One band is one DELIVERY, so a record handed to three agents is three and
+ * a record nobody has been handed is a single "not yet" — that is what makes the flow conserve.
+ *
+ * Only the most-delivered records are named. The rest collapse into one row, because a column of 47
+ * labels is a list with ribbons attached rather than a picture, and the long tail here is mostly the
+ * records nobody has been handed at all — which the collapsed row and the legend both count.
  */
 function KnowledgeFlow({ flow }: { flow: CollaborationFlow }) {
   const t = useT();
+  const NAMED = 10;
   const NOBODY = "\u0000nobody";
-  // The recipient's readable name, resolved server-side; an unresolved actor keeps its id, which is
-  // what it is (an agent identity, not a person record).
   const named = new Map(
     flow.agents.map((a) => [a.actor, a.actorName ?? a.actor]),
   );
+  // Most-delivered first, so the named rows are the ones the question is actually about; ties fall
+  // back to the id so the order does not move between renders.
+  const sorted = [...flow.rows].sort(
+    (a, b) =>
+      b.agents.length - a.agents.length ||
+      b.injections - a.injections ||
+      a.id.localeCompare(b.id),
+  );
+  const shown = sorted.filter((r) => r.agents.length > 0).slice(0, NAMED);
+  const rest = sorted.filter((r) => !shown.includes(r));
+
   const nodes: SankeyNode[] = [];
   const bands: SankeyBand[] = [];
-  const bump = (key: string, col: number, text: string, tone?: string) => {
+  const bump = (key: string, col: number, label: string, tone?: string) => {
     const hit = nodes.find((x) => x.key === key);
     if (hit) hit.n += 1;
-    else nodes.push({ key, label: text, n: 1, col, tone });
+    else nodes.push({ key, label, n: 1, col, tone });
   };
-  for (const r of flow.rows) {
-    const who = r.author ?? r.authorId ?? t.collaboration.noAuthor;
+  const deliver = (fromKey: string, fromLabel: string, r: FlowRow) => {
     for (const to of r.agents.length > 0 ? r.agents : [NOBODY]) {
       const reached = to !== NOBODY;
-      bump(`a:${who}`, 0, who);
-      bump(`t:${r.type}`, 1, r.type, "neutral");
+      bump(fromKey, 0, fromLabel, "neutral");
       bump(
         `o:${to}`,
-        2,
+        1,
         reached ? (named.get(to) ?? to) : t.collaboration.nobodyYet,
         reached ? "fo-consumed" : "fo-isolated",
       );
-      bands.push({ from: `a:${who}`, to: `t:${r.type}`, n: 1 });
-      bands.push({ from: `t:${r.type}`, to: `o:${to}`, n: 1 });
+      bands.push({ from: fromKey, to: `o:${to}`, n: 1 });
     }
-  }
-  // "Not yet" sits last whatever its size, so the recipients read as a list and the gap reads as the
-  // gap. Everything else falls by volume.
+  };
+  // Shorter than `summarize`'s own cap: these labels sit over the ribbons, and a 60-character one
+  // crosses the whole picture. Enough to recognise the record, and its id is a click away in browse.
+  const short = (r: FlowRow) =>
+    `${r.summary.length > 34 ? `${r.summary.slice(0, 34)}…` : r.summary} (${r.type})`;
+  for (const r of shown) deliver(`k:${r.id}`, short(r), r);
+  for (const r of rest) deliver("k:rest", t.collaboration.otherRecords, r);
+
+  // Named records keep their delivered-first order; the collapsed row and "nobody yet" sit last on
+  // their own sides, so the gap reads as the gap rather than as another recipient.
+  const order = (k: string) => (k === "k:rest" || k === `o:${NOBODY}` ? 1 : 0);
   nodes.sort(
-    (x, y) =>
-      x.col - y.col ||
-      Number(x.key === `o:${NOBODY}`) - Number(y.key === `o:${NOBODY}`) ||
-      y.n - x.n,
+    (a, b) => a.col - b.col || order(a.key) - order(b.key) || b.n - a.n,
   );
   const merged = [
     ...bands
@@ -401,20 +417,15 @@ function KnowledgeFlow({ flow }: { flow: CollaborationFlow }) {
       }, new Map<string, SankeyBand>())
       .values(),
   ];
-  const deliveries = bands.filter((b) => b.from.startsWith("t:")).length;
   const unreached = flow.rows.filter((r) => r.agents.length === 0);
   return (
     <>
       <Sankey
         nodes={nodes}
         bands={merged}
-        total={deliveries}
-        columns={[
-          t.collaboration.flowAuthor,
-          t.collaboration.flowType,
-          t.collaboration.flowRecipient,
-        ]}
-        height={320}
+        total={bands.length}
+        columns={[t.collaboration.flowKnowledge, t.collaboration.flowRecipient]}
+        height={420}
         title={t.collaboration.flowHeading}
       />
       <Alert variant="info">
@@ -430,9 +441,6 @@ function KnowledgeFlow({ flow }: { flow: CollaborationFlow }) {
         <dt>{t.collaboration.nobodyYet}</dt>
         <dd>
           {t.collaboration.nobodyYetNote}
-          {/* Of the records nobody has been handed, the ones other knowledge stands on are a
-              different problem from the ones nothing touches at all — the queue to work is the
-              second. The classification is the server's; this only reports it. */}
           {unreached.some((r) => r.outcome === "isolated") && (
             <>
               {" "}

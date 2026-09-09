@@ -298,18 +298,17 @@ export const en = {
   collaboration: {
     flowHeading: "Where this work's knowledge went",
     flowLede:
-      'Who recorded it, and who has actually been handed it. One band is one delivery — a record given to three agents is three, and one nobody has been given is a "not yet".',
-    flowAuthor: "recorded by",
-    flowType: "type",
+      'Each record attached here and who has actually been handed it. One band is one delivery — a record given to three agents is three, and one nobody has been given is a "not yet". Only the most-delivered records are named.',
+    flowKnowledge: "knowledge",
     flowRecipient: "handed to",
     nobodyYet: "nobody yet",
+    otherRecords: "other records",
     recipientNote:
       "the agents and people this collaboration's knowledge has actually been injected into, over the recent audit window",
     nobodyYetNote: "attached here, but no agent or person has been handed it.",
     isolatedNote: "{n} of those are not cited by any other record either.",
     flowSummary:
       "{reached} of {total} attached records have been handed to someone, across {people} recipients. {unreached} have reached nobody yet.",
-    noAuthor: "no recorded author",
     heading: "Collaborations",
     headingOne: "Collaboration",
     lede: "View the people and knowledge linked to one collaboration. Set its scope to make agents prioritize this collaboration's context.",
