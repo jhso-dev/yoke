@@ -9,6 +9,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type { AuditEvent } from "../../adapters/storage-sqlite/index.js";
+import {
+  findByExternalId,
+  sameContent,
+  unusableKey,
+} from "../../connectors/ingest.js";
 import { overview } from "../../core/aggregate.js";
 import { CommitRejected, commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
@@ -40,6 +45,31 @@ import {
 import { openStore } from "../store.js";
 
 const ORIGIN = "mcp";
+
+/**
+ * Server instructions — the knowledge loop, shipped in-band to every MCP client.
+ *
+ * This is the one harness yoke itself can ship without a per-client adapter (invariant 3): the
+ * protocol carries it, so it reaches Claude, Codex and the rest identically. It only ENCOURAGES —
+ * everything that must hold regardless of whether an agent listens (drafts only, the gate, one
+ * record per external id) is enforced server-side, so an agent that ignores all of this can add
+ * noise but cannot corrupt the corpus.
+ */
+export const INSTRUCTIONS =
+  "yoke is the governed knowledge base: yoke_inject returns only human-verified records, each with " +
+  "a citation and its last-confirmed date. The knowledge loop:\n" +
+  "1. Before non-trivial work, call yoke_inject with your question (set scope when you know the " +
+  "working context).\n" +
+  "2. Also consult the live sources you can reach (Slack, wikis, databases, code) — yoke never " +
+  "searches them for you, and a verified record may lag reality; judge from its last-confirmed date.\n" +
+  "3. File back only the DELTA between what you learned and what yoke returned, via yoke_commit:\n" +
+  "   - already in yoke: file nothing.\n" +
+  "   - new: commit it (it lands as a draft for human review). Set attributes.sources to the origin " +
+  "pointer plus a short verbatim excerpt, so a reviewer can check the claim without you.\n" +
+  "   - contradicts a yoke record: commit it AND link the two with a conflicts_with relation. Do " +
+  "not decide the winner — the disagreement itself is knowledge.\n" +
+  "4. Decisions you make mid-task go to yoke_record_decision as you make them, with the rejected " +
+  "alternatives.";
 
 export interface YokeMcpDeps {
   /** logAudit (PLAN 8.4) is optional: adapters without it simply skip injection auditing.
@@ -126,7 +156,10 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   const authorize = deps.authorize ?? (() => true);
   const forbidden = () =>
     err("forbidden: token scope does not allow this action");
-  const server = new McpServer({ name: "yoke", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "yoke", version: "0.1.0" },
+    { instructions: INSTRUCTIONS },
+  );
 
   // Input actor > server startup env (defaultActor) > 'yoke:system' (already folded into defaultActor).
   const resolveActor = (actor?: string) => actor ?? defaultActor;
@@ -149,6 +182,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     actor?: string,
     scope?: string,
     derivedFrom?: string[],
+    externalId?: string,
   ) {
     if (!authorize("write", input.type)) return forbidden();
     const ts = now();
@@ -157,7 +191,55 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       origin: ORIGIN,
       occurred_at: ts,
     };
+    // externalId identifies ONE SOURCE ITEM, so it rides entity records only — a relation is not a
+    // mirror of anything. Checked before any write.
+    if (externalId !== undefined && "from" in input)
+      return err("externalId applies to entity records, not relations");
+    if (externalId !== undefined) {
+      const bad = unusableKey(externalId);
+      if (bad) return err(`rejected (ontology): ${bad}`);
+    }
     try {
+      // The agent-as-connector idempotency probe. Same key + same content = a no-op, so re-filing a
+      // source item across sessions cannot duplicate it. Same key + DIFFERENT content is refused with
+      // instructions rather than re-versioned: re-versioning demotes the stored head to draft, which
+      // would hand any writer the power to knock verified knowledge out of injection — the promotion
+      // authority this server deliberately does not expose (see the header). The stored record stays
+      // authoritative for that source item; a disagreement is filed as its own record plus a
+      // conflicts_with edge, which is policy rule 6 rather than a workaround.
+      if (externalId !== undefined) {
+        const pulled = { ...input.attributes, external_id: externalId };
+        // The probe runs as a critical section where the port offers one (C4 in ingest.ts).
+        // ceiling: the commit below runs OUTSIDE it, so two agents filing one source item in the same
+        // instant can still both insert — an accepted window on this path (agent traffic is sparse,
+        // both land as drafts, and the reviewer sees twins), where ingestItem's bulk syncs close it.
+        // Wrap the whole body if agent-driven filing ever becomes bulk.
+        const probe = async () => {
+          const stored = await findByExternalId(store, externalId, ns);
+          if (!stored) return null;
+          return sameContent(stored, pulled)
+            ? ok(
+                JSON.stringify({
+                  id: stored.id,
+                  version: stored.version,
+                  status: stored.status,
+                  skipped:
+                    "already recorded with this externalId and identical content — nothing was written",
+                }),
+              )
+            : err(
+                `a record with externalId ${externalId} already exists as ${stored.id} with different ` +
+                  `content, and it stays authoritative for that source item. File your knowledge again ` +
+                  `WITHOUT externalId, putting the pointer in attributes.sources — and if the two ` +
+                  `disagree, link them with a conflicts_with relation instead of choosing a winner.`,
+              );
+        };
+        const settled = store.withCriticalSection
+          ? await store.withCriticalSection(probe)
+          : await probe();
+        if (settled) return settled;
+        input = { ...input, attributes: pulled };
+      }
       // Capture-side linking (v4.0): attach the new knowledge to the scope entity via relates_to.
       // Passed INTO the gate, not filed as a second commit — otherwise a bad endpoint refuses AFTER
       // the entity is durable, telling the agent "rejected" about a record that exists (see `attachTo`
@@ -418,7 +500,12 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         "are. To record a decision, use yoke_record_decision.\n" +
         'A relation is knowledge in its own right: "this decision replaced that one" and "these two ' +
         'records disagree" are things only you may know after reading both, and injection reads both — a ' +
-        "superseded record stops being served, and contradicting ones are served marked as disputed.",
+        "superseded record stops being served, and contradicting ones are served marked as disputed.\n" +
+        "When you learned something from a live source (Slack, a wiki, a database), file only what yoke " +
+        "does not already have: compare against what yoke_inject returned and commit the delta, with " +
+        "attributes.sources set to the origin pointer plus a short verbatim excerpt so a reviewer can " +
+        "check the claim. If it contradicts an injected record, commit it anyway and add a conflicts_with " +
+        "relation — do not decide the winner.",
       inputSchema: {
         type: z
           .string()
@@ -458,9 +545,18 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .array(z.string())
           .optional()
           .describe(DERIVED_FROM_DESC),
+        externalId: z
+          .string()
+          .optional()
+          .describe(
+            "Idempotency key, ONLY when filing one source item essentially verbatim (a message, a " +
+              "row, a page section): <system>:<kind>:<id>, e.g. slack:C042:1700.001. Re-filing the " +
+              "same item is then a no-op. A distillation of several sources carries " +
+              "attributes.sources instead of this",
+          ),
       },
     },
-    ({ type, attributes, actor, scope, derived_from, from, to }) =>
+    ({ type, attributes, actor, scope, derived_from, from, to, externalId }) =>
       // Relation types carry from/to; entity types omit them.
       doCommit(
         from !== undefined && to !== undefined
@@ -469,6 +565,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         actor,
         scope,
         derived_from,
+        externalId,
       ),
   );
 

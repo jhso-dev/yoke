@@ -761,6 +761,24 @@ picks the wrong scope.
 | `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
 | `yoke_overview` | the shape of the whole corpus — structure, never a summary (see "Global aggregation") |
 
+### The knowledge loop (demand-driven capture)
+
+The server ships MCP `instructions` telling every connected agent the loop: inject first,
+also consult the live sources it can reach (yoke never searches them — invariant 5 plus
+one auth stack per source is why), and file back only the **delta** against what inject
+returned — new knowledge as a draft with `attributes.sources` (origin pointer + a verbatim
+excerpt, so a reviewer can check the claim), contradictions as a record plus a
+`conflicts_with` edge (gate rule 6), nothing when yoke already has it. The delta filter is
+what keeps the review queue growing at the rate knowledge changes, not the rate questions
+are asked. Whether an org makes step 2 mandatory is its harness's line, not a server flag.
+
+`yoke_commit` takes an optional `externalId` for the one case an agent files a source item
+essentially verbatim: same key + same content is a no-op (the connector idempotency probe,
+`findByExternalId`/`sameContent`), and same key + different content is **refused with
+instructions** rather than re-versioned — re-versioning would demote the stored head to
+draft, handing any writer the promotion authority this server deliberately does not expose.
+A distillation carries `sources`, never `externalId`.
+
 ## HTTP API (v5.0 contract)
 
 Served by `yoke ui` (local, ungated, loopback) and `yoke serve` (gated by `--auth`). The

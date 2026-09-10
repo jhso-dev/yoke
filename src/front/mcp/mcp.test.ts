@@ -110,6 +110,79 @@ describe("yoke MCP server", () => {
     await s.close();
   });
 
+  it("ships the knowledge loop as server instructions, over the protocol", async () => {
+    const s = await openSession();
+    const got = s.client.getInstructions() ?? "";
+    // The loop's load-bearing clauses, not the whole prose: the delta filter, the review-checkable
+    // provenance convention, and the contradiction rule.
+    expect(got).toContain("DELTA");
+    expect(got).toContain("verbatim excerpt");
+    expect(got).toContain("conflicts_with");
+    await s.close();
+  });
+
+  it("yoke_commit externalId: re-filing the same source item is a no-op, not a duplicate", async () => {
+    const s = await openSession();
+    const args = {
+      type: "fact",
+      attributes: {
+        title: "Refund window",
+        statement: "Refunds close after 14 days",
+        sources: 'neo4j:Policy:4:kg:1 — "refunds close after 14 days"',
+      },
+      externalId: "neo4j:Policy:4:kg:1",
+    };
+    const first = await s.client.callTool({
+      name: "yoke_commit",
+      arguments: args,
+    });
+    expect(first.isError).toBeFalsy();
+    const id = (JSON.parse(text(first)) as { id: string }).id;
+
+    const again = await s.client.callTool({
+      name: "yoke_commit",
+      arguments: args,
+    });
+    expect(again.isError).toBeFalsy();
+    const body = JSON.parse(text(again)) as { id: string; skipped?: string };
+    expect(body.id).toBe(id);
+    expect(body.skipped).toContain("nothing was written");
+
+    // Different content under the SAME key is refused with instructions, never re-versioned: the
+    // stored head must not drop out of injection on an agent's say-so (promotion authority stays
+    // off this surface). The guidance names the sources+conflicts_with path instead.
+    const changed = await s.client.callTool({
+      name: "yoke_commit",
+      arguments: {
+        ...args,
+        attributes: {
+          ...args.attributes,
+          statement: "Refunds close after 30 days",
+        },
+      },
+    });
+    expect(changed.isError).toBe(true);
+    expect(text(changed)).toContain(id);
+    expect(text(changed)).toContain("conflicts_with");
+    const stored = await s.store.getEntity(id);
+    expect(stored?.version).toBe(1);
+
+    // A relation is not a mirror of a source item, so the key is refused there outright.
+    const rel = await s.client.callTool({
+      name: "yoke_commit",
+      arguments: {
+        type: "relates_to",
+        from: id,
+        to: id,
+        attributes: {},
+        externalId: "neo4j:REL:1",
+      },
+    });
+    expect(rel.isError).toBe(true);
+    expect(text(rel)).toContain("entity records");
+    await s.close();
+  });
+
   it("does not expose verify/deprecate tools (governance: agents may only ingest drafts)", async () => {
     const s = await openSession();
     const { tools } = await s.client.listTools();

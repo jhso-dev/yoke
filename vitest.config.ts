@@ -32,6 +32,12 @@ import { defineConfig } from "vitest/config";
 // has a cause of its own — never to buy headroom that belongs here.
 export default defineConfig({
   test: {
+    // An unconfigured embedder probes a local Ollama (core/embedding `resolveEmbedConfig`), so on a
+    // developer machine that happens to be running one the suite would embed for real — different
+    // results here than in CI, from a service the tests never asked for. Opting out makes "no
+    // embedder configured" mean the same thing everywhere. Cases that exercise the probe inject
+    // their own fetch and pass their own env, so this does not hide it.
+    env: { YOKE_NO_AUTO_EMBED: "1" },
     pool: "forks",
     poolOptions: { forks: { singleFork: true } },
     dangerouslyIgnoreUnhandledErrors: true,

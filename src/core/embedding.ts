@@ -108,24 +108,134 @@ export function serializeText(
     .join(". ");
 }
 
+/** Where an unconfigured install looks for an embedder: the default local Ollama. */
+const OLLAMA = "http://localhost:11434";
+
 /**
- * A fetch Embedder for OpenAI-compatible /embeddings endpoints.
- * Returns an always-null no-op when YOKE_EMBED_URL / YOKE_EMBED_MODEL are unset.
- * YOKE_EMBED_KEY, if present, is used for Bearer auth; if absent it is omitted (allowing keyless local endpoints).
- * No SDK — fetch is called directly.
+ * Embedding models auto-selected from a local Ollama, best first.
+ *
+ * Multilingual first, and that order is the point: an English-centric model on a corpus with
+ * substantial non-English knowledge makes the vector half of retrieval useless — indistinguishable
+ * from having no embedder, while looking configured. An English-only model is still selected when it
+ * is all that is installed, because hybrid fusion keeps the keyword half either way.
+ *
+ * Matched as a tag PREFIX: Ollama reports `bge-m3:latest`, and the tag is what the API wants back.
  */
-export function makeFetchEmbedder(env: Env): Embedder {
+const AUTO_MODELS = [
+  "bge-m3",
+  "snowflake-arctic-embed2",
+  "multilingual-e5",
+  "granite-embedding",
+  "mxbai-embed-large",
+  "nomic-embed-text",
+  "snowflake-arctic-embed",
+  "all-minilm",
+];
+
+export interface EmbedConfig {
+  url: string;
+  model: string;
+  key?: string;
+  /** True when this came from a probe rather than from YOKE_EMBED_*. */
+  auto?: boolean;
+}
+
+/**
+ * The embedding endpoint this environment should use, or null when there is none.
+ *
+ * Explicit env wins. Otherwise a reachable local Ollama holding one of `AUTO_MODELS` is used
+ * WITHOUT configuration — vectors are on by default, and nothing is asked of the user: the probe is
+ * loopback and keyless, so the local path still never requires a credential (invariant 4). The
+ * environment is read, never written: yoke uses what it finds and says so, rather than editing
+ * anyone's shell.
+ *
+ * `YOKE_NO_AUTO_EMBED` opts out of the probe entirely, for an air-gapped or locked-down host where
+ * an unrequested loopback call is itself unwanted.
+ *
+ * Bounded and failure-tolerant: an unreachable or slow Ollama resolves to null within the timeout
+ * rather than delaying the command that asked.
+ */
+export async function resolveEmbedConfig(
+  env: Env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<EmbedConfig | null> {
   const url = env.YOKE_EMBED_URL;
   const model = env.YOKE_EMBED_MODEL;
-  const key = env.YOKE_EMBED_KEY;
-  if (!url || !model) return async () => null;
+  if (url && model) return { url, model, key: env.YOKE_EMBED_KEY };
+  if (url || model || env.YOKE_NO_AUTO_EMBED) return null;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 300);
+  try {
+    const res = await fetchImpl(`${OLLAMA}/api/tags`, { signal: ac.signal });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as {
+      models?: { name?: string }[];
+    } | null;
+    const tags = (body?.models ?? []).map((m) => m.name ?? "").filter((n) => n);
+    for (const want of AUTO_MODELS) {
+      const hit = tags.find((t) => t.startsWith(want));
+      if (hit) return { url: `${OLLAMA}/v1`, model: hit, auto: true };
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
-  if (key) headers.authorization = `Bearer ${key}`;
+/** Said once per process, not once per record: a per-commit line would bury the sync it annotates. */
+let announced = false;
+
+/** Mark the notice as already said, for a caller that has just said it more fully (CLI `init`). */
+export function suppressEmbedAnnounce(): void {
+  announced = true;
+}
+
+/**
+ * What the absence (or the auto-discovery) of an embedder means, said once, at the moment of use.
+ *
+ * Every surface routes through `makeFetchEmbedder`, so this is the one place that has to know —
+ * a per-command warning in the CLI, MCP and HTTP tiers would be three copies that drift.
+ */
+function announce(cfg: EmbedConfig | null): void {
+  if (announced) return;
+  announced = true;
+  if (cfg?.auto)
+    console.error(
+      `yoke: using the embedder found at ${cfg.url} (${cfg.model}) — set YOKE_EMBED_URL/MODEL to pin a different one`,
+    );
+  else if (!cfg)
+    console.error(
+      "yoke: no embedding provider — retrieval is keyword-only (a query that shares no words with a " +
+        "record will not find it), and duplicate/contradiction detection is skipped. Run an embedding " +
+        `model locally (e.g. 'ollama pull ${AUTO_MODELS[0]}') or set YOKE_EMBED_URL and YOKE_EMBED_MODEL`,
+    );
+}
+
+/**
+ * A fetch Embedder for OpenAI-compatible /embeddings endpoints.
+ *
+ * Resolution is LAZY and cached: the first embed call resolves the endpoint (env, else a local
+ * probe — see `resolveEmbedConfig`) and every later call reuses it, so a command that never embeds
+ * never probes. Unavailable is a null vector, never a throw: retrieval falls back to FTS and the
+ * commit gate skips duplicate detection.
+ */
+export function makeFetchEmbedder(env: Env): Embedder {
+  let resolving: Promise<EmbedConfig | null> | undefined;
 
   return async (text: string): Promise<Float32Array | null> => {
+    resolving ??= resolveEmbedConfig(env).then((cfg) => {
+      announce(cfg);
+      return cfg;
+    });
+    const cfg = await resolving;
+    if (!cfg) return null;
+    const { url, model, key } = cfg;
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    if (key) headers.authorization = `Bearer ${key}`;
     try {
       const res = await fetch(`${url.replace(/\/$/, "")}/embeddings`, {
         method: "POST",

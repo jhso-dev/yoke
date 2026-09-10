@@ -40,7 +40,10 @@ export async function findByExternalId(
  * so a key it no longer produces is neither compared nor overwritten. Comparing everything stored would
  * make every run after a mapping change report a difference it cannot resolve.
  */
-function sameContent(stored: Entity, next: Record<string, unknown>): boolean {
+export function sameContent(
+  stored: Entity,
+  next: Record<string, unknown>,
+): boolean {
   return Object.keys(next).every(
     (k) => JSON.stringify(stored.attributes[k]) === JSON.stringify(next[k]),
   );
@@ -66,7 +69,7 @@ export interface IngestResult {
  * un-deduplicable forever, so reject it rather than generate one. (The rdb path guards its own `idColumn`
  * at its call site.)
  */
-function unusableKey(externalId: unknown): string | null {
+export function unusableKey(externalId: unknown): string | null {
   const bad = new Set(["undefined", "null", "NaN", ""]);
   const noValue = (shown: string) =>
     `external id has no identifying value: ${shown} — the source item is missing the field the key is built from`;

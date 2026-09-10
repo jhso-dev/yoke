@@ -42,7 +42,11 @@ import {
   backfillOccurredAt,
 } from "../../core/backfill.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
-import { makeFetchEmbedder } from "../../core/embedding.js";
+import {
+  makeFetchEmbedder,
+  resolveEmbedConfig,
+  suppressEmbedAnnounce,
+} from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
   envKeywordWeight,
@@ -73,6 +77,7 @@ import {
   safeName,
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
+import { readEntities } from "../../ports/storage.js";
 import {
   CONSUMPTION_WINDOW,
   citeActors,
@@ -551,41 +556,27 @@ async function withStore<T>(
  * useless on a corpus with substantial non-English knowledge — indistinguishable from no embedder. */
 const SUGGESTED_EMBED_MODEL = "bge-m3";
 
-// Ollama auto-detect (TTY init only): a reachable local Ollama with no embedder
-// configured means duplicate/contradiction detection is silently off. Suggest the
-// two env vars that enable it — and never write them, because a tool that edits the
-// environment behind you is worse than one that tells you what to type.
-// Never blocks (300ms timeout) and never fails init.
-async function suggestOllamaIfIdle(env: Env): Promise<void> {
-  if (env.YOKE_EMBED_URL) return;
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 300);
-  try {
-    const res = await fetch("http://localhost:11434/api/tags", {
-      signal: ac.signal,
-    });
-    if (!res.ok) return;
-    // The same response already lists the installed models, so the advice can be exact instead of
-    // sending someone to configure a model they do not have.
-    const body = (await res.json().catch(() => null)) as {
-      models?: { name?: string }[];
-    } | null;
-    const has = (body?.models ?? []).some((m) =>
-      (m.name ?? "").startsWith(SUGGESTED_EMBED_MODEL),
-    );
-    console.log(
-      log.warn(
-        "embedding provider not configured — Ollama detected; " +
-          (has ? "" : `run 'ollama pull ${SUGGESTED_EMBED_MODEL}', then `) +
-          `export YOKE_EMBED_URL=http://localhost:11434/v1 YOKE_EMBED_MODEL=${SUGGESTED_EMBED_MODEL} ` +
-          "to enable duplicate/contradiction detection",
-      ),
-    );
-  } catch {
-    // unreachable / timed out — stay silent
-  } finally {
-    clearTimeout(timer);
-  }
+// What `init` says about embeddings: the state of retrieval on this machine, resolved by the SAME
+// function every later command embeds through (core `resolveEmbedConfig`) so the two cannot disagree
+// about whether an embedder exists. Never blocks (the resolver is bounded) and never fails init.
+async function reportEmbedderAtInit(env: Env): Promise<void> {
+  const cfg = await resolveEmbedConfig(env);
+  // Pinned by env: the operator already knows, and repeating their own configuration is noise.
+  if (cfg && !cfg.auto) return;
+  // Silence the one-shot runtime notice: init has just said the same thing, more fully.
+  suppressEmbedAnnounce();
+  console.log(
+    cfg
+      ? log.ok(
+          `embeddings on — using ${cfg.model} at ${cfg.url} (no configuration needed; ` +
+            "set YOKE_EMBED_URL/MODEL to pin a different provider)",
+        )
+      : log.warn(
+          "no embedding provider — retrieval will be keyword-only and duplicate/contradiction " +
+            `detection is skipped. Run 'ollama pull ${SUGGESTED_EMBED_MODEL}' (it is then used ` +
+            "automatically), or set YOKE_EMBED_URL and YOKE_EMBED_MODEL",
+        ),
+  );
 }
 
 async function cmdInit(v: Values, env: Env): Promise<number> {
@@ -642,7 +633,7 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
         );
         console.log(log.ok("system actor ready"));
         console.log(getStartedBlock());
-        await suggestOllamaIfIdle(env);
+        await reportEmbedderAtInit(env);
       } else {
         emit(v, `initialized: ${store_}`, { db, store: store_, seeded: true });
       }
@@ -886,9 +877,31 @@ async function cmdGet(
       dir: r.from === id ? ("out" as const) : ("in" as const),
       other: r.from === id ? r.to : r.from,
     }));
-    const lines = edges.map(
-      (r) => `  ${r.dir === "out" ? "->" : "<-"} ${r.type}  ${r.other}`,
-    );
+    // The other end by NAME and its edge's own attributes. A relation type may carry knowledge in
+    // its attributes — the seed's `relates_to`/`supersedes`/`conflicts_with` all declare `rationale`,
+    // and a `yoke ontology add-type` relation can declare anything — so a line that prints only the
+    // type prints the edge's existence while dropping what it says. One batch read for every other
+    // end, the same shape `makeActorNames` uses for authors.
+    const others = await readEntities(store, [
+      ...new Set(edges.map((r) => r.other)),
+    ]);
+    const byId = new Map(others.map((o) => [o.id, o]));
+    const lines = edges.map((r) => {
+      const other = byId.get(r.other);
+      // Named, with the id kept: the id is the copyable handle every other command takes, and a
+      // record from another namespace resolves to nothing here rather than leaking its text.
+      const end =
+        other && normalizeNs(other.ns) === normalizeNs(getNs)
+          ? `${summarize(other, ontology) || other.type}  ${r.other}`
+          : r.other;
+      const said = Object.entries(r.attributes)
+        .filter(([, v]) => typeof v === "string" && v.trim())
+        .map(([k, v]) => `${k}: ${v as string}`);
+      return (
+        `  ${r.dir === "out" ? "->" : "<-"} ${r.type}  ${end}` +
+        said.map((s) => `\n       ${s}`).join("")
+      );
+    });
     emit(
       v,
       [head, lines.length ? lines.join("\n") : "  (no relations)"].join("\n"),
