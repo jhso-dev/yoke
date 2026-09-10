@@ -678,6 +678,16 @@ shape rather than imported:
       `PostToolUse` run `--unseen` (or the `curl` above on a team server); only `PostToolUse` needs the
       `additionalContext` envelope, because Claude Code feeds plain stdout to the model on the other
       two and not on that one
+- [x] **The line's wording is what makes an agent stop, and it is measured** (2026-09-10, real
+      `claude -p` sessions with these hooks installed, Opus 5, N=1 per case). Delivery reaches the
+      model: briefed with "PG는 토스페이먼츠", the agent implemented Toss. Reversed **before** it wrote
+      anything, it named both ids and the supersession and went on with the new decision — right, since
+      nothing was sunk. Reversed **after** the Toss implementation was on disk, it stopped, left the
+      file untouched, reported the change and asked, giving its reason as the line itself: *"훅이
+      're-check with the user before building on them'이라 명시해서, 나이스페이로 갈아엎지 않고
+      멈췄습니다."* So **do not harden that line into "always stop"** — it is what splits the two cases
+      correctly, and a stronger instruction would stall the case with nothing to lose. Not measured:
+      interactive mode (print mode has nobody to answer), other models, repetition
 
 ## v6.3 — what is said about the knowledge lives on the knowledge
 
