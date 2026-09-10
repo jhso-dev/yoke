@@ -1,0 +1,45 @@
+src/adapters/storage-sqlite/index.ts
+  s_03673cb32bfdc1::t_8651201ef6afc9 93,852,887,897-898,1020-1021
+src/core/commit.test.ts
+  s_03673cb32bfdc1::t_77959b386497a8 230-242
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_4099b76d77f168 60,858-859
+  s_03673cb32bfdc1::t_a18ae22804c6fe 1205-1208,1421,1424-1425,1427
+src/front/cli/cli.test.ts
+  s_03673cb32bfdc1::t_c4eb105afc5e77 969-1026
+src/core/commit.ts
+  s_03673cb32bfdc1::t_e98e32bc3a962c 17
+  s_03673cb32bfdc1::t_749bef7ae26adf 233-236,238
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_dcb45219604d02 728-729,731
+  s_03673cb32bfdc1::t_8651201ef6afc9 1226-1232
+  s_03673cb32bfdc1::t_268e2248a83a39 23
+src/core/lifecycle.test.ts
+  s_03673cb32bfdc1::t_77959b386497a8 12,504-535,540-559
+  s_03673cb32bfdc1::t_c4eb105afc5e77 536-539
+  s_03673cb32bfdc1::t_b932a4f040b4c5 560-561
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_44cef69c6785f0 656-667
+src/core/lifecycle.ts
+  s_03673cb32bfdc1::t_749bef7ae26adf 13,54,118-120,122,126,189-190,197,199-220
+src/core/types.ts
+  s_03673cb32bfdc1::t_749bef7ae26adf 24-29
+docs/SPEC.md
+  s_03673cb32bfdc1::t_44cef69c6785f0 19-20,818-831
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "64f71b2ec5303adc81e5c2b37e016b3d70304a6d",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
