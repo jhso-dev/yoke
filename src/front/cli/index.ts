@@ -2418,11 +2418,17 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
 }
 
 // token (PLAN-V2 10.3): API tokens for serve-mode Bearer auth. Secret is shown once on create.
+// A PERSON on a GitHub org does not need this — the exchange mints their token from the identity
+// they already have (SPEC "GitHub exchange"). This command is for what the exchange cannot cover:
+// machine actors (CI, scheduled connectors), the bootstrap admin credential (the exchange never
+// grants admin), and a deployment with no GitHub.
 const TOKEN_CREATE_USAGE =
   'usage: yoke token create --name <n> --scopes "<ns>:read,<ns>:write[,<ns>:<type>:verify,<ns>:admin]"\n' +
   "  scope = action | namespace:action | namespace:type:action\n" +
   "  actions: read, write, verify (promote/retire), admin (issue credentials)\n" +
-  "  an action with NO namespace grants every tenant — name the namespace unless you mean that";
+  "  an action with NO namespace grants every tenant — name the namespace unless you mean that\n" +
+  "  people on a GitHub org need no token: the server exchanges their gh login (YOKE_GITHUB_ORG) —\n" +
+  "  this command is for machine actors, the bootstrap admin credential, and a GitHub-less deployment";
 
 async function cmdToken(
   positionals: string[],

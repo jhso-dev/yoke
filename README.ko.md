@@ -338,7 +338,8 @@ yoke init                                          # 스키마/인덱스 생성,
 
 ```bash
 yoke ui                      # http://127.0.0.1:4800 — 로컬, 단독, 인증 없음
-yoke serve --auth --host 0.0.0.0   # 팀 공유. `yoke token create` 로 만든 토큰으로 로그인
+yoke serve --auth --host 0.0.0.0   # 팀 공유. YOKE_GITHUB_ORG 를 설정하면 이미 있는 GitHub 신원으로
+                                   # 로그인 (`yoke token create` 는 기계 액터·부트스트랩용으로 남음)
 ```
 
 화면: review 큐, conflicts, 온톨로지 브라우저, persona 미리보기, 엔티티 상세, 주입

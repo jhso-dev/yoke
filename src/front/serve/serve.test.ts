@@ -23,6 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { verify } from "../../core/lifecycle.js";
+import { seedOntology } from "../../core/ontology.js";
 import { runCli } from "../cli/index.js";
 import { isLoopback } from "../ui/server.js";
 import { createServeServer, runServe } from "./index.js";
@@ -855,3 +856,132 @@ describe("GitHub exchange (POST /api/login/github)", () => {
     }
   });
 });
+
+// The company-DB deployment: knowledge in OpenSearch, credentials NEVER — tokens and the audit trail
+// stay in the serve host's local sqlite (BACKENDS.md: they "do not belong in the company's graph
+// database"). Skips without a live cluster; CI's opensearch-adapter job runs it for real. Scoped to
+// `yoketest_*` indices like every OpenSearch suite — never widen the prefix.
+describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
+  "serve --auth over a company OpenSearch: knowledge remote, credentials local",
+  () => {
+    const OS_URL = process.env.YOKE_TEST_OPENSEARCH_URL as string;
+    const PREFIX = "yoketest_serveauth_";
+
+    it("the exchange mints into sqlite, the commit lands in OpenSearch, and neither leaks into the other", async () => {
+      await fetch(`${OS_URL}/${PREFIX}*`, { method: "DELETE" }).catch(() => {});
+      const { createServer } = await import("node:http");
+      const gh = await listen(
+        createServer((req, res) => {
+          const ok = (req.headers.authorization ?? "") === "Bearer gh_alice";
+          res.writeHead(ok ? 200 : 401, { "content-type": "application/json" });
+          res.end(
+            JSON.stringify(
+              ok
+                ? req.url === "/user"
+                  ? { login: "alice" }
+                  : { state: "active" }
+                : {},
+            ),
+          );
+        }),
+      );
+      const { OpenSearchStorage } = await import(
+        "../../adapters/storage-opensearch/index.js"
+      );
+      const { makeCompositeStore } = await import(
+        "../../adapters/storage-composite/index.js"
+      );
+      const localPath = await freshDb("os-serveauth");
+      const store = makeCompositeStore(
+        new OpenSearchStorage({ url: OS_URL, prefix: PREFIX }),
+        new SqliteStorage(localPath),
+      );
+      await store.init();
+      // What `yoke init` does after opening the store: composite init() creates indices, the seed is
+      // the CLI's job — and this test's store is opened by hand.
+      await store.saveOntology(seedOntology());
+      const run = await listen(
+        createServeServer({
+          store,
+          defaultActor: "yoke:system",
+          auth: true,
+          now,
+          webRoot: fixtureBundle(),
+          github: { org: "acme", verifiers: [], api: gh.base },
+        }),
+      );
+      try {
+        const { token } = (await (
+          await fetch(`${run.base}/api/login/github`, {
+            method: "POST",
+            headers: { authorization: "Bearer gh_alice" },
+          })
+        ).json()) as { token: string };
+        const created = (await (
+          await fetch(`${run.base}/api/entity`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              type: "fact",
+              attributes: { statement: "credentials stay home" },
+            }),
+          })
+        ).json()) as { id: string };
+        // The knowledge is in the remote half (a point read is realtime on OpenSearch)…
+        expect((await store.getEntity(created.id))?.attributes.statement).toBe(
+          "credentials stay home",
+        );
+        // …and in the LOCAL sqlite there is no entity row at all, while the token lives there as a
+        // salted hash — the plaintext appears in neither store.
+        const raw = new Database(localPath, { readonly: true });
+        try {
+          // The local sqlite holds what `yoke init` seeded (the yoke:system person) and NOTHING that
+          // was committed through the server — the knowledge went to the other database.
+          expect(
+            (
+              raw.prepare("SELECT DISTINCT id FROM entities").all() as Array<{
+                id: string;
+              }>
+            ).map((r) => r.id),
+          ).toEqual(["yoke:system"]);
+          expect(
+            raw
+              .prepare("SELECT count(*) c FROM entities WHERE id = ?")
+              .get(created.id),
+          ).toMatchObject({ c: 0 });
+          const tok = raw
+            .prepare("SELECT name, hash FROM tokens WHERE name = ?")
+            .get("github:alice") as {
+            name: string;
+            hash: string;
+          };
+          expect(tok.name).toBe("github:alice");
+          expect(token).not.toContain(tok.hash);
+          expect(
+            raw
+              .prepare("SELECT count(*) c FROM tokens WHERE hash = ?")
+              .get(token),
+          ).toMatchObject({ c: 0 });
+        } finally {
+          raw.close();
+        }
+        const remote = await (
+          await fetch(`${OS_URL}/${PREFIX}*/_search?q=yk_`)
+        ).json();
+        expect(
+          (remote as { hits: { total: { value: number } } }).hits.total.value,
+        ).toBe(0);
+      } finally {
+        run.close();
+        gh.close();
+        store.close();
+        await fetch(`${OS_URL}/${PREFIX}*`, { method: "DELETE" }).catch(
+          () => {},
+        );
+      }
+    }, 60_000);
+  },
+);

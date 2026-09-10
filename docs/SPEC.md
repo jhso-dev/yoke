@@ -1060,8 +1060,11 @@ Rules that hold for every route:
 - **Bounded input.** Request bodies are capped and `content-type` validated; `limit`
   parameters have documented maxima and over-max is a 400.
 
-Credentials are `Authorization: Bearer` — an API token from `yoke token create` or an
-OIDC id_token. No cookie session, therefore no CSRF surface.
+Credentials are `Authorization: Bearer` — a token minted by the GitHub exchange (the person path —
+see "GitHub exchange"), an API token from `yoke token create` (machine actors — CI, scheduled
+connectors — and the bootstrap admin credential: the exchange never grants `admin`, so the tokens
+screen is reachable only through a locally minted token), or an OIDC id_token (a human logging into
+the web UI under an IdP). No cookie session, therefore no CSRF surface.
 
 ## CLI commands
 

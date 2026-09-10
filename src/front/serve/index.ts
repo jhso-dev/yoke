@@ -447,8 +447,9 @@ export async function runServe(
     throw new Error(
       // The remedy has to RUN and has to be safe: name a --name, and scope to a namespace rather than
       // the wildcard-ns `read` that would read every tenant.
-      `refusing to bind ${host} without authentication — add --auth (or YOKE_AUTH=on), ` +
-        `then mint a credential with ` +
+      `refusing to bind ${host} without authentication — add --auth (or YOKE_AUTH=on). ` +
+        `People then log in with the GitHub identity they already have (set YOKE_GITHUB_ORG; ` +
+        `SPEC "GitHub exchange"); a machine actor gets ` +
         `'yoke token create --name <who> --scopes "${opts.ns ?? resolveNs(undefined, env) ?? "<namespace>"}:read"'`,
     );
   const common = {

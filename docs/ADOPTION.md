@@ -93,7 +93,8 @@
   CLI 하나고, 봉투는 클라이언트 것이다.
 
   **팀 서버(`yoke serve`)에 붙는 경우** 배달 기록은 서버에 있으므로 `yoke inject … --unseen` 자리에 서버를 묻는다 — 같은
-  줄, 같은 봉투, 토큰 하나(`yoke token create --name fe --scopes read`), 실측 1–5ms(조용할 때 ~1ms):
+  줄, 같은 봉투, 실측 1–5ms(조용할 때 ~1ms). 자격증명은 아래 GitHub 교환이 알아서 받는다 —
+  `yoke token create` 는 GitHub 계정이 없는 기계 액터(CI·야간 커넥터)용으로만 남는다:
 
   ```
   curl -s -H "Authorization: Bearer $YOKE_TOKEN" "$YOKE_SERVER/api/inject?scope=<initiative>&unseen=1"
