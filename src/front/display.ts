@@ -424,6 +424,9 @@ export async function unseenReport(
   }
   const lines: string[] = [];
   if (changed.size > 0) {
+    // Measured (ROADMAP v6.2): this exact wording is what makes an agent with work already on disk
+    // stop and ask instead of quietly rewriting, and what lets one with nothing sunk go on with the
+    // new decision. Do not harden it into "always stop" — that is the clause splitting the two.
     lines.push(
       "-- changed since handed to you — re-check with the user before building on them:",
     );
