@@ -691,6 +691,18 @@ shape rather than imported:
       no writer or reader. Verified against two clients of one Postgres: the reason the first client
       recorded is what the second reads
 
+## v6.4 — the decision's author is its verifier
+
+- [x] **`yoke_record_decision(verify: true)`** — when the person who owns a decision states it and
+      confirms the filed wording in the conversation, the agent files and promotes it in one call: the
+      gate writes v1 as a draft, `verify` writes v2 with `transitioned_at`, the trail gets the same
+      `verify` row the CLI writes, under the author. Gated by `authorize("verify")` and checked before
+      any write, so a refused caller is left with no stray draft. `yoke_commit` has no such switch: a
+      fact's truth does not come from its writer, a decision's does. This closes the longest gap in
+      the loop — a decision reached in a meeting used to wait, as a draft, for someone to open a
+      terminal — and with `--unseen` on the receiving side a PO's "이렇게 결정됐어" is in every running
+      session on the scope at the next tool call
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

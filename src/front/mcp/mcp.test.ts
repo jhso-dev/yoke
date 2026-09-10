@@ -990,3 +990,116 @@ describe("what the agent-facing surface would not tell an agent", () => {
     await s.close();
   });
 });
+
+describe("a decision its author confirms is verified in the same call", () => {
+  /** A session whose authorize hook denies exactly the actions named — the serve binding's shape. */
+  async function openDenying(denied: Array<"read" | "write" | "verify">) {
+    const store = new SqliteStorage(db);
+    await store.init();
+    const server = createYokeMcpServer({
+      store,
+      ontology: store.loadOntology(),
+      defaultActor: "po",
+      authorize: (action) => !denied.includes(action),
+    });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0" });
+    await Promise.all([server.connect(serverT), client.connect(clientT)]);
+    return {
+      client,
+      store,
+      async close() {
+        await client.close();
+        await server.close();
+        store.close();
+      },
+    };
+  }
+
+  it("verify: true files the draft AND promotes it — two versions, the CLI's audit row, injectable now", async () => {
+    const s = await openSession();
+    const before = s.store.listAudit().length;
+    const res = await s.client.callTool({
+      name: "yoke_record_decision",
+      arguments: {
+        conclusion: "PG is Toss",
+        rationale: "fees",
+        rejected_alternatives: ["KCP", "Nice"],
+        actor: "po",
+        verify: true,
+      },
+    });
+    expect(res.isError).toBeFalsy();
+    const body = JSON.parse(text(res));
+    expect(body.status).toBe("verified");
+    // v1 is the draft the gate wrote, v2 the promotion — a decision that entered and was confirmed, so
+    // an as-of read between the two instants sees a draft, never one born verified.
+    expect(body.version).toBe(2);
+    const stored = await s.store.getEntity(body.id);
+    expect(stored?.status).toBe("verified");
+    expect(stored?.provenance.transitioned_at).toBeDefined();
+    // The promotion is on the trail as `verify`, the same row `yoke verify` writes, under the author.
+    const rows = s.store.listAudit().slice(before);
+    expect(rows.find((r) => r.action === "verify")).toMatchObject({
+      actor: "po",
+      detail: body.id,
+    });
+    // And it reaches an agent at once: verified-only injection returns it.
+    const got = await s.client.callTool({
+      name: "yoke_inject",
+      arguments: { query: "Toss fees" },
+    });
+    expect(text(got)).toContain("PG is Toss");
+    await s.close();
+  });
+
+  it("without it, the draft it always was", async () => {
+    const s = await openSession();
+    const res = await s.client.callTool({
+      name: "yoke_record_decision",
+      arguments: {
+        conclusion: "zq draft as ever",
+        rationale: "r",
+        actor: "po",
+      },
+    });
+    expect(JSON.parse(text(res))).toMatchObject({
+      status: "draft",
+      version: 1,
+    });
+    await s.close();
+  });
+
+  it("a token without verify is refused BEFORE anything is written — no stray draft", async () => {
+    const s = await openDenying(["verify"]);
+    const count = async () =>
+      (await s.store.listEntities({ type: "decision" })).items.length;
+    const n = await count();
+    const res = await s.client.callTool({
+      name: "yoke_record_decision",
+      arguments: { conclusion: "zq refused", rationale: "r", verify: true },
+    });
+    expect(res.isError).toBeTruthy();
+    expect(await count()).toBe(n);
+    // The same call without the flag is the write the token IS allowed.
+    const ok = await s.client.callTool({
+      name: "yoke_record_decision",
+      arguments: { conclusion: "zq refused", rationale: "r" },
+    });
+    expect(ok.isError).toBeFalsy();
+    expect(JSON.parse(text(ok)).status).toBe("draft");
+    await s.close();
+  });
+
+  it("yoke_commit has no such switch: the authority is the decision's author, not a writer", async () => {
+    const s = await openSession();
+    const tools = (await s.client.listTools()).tools;
+    const commitTool = tools.find((t) => t.name === "yoke_commit");
+    expect(commitTool).toBeDefined();
+    const schema = commitTool?.inputSchema as
+      | { properties?: Record<string, unknown> }
+      | undefined;
+    expect(Object.keys(schema?.properties ?? {})).not.toContain("verify");
+    await s.close();
+  });
+});
