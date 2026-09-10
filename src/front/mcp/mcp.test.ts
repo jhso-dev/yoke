@@ -1095,12 +1095,11 @@ describe("a decision its author confirms is verified in the same call", () => {
     const s = await openSession();
     const tools = (await s.client.listTools()).tools;
     const commitTool = tools.find((t) => t.name === "yoke_commit");
-    expect(
-      Object.keys(
-        (commitTool?.inputSchema as { properties?: Record<string, unknown> })
-          .properties ?? {},
-      ),
-    ).not.toContain("verify");
+    expect(commitTool).toBeDefined();
+    const schema = commitTool?.inputSchema as
+      | { properties?: Record<string, unknown> }
+      | undefined;
+    expect(Object.keys(schema?.properties ?? {})).not.toContain("verify");
     await s.close();
   });
 });
