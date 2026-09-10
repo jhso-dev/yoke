@@ -198,9 +198,12 @@ export function suppressEmbedAnnounce(): void {
  * Every surface routes through `makeFetchEmbedder`, so this is the one place that has to know —
  * a per-command warning in the CLI, MCP and HTTP tiers would be three copies that drift.
  */
-function announce(cfg: EmbedConfig | null): void {
+function announce(cfg: EmbedConfig | null, optedOut: boolean): void {
   if (announced) return;
   announced = true;
+  // An explicit opt-out is a decision already made; advising the operator to install what they turned
+  // off is noise on exactly the host it was turned off for.
+  if (optedOut) return;
   if (cfg?.auto)
     console.error(
       `yoke: using the embedder found at ${cfg.url} (${cfg.model}) — set YOKE_EMBED_URL/MODEL to pin a different one`,
@@ -226,7 +229,7 @@ export function makeFetchEmbedder(env: Env): Embedder {
 
   return async (text: string): Promise<Float32Array | null> => {
     resolving ??= resolveEmbedConfig(env).then((cfg) => {
-      announce(cfg);
+      announce(cfg, !!env.YOKE_NO_AUTO_EMBED);
       return cfg;
     });
     const cfg = await resolving;
