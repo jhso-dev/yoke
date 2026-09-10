@@ -246,6 +246,26 @@ describe("staleEntities", () => {
     expect(r.scanned).toBe(2);
   });
 
+  it("a replaced record is not stale — its successor already retired it", async () => {
+    // Both past their TTL. `old` has a successor, so asking anyone to re-confirm it would ask them to
+    // re-confirm what `successor` replaced; injection withholds it for the same reason, off the same
+    // predicate (`supersededIn`). `successor` itself is genuinely stale and stays in the queue.
+    const old = await addFact("settle daily");
+    const successor = await addFact("settle in real time");
+    await verify(port, [old, successor], "alice", now);
+    await commit(
+      port,
+      ont,
+      { type: "supersedes", attributes: {}, from: successor, to: old },
+      prov,
+      now,
+    );
+    const r = await staleEntities(port, ont, aged);
+    expect(r.items.map((e) => e.id)).toEqual([successor]);
+    // Still examined — the skip is a judgment about the row, not a narrower scan.
+    expect(r.scanned).toBe(2);
+  });
+
   it("a type with no ttl_days never goes stale", async () => {
     const { entity } = await commit(
       port,

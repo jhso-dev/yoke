@@ -7,6 +7,7 @@ import type { Embedder } from "./embedding.js";
 import {
   atOrBefore,
   effectiveStatus,
+  supersededIn,
   versionAsOf,
   versionTime,
 } from "./lifecycle.js";
@@ -205,7 +206,7 @@ async function meaningEdges(
     // The real author, for the citation. Free here: this read already has every edge, and asking for it
     // separately would be a second round trip for a field the first one returned.
     author: edges.find((r) => r.type === "authored_by" && r.from === id)?.to,
-    superseded: edges.some((r) => r.type === "supersedes" && r.to === id),
+    superseded: supersededIn(edges, id),
     supersedes: edges
       .filter((r) => r.type === "supersedes" && r.from === id)
       .map((r) => r.to)
