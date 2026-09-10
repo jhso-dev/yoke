@@ -1,0 +1,21 @@
+src/core/embedding.test.ts
+  s_03673cb32bfdc1::t_4987166d36d477 22-23,26-27
+src/core/embedding.ts
+  s_03673cb32bfdc1::t_6a8443ea7d6f3a 201,204-206,232
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5f2a38a27f10849da49eca18254f835677aa5b78",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
