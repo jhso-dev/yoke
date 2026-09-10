@@ -4,12 +4,20 @@
 // anchored injection (bounded by the CLI's briefing cap), and it writes the delivery row that makes
 // the very next `--unseen` silent: a session is briefed once, then told only what changes.
 
-import { readStdin, resolveScope, runInject } from "./lib.mjs";
+import { fetchUnseen, readStdin, resolveScope, resolveSetting, runInject } from "./lib.mjs";
 
 const input = readStdin();
 const cwd = typeof input.cwd === "string" && input.cwd ? input.cwd : process.cwd();
 const scope = resolveScope(cwd, process.env);
 if (scope) {
-  const out = runInject(["--scope", scope], cwd, process.env);
+  // Against a team server the ledger is per token, and the server has no text briefing route yet, so
+  // the best available SessionStart is the unseen read: a client's very first session gets the full
+  // briefing (nothing was handed yet), later sessions get what changed since the last one. The gap —
+  // a session that wants re-briefing on knowledge it was already handed — is stated in ADOPTION §3;
+  // the MCP yoke_inject tool covers it in-session.
+  const server = resolveSetting(cwd, process.env, "YOKE_SERVER");
+  const out = server
+    ? await fetchUnseen(server, scope, process.env)
+    : runInject(["--scope", scope], cwd, process.env);
   if (out?.trim()) process.stdout.write(out);
 }

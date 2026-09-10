@@ -70,6 +70,10 @@ export interface ServeDeps {
   replica?: { primaryPath: string; snapshotPath: string };
   /** Built web bundle directory, passed through to the UI handler (injectable for tests). */
   webRoot?: string | null;
+  /** GitHub credential exchange (SPEC "GitHub exchange"). Absent = the login route does not exist.
+   * `org` membership IS the access decision; `verifiers` are the logins whose minted token carries
+   * the verify scope; `api` points at GHE or a test double. */
+  github?: { org: string; verifiers: string[]; api: string };
 }
 
 /** Server augmented with refreshNow() when running as a replica (11.2). */
@@ -239,6 +243,97 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       return;
     }
 
+    // The door (SPEC "GitHub exchange"): a GitHub identity, in for a yoke credential — so a machine
+    // whose developer already runs `gh` needs no issuance ceremony at all. Reachable WITHOUT a yoke
+    // credential (it is how you get one) but never open by default: it exists only under --auth AND
+    // when an org is named, and membership in that org IS the access decision. The presented GitHub
+    // token is spent on two lookups and discarded — never stored, never logged, never echoed; what
+    // this server keeps is a token of its own minting. Re-exchange replaces the previous token for
+    // that login, so "revoke" as a durable act means removing the person from the org or the
+    // verifier list — the levers GitHub already owns.
+    if (req.method === "POST" && path === "/api/login/github") {
+      const gh = deps.github;
+      if (!auth || !gh) {
+        // 404, not 403: a server that does not offer the exchange should not advertise it.
+        res.writeHead(404, {
+          "content-type": "application/json; charset=utf-8",
+        });
+        res.end(JSON.stringify({ error: "not found" }));
+        return;
+      }
+      if (readOnly) {
+        res.writeHead(409, {
+          "content-type": "application/json; charset=utf-8",
+        });
+        res.end(
+          JSON.stringify({ error: "read-only replica; log in at the primary" }),
+        );
+        return;
+      }
+      const ghToken = bearer(req);
+      const deny = (code: number, error: string) => {
+        res.writeHead(code, {
+          "content-type": "application/json; charset=utf-8",
+          ...(code === 401 ? { "www-authenticate": "Bearer" } : {}),
+        });
+        res.end(JSON.stringify({ error }));
+      };
+      if (!ghToken)
+        return deny(401, "send a GitHub token as the Bearer credential");
+      const ask = async (p: string) => {
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), 5000);
+        try {
+          return await fetch(`${gh.api}${p}`, {
+            headers: {
+              authorization: `Bearer ${ghToken}`,
+              accept: "application/vnd.github+json",
+              "user-agent": "yoke",
+            },
+            signal: ac.signal,
+          });
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      try {
+        const user = await ask("/user");
+        if (!user.ok)
+          return deny(401, "GitHub did not recognize the credential");
+        const login = ((await user.json()) as { login?: string }).login;
+        if (!login) return deny(401, "GitHub did not recognize the credential");
+        const member = await ask(
+          `/user/memberships/orgs/${encodeURIComponent(gh.org)}`,
+        );
+        const state = member.ok
+          ? ((await member.json()) as { state?: string }).state
+          : null;
+        if (state !== "active")
+          return deny(403, `not an active member of ${gh.org}`);
+        const scopes = [
+          "read",
+          "write",
+          ...(gh.verifiers.includes(login) ? ["verify"] : []),
+        ];
+        const name = `github:${login}`;
+        store.revokeToken(name);
+        const { token } = store.createToken({
+          name,
+          scopes,
+          created_at: now(),
+        });
+        res.writeHead(200, {
+          "content-type": "application/json; charset=utf-8",
+        });
+        res.end(JSON.stringify({ token, name, login, scopes }));
+      } catch {
+        // GitHub unreachable (or slow past the budget) — the caller's credential may be fine, so this
+        // is the upstream's failure, not an authentication verdict.
+        deny(502, "cannot reach GitHub to verify the credential");
+      }
+      return;
+    }
+
     // /api/meta is the one API route that must answer without a credential: it is how the browser
     // learns a credential is needed, and a static export has no middleware to tell it. It is
     // authenticated OPTIONALLY — a valid Bearer gets the real principal, none gets deny-all — so it
@@ -361,6 +456,17 @@ export async function runServe(
     ns: opts.ns ?? resolveNs(undefined, env),
     auth,
     oidc: oidcFromEnv(env) ?? undefined,
+    // YOKE_GITHUB_ORG turns the exchange on; verifiers and a GHE api base ride along.
+    github: env.YOKE_GITHUB_ORG
+      ? {
+          org: env.YOKE_GITHUB_ORG,
+          verifiers: (env.YOKE_GITHUB_VERIFIERS ?? "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          api: env.YOKE_GITHUB_API ?? "https://api.github.com",
+        }
+      : undefined,
     embedder: makeFetchEmbedder(env),
   };
 

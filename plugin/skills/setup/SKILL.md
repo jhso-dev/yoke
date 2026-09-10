@@ -44,6 +44,16 @@ never clobber:
 Per-person values (`YOKE_ACTOR=<their id>`, so the audit trail says who was told what; `YOKE_BIN` if
 needed) go in `.claude/settings.local.json`, which is not committed.
 
+## 4b. A team server instead of a local store
+
+If the team runs `yoke serve --auth`, bind `YOKE_SERVER` next to `YOKE_SCOPE` in step 4 and skip
+step 2's local store. No credential to paste: the first delivery exchanges the developer's `gh`
+login for a yoke token automatically (the server must set `YOKE_GITHUB_ORG`). Check the
+preconditions out loud here: `gh auth token` must print a token, and
+`curl -s -X POST "$YOKE_SERVER/api/login/github" -H "Authorization: Bearer $(gh auth token)"` must
+answer JSON with a `token` — a 403 names the org the user is not a member of, and a 404 means the
+server has not enabled the exchange. `YOKE_DEBUG=1` on a hook explains failures on stderr.
+
 ## 5. Prove it
 
 `yoke inject --scope <scope>` must print the briefing. Then tell the user what to expect: the next

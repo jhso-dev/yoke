@@ -690,3 +690,168 @@ describe("serve smoke (auth off)", () => {
     store.close();
   });
 });
+
+describe("GitHub exchange (POST /api/login/github)", () => {
+  let store: SqliteStorage;
+  let run: Running;
+  let gh: Running;
+
+  /** A stand-in for api.github.com: the token IS the fixture key. */
+  const people: Record<string, { login: string; member: boolean }> = {
+    gh_alice: { login: "alice", member: true },
+    gh_lead: { login: "po-lead", member: true },
+    gh_stranger: { login: "stranger", member: false },
+  };
+
+  beforeAll(async () => {
+    const { createServer } = await import("node:http");
+    gh = await listen(
+      createServer((req, res) => {
+        const tok = (req.headers.authorization ?? "").replace("Bearer ", "");
+        const who = people[tok];
+        const send = (code: number, body: unknown) => {
+          res.writeHead(code, { "content-type": "application/json" });
+          res.end(JSON.stringify(body));
+        };
+        if (!who) return send(401, { message: "Bad credentials" });
+        if (req.url === "/user") return send(200, { login: who.login });
+        if (req.url?.startsWith("/user/memberships/orgs/acme"))
+          return who.member
+            ? send(200, { state: "active" })
+            : send(404, { message: "Not Found" });
+        return send(404, { message: "Not Found" });
+      }),
+    );
+    store = new SqliteStorage(await freshDb("ghlogin"));
+    await store.init();
+    run = await listen(
+      createServeServer({
+        store,
+        defaultActor: "yoke:system",
+        auth: true,
+        now,
+        webRoot: fixtureBundle(),
+        github: { org: "acme", verifiers: ["po-lead"], api: gh.base },
+      }),
+    );
+  });
+  afterAll(() => {
+    run.close();
+    gh.close();
+    store.close();
+  });
+
+  const login = (tok?: string) =>
+    fetch(`${run.base}/api/login/github`, {
+      method: "POST",
+      headers: tok ? { authorization: `Bearer ${tok}` } : {},
+    });
+
+  it("an org member gets read+write; a verifier additionally gets verify", async () => {
+    const alice = await login("gh_alice");
+    expect(alice.status).toBe(200);
+    const a = (await alice.json()) as {
+      token: string;
+      name: string;
+      login: string;
+      scopes: string[];
+    };
+    expect(a).toMatchObject({
+      name: "github:alice",
+      login: "alice",
+      scopes: ["read", "write"],
+    });
+    // The minted token is a working yoke credential whose actor is the GitHub identity.
+    const read = await fetch(`${run.base}/api/review`, {
+      headers: { authorization: `Bearer ${a.token}` },
+    });
+    expect(read.status).toBe(200);
+    const lead = (await (await login("gh_lead")).json()) as {
+      scopes: string[];
+    };
+    expect(lead.scopes).toEqual(["read", "write", "verify"]);
+  });
+
+  it("re-exchange replaces the previous token for that login", async () => {
+    const first = (await (await login("gh_alice")).json()) as { token: string };
+    const second = (await (await login("gh_alice")).json()) as {
+      token: string;
+    };
+    expect(second.token).not.toBe(first.token);
+    const stale = await fetch(`${run.base}/api/review`, {
+      headers: { authorization: `Bearer ${first.token}` },
+    });
+    expect(stale.status).toBe(401);
+    expect(
+      (
+        await fetch(`${run.base}/api/review`, {
+          headers: { authorization: `Bearer ${second.token}` },
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it("refuses a non-member (403 naming the org), a bad credential (401), and a bare call (401)", async () => {
+    const outsider = await login("gh_stranger");
+    expect(outsider.status).toBe(403);
+    expect(((await outsider.json()) as { error: string }).error).toContain(
+      "acme",
+    );
+    expect((await login("gh_bogus")).status).toBe(401);
+    expect((await login()).status).toBe(401);
+    // And the GitHub token itself never becomes a yoke credential.
+    expect(
+      (
+        await fetch(`${run.base}/api/review`, {
+          headers: { authorization: "Bearer gh_alice" },
+        })
+      ).status,
+    ).toBe(401);
+  });
+
+  it("does not exist on a server that has not named an org — 404, not 403", async () => {
+    const bare = await listen(
+      createServeServer({
+        store,
+        defaultActor: "yoke:system",
+        auth: true,
+        now,
+        webRoot: fixtureBundle(),
+      }),
+    );
+    try {
+      expect(
+        (
+          await fetch(`${bare.base}/api/login/github`, {
+            method: "POST",
+            headers: { authorization: "Bearer gh_alice" },
+          })
+        ).status,
+      ).toBe(404);
+    } finally {
+      bare.close();
+    }
+  });
+
+  it("answers 502, not 401, when GitHub is unreachable — an upstream failure is not a verdict on the caller", async () => {
+    const dead = await listen(
+      createServeServer({
+        store,
+        defaultActor: "yoke:system",
+        auth: true,
+        now,
+        webRoot: fixtureBundle(),
+        github: { org: "acme", verifiers: [], api: "http://127.0.0.1:1" },
+      }),
+    );
+    try {
+      const res = await fetch(`${dead.base}/api/login/github`, {
+        method: "POST",
+        headers: { authorization: "Bearer gh_alice" },
+      });
+      expect(res.status).toBe(502);
+    } finally {
+      dead.close();
+    }
+  });
+});

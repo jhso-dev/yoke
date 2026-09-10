@@ -99,6 +99,12 @@
   curl -s -H "Authorization: Bearer $YOKE_TOKEN" "$YOKE_SERVER/api/inject?scope=<initiative>&unseen=1"
   ```
 
+  **토큰은 아무도 배포하지 않는다** — 플러그인이 개발자의 `gh` 로그인을 1회 교환해 스스로 받는다
+  (SPEC "GitHub exchange"): 서버에 `YOKE_GITHUB_ORG`(+선택 `YOKE_GITHUB_VERIFIERS`)를 설정하고, 레포
+  `.claude/settings.json`에 `YOKE_SERVER`를 두면 끝. 첫 배달에 `yoke: authenticated as <login> via
+  GitHub` 한 줄이 공지되고, 서버가 토큰을 회수해도 다음 훅이 알아서 재교환한다. 수동 경로:
+  `curl -X POST $YOKE_SERVER/api/login/github -H "Authorization: Bearer $(gh auth token)"`.
+
   서버는 **그 토큰이 받은 것만** 기준으로 답한다 — PO가 결정을 읽었다고 FE의 훅이 조용해지지 않는다. **ceiling**: 장부는
   읽는 주체 단위(로컬은 DB, 서버는 토큰)라, 같은 주체로 같은 이니셔티브에 세션 두 개가 동시에 열려 있으면 변경을 먼저 읽은
   세션이 소비하고 다른 세션은 못 본다. 세션 단위가 필요해지면 감사 행에 훅 stdin의 `session_id`를 싣는 것이 답이다.

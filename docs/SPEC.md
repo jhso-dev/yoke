@@ -619,6 +619,33 @@ the second built on the first:
   env inheritance). Other MCP clients wire the same two CLI commands into their own hook surface —
   the snippet stays in ADOPTION §3, with the `curl` variant for a team `yoke serve`.
 
+### GitHub exchange (v6.6 — the credential a non-interactive client can get by itself)
+
+A hook or an MCP client cannot open a browser or ask for a paste, so the only credential it can
+acquire on its own is one exchanged for something the machine already holds: the developer's `gh`
+login. `POST /api/login/github` takes a GitHub token as the Bearer credential and answers with a
+yoke API token.
+
+- **Never open by default.** The route exists only under `--auth` AND when `YOKE_GITHUB_ORG` is set;
+  otherwise it is a 404, not a 403 — a server that does not offer the exchange does not advertise it.
+  Active membership in that org IS the access decision (`GET /user/memberships/orgs/<org>` with the
+  presented token, which `gh`'s default `read:org` scope covers).
+- **The GitHub token is spent, not kept.** Two lookups against `YOKE_GITHUB_API` (default
+  `https://api.github.com`; point it at GHE, or a test double), then discarded — never stored, never
+  logged, never echoed. What the server keeps is a token of its own minting, named `github:<login>`,
+  so the audit actor is the GitHub identity rather than a self-declared string.
+- **Scopes**: `read,write`; plus `verify` when the login is in `YOKE_GITHUB_VERIFIERS` — issuance is
+  automatic, governance stays a person's list (ENTERPRISE.md: verify is the knowledge-governance
+  permission).
+- **Re-exchange replaces** the previous token for that login, which is what makes revocation
+  self-healing on the client: a 401 clears the cache and exchanges again. The durable revocation
+  levers are therefore GitHub's own — remove the person from the org, or from the verifier list.
+- A GitHub outage is a **502**, not a 401: an upstream failure is not a verdict on the caller.
+- The plugin's `auth.mjs` is the zero-action client: cache in `~/.yoke` (0600, keyed by server),
+  `gh auth token` → exchange on miss, one announce line when a credential actually moved
+  (`YOKE_TOKEN` set explicitly disables all of it). `YOKE_DEBUG=1` explains failures on stderr —
+  the one escape hatch from the hooks' silence rule.
+
 ### The stale queue (v5.2 — implementing a clause that was written and never built)
 
 "Viewing stale is the job of review/CLI" has been in the filter rule above since v1, and neither
@@ -883,6 +910,7 @@ endpoint shares it at `POST /mcp`.
 | `POST /api/ontology` | `saveOntology([def], ns)` | **verify** | no |
 | `POST /api/rename-type` | `renameType(from, to, ns)` | **verify** | **yes** (`rename_type`) |
 | `GET /api/tokens` | `listTokens` (names + scopes, never secrets) | **admin** | no |
+| `POST /api/login/github` | GitHub token in, yoke token out (see "GitHub exchange") | none — it is the door | no |
 | `POST /api/tokens` | `createToken` — 201 with the plaintext secret, shown once | **admin** | no |
 | `DELETE /api/tokens/:name` | `revokeToken` | **admin** | no |
 
