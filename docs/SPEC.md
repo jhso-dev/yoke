@@ -553,6 +553,64 @@ no way to ask: **what would this query have injected at time T.**
   `occurred_at`, which is what the fallback reads. A store restamped by an older build is repaired
   with `yoke backfill --occurred-at`.
 
+### Since, and unseen (v6.2 — "what changed while I was working")
+
+A working context changes while an agent is inside it: a decision is reversed, a new one lands, a
+record it was handed is retired. Waiting for the next session to notice is not delivery. Two reads,
+the second built on the first:
+
+- **`inject(query, { since })`** keeps only records whose *current version* came into being after
+  `since` — judged on the same `versionTime` the as-of rewind reads, so "changed since T" and "current
+  as of T" cannot disagree about when a version began. A filter on the answer, not on the clock:
+  freshness and status are still judged now. It is applied **before the cap**, so a context's newest
+  record is never what `limit` cuts, and a record that predates the bound is **not counted as
+  withheld** — it was not kept from the caller, it was already theirs. A re-verification is a change
+  (the version time moves); a deprecation is a change the filter cannot show, because a deprecated
+  record does not pass the status filter — that half is `--unseen`'s.
+- **`yoke inject --scope <id> --unseen`** is the read a hook makes on every tool call: what this
+  context has that **this client** has not been handed yet. Front-tier, because the answer is in the
+  client's own audit trail — every `inject`/`persona` row names the ids it handed over
+  (`deliveries` in `src/front/display.ts`, the same rows `consumptionCounts` reads, over
+  `DELIVERY_WINDOW` recent rows). Two halves, in this order:
+  1. **changed since handed to you** — records a row anchored on this scope handed over that have
+     since been retired (with the reason, when one was given) or rewritten (their version time passed
+     the delivery), **replaced** or
+     **contradicted** (a `supersedes`/`conflicts_with` edge on a newcomer in half 2 points at them —
+     read off the newcomer's own `supersedes`/`conflictsWith`, so it costs no extra read). A decision
+     the agent may be building on is dead; this outranks anything new, and the line says to re-check
+     with the user before building on it.
+  2. **new in the context** — the briefing, bounded by `since` = the last row anchored on this scope,
+     minus any version this client already holds from another read (a plain query five minutes ago
+     is a delivery too).
+
+  **Nothing on either side → no output, exit 0, and no audit row**, so the bound stays put and the
+  next call costs the same. A non-empty answer writes one `inject` row in briefing shape naming both
+  halves, which is what makes the next call not say it again. The first call from a client that was
+  never handed this context is therefore its briefing. Text only (`--json` is refused: the two-part
+  answer has no array shape, and the caller is a hook), takes no query, and sets its own `--since`.
+
+  **Stated ceiling: an edge between two records this client already holds is not seen.** A version
+  moves, or a newcomer carries the edge — those are the two signals read. A `supersedes` or
+  `conflicts_with` link recorded later between two records both handed earlier versions neither and
+  arrives on no newcomer; reporting it costs one relation read per handed id, so add it when a hook
+  shows the gap. A delivery older than
+  `DELIVERY_WINDOW` rows reads as never having happened — the record is handed over once more, which
+  writes a fresh row and heals it. And **the ledger is the client's, not the session's**: two sessions
+  on one machine in the same context share it, so the one that reads a change first consumes it. The
+  fix, when a team needs it, is a session column on the audit row (the hook's stdin carries
+  `session_id`) — not a second ledger.
+
+  **The ledger is the reader's, wherever the reader's deliveries are.** Under a shared Postgres or
+  OpenSearch each client's trail is its own sqlite, and the CLI reads it. Under `yoke serve` every
+  client's `inject` rows land in the server's trail, so the hook asks the server instead:
+  `GET /api/inject?scope=<id>&unseen=1` — the same `unseenReport` (one function in
+  `src/front/display.ts`, so the two cannot drift), bounded by **this actor's** rows only (a PO
+  reading a decision must not silence an FE's hook), answered as `text/plain` because the caller is a
+  hook handing the body to a model, `204` when there is nothing, and audited as `inject` — a model
+  received knowledge — not `inject_preview`. Not on `yoke_inject`: the read exists for a hook between an
+  agent's tool calls, not for the agent. The hook itself is a snippet in docs, not code: its stdin
+  shape and output envelope are the AI client's, and the two front adapters stay two (invariant 3).
+
 ### The stale queue (v5.2 — implementing a clause that was written and never built)
 
 "Viewing stale is the job of review/CLI" has been in the filter rule above since v1, and neither
@@ -903,7 +961,7 @@ Rules that hold for every route:
 
   | action | meaning | written by |
   |---|---|---|
-  | `inject` | a model received knowledge | MCP, CLI |
+  | `inject` | a model received knowledge | MCP, CLI, and `GET /api/inject?unseen=1` (a hook, not a screen) |
   | `inject_preview` | a human saw what a model *would* receive | web only — there is no CLI preview |
   | `persona` | someone's recorded judgment was read | MCP, CLI, web |
   | `read` | a full record — attributes, versions, relations — was read | CLI, web |
@@ -976,7 +1034,8 @@ yoke review [--stale] [--type t]   # list drafts; --stale lists verified records
 yoke verify <id...> [--all-drafts]   # promote (batch), refresh last_confirmed — also how a stale record is re-confirmed
                                      # --all-drafts over an empty queue succeeds; no ids and no flag is the usage error
 yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction) — reports what derived_from it
-yoke inject <query> [--include-draft] [--limit n] [--scope id] [--depth n] [--as-of ts]   # retrieve, with citations
+yoke inject <query> [--include-draft] [--limit n] [--scope id] [--depth n] [--as-of ts] [--since ts]   # retrieve, with citations
+yoke inject --scope <id> --unseen   # what this context has that this client was not handed yet; silent when nothing
 yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
 yoke conflicts             # list conflicts_with
 yoke history <id>          # every version of one id (the append-only rows)

@@ -204,6 +204,72 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     expect(done[0].status).toBe("verified");
   });
 
+  it("GET /api/inject?unseen=1 is one ledger per token: what FE was handed is not what PO was", async () => {
+    // Two tokens = two readers of one server. The server's trail holds both, and each hook must be
+    // bounded by ITS OWN deliveries — otherwise PO reading a decision would silence FE's hook.
+    const ont = store.loadOntology();
+    const prov = { actor: "po", origin: "cli", occurred_at: now() };
+    const scope = (
+      await commit(
+        store,
+        ont,
+        { type: "collaboration", attributes: { title: "PROJ-1" } },
+        prov,
+        now(),
+      )
+    ).entity.id;
+    const d1 = (
+      await commit(
+        store,
+        ont,
+        { type: "fact", attributes: { statement: "PG is Toss" } },
+        prov,
+        now(),
+        {
+          attachTo: scope,
+        },
+      )
+    ).entity.id;
+    await verify(store, [scope, d1], "po", now());
+    const feToken = store.createToken({
+      name: "fe",
+      scopes: ["read"],
+      created_at: now(),
+    }).token;
+    const unseen = (tok: string) =>
+      authGet(`/api/inject?scope=${scope}&unseen=1`, tok);
+
+    // FE's first call: the briefing, as text.
+    const first = await unseen(feToken);
+    expect(first.status).toBe(200);
+    expect(first.headers.get("content-type")).toContain("text/plain");
+    const body = await first.text();
+    expect(body).toContain("-- new in PROJ-1:");
+    expect(body).toContain(d1);
+    // FE again: nothing new → 204, no body.
+    expect((await unseen(feToken)).status).toBe(204);
+    // PO's hook, same server, same scope: PO was handed nothing yet, so PO still gets the briefing.
+    const po = await unseen(verifyToken);
+    expect(po.status).toBe(200);
+    expect(await po.text()).toContain(d1);
+    // The rows are `inject` (a model received knowledge), one per delivery, under each token's actor.
+    const rows = store
+      .listAudit()
+      .filter((r) => r.action === "inject" && r.detail.startsWith(scope));
+    expect(rows.map((r) => r.actor).sort()).toEqual(["token:fe", "token:gov"]);
+    // Guards: a briefing of one context.
+    expect((await authGet(`/api/inject?q=x&unseen=1`, feToken)).status).toBe(
+      400,
+    );
+    expect(
+      (await authGet(`/api/inject?scope=${scope}&q=x&unseen=1`, feToken))
+        .status,
+    ).toBe(400);
+    expect(
+      (await authGet(`/api/inject?scope=nope&unseen=1`, feToken)).status,
+    ).toBe(400);
+  });
+
   it("UI shell (GET /) stays ungated even under auth", async () => {
     const res = await fetch(run.base + "/");
     expect(res.status).toBe(200);

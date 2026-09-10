@@ -1148,6 +1148,150 @@ describe("runCli", () => {
     expect(shapes.skipped.other).toBeGreaterThan(0);
   });
 
+  it("inject --unseen hands a working context over once, then only what changed", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const add = async (type: string, attrs: string[]) => {
+      expect(await runCli(["add", type, "--db", db, ...attrs, "--json"])).toBe(
+        0,
+      );
+      const id = JSON.parse(logs.at(-1) as string).id as string;
+      expect(await runCli(["verify", id, "--db", db, "--actor", "po"])).toBe(0);
+      return id;
+    };
+    // The trail compares instants at millisecond precision; make sure a mutation and the delivery
+    // before it cannot share one.
+    const tick = () => new Promise((r) => setTimeout(r, 5));
+    const unseen = async () => {
+      logs = [];
+      expect(
+        await runCli([
+          "inject",
+          "--db",
+          db,
+          "--scope",
+          scope,
+          "--unseen",
+          "--actor",
+          "fe",
+        ]),
+      ).toBe(0);
+      return logs.join("\n");
+    };
+
+    const scope = await add("collaboration", ["--attr", "title=PROJ-1"]);
+    const d1 = await add("fact", [
+      "--scope",
+      scope,
+      "--attr",
+      "statement=PG is Toss",
+    ]);
+
+    // 1. A client that was never handed this context gets its briefing.
+    const first = await unseen();
+    expect(first).toContain("-- new in PROJ-1:");
+    expect(first).toContain(d1);
+    // 2. Nothing changed: silent — no output, and no audit row to move the bound.
+    await tick();
+    expect(await unseen()).toBe("");
+    // 3. A new verified record in the context: only that one.
+    await tick();
+    const d2 = await add("fact", [
+      "--scope",
+      scope,
+      "--attr",
+      "statement=HA is deferred",
+    ]);
+    const third = await unseen();
+    expect(third).toContain(d2);
+    expect(third).not.toContain(d1);
+    // 4. A record this client was handed is retired: reported as changed, with its status.
+    await tick();
+    expect(
+      await runCli([
+        "deprecate",
+        d1,
+        "--db",
+        db,
+        "--actor",
+        "po",
+        "--reason",
+        "Toss said no",
+      ]),
+    ).toBe(0);
+    const fourth = await unseen();
+    expect(fourth).toContain("-- changed since handed to you");
+    expect(fourth).toContain(`${d1}  PG is Toss  -> deprecated: Toss said no`);
+    expect(fourth).not.toContain(d2);
+    // 5. Reported once.
+    await tick();
+    expect(await unseen()).toBe("");
+    // 6. The reversal path: a NEW decision that supersedes one this client holds. The old record's
+    // version never moves, so this is caught off the newcomer's own edge — and it is the reversal, not
+    // the arrival, that leads.
+    await tick();
+    const d4 = await add("fact", [
+      "--scope",
+      scope,
+      "--attr",
+      "statement=HA in phase 1 after all",
+    ]);
+    expect(
+      await runCli(["link", d4, "supersedes", d2, "--db", db, "--actor", "po"]),
+    ).toBe(0);
+    const sixth = await unseen();
+    expect(sixth.indexOf("-- changed since")).toBeLessThan(
+      sixth.indexOf("-- new in"),
+    );
+    expect(sixth).toContain(`${d2}  HA is deferred  -> superseded by ${d4}`);
+    expect(sixth).toContain(d4);
+    await tick();
+    expect(await unseen()).toBe("");
+
+    // A version this client already holds from a PLAIN query does not arrive again as news.
+    await tick();
+    const d3 = await add("fact", [
+      "--scope",
+      scope,
+      "--attr",
+      "statement=idempotency keys",
+    ]);
+    expect(
+      await runCli(["inject", "idempotency", "--db", db, "--actor", "fe"]),
+    ).toBe(0);
+    expect(await unseen()).toBe("");
+    // ...but a client that never saw it does get it.
+    expect(
+      await runCli([
+        "inject",
+        "--db",
+        db,
+        "--scope",
+        scope,
+        "--since",
+        "2000-01-01T00:00:00Z",
+      ]),
+    ).toBe(0);
+    expect(logs.join("\n")).toContain(d3);
+
+    // Guards: --unseen is a briefing of one context for text output.
+    for (const args of [
+      ["inject", "q", "--db", db, "--scope", scope, "--unseen"],
+      ["inject", "--db", db, "--scope", scope, "--unseen", "--json"],
+      [
+        "inject",
+        "--db",
+        db,
+        "--scope",
+        scope,
+        "--unseen",
+        "--since",
+        "2000-01-01T00:00:00Z",
+      ],
+    ])
+      expect(await runCli(args)).toBe(1);
+  });
+
   it("connect notes ingests transcript chunks as drafts, idempotently (PLAN 8.5)", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

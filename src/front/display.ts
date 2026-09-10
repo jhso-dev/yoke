@@ -5,8 +5,17 @@
 // One copy of each presentation helper (summarize, actor-name resolution, the refusal guards): two
 // copies drift, and a fix to one is a defect the other still shows.
 
-import { pointer, type WithheldStats } from "../core/inject.js";
-import { effectiveStatus } from "../core/lifecycle.js";
+import {
+  type InjectItem,
+  pointer,
+  type WithheldStats,
+} from "../core/inject.js";
+import {
+  atOrBefore,
+  effectiveStatus,
+  retirementOf,
+  versionTime,
+} from "../core/lifecycle.js";
 import { normalizeNs } from "../core/namespace.js";
 import {
   BOOKKEEPING_ATTRS,
@@ -295,6 +304,154 @@ export function consumptionCounts(
     }
   }
   return counts;
+}
+
+/**
+ * The window `deliveries` reads, in audit rows. Small enough to pay on every hook call (see
+ * `CONSUMPTION_WINDOW` for the measured per-row cost); a delivery older than the window reads as never
+ * having happened, so the record is handed over once more — which writes a fresh row and heals it.
+ */
+export const DELIVERY_WINDOW = 5_000;
+
+/**
+ * What this client has already been handed, read back from the same rows `consumptionCounts` reads.
+ *
+ * `lastHanded`: per id, the instant of the most recent `inject`/`persona` row naming it — the fact
+ * `yoke inject --unseen` compares a record's version time against, so a version this client already
+ * holds is not delivered twice, and a version it does not is. `anchored`: for one working context, the
+ * instant of the most recent row anchored on it (the `since` bound of an unseen read) and every id such
+ * a row handed over (the set whose changes that context is told about). Both by instant, not by row
+ * order or string compare: `at` is stored in two spellings (whole-second and millisecond `Z`).
+ */
+export function deliveries(
+  events: Array<{ action: string; detail: string; at: string }>,
+  anchor: string,
+): {
+  lastHanded: Map<string, string>;
+  anchored: { last?: string; ids: Set<string> };
+} {
+  const lastHanded = new Map<string, string>();
+  const anchored: { last?: string; ids: Set<string> } = { ids: new Set() };
+  const later = (prev: string | undefined, at: string) =>
+    prev === undefined || !atOrBefore(at, prev);
+  for (const e of events) {
+    if (e.action !== "inject" && e.action !== "persona") continue;
+    const arrow = e.detail.lastIndexOf(" -> ");
+    if (arrow === -1) continue;
+    const subject = e.detail.slice(0, arrow).split(" ");
+    // An as-of read hands over the version current THEN, so it says nothing about whether the client
+    // holds the current one. The `@<instant>` token sits first, or second after an anchor — read there
+    // rather than via `injectShape`, whose anchor test is ULID-shaped and ids are not all ULIDs.
+    if (
+      subject
+        .slice(0, 2)
+        .some((t) => t.startsWith("@") && !Number.isNaN(Date.parse(t.slice(1))))
+    )
+      continue;
+    const ids = e.detail
+      .slice(arrow + 4)
+      .split(" ")
+      .filter(Boolean);
+    const onAnchor = subject[0] === anchor;
+    if (onAnchor) {
+      if (later(anchored.last, e.at)) anchored.last = e.at;
+      for (const id of ids) anchored.ids.add(id);
+    }
+    for (const id of ids)
+      if (later(lastHanded.get(id), e.at)) lastHanded.set(id, e.at);
+  }
+  return { lastHanded, anchored };
+}
+
+/**
+ * The `--unseen` answer (SPEC "Since, and unseen"), for one reader of one working context. Shared by
+ * `yoke inject --unseen` and `GET /api/inject?unseen=1` so a hook reads the same lines whichever
+ * ledger holds its deliveries — the CLI's local trail, or the server's rows for this actor.
+ *
+ * Two answers, both read against `handed`. First: records this reader was handed IN THIS CONTEXT that
+ * have since changed — a decision it may be building on is dead, and that outranks anything new. A
+ * held record changes three ways and its version moves in only one: retired or rewritten (its own
+ * version time passed the delivery); replaced or contradicted (an edge on a NEWCOMER points at it, and
+ * the newcomer is in `result.items` carrying that edge already, so this costs no read — the reversal
+ * path, a new decision that supersedes the old one, is caught here). Second: the briefing's records
+ * since the last anchored delivery, minus any version this reader already holds from another read.
+ *
+ * `delivered` empty means: say nothing, write no row, so the bound stays put and the next call costs
+ * the same. Otherwise every id in it goes on one `inject` row — that row is what stops the next call
+ * from saying this again.
+ */
+export async function unseenReport(
+  store: StoragePort,
+  ontology: TypeDef[],
+  ns: string | null | undefined,
+  now: string,
+  anchor: Entity,
+  handed: ReturnType<typeof deliveries>,
+  result: { items: InjectItem[]; omitted: number },
+): Promise<{ lines: string[]; delivered: string[] }> {
+  const unseenOf = (e: Entity) => {
+    const at = handed.lastHanded.get(e.id);
+    return at === undefined || !atOrBefore(versionTime(e), at);
+  };
+  const held = (await readEntities(store, handed.anchored.ids)).filter(
+    (e) => normalizeNs(e.ns) === normalizeNs(ns),
+  );
+  const heldById = new Map(held.map((e) => [e.id, e]));
+  const changed = new Map<string, string>();
+  // A retirement says why when someone said (the reason rides on the retiring version), because "your
+  // decision is dead" without the why leaves the agent nothing to reason from.
+  for (const e of held)
+    if (unseenOf(e)) {
+      const reason = retirementOf(e)?.reason;
+      changed.set(
+        e.id,
+        `-> ${effectiveStatus(e, ontology, now)}${reason ? `: ${reason}` : ""}`,
+      );
+    }
+  const fresh = result.items.filter(
+    (it) => !changed.has(it.entity.id) && unseenOf(it.entity),
+  );
+  for (const it of fresh) {
+    for (const old of it.supersedes ?? [])
+      if (heldById.has(old) && !changed.has(old))
+        changed.set(old, `-> superseded by ${it.entity.id}`);
+    for (const other of it.conflictsWith ?? [])
+      if (heldById.has(other) && !changed.has(other))
+        changed.set(
+          other,
+          `!  contradicted by ${it.entity.id} — neither is settled`,
+        );
+  }
+  const lines: string[] = [];
+  if (changed.size > 0) {
+    lines.push(
+      "-- changed since handed to you — re-check with the user before building on them:",
+    );
+    for (const [id, what] of changed)
+      lines.push(
+        `${id}  ${summarize(heldById.get(id) as Entity, ontology)}  ${what}`,
+      );
+  }
+  if (fresh.length > 0) {
+    lines.push(`-- new in ${summarize(anchor, ontology) || anchor.id}:`);
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+    await prefetch(citeActors(fresh));
+    for (const it of fresh)
+      lines.push(
+        `${await readableCite(it, nameOf)}  ${summarize(it.entity, ontology)}` +
+          (it.conflictsWith
+            ? `\n  ! contradicted by ${it.conflictsWith.join(" ")} — both are recorded, neither is settled`
+            : ""),
+      );
+    if (result.omitted > 0)
+      lines.push(
+        `-- ${fresh.length} of ${result.items.length + result.omitted} new on this scope (freshest first); the rest are reachable by querying, or raise --limit`,
+      );
+  }
+  return {
+    lines,
+    delivered: [...changed.keys(), ...fresh.map((it) => it.entity.id)],
+  };
 }
 
 /**

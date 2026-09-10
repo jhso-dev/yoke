@@ -83,6 +83,8 @@ import {
   CONSUMPTION_WINDOW,
   citeActors,
   consumptionCounts,
+  DELIVERY_WINDOW,
+  deliveries,
   describeWithheld,
   injectDetail,
   injectShape,
@@ -93,6 +95,7 @@ import {
   refuseRename,
   shownStatus,
   summarize,
+  unseenReport,
 } from "../display.js";
 import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
@@ -137,6 +140,7 @@ type Values = {
   after?: string;
   status?: string;
   "as-of"?: string;
+  unseen?: boolean;
   stale?: boolean;
   embeddings?: boolean;
   rebuild?: boolean;
@@ -183,6 +187,7 @@ const OPTIONS = {
   after: { type: "string" },
   status: { type: "string" },
   "as-of": { type: "string" },
+  unseen: { type: "boolean" },
   stale: { type: "boolean" },
   embeddings: { type: "boolean" },
   rebuild: { type: "boolean" },
@@ -477,7 +482,7 @@ getting started:
   init                      create ./yoke.db and seed the ontology
   add <type> --attr k=v     stage knowledge (enters as draft)
   review / verify <id...>   inspect and promote drafts
-  inject <query>            retrieve verified knowledge with citations (--scope id, --depth n)
+  inject <query>            retrieve verified knowledge with citations (--scope id, --depth n, --unseen)
 
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
   overview                  the shape of the whole corpus: types, hubs, authors (--limit n)
@@ -1238,11 +1243,13 @@ async function cmdDeprecate(
 }
 
 const INJECT_USAGE =
-  "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts]\n" +
+  "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts] [--since ts]\n" +
   '  quote a phrase: yoke inject "retry budget"\n' +
   "       yoke inject --scope <id>            briefing of that working context\n" +
   "       yoke inject --scope <id> --depth 2  and what that context's context knows\n" +
-  "       yoke inject <query> --as-of <ts>    what this would have injected then";
+  "       yoke inject --scope <id> --unseen   only what this client has not been handed yet — silent when nothing\n" +
+  "       yoke inject <query> --as-of <ts>    what this would have injected then\n" +
+  "       yoke inject <query> --since <ts>    only records whose current version began after then";
 
 async function cmdInject(
   positionals: string[],
@@ -1266,6 +1273,29 @@ async function cmdInject(
     console.error("--depth walks from an anchor: pass --scope <id> as well");
     return 1;
   }
+  // `--unseen` asks what a working context has that THIS CLIENT was not handed yet; without an anchor
+  // there is no context to ask about. It sets `since` itself from the trail, so a caller's --since would
+  // be silently overruled, and --json has no shape for the two-part answer (skipped: add when a script
+  // needs it — the hook that calls this wants text).
+  if (v.unseen) {
+    for (const [bad, why] of [
+      [
+        v.scope === undefined,
+        "--unseen is a question about a working context: pass --scope <id>",
+      ],
+      [
+        v.since !== undefined,
+        "--unseen sets its own --since (this client's last delivery for the scope)",
+      ],
+      [v.json === true, "--unseen has no --json shape; drop one of the two"],
+      [!!query, "--unseen is a briefing: it takes no query"],
+    ] as const) {
+      if (bad) {
+        console.error(why);
+        return 1;
+      }
+    }
+  }
   const limit = intFlag(v.limit, "limit");
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
@@ -1274,13 +1304,23 @@ async function cmdInject(
     // An anchor that is not a record cannot be prioritized, and the empty answer that follows looks
     // exactly like a corpus with nothing in it. The scope is the caller's own id — telling them it did
     // not resolve costs one point read.
-    if (v.scope !== undefined && !(await store.getEntity(v.scope))) {
+    const anchor =
+      v.scope === undefined ? null : await store.getEntity(v.scope);
+    if (v.scope !== undefined && !anchor) {
       console.error(
         `--scope is not a record: ${v.scope} — 'yoke list' shows what can be anchored on`,
       );
       return 1;
     }
     const ts = now();
+    // What this client was already handed, from its own trail (SPEC "Since"). Only --unseen reads it:
+    // the bound is the last delivery anchored on this scope, and the per-id instants below keep a
+    // record the agent already got through a plain query from arriving again as news.
+    const handed =
+      v.unseen && v.scope !== undefined
+        ? deliveries(store.listAudit({ ns, limit: DELIVERY_WINDOW }), v.scope)
+        : null;
+    const since = handed ? handed.anchored.last : instantFlag(v.since, "since");
     // Same default as the MCP tool and the web route: an anchored briefing is capped, a query is not.
     // Without it, `yoke inject --scope <collaboration>` dumps every record ever attached to that work.
     const briefing = v.scope !== undefined && !query;
@@ -1299,12 +1339,34 @@ async function cmdInject(
         // Relation hops the anchor walk takes (SPEC "Multi-hop"). 1 = the v4.0 behaviour.
         depth: intFlag(v.depth, "depth"),
         asOf,
+        since,
         // Hybrid retrieval (SPEC "Hybrid retrieval"): the same env-configured embedder the gate uses,
         // so `yoke inject` and `yoke_inject` cannot retrieve differently for the same query.
         embedder: makeFetchEmbedder(env),
         keywordWeight: envKeywordWeight(env),
       },
     );
+    if (handed && anchor) {
+      const { lines, delivered } = await unseenReport(
+        store,
+        ontology,
+        ns,
+        ts,
+        anchor,
+        handed,
+        { items, omitted },
+      );
+      if (delivered.length === 0) return 0;
+      console.log(lines.join("\n"));
+      auditRead(store, {
+        actor: resolveActor(v, env),
+        action: "inject",
+        detail: injectDetail(delivered, { scope: v.scope }),
+        at: ts,
+        ns,
+      });
+      return 0;
+    }
     // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core
     // stays pure. Built here, but written AFTER emit (C7) so a locked trail cannot discard an
     // injection the agent already received.

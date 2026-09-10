@@ -653,6 +653,32 @@ shape rather than imported:
       loudly as one that empties the persona. Mutation-checked: including drafts reads as 100% draft
       leak, dropping `scopeRel` as 50% impersonation
 
+## v6.2 — a working context reaches a session that is already running
+
+- [x] **`inject --since <ts>`** — only records whose current version began after the instant, judged on
+      the clock the as-of rewind reads (`versionTime`). Before the cap; not counted as withheld
+- [x] **`inject --scope <id> --unseen`** — the read a client-side hook makes between an agent's tool
+      calls: records this context handed this client that have since changed (retired, rewritten —
+      "re-check with the user"), then what is new since the last anchored delivery, minus versions
+      the client already holds from any other read. Silent and row-free when there is nothing, so
+      the bound stays put. The answer is in the client's own audit trail (`deliveries`, the rows
+      `consumptionCounts` reads) — core untouched beyond `since` and `InjectItem.supersedes`. A held
+      record replaced or contradicted by a newcomer is reported off the newcomer's own edges, so the
+      reversal path (new decision + `supersedes`) is caught with no extra read. Measured: 110–130 ms
+      per call on sqlite including node startup — CLI only; `--unseen` is not on the HTTP API.
+      ceilings: an edge recorded later between two records both already handed is not seen; the
+      ledger is per client, so two concurrent sessions in one context on one machine share it (a
+      session column on the audit row is the fix, not a second ledger)
+- [x] **The ledger is the reader's, wherever its deliveries are.** Under a shared Postgres the CLI
+      reads the client's own trail; under `yoke serve` every client's rows are on the server, so the
+      hook asks `GET /api/inject?scope=&unseen=1` — the same `unseenReport`, bounded by this token's
+      rows only, `text/plain`, `204` when quiet, audited as `inject`. Verified: two tokens on one
+      server each get their own briefing, and a second call answers 204
+- [x] **The hook is docs, not code** (ADOPTION.md §3): `SessionStart` briefs, `UserPromptSubmit` and
+      `PostToolUse` run `--unseen` (or the `curl` above on a team server); only `PostToolUse` needs the
+      `additionalContext` envelope, because Claude Code feeds plain stdout to the model on the other
+      two and not on that one
+
 ## v6.3 — what is said about the knowledge lives on the knowledge
 
 - [x] **A retirement's reason rides on the retiring version** (`provenance.reason`), not on the audit
