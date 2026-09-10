@@ -1,0 +1,37 @@
+README.ko.md
+  s_03673cb32bfdc1::t_be2ee72a5b9688 341-342
+README.md
+  s_03673cb32bfdc1::t_be2ee72a5b9688 369-371
+docs/ADOPTION.md
+  s_03673cb32bfdc1::t_be2ee72a5b9688 96-97
+src/front/serve/index.ts
+  s_03673cb32bfdc1::t_be2ee72a5b9688 450-452
+docs/SPEC.md
+  s_03673cb32bfdc1::t_be2ee72a5b9688 1063-1067
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_e2e64232a08924 2421-2424,2429-2431
+docs/ENTERPRISE.md
+  s_03673cb32bfdc1::t_ce15540363285b 30-40
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_835bbbddb6356e 26,900-902
+  s_03673cb32bfdc1::t_a77326d36d305e 859-899,903-940,943-944,955-987
+  s_03673cb32bfdc1::t_3b75c2db54c615 941-942,945-954
+.github/workflows/ci.yml
+  s_03673cb32bfdc1::t_83931fc05dcceb 60-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4d59f19840a20cec58831eacc0ff006b0970c62c",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
