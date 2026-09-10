@@ -38,6 +38,11 @@ beforeEach(() => {
   });
 });
 
+/** The env of a user who exported nothing AND has no local Ollama — the state these tests describe.
+ * A bare `{}` is not that state: with nothing exported the CLI probes for a local embedder, and on a
+ * machine that has one the "no provider" assertions below would be false for the right reason. */
+const NO_EMBED = { YOKE_NO_AUTO_EMBED: "1" } as const;
+
 function newDb(): string {
   return join(dir, `db-${Math.random().toString(36).slice(2)}.sqlite`);
 }
@@ -1662,7 +1667,7 @@ describe("the duplicate check says when it did not run", () => {
           "--attr",
           "statement=the cache warms on boot",
         ],
-        {},
+        NO_EMBED,
       ),
     ).toBe(0);
     const out = logs.join("\n");
@@ -1686,7 +1691,7 @@ describe("the duplicate check says when it did not run", () => {
           "--attr",
           "statement=json contract",
         ],
-        {},
+        NO_EMBED,
       ),
     ).toBe(0);
     const parsed = JSON.parse(logs.at(-1) as string) as { id: string };
@@ -1704,13 +1709,15 @@ describe("backfill --embeddings", () => {
       expect(
         await runCli(
           ["add", "fact", "--db", db, "--attr", `statement=${n}`],
-          {},
+          NO_EMBED,
         ),
       ).toBe(0);
 
     // No embedder in env: every row is skipped, and that is exit 0 — a repair that cannot run is not
     // a failure, but it must not look like success either.
-    expect(await runCli(["backfill", "--embeddings", "--db", db], {})).toBe(0);
+    expect(
+      await runCli(["backfill", "--embeddings", "--db", db], NO_EMBED),
+    ).toBe(0);
     const out = logs.join("\n");
     expect(out).toMatch(/scanned \d+ entities, embedded 0, skipped \d+/);
     expect(out).toContain("nothing was embedded");
@@ -1719,7 +1726,7 @@ describe("backfill --embeddings", () => {
   it("plain backfill still does authorship — the flag is what switches repairs", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli(["backfill", "--db", db, "--json"], {})).toBe(0);
+    expect(await runCli(["backfill", "--db", db, "--json"], NO_EMBED)).toBe(0);
     const r = JSON.parse(logs.at(-1) as string) as Record<string, unknown>;
     expect(r).toHaveProperty("created");
     expect(r).not.toHaveProperty("embedded");
@@ -1731,7 +1738,7 @@ describe("backfill --embeddings", () => {
     expect(
       await runCli(
         ["add", "fact", "--db", db, "--attr", "statement=vector coverage"],
-        {},
+        NO_EMBED,
       ),
     ).toBe(0);
 
