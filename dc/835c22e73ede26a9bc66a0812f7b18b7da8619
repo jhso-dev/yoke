@@ -1,0 +1,25 @@
+src/adapters/storage-postgres/index.test.ts
+  s_03673cb32bfdc1::t_efb9e1c23fc6a9 27,313-364
+  s_03673cb32bfdc1::t_77fefad54f887f 365-366
+src/adapters/storage-postgres/index.ts
+  s_03673cb32bfdc1::t_e59ed3253c2233 849-854,856-869
+  s_03673cb32bfdc1::t_e49e281748bcbd 56-60,262-265,270,274,300-337,741
+docs/BACKENDS.md
+  s_03673cb32bfdc1::t_04a0748e264970 134-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dc835c22e73ede26a9bc66a0812f7b18b7da8619",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
