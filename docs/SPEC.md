@@ -623,6 +623,13 @@ docs/RESEARCH.md's freshness findings converge on.
   but whose `effectiveStatus` is `stale`. `stale` is computed from the ontology's TTL at read time and
   is never persisted, so this cannot be a `listEntities({status})` filter — it is a walk plus the
   read-time computation, which is why it is a named function and not a query parameter.
+- **Replaced is not stale.** A record with a `supersedes` edge pointing at it is skipped: it has a
+  successor, and asking someone to re-confirm it would ask them to re-confirm what its replacement
+  already retired. Injection withholds such a record for the same reason, off the same predicate
+  (`supersededIn` in core/lifecycle) so the two readers cannot disagree about "replaced". One targeted
+  `neighbors(id, 'supersedes', 'in')` per STALE row — never per scanned row — so the cost is set by
+  the queue's size, not the corpus's. Still counted in `scanned`: the skip is a judgment about the
+  row, not a narrower walk.
 - **It is a bounded walk with a truthful cursor, not a corpus scan.** The walk pages
   `listEntities({status:'verified'})` and stops once it has `limit` stale rows, returning `next` (the
   cursor to *resume the scan* — the last row examined, not the last stale row, or resuming would skip

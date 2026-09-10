@@ -10,7 +10,7 @@ import {
 } from "../ports/storage.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
-import type { Entity, Provenance, Status } from "./types.js";
+import type { Entity, Provenance, Relation, Status } from "./types.js";
 
 const DAY_MS = 86_400_000;
 
@@ -386,6 +386,13 @@ const STALE_SCAN_PAGE = 500;
  * and freshness moves with the clock. If a corpus ever makes this too slow, the fix is a materialized
  * `expires_at` per row maintained by verify, not a smarter walk.
  */
+/** Whether `edges` — already filtered to the caller's namespace (and instant) — record a replacement
+ * of `id`: a `supersedes` edge pointing AT it. The one predicate behind both readers that must agree
+ * on "replaced": injection (which withholds such a record) and the stale queue (which must not ask
+ * anyone to re-confirm it). */
+export const supersededIn = (edges: Relation[], id: string): boolean =>
+  edges.some((r) => r.type === "supersedes" && r.to === id);
+
 export async function staleEntities(
   port: StoragePort,
   ontology: TypeDef[],
@@ -406,6 +413,13 @@ export async function staleEntities(
     for (const e of page.items) {
       scanned++;
       if (effectiveStatus(e, ontology, now) !== "stale") continue;
+      // Replaced is not stale. A superseded record has a successor, so re-confirming it would re-confirm
+      // what its replacement already retired — injection withholds it for the same reason. One targeted
+      // read per STALE row, never per scanned row, so the walk's cost is set by the queue, not the corpus.
+      const replaced = (await port.neighbors(e.id, "supersedes", "in")).filter(
+        (r) => normalizeNs(r.ns) === normalizeNs(opts?.ns),
+      );
+      if (supersededIn(replaced, e.id)) continue;
       items.push(e);
       // Stop mid-page on purpose, and hand back THIS row as the cursor so the next call re-examines
       // nothing and skips nothing.
