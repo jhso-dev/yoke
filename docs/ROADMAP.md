@@ -713,6 +713,18 @@ shape rather than imported:
       terminal — and with `--unseen` on the receiving side a PO's "이렇게 결정됐어" is in every running
       session on the scope at the next tool call
 
+## v6.5 — the harness ships as a Claude Code plugin, from this repo
+
+- [x] **`plugin/` + `.claude-plugin/marketplace.json`** — the three hooks (SessionStart briefing;
+      `--unseen` on UserPromptSubmit plain and PostToolUse enveloped), the yoke MCP registration, and
+      a `/yoke:setup` skill that binds a repo (`.claude/settings.json` `env.YOKE_SCOPE`) and proves
+      the wiring. Client-side packaging, not a third front adapter: every byte of knowledge moves
+      through the CLI the hooks spawn (invariant 3). The hooks' hard rule — never break a session:
+      missing scope, missing binary (`YOKE_BIN` overrides), unreachable store are all zero bytes,
+      exit 0; pinned by `plugin/harness.test.ts`, whose e2e (brief → quiet → reversal enveloped per
+      event, reported once) runs the real CLI via tsx. Distributed independently so a downstream
+      harness can take it as a dependency instead of owning knowledge delivery itself
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

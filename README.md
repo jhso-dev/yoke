@@ -227,8 +227,15 @@ Read next: [Measuring quality](#measuring-quality) · [docs/ENTERPRISE.md](docs/
 
 ## MCP setup
 
-Attach yoke to an agent (Claude Code and friends) as a stdio MCP server. In your
-project root `.mcp.json`:
+**Claude Code: install the plugin instead** — it registers the MCP server AND the hooks that brief a
+session at start and deliver changes (a reversal, a retirement with its reason) while it runs:
+
+```
+claude plugin marketplace add jhso-dev/yoke
+claude plugin install yoke@yoke        # then /yoke:setup once per repo
+```
+
+Any other MCP client attaches yoke as a stdio MCP server. In your project root `.mcp.json`:
 
 ```json
 {

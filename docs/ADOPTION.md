@@ -60,8 +60,21 @@
   브리핑(`yoke inject --scope <initiative>`), 그 뒤 매 도구 호출과 매 프롬프트에 `--unseen`(SPEC "Since, and
   unseen")을 건다 — 이 클라이언트가 아직 받지 않은 것만 내놓고, **받아간 레코드가 그새 바뀌었으면 그것을 먼저**("사용자와
   재확인하라"와 함께), 아무것도 없으면 **출력 없음**이라 컨텍스트에 소음이 들어가지 않는다. 실측 110–130ms/호출(sqlite,
-  node 기동 포함). Claude Code의 `.claude/settings.json`(레포별 — 이니셔티브 id를 여기 두면 세션마다 손으로 스코프를
-  잡지 않아도 된다):
+  node 기동 포함).
+
+  **Claude Code는 이 전부가 플러그인이다** — 이 레포의 `plugin/`: 훅 3개 + yoke MCP 등록 + 레포를 워킹
+  컨텍스트에 묶는 `/yoke:setup` 스킬.
+
+  ```
+  claude plugin marketplace add jhso-dev/yoke
+  claude plugin install yoke@yoke        # 이후 레포마다 /yoke:setup 한 번
+  ```
+
+  스코프 바인딩은 레포의 `.claude/settings.json` `env.YOKE_SCOPE`(개인 오버라이드는
+  `settings.local.json`), 훅은 그 파일을 직접 읽는다. 훅의 단 하나의 강한 규칙: **세션을 깨지 않는다** —
+  스코프 미바인딩·yoke 미설치·스토어 불달은 전부 "출력 0, exit 0"이고, 배선 점검은 `/yoke:setup`이 소리 내서
+  한다. 아래 수동 스니펫은 **다른 MCP 클라이언트용**으로 남는다 (Claude Code의 `.claude/settings.json`에
+  직접 걸어도 물론 동작한다):
 
   ```json
   {

@@ -608,8 +608,16 @@ the second built on the first:
   reading a decision must not silence an FE's hook), answered as `text/plain` because the caller is a
   hook handing the body to a model, `204` when there is nothing, and audited as `inject` — a model
   received knowledge — not `inject_preview`. Not on `yoke_inject`: the read exists for a hook between an
-  agent's tool calls, not for the agent. The hook itself is a snippet in docs, not code: its stdin
-  shape and output envelope are the AI client's, and the two front adapters stay two (invariant 3).
+  agent's tool calls, not for the agent. For Claude Code the hooks ship as a **plugin in this repo**
+  (`plugin/` — three hook entrypoints, the MCP registration, a `/yoke:setup` skill); that is
+  client-side packaging, not a third front adapter — every byte of knowledge still moves through the
+  CLI the hooks spawn and the MCP server the plugin registers, so invariant 3 holds. The hooks' one
+  hard rule is that they never break a session: no bound scope, no `yoke` binary (`YOKE_BIN`
+  overrides), or an unreachable store each mean exit 0 and zero bytes, and the common no-change case
+  costs the context nothing. The scope binding is the repo's `.claude/settings.json` `env.YOKE_SCOPE`
+  (personal override in `settings.local.json`; the hook reads the files itself rather than trusting
+  env inheritance). Other MCP clients wire the same two CLI commands into their own hook surface —
+  the snippet stays in ADOPTION §3, with the `curl` variant for a team `yoke serve`.
 
 ### The stale queue (v5.2 — implementing a clause that was written and never built)
 
