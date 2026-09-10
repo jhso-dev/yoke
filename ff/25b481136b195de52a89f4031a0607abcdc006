@@ -1,0 +1,25 @@
+src/core/lifecycle.test.ts
+  s_03673cb32bfdc1::t_e58cf43b24aff5 249-268
+docs/SPEC.md
+  s_03673cb32bfdc1::t_9bd012a6620254 626-632
+src/core/inject.ts
+  s_03673cb32bfdc1::t_9018c81e849d60 10,209
+src/core/lifecycle.ts
+  s_03673cb32bfdc1::t_9018c81e849d60 13,389-395,416-422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ff25b481136b195de52a89f4031a0607abcdc006",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
