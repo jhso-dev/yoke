@@ -1,0 +1,50 @@
+plugin/hooks/brief.mjs
+  s_03673cb32bfdc1::t_f6b1267a653858 7,13-21
+plugin/hooks/unseen.mjs
+  s_03673cb32bfdc1::t_f6b1267a653858 10,16-21
+plugin/harness.test.ts
+  s_03673cb32bfdc1::t_35647fc486551e 7,69-87,92,96,101,104,145,155,178,250,268,279,284
+  s_03673cb32bfdc1::t_55b1c2d1d794e1 8-16,184-249,251-259,261-267,269-278,280-283,285-290
+  s_03673cb32bfdc1::t_5ee30c8dbf7f97 149,161,260
+  s_03673cb32bfdc1::t_815cb410abda7d 291-292
+docs/SPEC.md
+  s_03673cb32bfdc1::t_282a03a5054b69 622-648,913
+plugin/skills/setup/SKILL.md
+  s_03673cb32bfdc1::t_7de60ffea59f3b 47-56
+docs/ADOPTION.md
+  s_03673cb32bfdc1::t_7de60ffea59f3b 102-107
+src/front/serve/index.ts
+  s_03673cb32bfdc1::t_5a9086f85a6469 73-76,246-336,459-469
+plugin/hooks/auth.mjs
+  s_03673cb32bfdc1::t_b6f1e4b03eca23 1-70,75-77
+  s_03673cb32bfdc1::t_35647fc486551e 72-74
+  s_03673cb32bfdc1::t_dc1f81bf1bb18b 71
+plugin/README.md
+  s_03673cb32bfdc1::t_7de60ffea59f3b 39-56
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_282a03a5054b69 728-742
+plugin/hooks/lib.mjs
+  s_03673cb32bfdc1::t_35647fc486551e 107-108
+  s_03673cb32bfdc1::t_33bc40f70f516a 10,23,26-31,33-34,38,47-51,71-105,109-110
+  s_03673cb32bfdc1::t_a9ab6b28510b72 106
+  s_03673cb32bfdc1::t_432b187d5b954e 111
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_a06ba71c353182 693-847,853-857
+  s_03673cb32bfdc1::t_049c826cce2c66 848-852
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "52b3cfbf71999a6cc0ac9f3419a71d9c4bceb2f5",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
