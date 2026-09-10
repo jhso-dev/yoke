@@ -589,9 +589,12 @@ the second built on the first:
   **Stated ceiling: a change is a new version.** `supersedes` and `conflicts_with` are edges on the
   old record and version nothing, so a superseded record is reported only through its successor
   arriving as new, and a contradicted one through the newcomer's `!` marker. Reporting the edge itself
-  costs one relation read per handed id; add it when a hook shows the gap. And a delivery older than
+  costs one relation read per handed id; add it when a hook shows the gap. A delivery older than
   `DELIVERY_WINDOW` rows reads as never having happened — the record is handed over once more, which
-  writes a fresh row and heals it.
+  writes a fresh row and heals it. And **the ledger is the client's, not the session's**: two sessions
+  on one machine in the same context share it, so the one that reads a change first consumes it. The
+  fix, when a team needs it, is a session column on the audit row (the hook's stdin carries
+  `session_id`) — not a second ledger.
 
   Not on `yoke_inject` or the web: the read exists so that a client-side hook can ask it between an
   agent's tool calls, and the CLI is what a hook runs. The hook itself is a snippet in docs, not code:

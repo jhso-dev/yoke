@@ -54,10 +54,32 @@
 - 그러면 `yoke inject --scope <initiative>` (빈 쿼리 = 브리핑)가 **한 이니셔티브의 cross-functional 지식**을 한 번에 준다 —
   PO 결정 + 디자인 원칙 + 아키텍처 결정 + 사업 판단이 인용과 함께, 모순은 모순대로 표시되어. 이게 팀 생산성의 핵심 화면이다.
 - 부서 collab(기능적 홈)은 남겨도 되지만, **에이전트가 앵커하는 단위는 이니셔티브**여야 협업이 산출된다.
-- **주입 시점을 세션 시작에 건다**: 브리핑은 에이전트가 호출해야 나온다 — 부르는 것을 사람 습관에 맡기지 말고,
-  클라이언트의 세션 시작 훅이 `yoke inject "" --scope <initiative>`를 실행해 출력을 세션 첫 컨텍스트로 넣는다
-  (Claude Code는 `SessionStart` 훅; 다른 MCP 클라이언트는 각자의 시작 훅·프롬프트). yoke에 새 기능이 필요 없는
-  순수 클라이언트 설정이다 — 코어는 브리핑 계약(정렬·상한·omitted 고지)을 이미 제공한다.
+- **주입 시점을 훅에 건다 — 세션 시작에, 그리고 세션 도중에.** 브리핑은 에이전트가 호출해야 나온다 — 부르는 것을
+  사람 습관에 맡기지 않는다. 그리고 결정은 세션이 열려 있는 동안 뒤집힌다: PO가 방금 확정한 결정, 방금 폐기한 결정은
+  **지금 돌아가는 세션**에 닿아야 하고, 세션을 새로 열라는 건 도구가 사람에게 맞추는 게 아니다. 세션 시작 훅은 전체
+  브리핑(`yoke inject --scope <initiative>`), 그 뒤 매 도구 호출과 매 프롬프트에 `--unseen`(SPEC "Since, and
+  unseen")을 건다 — 이 클라이언트가 아직 받지 않은 것만 내놓고, **받아간 레코드가 그새 바뀌었으면 그것을 먼저**("사용자와
+  재확인하라"와 함께), 아무것도 없으면 **출력 없음**이라 컨텍스트에 소음이 들어가지 않는다. 실측 110–130ms/호출(sqlite,
+  node 기동 포함). Claude Code의 `.claude/settings.json`(레포별 — 이니셔티브 id를 여기 두면 세션마다 손으로 스코프를
+  잡지 않아도 된다):
+
+  ```json
+  {
+    "hooks": {
+      "SessionStart":     [{ "hooks": [{ "type": "command", "command": "yoke inject --scope <initiative>" }] }],
+      "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "yoke inject --scope <initiative> --unseen" }] }],
+      "PostToolUse":      [{ "hooks": [{ "type": "command",
+        "command": "out=$(yoke inject --scope <initiative> --unseen) && [ -n \"$out\" ] && jq -n --arg c \"$out\" '{hookSpecificOutput:{hookEventName:\"PostToolUse\",additionalContext:$c}}'; exit 0" }] }]
+    }
+  }
+  ```
+
+  `PostToolUse`만 JSON 봉투를 두르는 이유: Claude Code는 `SessionStart`·`UserPromptSubmit`의 평문 stdout은 컨텍스트로
+  넣지만 `PostToolUse`의 평문은 넣지 않고 `hookSpecificOutput.additionalContext`만 넣는다(hooks 문서). `YOKE_ACTOR`를
+  개발자 id로 두면 감사 행이 누가 받았는지를 기록한다. 다른 MCP 클라이언트는 각자의 훅에 같은 명령을 건다 — yoke 쪽은
+  CLI 하나고, 봉투는 클라이언트 것이다. **ceiling**: 받은 것의 장부는 클라이언트(DB) 단위라, 같은 기계에서 같은
+  이니셔티브에 세션 두 개가 동시에 열려 있으면 변경을 먼저 읽은 세션이 소비하고 다른 세션은 못 본다. 세션 단위가 필요해지면
+  감사 행에 훅 stdin의 `session_id`를 싣는 것이 답이다.
 
 ## 4. 세 개의 의식 (capture density를 만드는 것)
 
