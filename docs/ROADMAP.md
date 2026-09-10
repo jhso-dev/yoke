@@ -662,11 +662,13 @@ shape rather than imported:
       "re-check with the user"), then what is new since the last anchored delivery, minus versions
       the client already holds from any other read. Silent and row-free when there is nothing, so
       the bound stays put. The answer is in the client's own audit trail (`deliveries`, the rows
-      `consumptionCounts` reads) — core untouched beyond `since`. Measured: 110–130 ms per call on
-      sqlite including node startup, ~10 ms as an HTTP call to a running server. ceilings: a change
-      is a new version — `supersedes`/`conflicts_with` edges version nothing and surface only through
-      the newcomer; the ledger is per client, so two concurrent sessions in one context on one machine
-      share it (a session column on the audit row is the fix, not a second ledger)
+      `consumptionCounts` reads) — core untouched beyond `since` and `InjectItem.supersedes`. A held
+      record replaced or contradicted by a newcomer is reported off the newcomer's own edges, so the
+      reversal path (new decision + `supersedes`) is caught with no extra read. Measured: 110–130 ms
+      per call on sqlite including node startup — CLI only; `--unseen` is not on the HTTP API.
+      ceilings: an edge recorded later between two records both already handed is not seen; the
+      ledger is per client, so two concurrent sessions in one context on one machine share it (a
+      session column on the audit row is the fix, not a second ledger)
 - [x] **The hook is docs, not code** (ADOPTION.md §3): `SessionStart` briefs, `UserPromptSubmit` and
       `PostToolUse` run `--unseen`; only `PostToolUse` needs the `additionalContext` envelope, because
       Claude Code feeds plain stdout to the model on the other two and not on that one

@@ -1217,6 +1217,27 @@ describe("runCli", () => {
     // 5. Reported once.
     await tick();
     expect(await unseen()).toBe("");
+    // 6. The reversal path: a NEW decision that supersedes one this client holds. The old record's
+    // version never moves, so this is caught off the newcomer's own edge — and it is the reversal, not
+    // the arrival, that leads.
+    await tick();
+    const d4 = await add("fact", [
+      "--scope",
+      scope,
+      "--attr",
+      "statement=HA in phase 1 after all",
+    ]);
+    expect(
+      await runCli(["link", d4, "supersedes", d2, "--db", db, "--actor", "po"]),
+    ).toBe(0);
+    const sixth = await unseen();
+    expect(sixth.indexOf("-- changed since")).toBeLessThan(
+      sixth.indexOf("-- new in"),
+    );
+    expect(sixth).toContain(`${d2}  HA is deferred  -> superseded by ${d4}`);
+    expect(sixth).toContain(d4);
+    await tick();
+    expect(await unseen()).toBe("");
 
     // A version this client already holds from a PLAIN query does not arrive again as news.
     await tick();

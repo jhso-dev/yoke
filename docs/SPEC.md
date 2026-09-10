@@ -572,10 +572,12 @@ the second built on the first:
   client's own audit trail — every `inject`/`persona` row names the ids it handed over
   (`deliveries` in `src/front/display.ts`, the same rows `consumptionCounts` reads, over
   `DELIVERY_WINDOW` recent rows). Two halves, in this order:
-  1. **changed since handed to you** — records a row anchored on this scope handed over whose current
-     version began after that row. A decision the agent may be building on has been retired or
-     rewritten; this outranks anything new, and the line says to re-check with the user before
-     building on it.
+  1. **changed since handed to you** — records a row anchored on this scope handed over that have
+     since been retired or rewritten (their version time passed the delivery), **replaced** or
+     **contradicted** (a `supersedes`/`conflicts_with` edge on a newcomer in half 2 points at them —
+     read off the newcomer's own `supersedes`/`conflictsWith`, so it costs no extra read). A decision
+     the agent may be building on is dead; this outranks anything new, and the line says to re-check
+     with the user before building on it.
   2. **new in the context** — the briefing, bounded by `since` = the last row anchored on this scope,
      minus any version this client already holds from another read (a plain query five minutes ago
      is a delivery too).
@@ -586,10 +588,11 @@ the second built on the first:
   never handed this context is therefore its briefing. Text only (`--json` is refused: the two-part
   answer has no array shape, and the caller is a hook), takes no query, and sets its own `--since`.
 
-  **Stated ceiling: a change is a new version.** `supersedes` and `conflicts_with` are edges on the
-  old record and version nothing, so a superseded record is reported only through its successor
-  arriving as new, and a contradicted one through the newcomer's `!` marker. Reporting the edge itself
-  costs one relation read per handed id; add it when a hook shows the gap. A delivery older than
+  **Stated ceiling: an edge between two records this client already holds is not seen.** A version
+  moves, or a newcomer carries the edge — those are the two signals read. A `supersedes` or
+  `conflicts_with` link recorded later between two records both handed earlier versions neither and
+  arrives on no newcomer; reporting it costs one relation read per handed id, so add it when a hook
+  shows the gap. A delivery older than
   `DELIVERY_WINDOW` rows reads as never having happened — the record is handed over once more, which
   writes a fresh row and heals it. And **the ledger is the client's, not the session's**: two sessions
   on one machine in the same context share it, so the one that reads a change first consumes it. The

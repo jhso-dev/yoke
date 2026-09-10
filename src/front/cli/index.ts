@@ -1363,22 +1363,41 @@ async function cmdInject(
         const at = handed.lastHanded.get(e.id);
         return at === undefined || !atOrBefore(versionTime(e), at);
       };
-      const changed = (await readEntities(store, handed.anchored.ids)).filter(
-        (e) => normalizeNs(e.ns) === normalizeNs(ns) && unseenOf(e),
+      const held = (await readEntities(store, handed.anchored.ids)).filter(
+        (e) => normalizeNs(e.ns) === normalizeNs(ns),
       );
-      const changedIds = new Set(changed.map((e) => e.id));
+      const heldById = new Map(held.map((e) => [e.id, e]));
+      // A held record changes three ways, and the version moves in only one of them. Retired or
+      // rewritten: its own version time passed the delivery. Replaced or contradicted: an edge on a
+      // NEWCOMER points at it, and the newcomer is in `fresh` carrying that edge already, so this costs
+      // no read — the reversal path (a new decision that supersedes the old one) is caught here.
+      const changed = new Map<string, string>();
+      for (const e of held)
+        if (unseenOf(e))
+          changed.set(e.id, `-> ${effectiveStatus(e, ontology, ts)}`);
       const fresh = items.filter(
-        (it) => !changedIds.has(it.entity.id) && unseenOf(it.entity),
+        (it) => !changed.has(it.entity.id) && unseenOf(it.entity),
       );
-      if (changed.length === 0 && fresh.length === 0) return 0;
+      for (const it of fresh) {
+        for (const old of it.supersedes ?? [])
+          if (heldById.has(old) && !changed.has(old))
+            changed.set(old, `-> superseded by ${it.entity.id}`);
+        for (const other of it.conflictsWith ?? [])
+          if (heldById.has(other) && !changed.has(other))
+            changed.set(
+              other,
+              `!  contradicted by ${it.entity.id} — neither is settled`,
+            );
+      }
+      if (changed.size === 0 && fresh.length === 0) return 0;
       const out: string[] = [];
-      if (changed.length > 0) {
+      if (changed.size > 0) {
         out.push(
           "-- changed since handed to you — re-check with the user before building on them:",
         );
-        for (const e of changed)
+        for (const [id, what] of changed)
           out.push(
-            `${e.id}  ${summarize(e, ontology)}  -> ${effectiveStatus(e, ontology, ts)}`,
+            `${id}  ${summarize(heldById.get(id) as Entity, ontology)}  ${what}`,
           );
       }
       if (fresh.length > 0) {
@@ -1403,7 +1422,7 @@ async function cmdInject(
         actor: resolveActor(v, env),
         action: "inject",
         detail: injectDetail(
-          [...changed.map((e) => e.id), ...fresh.map((it) => it.entity.id)],
+          [...changed.keys(), ...fresh.map((it) => it.entity.id)],
           { scope: v.scope },
         ),
         at: ts,

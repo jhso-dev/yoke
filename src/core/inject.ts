@@ -31,6 +31,12 @@ export interface InjectItem {
    */
   conflictsWith?: string[];
   /**
+   * Ids of the records this one replaced (`supersedes`, outgoing), if any. Read off the same edges
+   * `conflictsWith` comes from, so it costs nothing; carried because a reader who holds the replaced
+   * record is told so only if the replacement says what it replaced. Absent when it replaced nothing.
+   */
+  supersedes?: string[];
+  /**
    * Who actually wrote this, off the `authored_by` edge — absent when the record has no such edge.
    *
    * Exposed as well as folded into `citation` because a front tier has to RESOLVE it: the id is what
@@ -186,6 +192,7 @@ async function meaningEdges(
   asOf?: string,
 ): Promise<{
   superseded: boolean;
+  supersedes: string[];
   conflictsWith: string[];
   author?: string;
 }> {
@@ -199,6 +206,10 @@ async function meaningEdges(
     // separately would be a second round trip for a field the first one returned.
     author: edges.find((r) => r.type === "authored_by" && r.from === id)?.to,
     superseded: edges.some((r) => r.type === "supersedes" && r.to === id),
+    supersedes: edges
+      .filter((r) => r.type === "supersedes" && r.from === id)
+      .map((r) => r.to)
+      .sort(),
     // Symmetric, so the pair is one claim recorded from whichever end — both directions count.
     conflictsWith: [
       ...new Set(
@@ -656,12 +667,8 @@ export async function inject(
   let supersededCount = 0;
   const limited: InjectItem[] = [];
   for (const item of capped) {
-    const { superseded, conflictsWith, author } = await meaningEdges(
-      port,
-      item.entity.id,
-      ns,
-      opts?.asOf,
-    );
+    const { superseded, supersedes, conflictsWith, author } =
+      await meaningEdges(port, item.entity.id, ns, opts?.asOf);
     if (superseded) {
       supersededCount++;
       continue;
@@ -673,6 +680,7 @@ export async function inject(
       citation: citation(item.entity, author),
       ...(author ? { author } : {}),
       ...(conflictsWith.length > 0 ? { conflictsWith } : {}),
+      ...(supersedes.length > 0 ? { supersedes } : {}),
     });
   }
   // Say what was held back, whether or not anything came through. A partial answer is the worse case: a
