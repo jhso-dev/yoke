@@ -824,6 +824,60 @@ describe("as-of injection", () => {
   });
 });
 
+describe("since: what changed after an instant", () => {
+  const early = "2026-07-13T00:00:00Z";
+  const later = "2026-07-20T00:00:00Z";
+  const between = "2026-07-15T00:00:00Z";
+  const read = "2026-07-25T00:00:00Z";
+
+  it("keeps only records whose current version began after `since`", async () => {
+    const old = await addFact("zqsince old");
+    const fresh = await addFact("zqsince fresh");
+    await verify(port, [old], "alice", early);
+    await verify(port, [fresh], "alice", later);
+    const res = await inject(port, ont, "zqsince", read, { since: between });
+    expect(res.items.map((it) => it.entity.id)).toEqual([fresh]);
+    // Nothing was held back: the older record is verified and simply predates the bound, and reporting
+    // it as withheld would tell the caller something was kept from them.
+    expect(res.withheld).toBeUndefined();
+  });
+
+  it("a re-verification is a change: the version time moves", async () => {
+    const id = await addFact("zqreconfirm");
+    await verify(port, [id], "alice", early);
+    expect(
+      (await inject(port, ont, "zqreconfirm", read, { since: between })).items,
+    ).toEqual([]);
+    await verify(port, [id], "alice", later);
+    expect(
+      (
+        await inject(port, ont, "zqreconfirm", read, { since: between })
+      ).items.map((it) => it.entity.id),
+    ).toEqual([id]);
+  });
+
+  it("filters before the cap, so a new record is never what `limit` cuts", async () => {
+    const anchor = await addFact("zqcap anchor");
+    const olds: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const id = await addFact(`zqcap old ${i}`);
+      await verify(port, [id], "alice", early);
+      await link(id, anchor);
+      olds.push(id);
+    }
+    const fresh = await addFact("zqcap fresh");
+    await verify(port, [fresh], "alice", later);
+    await link(fresh, anchor);
+    const res = await inject(port, ont, "", read, {
+      scope: anchor,
+      since: between,
+      limit: 1,
+    });
+    expect(res.items.map((it) => it.entity.id)).toEqual([fresh]);
+    expect(res.omitted).toBe(0);
+  });
+});
+
 describe("hybrid retrieval: the vector half of the Embedder contract", () => {
   // A vocabulary-mismatch corpus. `quatrain` shares no token with the query, so the keyword half
   // cannot reach it at any limit — that is the case measured in docs/RESEARCH.md (Korean queries:

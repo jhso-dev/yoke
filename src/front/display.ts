@@ -6,7 +6,7 @@
 // copies drift, and a fix to one is a defect the other still shows.
 
 import { pointer, type WithheldStats } from "../core/inject.js";
-import { effectiveStatus } from "../core/lifecycle.js";
+import { atOrBefore, effectiveStatus } from "../core/lifecycle.js";
 import { normalizeNs } from "../core/namespace.js";
 import {
   BOOKKEEPING_ATTRS,
@@ -295,6 +295,63 @@ export function consumptionCounts(
     }
   }
   return counts;
+}
+
+/**
+ * The window `deliveries` reads, in audit rows. Small enough to pay on every hook call (see
+ * `CONSUMPTION_WINDOW` for the measured per-row cost); a delivery older than the window reads as never
+ * having happened, so the record is handed over once more — which writes a fresh row and heals it.
+ */
+export const DELIVERY_WINDOW = 5_000;
+
+/**
+ * What this client has already been handed, read back from the same rows `consumptionCounts` reads.
+ *
+ * `lastHanded`: per id, the instant of the most recent `inject`/`persona` row naming it — the fact
+ * `yoke inject --unseen` compares a record's version time against, so a version this client already
+ * holds is not delivered twice, and a version it does not is. `anchored`: for one working context, the
+ * instant of the most recent row anchored on it (the `since` bound of an unseen read) and every id such
+ * a row handed over (the set whose changes that context is told about). Both by instant, not by row
+ * order or string compare: `at` is stored in two spellings (whole-second and millisecond `Z`).
+ */
+export function deliveries(
+  events: Array<{ action: string; detail: string; at: string }>,
+  anchor: string,
+): {
+  lastHanded: Map<string, string>;
+  anchored: { last?: string; ids: Set<string> };
+} {
+  const lastHanded = new Map<string, string>();
+  const anchored: { last?: string; ids: Set<string> } = { ids: new Set() };
+  const later = (prev: string | undefined, at: string) =>
+    prev === undefined || !atOrBefore(at, prev);
+  for (const e of events) {
+    if (e.action !== "inject" && e.action !== "persona") continue;
+    const arrow = e.detail.lastIndexOf(" -> ");
+    if (arrow === -1) continue;
+    const subject = e.detail.slice(0, arrow).split(" ");
+    // An as-of read hands over the version current THEN, so it says nothing about whether the client
+    // holds the current one. The `@<instant>` token sits first, or second after an anchor — read there
+    // rather than via `injectShape`, whose anchor test is ULID-shaped and ids are not all ULIDs.
+    if (
+      subject
+        .slice(0, 2)
+        .some((t) => t.startsWith("@") && !Number.isNaN(Date.parse(t.slice(1))))
+    )
+      continue;
+    const ids = e.detail
+      .slice(arrow + 4)
+      .split(" ")
+      .filter(Boolean);
+    const onAnchor = subject[0] === anchor;
+    if (onAnchor) {
+      if (later(anchored.last, e.at)) anchored.last = e.at;
+      for (const id of ids) anchored.ids.add(id);
+    }
+    for (const id of ids)
+      if (later(lastHanded.get(id), e.at)) lastHanded.set(id, e.at);
+  }
+  return { lastHanded, anchored };
 }
 
 /**

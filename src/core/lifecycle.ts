@@ -25,7 +25,7 @@ const MAX_VERSION_RETRIES = 5;
  * before the two times were separated: those carry the transition instant in `occurred_at`, so
  * as-of over legacy history answers exactly as it did before the split.
  */
-const versionTime = (e: Entity): string =>
+export const versionTime = (e: Entity): string =>
   e.provenance.transitioned_at ?? e.provenance.occurred_at;
 
 /**

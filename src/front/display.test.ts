@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { seedOntology } from "../core/ontology.js";
 import {
   consumptionCounts,
+  deliveries,
   injectDetail,
   injectShape,
   rankByConsumption,
@@ -198,6 +199,77 @@ describe("injectShape", () => {
       shape: "plain",
       asOf: false,
     });
+  });
+});
+
+describe("deliveries", () => {
+  it("per id the latest handing, and for one anchor its last row and every id it handed", () => {
+    const d = deliveries(
+      [
+        {
+          action: "inject",
+          detail: "queue timeout -> A B",
+          at: "2026-09-01T00:00:00Z",
+        },
+        {
+          action: "inject",
+          detail: "SCOPE1 -> B C",
+          at: "2026-09-02T00:00:00Z",
+        },
+        {
+          action: "persona",
+          detail: "person:kim -> C",
+          at: "2026-09-03T00:00:00Z",
+        },
+        // Another context's briefing: its ids count as handed, its instant is not this anchor's.
+        { action: "inject", detail: "SCOPE2 -> D", at: "2026-09-04T00:00:00Z" },
+        // A human governing is not a delivery.
+        {
+          action: "inject_preview",
+          detail: "SCOPE1 -> E",
+          at: "2026-09-05T00:00:00Z",
+        },
+        // An as-of read handed over a rewound version, not the current one.
+        {
+          action: "inject",
+          detail: "SCOPE1 @2026-01-01T00:00:00Z -> F",
+          at: "2026-09-06T00:00:00Z",
+        },
+      ],
+      "SCOPE1",
+    );
+    expect(d.anchored.last).toBe("2026-09-02T00:00:00Z");
+    expect([...d.anchored.ids].sort()).toEqual(["B", "C"]);
+    expect(d.lastHanded.get("A")).toBe("2026-09-01T00:00:00Z");
+    expect(d.lastHanded.get("B")).toBe("2026-09-02T00:00:00Z");
+    expect(d.lastHanded.get("C")).toBe("2026-09-03T00:00:00Z");
+    expect(d.lastHanded.get("D")).toBe("2026-09-04T00:00:00Z");
+    expect(d.lastHanded.has("E")).toBe(false);
+    expect(d.lastHanded.has("F")).toBe(false);
+    expect(d.anchored.last).toBe("2026-09-02T00:00:00Z");
+  });
+
+  it("latest by instant, not by row order or spelling", () => {
+    // The trail stores `at` in two spellings; `Z` collates after `.`, so a string compare would call
+    // the whole-second row the later one.
+    const d = deliveries(
+      [
+        { action: "inject", detail: "S -> A", at: "2026-09-01T00:00:00.500Z" },
+        { action: "inject", detail: "S -> A", at: "2026-09-01T00:00:00Z" },
+      ],
+      "S",
+    );
+    expect(d.lastHanded.get("A")).toBe("2026-09-01T00:00:00.500Z");
+    expect(d.anchored.last).toBe("2026-09-01T00:00:00.500Z");
+  });
+
+  it("an anchor with no rows has no bound", () => {
+    const d = deliveries(
+      [{ action: "inject", detail: "other -> A", at: "2026-09-01T00:00:00Z" }],
+      "S",
+    );
+    expect(d.anchored.last).toBeUndefined();
+    expect(d.anchored.ids.size).toBe(0);
   });
 });
 

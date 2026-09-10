@@ -4,7 +4,12 @@
 
 import { readEntities, type StoragePort } from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
-import { atOrBefore, effectiveStatus, versionAsOf } from "./lifecycle.js";
+import {
+  atOrBefore,
+  effectiveStatus,
+  versionAsOf,
+  versionTime,
+} from "./lifecycle.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import type { Entity, Status } from "./types.js";
@@ -422,6 +427,10 @@ export function entityIdCandidates(raw: string): string[] {
  *   record retired since still reads as what it was. See SPEC "As-of injection" for the stated
  *   ceiling — candidate selection is still today's index, so this narrows the past rather than
  *   re-searching it.
+ * @param since only records whose CURRENT version came into being after this instant — what changed
+ *   in a working context since a caller last looked (SPEC "Since"). Judged on `versionTime`, the clock
+ *   the as-of rewind reads, so "changed since T" and "current as of T" cannot disagree about when a
+ *   version began. A filter on the answer, not the clock: freshness and status are still judged now.
  */
 export async function inject(
   port: StoragePort,
@@ -439,6 +448,7 @@ export async function inject(
      * for byte. Only meaningful with `scope`. */
     depth?: number;
     asOf?: string;
+    since?: string;
     embedder?: Embedder;
     /** How much a keyword rank counts against a vector rank in hybrid fusion. Default
      * KEYWORD_WEIGHT (0.1) — swept over eval/gold-set.json. The constant's own ceiling names this
@@ -594,6 +604,9 @@ export async function inject(
     const pass =
       status === "verified" || (opts?.includeDraft && status === "draft");
     if (!pass) continue;
+    // Before the cap, so a working context's newest record is never what `limit` cuts. Not counted as
+    // withheld: a record unchanged since T was not held back from the caller, it was already theirs.
+    if (opts?.since && atOrBefore(versionTime(entity), opts.since)) continue;
     items.push({ entity, effectiveStatus: status, citation: citation(entity) });
   }
   // A briefing (anchor, no query) has no order of its own: candidates come out in whatever order the

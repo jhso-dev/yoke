@@ -653,6 +653,20 @@ shape rather than imported:
       loudly as one that empties the persona. Mutation-checked: including drafts reads as 100% draft
       leak, dropping `scopeRel` as 50% impersonation
 
+## v6.2 — a working context reaches a session that is already running
+
+- [x] **`inject --since <ts>`** — only records whose current version began after the instant, judged on
+      the clock the as-of rewind reads (`versionTime`). Before the cap; not counted as withheld
+- [x] **`inject --scope <id> --unseen`** — the read a client-side hook makes between an agent's tool
+      calls: records this context handed this client that have since changed (retired, rewritten —
+      "re-check with the user"), then what is new since the last anchored delivery, minus versions
+      the client already holds from any other read. Silent and row-free when there is nothing, so
+      the bound stays put. The answer is in the client's own audit trail (`deliveries`, the rows
+      `consumptionCounts` reads) — core untouched beyond `since`. Measured: 110–130 ms per call on
+      sqlite including node startup, ~10 ms as an HTTP call to a running server. ceiling: a change
+      is a new version; `supersedes`/`conflicts_with` edges version nothing and surface only through
+      the newcomer
+
 ## v6.3 — what is said about the knowledge lives on the knowledge
 
 - [x] **A retirement's reason rides on the retiring version** (`provenance.reason`), not on the audit
