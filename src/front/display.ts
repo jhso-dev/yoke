@@ -5,8 +5,12 @@
 // One copy of each presentation helper (summarize, actor-name resolution, the refusal guards): two
 // copies drift, and a fix to one is a defect the other still shows.
 
-import { pointer, type WithheldStats } from "../core/inject.js";
-import { atOrBefore, effectiveStatus } from "../core/lifecycle.js";
+import {
+  type InjectItem,
+  pointer,
+  type WithheldStats,
+} from "../core/inject.js";
+import { atOrBefore, effectiveStatus, versionTime } from "../core/lifecycle.js";
 import { normalizeNs } from "../core/namespace.js";
 import {
   BOOKKEEPING_ATTRS,
@@ -352,6 +356,90 @@ export function deliveries(
       if (later(lastHanded.get(id), e.at)) lastHanded.set(id, e.at);
   }
   return { lastHanded, anchored };
+}
+
+/**
+ * The `--unseen` answer (SPEC "Since, and unseen"), for one reader of one working context. Shared by
+ * `yoke inject --unseen` and `GET /api/inject?unseen=1` so a hook reads the same lines whichever
+ * ledger holds its deliveries — the CLI's local trail, or the server's rows for this actor.
+ *
+ * Two answers, both read against `handed`. First: records this reader was handed IN THIS CONTEXT that
+ * have since changed — a decision it may be building on is dead, and that outranks anything new. A
+ * held record changes three ways and its version moves in only one: retired or rewritten (its own
+ * version time passed the delivery); replaced or contradicted (an edge on a NEWCOMER points at it, and
+ * the newcomer is in `result.items` carrying that edge already, so this costs no read — the reversal
+ * path, a new decision that supersedes the old one, is caught here). Second: the briefing's records
+ * since the last anchored delivery, minus any version this reader already holds from another read.
+ *
+ * `delivered` empty means: say nothing, write no row, so the bound stays put and the next call costs
+ * the same. Otherwise every id in it goes on one `inject` row — that row is what stops the next call
+ * from saying this again.
+ */
+export async function unseenReport(
+  store: StoragePort,
+  ontology: TypeDef[],
+  ns: string | null | undefined,
+  now: string,
+  anchor: Entity,
+  handed: ReturnType<typeof deliveries>,
+  result: { items: InjectItem[]; omitted: number },
+): Promise<{ lines: string[]; delivered: string[] }> {
+  const unseenOf = (e: Entity) => {
+    const at = handed.lastHanded.get(e.id);
+    return at === undefined || !atOrBefore(versionTime(e), at);
+  };
+  const held = (await readEntities(store, handed.anchored.ids)).filter(
+    (e) => normalizeNs(e.ns) === normalizeNs(ns),
+  );
+  const heldById = new Map(held.map((e) => [e.id, e]));
+  const changed = new Map<string, string>();
+  for (const e of held)
+    if (unseenOf(e))
+      changed.set(e.id, `-> ${effectiveStatus(e, ontology, now)}`);
+  const fresh = result.items.filter(
+    (it) => !changed.has(it.entity.id) && unseenOf(it.entity),
+  );
+  for (const it of fresh) {
+    for (const old of it.supersedes ?? [])
+      if (heldById.has(old) && !changed.has(old))
+        changed.set(old, `-> superseded by ${it.entity.id}`);
+    for (const other of it.conflictsWith ?? [])
+      if (heldById.has(other) && !changed.has(other))
+        changed.set(
+          other,
+          `!  contradicted by ${it.entity.id} — neither is settled`,
+        );
+  }
+  const lines: string[] = [];
+  if (changed.size > 0) {
+    lines.push(
+      "-- changed since handed to you — re-check with the user before building on them:",
+    );
+    for (const [id, what] of changed)
+      lines.push(
+        `${id}  ${summarize(heldById.get(id) as Entity, ontology)}  ${what}`,
+      );
+  }
+  if (fresh.length > 0) {
+    lines.push(`-- new in ${summarize(anchor, ontology) || anchor.id}:`);
+    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
+    await prefetch(citeActors(fresh));
+    for (const it of fresh)
+      lines.push(
+        `${await readableCite(it, nameOf)}  ${summarize(it.entity, ontology)}` +
+          (it.conflictsWith
+            ? `\n  ! contradicted by ${it.conflictsWith.join(" ")} — both are recorded, neither is settled`
+            : ""),
+      );
+    if (result.omitted > 0)
+      lines.push(
+        `-- ${fresh.length} of ${result.items.length + result.omitted} new on this scope (freshest first); the rest are reachable by querying, or raise --limit`,
+      );
+  }
+  return {
+    lines,
+    delivered: [...changed.keys(), ...fresh.map((it) => it.entity.id)],
+  };
 }
 
 /**

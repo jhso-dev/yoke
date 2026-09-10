@@ -599,10 +599,16 @@ the second built on the first:
   fix, when a team needs it, is a session column on the audit row (the hook's stdin carries
   `session_id`) — not a second ledger.
 
-  Not on `yoke_inject` or the web: the read exists so that a client-side hook can ask it between an
-  agent's tool calls, and the CLI is what a hook runs. The hook itself is a snippet in docs, not code:
-  its stdin shape and output envelope are the AI client's, and the two front adapters stay two
-  (invariant 3).
+  **The ledger is the reader's, wherever the reader's deliveries are.** Under a shared Postgres or
+  OpenSearch each client's trail is its own sqlite, and the CLI reads it. Under `yoke serve` every
+  client's `inject` rows land in the server's trail, so the hook asks the server instead:
+  `GET /api/inject?scope=<id>&unseen=1` — the same `unseenReport` (one function in
+  `src/front/display.ts`, so the two cannot drift), bounded by **this actor's** rows only (a PO
+  reading a decision must not silence an FE's hook), answered as `text/plain` because the caller is a
+  hook handing the body to a model, `204` when there is nothing, and audited as `inject` — a model
+  received knowledge — not `inject_preview`. Not on `yoke_inject`: the read exists for a hook between an
+  agent's tool calls, not for the agent. The hook itself is a snippet in docs, not code: its stdin
+  shape and output envelope are the AI client's, and the two front adapters stay two (invariant 3).
 
 ### The stale queue (v5.2 — implementing a clause that was written and never built)
 
@@ -954,7 +960,7 @@ Rules that hold for every route:
 
   | action | meaning | written by |
   |---|---|---|
-  | `inject` | a model received knowledge | MCP, CLI |
+  | `inject` | a model received knowledge | MCP, CLI, and `GET /api/inject?unseen=1` (a hook, not a screen) |
   | `inject_preview` | a human saw what a model *would* receive | web only — there is no CLI preview |
   | `persona` | someone's recorded judgment was read | MCP, CLI, web |
   | `read` | a full record — attributes, versions, relations — was read | CLI, web |

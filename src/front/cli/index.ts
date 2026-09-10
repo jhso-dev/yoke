@@ -54,15 +54,12 @@ import {
   WALK_BUDGET,
 } from "../../core/inject.js";
 import {
-  atOrBefore,
   deprecate,
   downstreamOf,
-  effectiveStatus,
   listVersions,
   retirementOf,
   staleEntities,
   verify,
-  versionTime,
 } from "../../core/lifecycle.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import {
@@ -81,7 +78,6 @@ import {
   safeName,
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
-import { readEntities } from "../../ports/storage.js";
 import {
   CONSUMPTION_WINDOW,
   citeActors,
@@ -98,6 +94,7 @@ import {
   refuseRename,
   shownStatus,
   summarize,
+  unseenReport,
 } from "../display.js";
 import { runMcp } from "../mcp/index.js";
 import { runServe } from "../serve/index.js";
@@ -1349,82 +1346,21 @@ async function cmdInject(
       },
     );
     if (handed && anchor) {
-      // Two answers, both read against the trail. First: records this client was handed IN THIS CONTEXT
-      // whose current version began after that — a decision it may be building on has been retired or
-      // rewritten, and that outranks anything new. Second: the briefing's records since the last
-      // anchored delivery, minus any version this client already holds from another read. Nothing on
-      // either side → no output and no audit row, so the bound stays put and the next call is as cheap.
-      //
-      // ceiling: a change is a new VERSION. `supersedes` and `conflicts_with` are edges on the old
-      // record and version nothing, so a superseded record is reported only through its successor
-      // arriving as new; a contradicted one through the newcomer's `!` marker. Reporting the edge
-      // itself needs one relation read per handed id — add it when a hook shows the gap.
-      const unseenOf = (e: Entity) => {
-        const at = handed.lastHanded.get(e.id);
-        return at === undefined || !atOrBefore(versionTime(e), at);
-      };
-      const held = (await readEntities(store, handed.anchored.ids)).filter(
-        (e) => normalizeNs(e.ns) === normalizeNs(ns),
+      const { lines, delivered } = await unseenReport(
+        store,
+        ontology,
+        ns,
+        ts,
+        anchor,
+        handed,
+        { items, omitted },
       );
-      const heldById = new Map(held.map((e) => [e.id, e]));
-      // A held record changes three ways, and the version moves in only one of them. Retired or
-      // rewritten: its own version time passed the delivery. Replaced or contradicted: an edge on a
-      // NEWCOMER points at it, and the newcomer is in `fresh` carrying that edge already, so this costs
-      // no read — the reversal path (a new decision that supersedes the old one) is caught here.
-      const changed = new Map<string, string>();
-      for (const e of held)
-        if (unseenOf(e))
-          changed.set(e.id, `-> ${effectiveStatus(e, ontology, ts)}`);
-      const fresh = items.filter(
-        (it) => !changed.has(it.entity.id) && unseenOf(it.entity),
-      );
-      for (const it of fresh) {
-        for (const old of it.supersedes ?? [])
-          if (heldById.has(old) && !changed.has(old))
-            changed.set(old, `-> superseded by ${it.entity.id}`);
-        for (const other of it.conflictsWith ?? [])
-          if (heldById.has(other) && !changed.has(other))
-            changed.set(
-              other,
-              `!  contradicted by ${it.entity.id} — neither is settled`,
-            );
-      }
-      if (changed.size === 0 && fresh.length === 0) return 0;
-      const out: string[] = [];
-      if (changed.size > 0) {
-        out.push(
-          "-- changed since handed to you — re-check with the user before building on them:",
-        );
-        for (const [id, what] of changed)
-          out.push(
-            `${id}  ${summarize(heldById.get(id) as Entity, ontology)}  ${what}`,
-          );
-      }
-      if (fresh.length > 0) {
-        out.push(`-- new in ${summarize(anchor, ontology) || anchor.id}:`);
-        const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
-        await prefetch(citeActors(fresh));
-        for (const it of fresh)
-          out.push(
-            `${await readableCite(it, nameOf)}  ${summarize(it.entity, ontology)}` +
-              (it.conflictsWith
-                ? `\n  ! contradicted by ${it.conflictsWith.join(" ")} — both are recorded, neither is settled`
-                : ""),
-          );
-        if (omitted > 0)
-          out.push(
-            `-- ${fresh.length} of ${items.length + omitted} new on this scope (freshest first); the rest are reachable by querying, or raise --limit`,
-          );
-      }
-      console.log(out.join("\n"));
-      // Both halves are deliveries: the row is what makes the next --unseen not say this again.
+      if (delivered.length === 0) return 0;
+      console.log(lines.join("\n"));
       auditRead(store, {
         actor: resolveActor(v, env),
         action: "inject",
-        detail: injectDetail(
-          [...changed.keys(), ...fresh.map((it) => it.entity.id)],
-          { scope: v.scope },
-        ),
+        detail: injectDetail(delivered, { scope: v.scope }),
         at: ts,
         ns,
       });

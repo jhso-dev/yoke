@@ -669,9 +669,15 @@ shape rather than imported:
       ceilings: an edge recorded later between two records both already handed is not seen; the
       ledger is per client, so two concurrent sessions in one context on one machine share it (a
       session column on the audit row is the fix, not a second ledger)
+- [x] **The ledger is the reader's, wherever its deliveries are.** Under a shared Postgres the CLI
+      reads the client's own trail; under `yoke serve` every client's rows are on the server, so the
+      hook asks `GET /api/inject?scope=&unseen=1` — the same `unseenReport`, bounded by this token's
+      rows only, `text/plain`, `204` when quiet, audited as `inject`. Verified: two tokens on one
+      server each get their own briefing, and a second call answers 204
 - [x] **The hook is docs, not code** (ADOPTION.md §3): `SessionStart` briefs, `UserPromptSubmit` and
-      `PostToolUse` run `--unseen`; only `PostToolUse` needs the `additionalContext` envelope, because
-      Claude Code feeds plain stdout to the model on the other two and not on that one
+      `PostToolUse` run `--unseen` (or the `curl` above on a team server); only `PostToolUse` needs the
+      `additionalContext` envelope, because Claude Code feeds plain stdout to the model on the other
+      two and not on that one
 
 ## v6.3 — what is said about the knowledge lives on the knowledge
 

@@ -36,6 +36,8 @@ import { readEntities } from "../../ports/storage.js";
 import {
   CONSUMPTION_WINDOW,
   consumptionCounts,
+  DELIVERY_WINDOW,
+  deliveries,
   injectDetail,
   makeActorNames,
   rankByConsumption,
@@ -43,6 +45,7 @@ import {
   refuseRename,
   summarize,
   ULID,
+  unseenReport,
 } from "../display.js";
 import { parseScope } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
@@ -785,6 +788,26 @@ export function createUiHandler(
         throw new Error("q or scope is required (scope alone is a briefing)");
       const ts = now();
       const includeDraft = url.searchParams.get("includeDraft") === "true";
+      // `unseen=1` is `yoke inject --unseen` for a hook whose deliveries are on THIS server — a `serve`
+      // deployment, where every client's `inject` rows land in one trail. The ledger is the reader's,
+      // so only this actor's rows count (SPEC "Since, and unseen"). Text, not JSON: the caller is a
+      // hook that hands the body to a model, and the CLI prints the identical lines.
+      const unseen = url.searchParams.get("unseen") === "1";
+      if (unseen && (!scope || query))
+        throw new Error(
+          "unseen=1 is a briefing of one working context: pass scope and no q",
+        );
+      const anchor = unseen && scope ? await store.getEntity(scope) : null;
+      if (unseen && !anchor) throw new Error(`scope is not a record: ${scope}`);
+      const handed =
+        unseen && scope
+          ? deliveries(
+              store
+                .listAudit({ ns, limit: DELIVERY_WINDOW })
+                .filter((r) => r.actor === actor),
+              scope,
+            )
+          : null;
       // As-of: what this query would have injected then. Rejected here rather than passed through, so
       // a typo produces a 400 instead of Date.parse's NaN quietly excluding every record — a screen
       // showing "0 records" for a bad date reads as "we knew nothing then", which is a lie.
@@ -798,9 +821,10 @@ export function createUiHandler(
         ? intParam(url, "limit", BRIEFING_LIMIT, 500)
         : undefined;
       const briefing = scope !== undefined && !query;
+      const injectOntology = store.loadOntology(ns);
       const { items, omitted, walk, withheld } = await inject(
         store,
-        store.loadOntology(ns),
+        injectOntology,
         query,
         ts,
         {
@@ -808,6 +832,7 @@ export function createUiHandler(
           limit: explicitLimit ?? (briefing ? BRIEFING_LIMIT : undefined),
           ns,
           scope,
+          since: handed?.anchored.last,
           // Relation hops the anchor walk takes (SPEC "Multi-hop", default 1) — the MCP tool takes
           // this, so a preview without it could not reproduce a depth-2 agent call. Bounded like the
           // graph route's; core's WALK_BUDGET caps the blast radius regardless.
@@ -820,6 +845,38 @@ export function createUiHandler(
           embedder: deps.embedder,
         },
       );
+      if (handed && anchor) {
+        const { lines, delivered } = await unseenReport(
+          store,
+          injectOntology,
+          ns,
+          ts,
+          anchor,
+          handed,
+          { items, omitted },
+        );
+        if (delivered.length === 0) {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        const body = lines.join("\n");
+        res.writeHead(200, {
+          "content-type": "text/plain; charset=utf-8",
+          "content-length": Buffer.byteLength(body),
+        });
+        res.end(body);
+        // A model received knowledge: `inject`, not `inject_preview` — this is the row the next unseen
+        // read is bounded by, and a preview row would not count (see `deliveries`).
+        bestEffortAudit({
+          actor,
+          action: "inject",
+          detail: injectDetail(delivered, { scope }),
+          at: ts,
+          ns,
+        });
+        return;
+      }
       // Built here, written AFTER the response is sent (C7): before sendJson, a held write lock would
       // turn a preview the human already needed into a `database is locked` 500.
       const previewEvent: AuditEvent = {

@@ -77,9 +77,18 @@
   `PostToolUse`만 JSON 봉투를 두르는 이유: Claude Code는 `SessionStart`·`UserPromptSubmit`의 평문 stdout은 컨텍스트로
   넣지만 `PostToolUse`의 평문은 넣지 않고 `hookSpecificOutput.additionalContext`만 넣는다(hooks 문서). `YOKE_ACTOR`를
   개발자 id로 두면 감사 행이 누가 받았는지를 기록한다. 다른 MCP 클라이언트는 각자의 훅에 같은 명령을 건다 — yoke 쪽은
-  CLI 하나고, 봉투는 클라이언트 것이다. **ceiling**: 받은 것의 장부는 클라이언트(DB) 단위라, 같은 기계에서 같은
-  이니셔티브에 세션 두 개가 동시에 열려 있으면 변경을 먼저 읽은 세션이 소비하고 다른 세션은 못 본다. 세션 단위가 필요해지면
-  감사 행에 훅 stdin의 `session_id`를 싣는 것이 답이다.
+  CLI 하나고, 봉투는 클라이언트 것이다.
+
+  **팀 서버(`yoke serve`)에 붙는 경우** 배달 기록은 서버에 있으므로 `yoke inject … --unseen` 자리에 서버를 묻는다 — 같은
+  줄, 같은 봉투, 토큰 하나(`yoke token create --name fe --scopes read`), 실측 1–5ms(조용할 때 ~1ms):
+
+  ```
+  curl -s -H "Authorization: Bearer $YOKE_TOKEN" "$YOKE_SERVER/api/inject?scope=<initiative>&unseen=1"
+  ```
+
+  서버는 **그 토큰이 받은 것만** 기준으로 답한다 — PO가 결정을 읽었다고 FE의 훅이 조용해지지 않는다. **ceiling**: 장부는
+  읽는 주체 단위(로컬은 DB, 서버는 토큰)라, 같은 주체로 같은 이니셔티브에 세션 두 개가 동시에 열려 있으면 변경을 먼저 읽은
+  세션이 소비하고 다른 세션은 못 본다. 세션 단위가 필요해지면 감사 행에 훅 stdin의 `session_id`를 싣는 것이 답이다.
 
 ## 4. 세 개의 의식 (capture density를 만드는 것)
 
