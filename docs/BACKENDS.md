@@ -160,6 +160,15 @@ an adapter (a read-only entity source, not a storage port implementation).
 - Read-only by principle. Bidirectional sync is designed separately if and when the
   need is real (conflict resolution is inherently hard — we don't add it casually).
 - Target order: Postgres → MySQL. The rest by demand.
+- **Neo4j query shim** (`rdb-neo4j`, `--neo4j`, Neo4j 5+): the same connector over a graph
+  source — labels as tables, node properties as columns, `elementId` as the `_id` idColumn
+  (prefer a natural key property when nodes have one: elementId survives only within one
+  database lifetime, so a dump/restore re-mints every external_id), and each to-one
+  outgoing relationship projected as an FK column (lowercased type). fetch against the
+  HTTP transactional endpoint, no driver dependency. A label the database does not have is
+  refused by name (`CALL db.labels()`) — MATCH on a typo matches nothing, and a "0 added"
+  sync with exit 0 is the silent miss a SQL source cannot produce. Not yet verified against
+  a live server; to-many relationships are the shim's stated ceiling.
 - **Verified live against Supabase Postgres (2026-07-14)**: initial sync,
   external_id idempotency, change detection (new version pair), FK relations,
   and injection all confirmed. Operational notes for Supabase specifically:
