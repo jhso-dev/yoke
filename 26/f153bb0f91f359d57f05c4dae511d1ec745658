@@ -1,0 +1,21 @@
+src/front/display.ts
+  s_03673cb32bfdc1::t_8523e0410b95e4 427-429
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_863af754b1a0b5 681-690
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "26f153bb0f91f359d57f05c4dae511d1ec745658",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
