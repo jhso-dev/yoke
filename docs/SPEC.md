@@ -573,7 +573,8 @@ the second built on the first:
   (`deliveries` in `src/front/display.ts`, the same rows `consumptionCounts` reads, over
   `DELIVERY_WINDOW` recent rows). Two halves, in this order:
   1. **changed since handed to you** — records a row anchored on this scope handed over that have
-     since been retired or rewritten (their version time passed the delivery), **replaced** or
+     since been retired (with the reason, when one was given) or rewritten (their version time passed
+     the delivery), **replaced** or
      **contradicted** (a `supersedes`/`conflicts_with` edge on a newcomer in half 2 points at them —
      read off the newcomer's own `supersedes`/`conflictsWith`, so it costs no extra read). A decision
      the agent may be building on is dead; this outranks anything new, and the line says to re-check

@@ -1207,12 +1207,21 @@ describe("runCli", () => {
     expect(third).not.toContain(d1);
     // 4. A record this client was handed is retired: reported as changed, with its status.
     await tick();
-    expect(await runCli(["deprecate", d1, "--db", db, "--actor", "po"])).toBe(
-      0,
-    );
+    expect(
+      await runCli([
+        "deprecate",
+        d1,
+        "--db",
+        db,
+        "--actor",
+        "po",
+        "--reason",
+        "Toss said no",
+      ]),
+    ).toBe(0);
     const fourth = await unseen();
     expect(fourth).toContain("-- changed since handed to you");
-    expect(fourth).toContain(`${d1}  PG is Toss  -> deprecated`);
+    expect(fourth).toContain(`${d1}  PG is Toss  -> deprecated: Toss said no`);
     expect(fourth).not.toContain(d2);
     // 5. Reported once.
     await tick();

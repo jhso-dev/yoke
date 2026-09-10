@@ -10,7 +10,12 @@ import {
   pointer,
   type WithheldStats,
 } from "../core/inject.js";
-import { atOrBefore, effectiveStatus, versionTime } from "../core/lifecycle.js";
+import {
+  atOrBefore,
+  effectiveStatus,
+  retirementOf,
+  versionTime,
+} from "../core/lifecycle.js";
 import { normalizeNs } from "../core/namespace.js";
 import {
   BOOKKEEPING_ATTRS,
@@ -393,9 +398,16 @@ export async function unseenReport(
   );
   const heldById = new Map(held.map((e) => [e.id, e]));
   const changed = new Map<string, string>();
+  // A retirement says why when someone said (the reason rides on the retiring version), because "your
+  // decision is dead" without the why leaves the agent nothing to reason from.
   for (const e of held)
-    if (unseenOf(e))
-      changed.set(e.id, `-> ${effectiveStatus(e, ontology, now)}`);
+    if (unseenOf(e)) {
+      const reason = retirementOf(e)?.reason;
+      changed.set(
+        e.id,
+        `-> ${effectiveStatus(e, ontology, now)}${reason ? `: ${reason}` : ""}`,
+      );
+    }
   const fresh = result.items.filter(
     (it) => !changed.has(it.entity.id) && unseenOf(it.entity),
   );

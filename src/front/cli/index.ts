@@ -78,6 +78,7 @@ import {
   safeName,
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
+import { readEntities } from "../../ports/storage.js";
 import {
   CONSUMPTION_WINDOW,
   citeActors,
