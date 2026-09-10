@@ -19,8 +19,12 @@ afterEach(() => {
 
 describe("makeFetchEmbedder", () => {
   it("returns a no-op (null) embedder when URL/MODEL unset and auto-detection is off", async () => {
+    // Quietly: the opt-out is a decision, and "run ollama pull" on the host that turned it off is noise.
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const embed = makeFetchEmbedder({ YOKE_NO_AUTO_EMBED: "1" });
     expect(await embed("hello")).toBeNull();
+    expect(err).not.toHaveBeenCalled();
+    err.mockRestore();
     // Half-configured is NOT a probe: a URL with no model is a mistake to report, not a reason to
     // silently reach for a different provider than the one that was named.
     const embed2 = makeFetchEmbedder({ YOKE_EMBED_URL: "http://x" });
