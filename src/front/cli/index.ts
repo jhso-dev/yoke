@@ -57,6 +57,7 @@ import {
   deprecate,
   downstreamOf,
   listVersions,
+  retirementOf,
   staleEntities,
   verify,
 } from "../../core/lifecycle.js";
@@ -90,7 +91,6 @@ import {
   readableCite,
   refuseKindChange,
   refuseRename,
-  retirementOf,
   shownStatus,
   summarize,
 } from "../display.js";
@@ -855,9 +855,8 @@ async function cmdGet(
       ns: getNs,
     };
     const ontology = store.loadOntology(getNs);
-    // A retired record raises exactly one question, and the answer is on the audit row (see history).
-    const retired =
-      e.status === "deprecated" ? retirementOf(store, e.id, getNs) : undefined;
+    // A retired record raises exactly one question, and the answer is on the version that retired it.
+    const retired = retirementOf(e);
     const head =
       retired?.reason !== undefined
         ? `${formatEntity(e, ontology, readAt)}\n  retired: ${retired.reason}`
@@ -1203,19 +1202,18 @@ async function cmdDeprecate(
     const ontology = requireOntology(store, ns, v, env);
     if (!ontology) return 1;
     const ts = now();
-    const done = await deprecate(store, positionals, actor, ts, ns);
+    // `--reason` rides on the retiring version (`provenance.reason`), so every client of a shared
+    // backend reads the same answer to "why is this deprecated" — the trail is one place or many
+    // depending on the deployment, and the reason a decision died must not depend on that.
+    const done = await deprecate(store, positionals, actor, ts, ns, v.reason);
     // Retiring knowledge changes what every future injection returns, so it belongs in the trail
     // for the same reason verify does.
-    // `--reason` rides on the audit row, not on the record: verify/deprecate change status, never
-    // knowledge content (see lifecycle.ts). It is the answer to the question a retired record raises
-    // and could not answer — "why is this deprecated" had nowhere to be written down.
     store.logAudit({
       actor,
       action: "deprecate",
       detail: done.map((e) => e.id).join(" "),
       at: ts,
       ns,
-      note: v.reason,
     });
     // What rests on it (v5.8). Retiring a record is not a repair unless the records built on it can be
     // found, and the moment of retiring is the one moment someone is looking. Read AFTER the transition
@@ -1404,10 +1402,6 @@ async function cmdHistory(
       console.error(`not found: ${id}`);
       return 1;
     }
-    // The retirement reason belongs on the version that IS the retirement. `deprecate --reason` stores
-    // it on the audit row rather than the record (a governance act's property, not knowledge content),
-    // and the question "why is this deprecated" is asked here.
-    const retired = retirementOf(store, id, resolveNs(v.ns, env));
     // A version's actor is who wrote THAT version — the author on v1, the promoter on a verify. Both
     // are people, so both resolve to names on the one screen whose job is "who changed what, when".
     // Resolved in one batch, then read synchronously so the row builder below stays a plain map.
@@ -1424,17 +1418,13 @@ async function cmdHistory(
         ),
       ),
     );
+    // The reason rides on the version that IS the retirement, so each retiring version says its own.
     const lines = versions.map((e) => {
       const base = `v${e.version}  ${e.status}  ${names.get(e.provenance.actor) ?? e.provenance.actor}  ${e.last_confirmed}  ${summarize(e, ontology)}`;
-      return e.status === "deprecated" && retired?.reason
-        ? `${base}\n    reason: ${retired.reason}`
-        : base;
+      const reason = retirementOf(e)?.reason;
+      return reason ? `${base}\n    reason: ${reason}` : base;
     });
-    emit(
-      v,
-      lines.join("\n"),
-      retired?.reason ? { versions, retired: { ...retired } } : versions,
-    );
+    emit(v, lines.join("\n"), versions);
     return 0;
   });
 }

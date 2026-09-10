@@ -14,6 +14,7 @@ import {
 } from "../ports/storage.js";
 import type { Embedder } from "./embedding.js";
 import { serializeText } from "./embedding.js";
+import { carried } from "./lifecycle.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
 import { validateInput } from "./ontology.js";
@@ -229,13 +230,12 @@ export function parseInstant(raw: unknown): string {
  * The instant is unchanged — only its spelling — so "provenance is a record of what happened" holds.
  */
 function normalizeProvenance(p: Provenance): Provenance {
-  // `transitioned_at` is stripped, not validated: it is governance time, written by
-  // `lifecycle.transition` and by nothing else (see types.ts). A caller supplying one through the
-  // gate would move where the as-of rewind places this version — the one provenance field a writer
-  // must not be able to set.
-  const { transitioned_at: _governance, ...rest } = p;
+  // `transitioned_at` and `reason` are stripped, not validated: both describe a lifecycle transition
+  // and are written by `lifecycle.transition` and by nothing else (see types.ts). A caller supplying
+  // `transitioned_at` through the gate would move where the as-of rewind places this version, and a
+  // `reason` on a commit-written row would explain a retirement that never happened.
   return {
-    ...rest,
+    ...carried(p),
     occurred_at: new Date(Date.parse(p.occurred_at)).toISOString(),
   };
 }

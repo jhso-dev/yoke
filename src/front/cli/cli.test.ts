@@ -966,6 +966,64 @@ describe("runCli", () => {
     expect(await runCli(["ontology", "add-type", "--db", db])).toBe(1);
   });
 
+  it("deprecate --reason rides on the retiring version, and every read of the record says it", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(
+      await runCli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "statement=PG is Toss",
+        "--json",
+      ]),
+    ).toBe(0);
+    const id = JSON.parse(logs.at(-1) as string).id as string;
+    expect(await runCli(["verify", id, "--db", db, "--actor", "po"])).toBe(0);
+    expect(
+      await runCli([
+        "deprecate",
+        id,
+        "--db",
+        db,
+        "--actor",
+        "po",
+        "--reason",
+        "Toss rejected the merchant review",
+      ]),
+    ).toBe(0);
+
+    // On the record — so a second client of a shared backend, with its own trail, reads the same.
+    expect(await runCli(["get", id, "--db", db, "--json"])).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string).provenance.reason).toBe(
+      "Toss rejected the merchant review",
+    );
+    expect(await runCli(["get", id, "--db", db])).toBe(0);
+    expect(logs.join("\n")).toContain(
+      "retired: Toss rejected the merchant review",
+    );
+    // history: on the version that IS the retirement, and on no other.
+    logs = [];
+    expect(await runCli(["history", id, "--db", db])).toBe(0);
+    const lines = logs.join("\n").split("\n");
+    expect(lines.filter((l) => l.includes("reason:"))).toHaveLength(1);
+    expect(
+      lines[
+        lines.indexOf(lines.find((l) => l.includes("reason:")) as string) - 1
+      ],
+    ).toContain("v3  deprecated");
+    // The trail keeps the act (who, when, which) and nothing else — the reason is not content it carries.
+    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    const rows = JSON.parse(logs.at(-1) as string) as Array<
+      Record<string, unknown>
+    >;
+    const act = rows.find((r) => r.action === "deprecate");
+    expect(act).toMatchObject({ actor: "po", detail: id });
+    expect(act).not.toHaveProperty("note");
+  });
+
   it("history lists all versions; audit records inject events (PLAN 8.4)", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

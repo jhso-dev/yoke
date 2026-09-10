@@ -21,6 +21,12 @@ export interface Provenance {
    * reads. Absent on every commit-written row, and on lifecycle rows written before the two times
    * were separated (those carry the transition instant in `occurred_at`, the defect this fixes). */
   transitioned_at?: string;
+  /** Why this version retired the record, in the actor's words. Written only by `lifecycle.deprecate`
+   * and only when someone typed one; the gate strips it, and a later transition does not carry it
+   * forward (a re-verified record has no retirement to explain). On the record rather than on the
+   * audit trail because the trail's location depends on the deployment — one server, or one sqlite
+   * per client — and the reason a decision died must not. Absent means nobody wrote one. */
+  reason?: string;
 }
 
 /** Storage-only fields assigned by the gate. Absent from Input. */
