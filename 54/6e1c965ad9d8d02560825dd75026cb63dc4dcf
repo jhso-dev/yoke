@@ -1,0 +1,27 @@
+docs/KNOWLEDGE-POLICY.md
+  s_03673cb32bfdc1::t_af5b4638456a1d 19-25
+docs/SPEC.md
+  s_03673cb32bfdc1::t_af5b4638456a1d 825,976
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_af5b4638456a1d 694-705
+src/front/mcp/index.ts
+  s_03673cb32bfdc1::t_ea30cde5bd367d 5-7,29,75-78,192,195-197,258-276,279,604-605,628-637,647,657-658
+src/front/mcp/mcp.test.ts
+  s_03673cb32bfdc1::t_937f334a62440c 993-1106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "546e1c965ad9d8d02560825dd75026cb63dc4dcf",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
