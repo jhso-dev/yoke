@@ -1,0 +1,23 @@
+README.md
+  s_03673cb32bfdc1::t_4c210b667ee265 28-53,173-226
+  s_03673cb32bfdc1::t_61780d6ee8fbd9 227
+README.ko.md
+  s_03673cb32bfdc1::t_4c210b667ee265 28-52,167-215
+  s_03673cb32bfdc1::t_ecbf9ef1184062 216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "66bc2e3d24220d308c2c8aee9736bfd6b04e2241",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
