@@ -822,7 +822,7 @@ picks the wrong scope.
 |---|---|
 | `yoke_inject` | contextual query → inject verified knowledge (with citations) |
 | `yoke_commit` | load knowledge (through the gate) |
-| `yoke_record_decision` | a commit shortcut dedicated to decision entities |
+| `yoke_record_decision` | a commit shortcut dedicated to decision entities. `verify: true` when the decision's own author confirmed the filed wording in the conversation: the draft is written and promoted in the same call — two versions, `transitioned_at` on the second, the `verify` audit row under the author — and reaches every agent on the scope at once (KNOWLEDGE-POLICY rule 4). Refused before anything is written when the caller lacks `verify` |
 | ↳ both take `derived_from: string[]` | the citation ids this record rests on (see "Derivation") — optional, caller-asserted, never inferred |
 | `yoke_persona` | person-anchored injection ("what would Alex do") |
 | `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
@@ -973,7 +973,7 @@ Rules that hold for every route:
   | `persona` | someone's recorded judgment was read | MCP, CLI, web |
   | `read` | a full record — attributes, versions, relations — was read | CLI, web |
   | `search` | someone queried the store for text and got matching records | CLI, web |
-  | `verify` | records were promoted | CLI, web |
+  | `verify` | records were promoted | CLI, web, MCP (`yoke_record_decision verify: true` only) |
   | `deprecate` | records were retired | CLI, web |
   | `rename_type` | an ontology type was renamed in the declaration and in every stored row | CLI, web |
   | `overview` | the corpus shape — including hub rows carrying record text — was read | MCP, CLI — the web has no overview route |

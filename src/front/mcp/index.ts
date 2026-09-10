@@ -2,7 +2,9 @@
 
 // yoke MCP server (PLAN 3.1–3.3) — stdio transport. Started with `yoke mcp [--db path]`.
 // Six tools: yoke_inject / yoke_commit / yoke_record_decision / yoke_overview / yoke_persona / yoke_use_scope.
-// Governance: agents may only ingest drafts (no verify/deprecate tools — promotion is the CLI's job).
+// Governance: agents ingest drafts. The one promotion this server performs is a decision its own author
+// confirms in the conversation (yoke_record_decision verify: true) — a decision is true by declaration,
+// so its author's confirmation IS the verification. No verify/deprecate tool otherwise.
 // Time is obtained only in this front tier (core receives `now` by injection).
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -24,6 +26,7 @@ import {
   inject,
   WALK_BUDGET,
 } from "../../core/inject.js";
+import { verify } from "../../core/lifecycle.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import {
@@ -69,7 +72,10 @@ export const INSTRUCTIONS =
   "   - contradicts a yoke record: commit it AND link the two with a conflicts_with relation. Do " +
   "not decide the winner — the disagreement itself is knowledge.\n" +
   "4. Decisions you make mid-task go to yoke_record_decision as you make them, with the rejected " +
-  "alternatives.";
+  "alternatives. When the person who OWNS a decision states it to you, show them the conclusion, " +
+  "rationale and rejected alternatives as you will file them; once they confirm, pass verify: true — " +
+  "their confirmation is the verification, and the decision reaches every agent on the scope at once. " +
+  "Never set it for a decision you inferred or for anyone else's.";
 
 export interface YokeMcpDeps {
   /** logAudit (PLAN 8.4) is optional: adapters without it simply skip injection auditing.
@@ -183,8 +189,12 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     scope?: string,
     derivedFrom?: string[],
     externalId?: string,
+    andVerify = false,
   ) {
     if (!authorize("write", input.type)) return forbidden();
+    // Checked before anything is written: a caller refused the promotion must not be left with a stray
+    // draft it did not ask for — it retries without `verify` and gets exactly the draft it meant.
+    if (andVerify && !authorize("verify", input.type)) return forbidden();
     const ts = now();
     const prov = {
       actor: resolveActor(actor),
@@ -245,12 +255,28 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // the entity is durable, telling the agent "rejected" about a record that exists (see `attachTo`
       // in core/commit.ts).
       const linkTo = effectiveScope(scope);
-      const { entity, duplicates, duplicateDetection, unrecorded } =
-        await commit(store, ontology, input, prov, ts, {
-          embedder,
+      const committed = await commit(store, ontology, input, prov, ts, {
+        embedder,
+        ns,
+        ...(linkTo ? { attachTo: linkTo } : {}),
+      });
+      const { duplicates, duplicateDetection, unrecorded } = committed;
+      let entity = committed.entity;
+      // The author's confirmation, filed the way the CLI would: the gate wrote v1 as a draft, and the
+      // promotion is its own version with its own `transitioned_at`, so the as-of timeline shows a
+      // decision that entered and was confirmed — never one born verified. Same audit row as
+      // `yoke verify`, so "who promoted this" reads the same whichever adapter did it.
+      if (andVerify) {
+        const at = now();
+        [entity] = await verify(store, [entity.id], prov.actor, at, ns);
+        store.logAudit?.({
+          actor: prov.actor,
+          action: "verify",
+          detail: entity.id,
+          at,
           ns,
-          ...(linkTo ? { attachTo: linkTo } : {}),
         });
+      }
       const edges: Array<[string, string]> = [];
       // Derivation (v5.8) travels this same road for the same reason: the caller declares its basis, so
       // the edge belongs where the caller is. Deduped and self-edge-free — citing one record twice, or
@@ -575,7 +601,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       description:
         "When you make a decision, always record its conclusion and rationale with this tool. Call it right " +
         "after an architecture, design, or trade-off choice. Include any rejected alternatives to prevent them " +
-        "from being relitigated later. The record enters as a draft and is injected only after a human verifies it.",
+        "from being relitigated later. The record enters as a draft and is injected only after a human verifies it — " +
+        "unless the decision's own author confirmed it to you, in which case pass verify: true.",
       inputSchema: {
         conclusion: z.string().describe("The conclusion reached"),
         rationale: z.string().describe("The reasoning that led to it"),
@@ -598,6 +625,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .array(z.string())
           .optional()
           .describe(DERIVED_FROM_DESC),
+        verify: z
+          .boolean()
+          .optional()
+          .describe(
+            "Set true ONLY when the person who owns this decision has seen the conclusion, rationale and " +
+              "rejected alternatives exactly as you will file them and confirmed them in this conversation. " +
+              "A decision is true by declaration — its author is its authority — so their confirmation is the " +
+              "verification, and the record is injected to every agent on the scope at once. Never for a " +
+              "decision you inferred, and never for anyone else's. `actor` must then be that person.",
+          ),
       },
     },
     ({
@@ -607,6 +644,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       actor,
       scope,
       derived_from,
+      verify: confirmed,
     }) => {
       const attributes: Record<string, unknown> = { conclusion, rationale };
       if (rejected_alternatives)
@@ -616,6 +654,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         actor,
         scope,
         derived_from,
+        undefined,
+        confirmed === true,
       );
     },
   );

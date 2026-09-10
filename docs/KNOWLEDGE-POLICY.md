@@ -16,6 +16,13 @@ One-line summary: **lenient on write, strict on injection.**
 ## Soft rules — let it through, but quarantine by grade
 
 4. **Status lifecycle**: every piece of knowledge is `draft → verified → stale | deprecated`. New entries default to `draft`.
+   **Who verifies is who has the authority over that kind of knowledge.** A fact is true or false
+   regardless of who said it, so a person other than the writer checks it. A `decision` is true by
+   declaration — its author is its authority — so the author's confirmation of the filed wording IS
+   the verification, and `yoke_record_decision(verify: true)` files the draft and promotes it in one
+   call (two versions, the same audit row `yoke verify` writes). Still gated by the `verify`
+   permission, so under `serve --auth` only a token that could have run `yoke verify` can. Never for
+   a fact, and never for a decision the agent inferred rather than was told.
 5. **Injection filter**: context injection injects only `verified` by default. `draft` only on
    explicit request (`includeDraft`), and with a status label attached. `stale` and `deprecated`
    are **never** injected — there is deliberately no include-stale option anywhere (a record past
