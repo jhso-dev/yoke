@@ -10,7 +10,7 @@ import {
 } from "../ports/storage.js";
 import { normalizeNs } from "./namespace.js";
 import type { TypeDef } from "./ontology.js";
-import type { Entity, Status } from "./types.js";
+import type { Entity, Provenance, Status } from "./types.js";
 
 const DAY_MS = 86_400_000;
 
@@ -51,6 +51,7 @@ async function transition(
   rawNow: string,
   status: Status,
   ns?: string | null,
+  reason?: string,
 ): Promise<Entity[]> {
   // The SECOND write path into storage, and it stamps both `last_confirmed` and a fresh `provenance`.
   // The gate normalizes its instants (commit.ts `normalizeProvenance`); a promotion that did not would
@@ -114,12 +115,15 @@ async function transition(
     version: base.version + 1,
     last_confirmed: now,
     // The knowledge's own provenance is carried forward and the ACTION is layered on top:
-    // `occurred_at` survives, and the transition's own instant goes in `transitioned_at`.
+    // `occurred_at` survives, and the transition's own instant goes in `transitioned_at`. A previous
+    // retirement's `reason` does not survive: it explained THAT version, and a re-verified record has
+    // nothing to explain.
     provenance: {
-      ...base.provenance,
+      ...carried(base.provenance),
       actor,
       origin: "lifecycle",
       transitioned_at: now,
+      ...(status === "deprecated" && reason?.trim() ? { reason } : {}),
     },
   });
   // Retiring what is already retired records nothing: a repeated `deprecate` would otherwise append a
@@ -182,15 +186,38 @@ export function verify(
   return transition(port, ids, actor, now, "verified", ns);
 }
 
-/** status → 'deprecated'. Same mechanism as verify (append-only new version), same `ns` rule. */
+/** status → 'deprecated'. Same mechanism as verify (append-only new version), same `ns` rule.
+ * `reason` is why, in the actor's words; it rides on the retiring version (`provenance.reason`). */
 export function deprecate(
   port: StoragePort,
   ids: string[],
   actor: string,
   now: string,
   ns?: string | null,
+  reason?: string,
 ): Promise<Entity[]> {
-  return transition(port, ids, actor, now, "deprecated", ns);
+  return transition(port, ids, actor, now, "deprecated", ns, reason);
+}
+
+/** The retirement this version IS, if it is one: who, when, and why if anyone said. A record can be
+ * retired, re-verified and retired again; the latest version explains the current status because a
+ * transition never carries a `reason` forward. */
+export function retirementOf(
+  e: Entity,
+): { actor: string; at: string; reason?: string } | undefined {
+  if (e.status !== "deprecated") return undefined;
+  return {
+    actor: e.provenance.actor,
+    at: versionTime(e),
+    ...(e.provenance.reason ? { reason: e.provenance.reason } : {}),
+  };
+}
+
+/** Provenance without the fields that belong to one version alone. Shared by the gate, which strips
+ * them from what a caller supplies, and by `transition`, which must not inherit them from the base. */
+export function carried(p: Provenance): Provenance {
+  const { transitioned_at: _t, reason: _r, ...rest } = p;
+  return rest;
 }
 
 /**

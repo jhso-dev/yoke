@@ -9,6 +9,7 @@ import {
   downstreamOf,
   effectiveStatus,
   isFresh,
+  retirementOf,
   staleEntities,
   verify,
   versionAsOf,
@@ -497,6 +498,64 @@ describe("a governance act stays inside the caller's namespace", () => {
     ).rejects.toThrow(/unknown entity/);
     const [done] = await verify(port, [shared], "admin", now);
     expect(done.status).toBe("verified");
+  });
+});
+
+describe("a retirement says why, on the version that is the retirement", () => {
+  it("deprecate writes the reason into that version's provenance", async () => {
+    const f = await addFact("we ship on fridays");
+    await verify(port, [f], "admin", now);
+    const [retired] = await deprecate(
+      port,
+      [f],
+      "po",
+      "2026-07-13T00:00:00Z",
+      undefined,
+      "friday incidents doubled",
+    );
+    expect(retired.provenance.reason).toBe("friday incidents doubled");
+    expect(retirementOf(retired)).toEqual({
+      actor: "po",
+      at: "2026-07-13T00:00:00.000Z",
+      reason: "friday incidents doubled",
+    });
+    // The same answer from the stored row — this is what a second client of a shared backend reads.
+    expect(retirementOf((await port.getEntity(f)) as never)).toMatchObject({
+      reason: "friday incidents doubled",
+    });
+  });
+
+  it("no reason, or a blank one, is absent — never an empty string", async () => {
+    const a = await addFact("zq no reason");
+    const b = await addFact("zq blank reason");
+    await verify(port, [a, b], "admin", now);
+    const [ra] = await deprecate(port, [a], "po", now);
+    const [rb] = await deprecate(port, [b], "po", now, undefined, "   ");
+    expect(ra.provenance.reason).toBeUndefined();
+    expect(rb.provenance.reason).toBeUndefined();
+    expect(retirementOf(ra)).toEqual({
+      actor: "po",
+      at: now.replace("Z", ".000Z"),
+    });
+  });
+
+  it("a later transition does not carry the reason forward", async () => {
+    // The reason explained THAT version. A record re-verified after a retirement has no retirement to
+    // explain; a retirement with no reason after one with a reason must not inherit the old one.
+    const f = await addFact("zq carried");
+    await verify(port, [f], "admin", now);
+    await deprecate(port, [f], "po", now, undefined, "first reason");
+    const [revived] = await verify(port, [f], "admin", "2026-07-14T00:00:00Z");
+    expect(revived.provenance.reason).toBeUndefined();
+    expect(retirementOf(revived)).toBeUndefined();
+    const [again] = await deprecate(port, [f], "po", "2026-07-15T00:00:00Z");
+    expect(again.provenance.reason).toBeUndefined();
+  });
+
+  it("is not a retirement unless the stored status says so", async () => {
+    const f = await addFact("zq standing");
+    const [v] = await verify(port, [f], "admin", now);
+    expect(retirementOf(v)).toBeUndefined();
   });
 });
 

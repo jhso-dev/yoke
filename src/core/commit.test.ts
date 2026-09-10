@@ -227,6 +227,19 @@ describe("commit gate", () => {
     );
   });
 
+  it("drops a caller-supplied reason", async () => {
+    // A reason explains a retirement, and a commit-written row has none. Stripped for the same reason
+    // as transitioned_at: it is a lifecycle field, and nothing a caller passes is one the gate wants.
+    const { entity } = await commit(
+      port,
+      ont,
+      { type: "fact", attributes: { statement: "born explained" } },
+      { ...prov, reason: "never happened" },
+      now,
+    );
+    expect(entity.provenance.reason).toBeUndefined();
+  });
+
   it("assigns draft, version=1, last_confirmed=now, empty duplicates", async () => {
     const { entity, duplicates } = await commit(
       port,

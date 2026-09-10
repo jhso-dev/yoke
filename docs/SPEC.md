@@ -16,6 +16,8 @@ Defines only the contract the implementation must follow. For background and rat
     occurred_at: string  // ISO 8601 (required). WHEN THE KNOWLEDGE HAPPENED — carried forward unchanged by verify/deprecate
     transitioned_at?: string // ISO 8601. when THIS VERSION came into being. written only by a lifecycle
                              // transition — the gate STRIPS a caller-supplied one (it is what as-of reads)
+    reason?: string   // why THIS VERSION retired the record, in the actor's words. written only by
+                      // deprecate, when someone typed one; stripped by the gate; not carried forward
   }
   version: number     // starts at 1. an edit appends a new version (no overwrite)
   last_confirmed: string  // ISO 8601. refreshed on verify
@@ -813,14 +815,20 @@ endpoint shares it at `POST /mcp`.
 
 Rules that hold for every route:
 
-- **Retiring records WHY, when someone says.** `deprecate` carries an optional reason, and it is
-  stored on the audit row rather than on the record: verify and deprecate change status, never
-  knowledge content. `GET /api/entity/:id` returns `retirement {actor, at, reason?}` for a record whose
-  read-time status is `deprecated`, resolved from the LAST deprecate naming it — a record can be
-  retired, re-verified and retired again, and what explains the current status is the most recent act.
-  Absent `reason` means nobody wrote one, never an empty one. `yoke deprecate --reason "…"` is the CLI
-  half. Optional rather than required because retiring is reversible, and a required field on a
-  recoverable act teaches people to type "x".
+- **Retiring records WHY, when someone says — on the record.** `deprecate` carries an optional
+  reason, stored as `provenance.reason` on the version that IS the retirement. Not on the audit row:
+  **everything said about the knowledge lives on the knowledge; the trail carries pointers, never
+  content.** The trail is one place under `yoke serve` and one sqlite per client under a shared
+  Postgres/OpenSearch, and the reason a decision died must read the same from every client of the
+  same backend — a fact about a record that is visible or not depending on the deployment is in the
+  wrong place. `GET /api/entity/:id` returns `retirement {actor, at, reason?}` for a record whose
+  stored status is `deprecated`, read off its latest version (`retirementOf` in core/lifecycle); a
+  record retired, re-verified and retired again is explained by its latest version because a
+  transition never carries `reason` forward. Absent `reason` means nobody wrote one, never an empty
+  one. `yoke deprecate --reason "…"` is the CLI half; `yoke history` shows each retiring version's own.
+  Optional rather than required because retiring is reversible, and a required field on a recoverable
+  act teaches people to type "x". Reasons recorded on audit rows by earlier builds stay in that
+  client's trail and are no longer read.
 - **A symmetric relation has no direction to record.** A relation type the ontology marks
   `symmetric: true` (seeded: `relates_to`, `conflicts_with`, `same_as`) means the same thing read
   either way, so `from`/`to` carry only the order someone typed. The identity check above therefore

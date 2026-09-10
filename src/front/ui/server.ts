@@ -20,6 +20,7 @@ import {
   downstreamOf,
   effectiveStatus,
   listVersions,
+  retirementOf,
   staleEntities,
   verify,
 } from "../../core/lifecycle.js";
@@ -40,7 +41,6 @@ import {
   rankByConsumption,
   refuseKindChange,
   refuseRename,
-  retirementOf,
   summarize,
   ULID,
 } from "../display.js";
@@ -725,15 +725,10 @@ export function createUiHandler(
         // Core's helper, not `store.listHistory` — that extension is synchronous and therefore absent
         // on a remote backend (SPEC "Remote backends"), and it is what makes this screen work there.
         history: await Promise.all((await listVersions(store, id)).map(asR)),
-        // Why it was retired, if anyone said. A deprecated record raises exactly one question and
-        // could not answer it: the status was on the record and the reason nowhere. It comes from the
-        // audit trail rather than the record because verify/deprecate change status, never knowledge
-        // content — so this reads the governance act back instead of copying it onto the row.
-        // `asR` already resolved the read-time status; reading it off the row keeps one answer to
-        // "is this retired" rather than recomputing the rule here.
+        // Why it was retired, if anyone said — off the version that IS the retirement, so a client of
+        // a shared backend reads the same answer as the one who retired it.
         ...(await (async () => {
-          if ((await asR(e)).effectiveStatus !== "deprecated") return {};
-          const retire = retirementOf(store, id, ns);
+          const retire = retirementOf(e);
           if (!retire) return {};
           // The retiree resolved for reading, like entity.actorName above it — the same response
           // resolves the record's own actor and left this one a bare ULID in the "Retired by …"
@@ -1227,20 +1222,20 @@ export function createUiHandler(
       if (denied(res, "verify")) return;
       const { ids, reason } = await readIds(req);
       const ts = now();
-      const fn = action === "verify" ? verify : deprecate;
       // The caller's namespace, so a governance act cannot reach another tenant's record — every READ
-      // route on this server filters ns, and this one must too (see core/lifecycle's transition).
-      const done = await fn(store, ids, actor, ts, ns);
-      // Governance action audit — who verified/deprecated what, when (same tier as CLI inject audit),
-      // and for a deprecate, WHY: the record's own screen reads it back, because a retired record
-      // otherwise raises a question it cannot answer.
+      // route on this server filters ns, and this one must too (see core/lifecycle's transition). A
+      // deprecate's WHY rides on the retiring version, where the record's own screen reads it back.
+      const done =
+        action === "verify"
+          ? await verify(store, ids, actor, ts, ns)
+          : await deprecate(store, ids, actor, ts, ns, reason);
+      // Governance action audit — who verified/deprecated what, when (same tier as CLI inject audit).
       store.logAudit({
         actor,
         action,
         detail: done.map((e) => e.id).join(" "),
         at: ts,
         ns,
-        note: action === "deprecate" ? reason : undefined,
       });
       if (action === "verify") {
         sendJson(res, 200, await rowsOf(done));

@@ -653,6 +653,18 @@ shape rather than imported:
       loudly as one that empties the persona. Mutation-checked: including drafts reads as 100% draft
       leak, dropping `scopeRel` as 50% impersonation
 
+## v6.3 — what is said about the knowledge lives on the knowledge
+
+- [x] **A retirement's reason rides on the retiring version** (`provenance.reason`), not on the audit
+      row. The trail is one place under `yoke serve` and one sqlite per client under a shared
+      Postgres/OpenSearch — so a reason on the trail was visible to every client in one deployment and
+      to the retiree alone in the other, for the same `yoke deprecate --reason`. The rule that
+      settles it: the trail carries pointers (who, when, which ids), never content. `retirementOf`
+      became a pure function of the record (the namespace-wide trail scan and its ceiling are gone),
+      `verify` does not carry a reason forward, the gate strips one, and the audit `note` column has
+      no writer or reader. Verified against two clients of one Postgres: the reason the first client
+      recorded is what the second reads
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.
