@@ -53,7 +53,11 @@
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { dimensionMismatch, serializeText } from "../../core/embedding.js";
 import { normalizeNs } from "../../core/namespace.js";
-import { overlayOntology, type TypeDef } from "../../core/ontology.js";
+import {
+  overlayOntology,
+  seedOntology,
+  type TypeDef,
+} from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
 import {
@@ -255,15 +259,19 @@ export class PostgresStorage implements StoragePort {
     )`);
     // Append-only per (name, ns): saveOntology adds the next version, loadOntology reads the max.
     // `seq` preserves declaration order across versions, which is what the tenant overlay needs — the
-    // same job sqlite does with MIN(rowid).
+    // same job sqlite does with MIN(rowid). `def` is JSON, not JSONB, for the same reason one level
+    // down: JSONB stores an object's keys in length-then-byte order, and a def's attrs come back in
+    // DECLARATION order everywhere else — `summarize` reads the first declared string attribute, so under
+    // JSONB every decision read as its rationale (9 chars) instead of its conclusion (10).
     await this.q(`CREATE TABLE IF NOT EXISTS ${this.t("ontology_types")} (
       name    TEXT    NOT NULL,
       ns      TEXT    NOT NULL DEFAULT '',
       version INTEGER NOT NULL,
-      def     JSONB   NOT NULL,
+      def     JSON    NOT NULL,
       seq     BIGSERIAL,
       PRIMARY KEY (name, ns, version)
     )`);
+    await this.keepDeclarationOrder();
 
     // Indexes chosen from the same measurements as sqlite's (docs/SCALE.md): ns leads the composites
     // because every enumeration is namespace-scoped, from_id/to_id are SEPARATE single-column indexes
@@ -287,6 +295,44 @@ export class PostgresStorage implements StoragePort {
     }
     // The vector TABLE is created lazily, not here: its column declares the dimension, which is not
     // known until the first vector arrives. Same lazy shape as sqlite's vec0 table.
+  }
+
+  /**
+   * A table created while `def` was JSONB holds defs whose attrs were re-sorted on write. The column is
+   * converted so new saves keep declaration order, and each seeded type whose stored copy differs from
+   * `seedOntology()` ONLY in key order is re-saved in that order. A custom type saved under JSONB stays
+   * as stored — nothing knows the order it was declared in; `yoke ontology add-type` again restores it.
+   */
+  private async keepDeclarationOrder(): Promise<void> {
+    const col = await this.q<{ data_type: string }>(
+      `SELECT data_type FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = 'ontology_types' AND column_name = 'def'`,
+      [this.schema.replace(/"/g, "")],
+    );
+    if (col[0]?.data_type !== "jsonb") return;
+    await this.q(
+      `ALTER TABLE ${this.t("ontology_types")} ALTER COLUMN def TYPE JSON USING def::json`,
+    );
+    const stored = await this.ontologyScope("");
+    const sorted = (v: unknown): string =>
+      JSON.stringify(v, (_k, x) =>
+        x && typeof x === "object" && !Array.isArray(x)
+          ? Object.fromEntries(
+              Object.entries(x as Record<string, unknown>).sort(([a], [b]) =>
+                a.localeCompare(b),
+              ),
+            )
+          : x,
+      );
+    const reorder = seedOntology().filter((seed) => {
+      const s = stored.find((d) => d.name === seed.name);
+      return (
+        s !== undefined &&
+        sorted(s) === sorted(seed) &&
+        JSON.stringify(s) !== JSON.stringify(seed)
+      );
+    });
+    if (reorder.length > 0) await this.saveOntology(reorder);
   }
 
   /**
@@ -692,7 +738,7 @@ export class PostgresStorage implements StoragePort {
         // so COALESCE(...) + 1 is 1 for a name that has never been declared.
         await c.query(
           `INSERT INTO ${this.t("ontology_types")} (name, ns, version, def)
-           SELECT $1, $2, COALESCE(MAX(version), 0) + 1, $3::jsonb
+           SELECT $1, $2, COALESCE(MAX(version), 0) + 1, $3::json
              FROM ${this.t("ontology_types")} WHERE name = $1 AND ns = $2`,
           [def.name, scope, JSON.stringify(def)],
         );
@@ -800,14 +846,27 @@ export class PostgresStorage implements StoragePort {
         rows += gone.rowCount ?? 0;
       } else {
         // saveOntology appends a version per name, which would leave every `from` row sitting there,
-        // so these are rewritten in place — the name column and the name inside `def`.
-        const moved = await c.query(
-          `UPDATE ${this.t("ontology_types")}
-              SET name = $1, def = jsonb_set(def, '{name}', to_jsonb($1::text))
-            WHERE name = $2 AND ns = $3`,
-          [to, from, scope],
+        // so these are rewritten in place — the name column and the name inside `def`. The def is
+        // rewritten here, not with jsonb_set: casting through jsonb would re-sort its keys, and the
+        // column is JSON precisely so that a def keeps its declaration order.
+        const held = await c.query<{ version: number; def: TypeDef }>(
+          `SELECT version, def FROM ${this.t("ontology_types")} WHERE name = $1 AND ns = $2`,
+          [from, scope],
         );
-        rows += moved.rowCount ?? 0;
+        for (const r of held.rows) {
+          await c.query(
+            `UPDATE ${this.t("ontology_types")} SET name = $1, def = $2::json
+              WHERE name = $3 AND ns = $4 AND version = $5`,
+            [
+              to,
+              JSON.stringify({ ...r.def, name: to }),
+              from,
+              scope,
+              r.version,
+            ],
+          );
+        }
+        rows += held.rowCount ?? 0;
       }
       return rows;
     });

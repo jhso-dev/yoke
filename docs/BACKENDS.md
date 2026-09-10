@@ -131,6 +131,12 @@ Same split: `--db` still names the local sqlite holding this client's audit trai
 knowledge goes to Postgres. **No new dependency** — `pg` was already in the tree for the RDB
 read-mapping connector.
 
+Ontology defs are stored as `json`, not `jsonb`: JSONB re-sorts an object's keys (length, then
+bytes), and a def's attrs must come back in declaration order on every backend — `summarize` reads the
+first declared string attribute, so under JSONB every decision read as its rationale. A table created
+while the column was JSONB is converted on `init()`, and the seeded types are re-saved in declaration
+order; a custom type saved then is restored by `yoke ontology add-type` again.
+
 Search is native and scored: core's own `tokenize`/`requireEveryTerm` build a prefix `tsquery`
 (`simple` regconfig, so Hangul suffix tolerance holds — `parseArgs` reaches `parseArgs로`), ranked
 with `ts_rank`, and the searchable `tsvector` lives only on each record's latest version. `similar`

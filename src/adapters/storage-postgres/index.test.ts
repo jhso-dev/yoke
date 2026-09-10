@@ -24,7 +24,7 @@
 import assert from "node:assert/strict";
 import { Client } from "pg";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { TypeDef } from "../../core/ontology.js";
+import { seedOntology, type TypeDef } from "../../core/ontology.js";
 import { conformanceCases, makeEntity } from "../../ports/conformance-cases.js";
 import type { RemoteStore } from "../storage-composite/index.js";
 import { PostgresStorage } from "./index.js";
@@ -308,6 +308,60 @@ suite("postgres ontology (the RemoteStore half)", () => {
       expect(loaded.map((t) => t.name)).toEqual(["fact", "cites"]);
       expect(loaded[0].ttl_days).toBe(30);
     });
+  });
+
+  it("returns a def's attrs in declaration order, and repairs a table that had sorted them", async () => {
+    // JSONB stores object keys length-then-byte, so `conclusion` (10) followed `rationale` (9) — and
+    // `summarize` reads the first declared string attribute. The column is JSON now; a table created
+    // while it was JSONB is converted on init, and the seeded types re-saved in declaration order.
+    const declared: TypeDef = {
+      name: "decision",
+      kind: "entity",
+      attrs: {
+        conclusion: { type: "string", required: true },
+        rationale: { type: "string", required: true },
+      },
+    };
+    await withStore(URL_ as string, "yoketest_ontorder", async (store) => {
+      await store.saveOntology([declared]);
+      const [loaded] = await store.loadOntology();
+      expect(Object.keys(loaded.attrs)).toEqual(["conclusion", "rationale"]);
+    });
+    // The pre-fix table: JSONB, holding the seed's decision with its keys already re-sorted.
+    const schema = "yoketest_ontjsonb";
+    await wipe(URL_ as string, schema);
+    await withAdmin(URL_ as string, async (c) => {
+      await c.query(`CREATE SCHEMA "${schema}"`);
+      await c.query(
+        `CREATE TABLE "${schema}".ontology_types (name TEXT NOT NULL, ns TEXT NOT NULL DEFAULT '',
+         version INTEGER NOT NULL, def JSONB NOT NULL, seq BIGSERIAL, PRIMARY KEY (name, ns, version))`,
+      );
+      for (const d of seedOntology())
+        await c.query(
+          `INSERT INTO "${schema}".ontology_types (name, ns, version, def) VALUES ($1, '', 1, $2::jsonb)`,
+          [d.name, JSON.stringify(d)],
+        );
+      const before = await c.query<{ keys: string[] }>(
+        `SELECT array(SELECT jsonb_object_keys(def->'attrs')) AS keys FROM "${schema}".ontology_types WHERE name = 'decision'`,
+      );
+      // Non-vacuity: the old column really did re-sort — otherwise this test guards nothing.
+      expect(before.rows[0].keys[0]).toBe("sources");
+    });
+    const store = make(URL_ as string, schema);
+    await store.init();
+    try {
+      const decision = (await store.loadOntology()).find(
+        (t) => t.name === "decision",
+      ) as TypeDef;
+      expect(Object.keys(decision.attrs)).toEqual(
+        Object.keys(
+          (seedOntology().find((t) => t.name === "decision") as TypeDef).attrs,
+        ),
+      );
+    } finally {
+      store.close();
+      await wipe(URL_ as string, schema);
+    }
   });
 
   it("overlays tenant defs on the shared base, preserving shared order", async () => {
