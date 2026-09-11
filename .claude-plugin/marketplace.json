@@ -1,0 +1,14 @@
+{
+  "name": "yoke",
+  "owner": {
+    "name": "yoke"
+  },
+  "plugins": [
+    {
+      "name": "yoke",
+      "description": "Working-context knowledge for coding agents: a briefing when the session starts, and what changed or was reversed — delivered between tool calls — while it runs.",
+      "source": "./plugin"
+    }
+  ],
+  "description": "Working-context knowledge for coding agents, delivered by yoke."
+}

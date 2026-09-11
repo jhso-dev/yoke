@@ -1,0 +1,8 @@
+{
+  "name": "yoke",
+  "version": "0.1.0",
+  "description": "Working-context knowledge for coding agents. SessionStart briefs the session from its yoke working context; between tool calls the session is told what was added, retired or reversed (yoke inject --unseen) — with the reason, and only when there is something. Also registers the yoke MCP server and a setup skill that binds a repo to its working context.",
+  "author": {
+    "name": "yoke"
+  }
+}

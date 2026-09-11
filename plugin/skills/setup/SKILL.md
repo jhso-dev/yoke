@@ -1,0 +1,53 @@
+---
+name: setup
+description: Bind this repository to its yoke working context so the plugin's hooks start delivering — checks the yoke CLI, the store, and the collaboration record, then writes YOKE_SCOPE into the repo's .claude/settings.json. Use when the user asks to set up yoke, connect this repo to yoke, or when the hooks are installed but silent.
+---
+
+# yoke setup — bind this repo to its working context
+
+The plugin's hooks are deliberately silent when anything is missing, so this skill is where wiring is
+checked out loud. Work through the steps in order and stop at the first one that needs the user.
+
+## 1. The CLI
+
+Run `yoke --version`. If it is not on PATH, the hooks are no-ops. Point the user at the yoke
+repository's 60-second quickstart (clone → `npm install` → `npm run build` → `npm link`), or ask
+where the binary lives and use `YOKE_BIN=<path>` in step 4 instead. Do not guess an npm package
+name — `yoke` on npm is an unrelated package.
+
+## 2. The store
+
+`yoke inject --scope x` against the intended store must fail on the SCOPE, not on the store. Which
+store this repo uses is the CLI's normal environment contract, in the repo's `.env` or exported:
+nothing set means `./yoke.db` in the repo; a team store is `YOKE_POSTGRES_URL`/`YOKE_OPENSEARCH_URL`
+(knowledge remote, this client's trail local). If the local file does not exist yet, `yoke init`.
+
+## 3. The working context
+
+`yoke list --type collaboration` — the anchor must be a real record. If the initiative has none,
+create it with the user's wording and have the user confirm before promoting:
+
+```
+yoke add collaboration --actor <user> --attr title=<key> --attr summary="…"
+yoke verify <id> --actor <user>
+```
+
+## 4. The binding
+
+Write the scope into the repo's `.claude/settings.json` under `env` — merge with what is there,
+never clobber:
+
+```json
+{ "env": { "YOKE_SCOPE": "<collaboration id or key>" } }
+```
+
+Per-person values (`YOKE_ACTOR=<their id>`, so the audit trail says who was told what; `YOKE_BIN` if
+needed) go in `.claude/settings.local.json`, which is not committed.
+
+## 5. Prove it
+
+`yoke inject --scope <scope>` must print the briefing. Then tell the user what to expect: the next
+session opens with that briefing (SessionStart), and while a session runs, changes to the context —
+new verified knowledge, a retirement with its reason, a reversal — arrive between tool calls, only
+when there is something. A quiet session means nothing changed, not a broken hook; re-run step 5 to
+tell the two apart.

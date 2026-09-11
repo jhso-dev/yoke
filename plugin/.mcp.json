@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "yoke": {
+      "command": "yoke",
+      "args": ["mcp"]
+    }
+  }
+}

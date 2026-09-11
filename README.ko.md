@@ -216,8 +216,15 @@ docs/ADOPTION.md에 있습니다.
 
 ## MCP 설정
 
-yoke를 에이전트(Claude Code 등)에 stdio MCP 서버로 붙입니다. 프로젝트 루트
-`.mcp.json`:
+**Claude Code는 플러그인 설치가 빠릅니다** — MCP 서버 등록에 더해, 세션 시작 시 브리핑하고 세션이
+도는 동안 바뀐 것(뒤집힌 결정, 이유가 붙은 폐기)을 배달하는 훅까지 함께 설치됩니다:
+
+```
+claude plugin marketplace add jhso-dev/yoke
+claude plugin install yoke@yoke        # 이후 레포마다 /yoke:setup 한 번
+```
+
+다른 MCP 클라이언트는 stdio MCP 서버로 붙입니다. 프로젝트 루트 `.mcp.json`:
 
 ```json
 {
