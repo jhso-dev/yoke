@@ -227,7 +227,7 @@ describe.skipIf(process.platform === "win32")("zero-action credential against a 
         store,
         defaultActor: "yoke:system",
         auth: true,
-        github: { org: "acme", verifiers: [], api: gh.base },
+        github: { org: "acme", api: gh.base },
       }),
     );
 

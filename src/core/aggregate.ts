@@ -134,9 +134,9 @@ export async function overview(
       // Authorship comes off the `authored_by` EDGE, never off `provenance.actor`.
       //
       // This is not a preference. `verify` replaces provenance (lifecycle.ts `transition`), so on a
-      // verified record `provenance.actor` is whoever promoted it — an authors list built from that
+      // re-confirmed record `provenance.actor` is whoever confirmed it — an authors list built from that
       // field ranks reviewers and calls them authors, silently, and every record in a reviewed corpus
-      // credits one person. The gate mirrors the real author into an edge at commit time and promoting
+      // credits one person. The gate mirrors the real author into an edge at commit time and confirming
       // does not pass through the gate, so the edge is the durable claim. It is also exactly what
       // `personaQuery` anchors on, so an overview naming persona candidates and a persona built from
       // one of them cannot disagree.

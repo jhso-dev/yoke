@@ -340,17 +340,17 @@ async function vectorHits(
  * `[{type}:{id}@v{version}] {actor}, {occurred_at}` — the audit citation format.
  *
  * With `author` (the `authored_by` edge's target) it becomes
- * `[…] {author} (confirmed by {promoter}), {occurred_at}` — and ONLY when the two differ, so the
+ * `[…] {author} (confirmed by {confirmer}), {occurred_at}` — and ONLY when the two differ, so the
  * single-user local path renders exactly as before.
  *
  * The plain form names whoever wrote the version being pointed at, which for a verified record is
- * whoever PROMOTED it: `verify` appends a version whose provenance is the promotion. That is correct
+ * whoever last CONFIRMED it: `verify` appends a version whose provenance is the confirmation. That is correct
  * about the version and wrong about the knowledge — a decision authored under one person's id and
  * verified by a reviewer would be served inside that person's persona citing the reviewer, so an agent
  * quoting yoke names the wrong person. Authorship comes off the `authored_by` edge, never
  * `provenance.actor` (docs/SPEC.md:682); `overview` obeys that and says so in its own output.
  *
- * Both, rather than swapping one for the other. The promoter is not noise — it is who vouched for this,
+ * Both, rather than swapping one for the other. The confirmer is not noise — it is who vouched for this,
  * which is the other half of what makes a citation auditable — and dropping it to fix attribution would
  * trade one missing fact for another. It is invisible on a single-user database, where the two ARE the
  * same actor.

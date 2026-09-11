@@ -508,7 +508,7 @@ export function renderPersonaSkill(
       if (Array.isArray(rejected) && rejected.length > 0)
         out.push(`- Rejected: ${inertBody(rejected.map(String).join(", "))}`);
       if (i.conflictsWith) out.push(`- Disputed:${disputed(i)}`);
-      // `pointer`, not `citation`: a citation carries `provenance.actor`, and on a promoted record that
+      // `pointer`, not `citation`: a citation carries `provenance.actor`, and on a re-confirmed record that
       // is whoever VERIFIED it — printing "yoke:system" on a Source line in a document titled "Ada
       // persona", the one name it must not put there. The author comes off `i.author` (the authored_by
       // edge), not the anchor: a union spans identities, so the record's real author is not always who

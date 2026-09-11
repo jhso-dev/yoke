@@ -50,7 +50,7 @@ export async function backfillAuthorship(
     const linked = new Set(authored.map((r) => r.to));
     // Every version that passed the commit gate is an authorship; verify/deprecate are not (they
     // carry origin 'lifecycle' and overwrite the latest version's provenance actor, which is exactly
-    // why reading only the latest row would credit the promoter).
+    // why reading only the latest row would credit the confirmer).
     for (const ver of await listVersions(port, id)) {
       const prov = ver.provenance;
       if (prov.origin === "lifecycle" || prov.actor === id) continue;
@@ -85,7 +85,7 @@ export async function backfillAuthorship(
  *
  * Until the two times were separated, verify/deprecate restamped `provenance.occurred_at` to the
  * transition instant, so a store that was ever bulk-verified has one event time across everything
- * promoted in that run. The knowledge's real time is not lost — it is in the version history, on the
+ * transitioned in that run. The knowledge's real time is not lost — it is in the version history, on the
  * rows the commit gate wrote — so this walks each record back to its most recent commit-written
  * version and puts that `occurred_at` back on the current one.
  *

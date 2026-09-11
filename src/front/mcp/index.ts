@@ -210,9 +210,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     try {
       // The agent-as-connector idempotency probe. Same key + same content = a no-op, so re-filing a
       // source item across sessions cannot duplicate it. Same key + DIFFERENT content is refused with
-      // instructions rather than re-versioned: re-versioning demotes the stored head to draft, which
-      // would hand any writer the power to knock verified knowledge out of injection — the promotion
-      // authority this server deliberately does not expose (see the header). The stored record stays
+      // instructions rather than re-versioned: re-versioning would let any writer silently rewrite a
+      // record other answers already cite. The stored record stays
       // authoritative for that source item; a disagreement is filed as its own record plus a
       // conflicts_with edge, which is policy rule 6 rather than a workaround.
       if (externalId !== undefined) {

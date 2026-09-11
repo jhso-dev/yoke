@@ -30,7 +30,7 @@ export const versionTime = (e: Entity): string =>
 
 /**
  * Shared transition path. Reads every row in ONE batch, then appends a new version row each
- * (append-only). Provenance records the promote/retire action itself (actor, origin 'lifecycle',
+ * (append-only). Provenance records the confirm/retire action itself (actor, origin 'lifecycle',
  * `transitioned_at`) on top of the knowledge's own provenance, which is carried forward.
  *
  * `occurred_at` SURVIVES the transition. Restamping it to the transition instant would give a batch
@@ -54,7 +54,7 @@ async function transition(
   reason?: string,
 ): Promise<Entity[]> {
   // The SECOND write path into storage, and it stamps both `last_confirmed` and a fresh `provenance`.
-  // The gate normalizes its instants (commit.ts `normalizeProvenance`); a promotion that did not would
+  // The gate normalizes its instants (commit.ts `normalizeProvenance`); a transition that did not would
   // reintroduce mixed spellings into the same rows the gate had just canonicalized, and every
   // collating read — the briefing sort, `newestFirst`, the SQL windows — would disagree about which
   // record is newest. Rejecting garbage here rather than storing an uncomparable stamp, for the reason
@@ -84,8 +84,8 @@ async function transition(
   // write (id, version+1) twice — two governance rows for one action.
   const distinct = [...new Set(ids)];
   // Refuse the WHOLE batch before the first write — do not silently skip unknown ids either, since
-  // promote/retire are explicit actions. TWO loops, not one: validating inside the write loop makes
-  // `verify([known, "nope"])` throw with `known` already promoted, which is a half-applied governance
+  // confirm/retire are explicit actions. TWO loops, not one: validating inside the write loop makes
+  // `verify([known, "nope"])` throw with `known` already confirmed, which is a half-applied governance
   // action nobody asked for.
   for (const id of distinct)
     if (!found.has(id)) {
