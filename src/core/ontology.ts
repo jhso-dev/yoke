@@ -219,7 +219,12 @@ export function validateTypeDef(def: unknown): string | null {
     )
       return `ttl_days must be a whole number of days, 0 or more (got ${JSON.stringify(d.ttl_days)}) — omit it for no expiry`;
   }
-  for (const flag of ["membership", "structural", "leads", "symmetric"] as const)
+  for (const flag of [
+    "membership",
+    "structural",
+    "leads",
+    "symmetric",
+  ] as const)
     if (d[flag] !== undefined && typeof d[flag] !== "boolean")
       return `${flag} must be true or false`;
   // Relation-only and entity-only flags, so a definition cannot claim behaviour its kind never reads.

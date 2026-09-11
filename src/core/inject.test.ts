@@ -552,7 +552,10 @@ describe("inject scoped: a briefing is knowledge, in a defined order", () => {
       ont,
       {
         type: "decision",
-        attributes: { conclusion: "retry 5x", rationale: "PG maintenance window" },
+        attributes: {
+          conclusion: "retry 5x",
+          rationale: "PG maintenance window",
+        },
       },
       { ...prov, occurred_at: "2026-05-01T00:00:00Z" },
       "2026-05-01T00:00:00Z",
@@ -567,7 +570,10 @@ describe("inject scoped: a briefing is knowledge, in a defined order", () => {
     await verify(port, [ws.id, ...facts], "alice", now);
     await verify(port, [decision.id], "alice", "2026-06-01T00:00:00Z");
 
-    const { items } = await inject(port, ont, "", now, { scope: ws.id, limit: 2 });
+    const { items } = await inject(port, ont, "", now, {
+      scope: ws.id,
+      limit: 2,
+    });
     // Slot one is the decision despite three fresher facts; slot two falls back to recency.
     expect(items[0].entity.id).toBe(decision.id);
     expect(facts).toContain(items[1].entity.id);
