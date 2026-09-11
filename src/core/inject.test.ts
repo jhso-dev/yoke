@@ -537,6 +537,55 @@ describe("inject scoped: a briefing is knowledge, in a defined order", () => {
     );
   });
 
+  it("types the ontology marks `leads` come before recency — a noisy week cannot evict a decision", async () => {
+    const { entity: ws } = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "leads ordering" } },
+      prov,
+      now,
+    );
+    // The decision is OLDER than every fact, so pure recency would seat it last — the eviction the
+    // flag exists to prevent (measured: 150 unrelated facts left 0 decisions in the opening 50).
+    const { entity: decision } = await commit(
+      port,
+      ont,
+      {
+        type: "decision",
+        attributes: {
+          conclusion: "retry 5x",
+          rationale: "PG maintenance window",
+        },
+      },
+      { ...prov, occurred_at: "2026-05-01T00:00:00Z" },
+      "2026-05-01T00:00:00Z",
+    );
+    await link(decision.id, ws.id);
+    const facts = [];
+    for (let i = 0; i < 3; i++) {
+      const f = await addFact(`noise ${i}`);
+      await link(f, ws.id);
+      facts.push(f);
+    }
+    await verify(port, [ws.id, ...facts], "alice", now);
+    await verify(port, [decision.id], "alice", "2026-06-01T00:00:00Z");
+
+    const { items } = await inject(port, ont, "", now, {
+      scope: ws.id,
+      limit: 2,
+    });
+    // Slot one is the decision despite three fresher facts; slot two falls back to recency.
+    expect(items[0].entity.id).toBe(decision.id);
+    expect(facts).toContain(items[1].entity.id);
+
+    // Data, not a name in core: clear the flag and recency owns the page again.
+    const unled = ont.map((t) =>
+      t.name === "decision" ? { ...t, leads: undefined } : t,
+    );
+    const bare = await inject(port, unled, "", now, { scope: ws.id, limit: 2 });
+    expect(bare.items.map((i) => i.entity.id)).not.toContain(decision.id);
+  });
+
   it("is driven by the ontology, not by a relation name in core", async () => {
     // A tenant ontology that has marked NEITHER flag gets the members, because nothing declared them
     // to be either a roster edge or a structural type. That is the point of putting both in data: a

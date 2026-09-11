@@ -8,6 +8,8 @@ AI agents don't know an organization's or a person's knowledge. That knowledge i
 
 **A database optimized for knowledge.** It structures and stores knowledge as an ontology (an entity/relation schema), then selects the subset relevant to the user's current context and injects it into the AI (context injection).
 
+**The sharpest form of that, in an org where people work through agents: relaying the team's decision flow into running sessions.** Facts age and are increasingly reachable by an agent's own search; a **decision with its rejected alternatives** is the knowledge nothing else holds — and relitigating settled decisions is the failure mode agents are best at. yoke's collaboration surface exists so that a decision made in one conversation reaches every session on the working context at its next tool call, a reversal chases everyone who was handed the original, and a briefing opens with the decisions rather than the week's traffic (the ontology's `leads` flag).
+
 - **Front end**: interfaces AI consumes well — an MCP server and a CLI. From v5.0 there is also a browser tier for humans, but it is a transport over the same core functions, not a third interface with capabilities of its own (see ARCHITECTURE).
 - **Back end**: reuse the stores you already have — SQLite, a traditional RDB, a vector DB, a graph DB, files.
 - **Compatibility**: plays well with traditional databases. It must be able to read existing data by mapping it onto the yoke ontology.

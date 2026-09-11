@@ -619,12 +619,19 @@ export async function inject(
   // The query paths are deliberately left alone: their order is search relevance, which is the
   // stronger signal and is theirs to own.
   if (scope && !query) {
+    const leads = new Set(
+      ontology.filter((t) => t.kind === "entity" && t.leads).map((t) => t.name),
+    );
     items.sort(
       (a, b) =>
         // Nearest first. A hop-3 record is context; a hop-1 record is the subject. Absent from the map
         // cannot happen on this path (every candidate came out of the walk), so the fallback is only
         // there to keep the comparator total.
         (distance.get(a.entity.id) ?? 0) - (distance.get(b.entity.id) ?? 0) ||
+        // Types the ontology marks `leads` come before recency: a briefing is what a session sees
+        // FIRST, and recency alone hands a noisy week's filings the whole page while the standing
+        // decisions fall off it (measured: 150 unrelated facts left 0 decisions in the opening 50).
+        Number(leads.has(b.entity.type)) - Number(leads.has(a.entity.type)) ||
         // Most recently confirmed first — the freshest knowledge about this work leads.
         // By instant, not by collation: on a database holding both pre- and post-canonicalization
         // stamps, `Z` sorts after `.`, so 00:00:00.500Z read as older than 00:00:00Z.

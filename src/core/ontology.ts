@@ -46,6 +46,21 @@ export type TypeDef = {
    */
   structural?: boolean;
   /**
+   * Entity types only: records of this type LEAD a briefing — ordered ahead of everything else at
+   * the same hop distance, before recency decides.
+   *
+   * It exists because a briefing is recency-ordered and capture volume is noise-shaped: measured
+   * with 150 unrelated facts filed onto one working context, the opening page went to 50/50 noise
+   * and 0 decisions — the record a session must not miss is exactly the one recency evicts first.
+   * The query paths are untouched (relevance already owns their order); this only decides what a
+   * session is shown FIRST when it asks for nothing in particular.
+   *
+   * Ontology DATA for the reason `membership` and `structural` are: an org whose spine is
+   * `incident` or `policy` marks that type and gets the behaviour with no core change. Seeded on
+   * `decision` and `term` — conclusions and vocabulary lead; individual facts compete on freshness.
+   */
+  leads?: boolean;
+  /**
    * Relation types only: this edge means the same thing read either way, so `from` and `to` carry no
    * claim — only the order someone happened to type.
    *
@@ -152,6 +167,7 @@ const TYPE_DEF_KEYS = [
   "ttl_days",
   "membership",
   "structural",
+  "leads",
   "symmetric",
 ] as const;
 
@@ -203,14 +219,19 @@ export function validateTypeDef(def: unknown): string | null {
     )
       return `ttl_days must be a whole number of days, 0 or more (got ${JSON.stringify(d.ttl_days)}) — omit it for no expiry`;
   }
-  for (const flag of ["membership", "structural", "symmetric"] as const)
+  for (const flag of [
+    "membership",
+    "structural",
+    "leads",
+    "symmetric",
+  ] as const)
     if (d[flag] !== undefined && typeof d[flag] !== "boolean")
       return `${flag} must be true or false`;
   // Relation-only and entity-only flags, so a definition cannot claim behaviour its kind never reads.
   if (d.kind === "entity" && (d.membership || d.symmetric))
     return "membership and symmetric describe relation types, not entity types";
-  if (d.kind === "relation" && d.structural)
-    return "structural describes entity types, not relation types";
+  if (d.kind === "relation" && (d.structural || d.leads))
+    return "structural and leads describe entity types, not relation types";
   return null;
 }
 
@@ -438,6 +459,7 @@ export function seedOntology(): TypeDef[] {
         sources: { type: "string" },
       },
       ttl_days: 365,
+      leads: true,
     },
     // A term is a name and what it means here; both are required because either alone is unusable —
     // a name with no meaning explains nothing, a meaning with no name cannot be looked up.
@@ -449,6 +471,7 @@ export function seedOntology(): TypeDef[] {
         statement: { type: "string", required: true },
         sources: { type: "string" },
       },
+      leads: true,
     },
     // A resource is a pointer: it needs a name to be referred to, and everything else is optional —
     // `url` for the ones that have an address, `statement` for what it is good for.
