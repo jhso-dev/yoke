@@ -33,37 +33,30 @@ directional decisions.
   - **the GitHub exchange** (SPEC "GitHub exchange") — the developer path. A hook or MCP
     client is non-interactive, so its credential is exchanged from the `gh` login the
     machine already holds; nobody distributes tokens. Org membership is the access
-    decision, `YOKE_GITHUB_VERIFIERS` the verify grant.
+    decision, and a member's token carries `read,write`.
   - **OIDC/SSO** — a human at the web UI under the company IdP.
   - **API tokens** (`yoke token create`) — machine actors (CI, scheduled connectors),
     the bootstrap `admin` credential (the exchange never grants admin), and a
     deployment with no GitHub.
-- Authorization axes: namespace × ontology type × action (read / write / **verify**).
-  **The verify permission *is* the knowledge-governance permission** — who can
-  promote knowledge is the single most important axis in this product's permission
-  model. We separate admin/write/verify.
-
-  **When more than one person holds `verify`, the aggregation rule is an open design decision and
-  the default must not be majority.** Today the permission is per-actor and the first holder to act
-  decides — there is no vote. If approvals are ever accumulated, `docs/RESEARCH.md` §1 argues for
-  Surprisingly Popular (answer + meta-prediction) over majority or confidence weighting: majority
-  rule systematically discards the expert who is right and knows they are in the minority, which is
-  the exact person a knowledge-governance gate exists to hear.
-- MCP connection: the token scope carries the three axes above. An agent is
-  write-only by default (can only stage drafts, cannot verify) — enforcing the policy
-  that a human owns the gate.
-- A human is **read-only by default too**. Authenticating through SSO proves identity,
+- Authorization axes: namespace × ontology type × action (read / write / **admin**).
+  **`write` is the one knowledge permission** — committing, re-confirming and retiring
+  are the same trust level, because every entry is signed under a credential-bound
+  actor and every retirement is broadcast: the checks live downstream of the act, not
+  in a second permission. `admin` is the operating permission — credentials, ontology
+  migration, `rename-type` (the writes that bypass or rewrite what the commit gate
+  enforces) — and deliberately not a superset of the other two.
+- A human is **read-only by default**. Authenticating through SSO proves identity,
   not authority: a verified OIDC subject is granted `read` on its namespace and nothing
-  more. `write` and `verify` come only from an explicit grant carried by the token — a
-  `scope`/`scopes` claim holding yoke scopes, validated against the scope grammar and
-  confined to the token's `ns` claim (a claim naming another namespace is dropped).
-  Otherwise enabling auth so a team can *browse* would hand everyone with a company
-  account the power to promote drafts into every agent's context.
+  more. `write` comes from an explicit grant carried by the token — a `scope`/`scopes`
+  claim holding yoke scopes, validated against the scope grammar and confined to the
+  token's `ns` claim (a claim naming another namespace is dropped) — or from the GitHub
+  exchange, where org membership is that grant. Otherwise enabling auth so a team can
+  *browse* would hand everyone with a company account a pen over every agent's context.
 
 ## Audit log (staged early, in v2.0)
 
-- Targets: commit (with the accept/reject reason), verify/demotion, inject (who got
-  what knowledge injected).
+- Targets: commit (with the accept/reject reason), re-confirmation/retirement, inject
+  (who got what knowledge injected).
 - Implementation: not a separate system, but a query view over the append-only
   history + provenance. Keep "what the knowledge was" (entity versions) and "who saw
   it when" (the inject log) stored separately.

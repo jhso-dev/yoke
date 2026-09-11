@@ -391,7 +391,7 @@
       "type": "decision",
       "author": "person:po-yoon-jaehyeok",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "PC-콘솔 크로스플레이는 당분간 보류하고, 콘솔 간 크로스플레이만 우선 검토한다.",
         "rationale": "마우스·패드 입력 정밀도 격차가 매치 공정성을 깨뜨린다. 조준 보정으로 균형을 맞추려 하면 어느 쪽도 만족하지 못한다. 입력이 유사한 콘솔끼리 먼저 풀을 합쳐 매칭 시간을 개선하는 편이 안전하다.",
@@ -534,7 +534,7 @@
       "type": "decision",
       "author": "person:po-oh-donghyun",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "캐주얼 일반 매치와 분리된 랭크(경쟁) 모드를 추가하고, 별도 MMR과 시즌 티어를 운영한다.",
         "rationale": "실력 격차가 큰 단일 풀은 신규엔 가혹하고 상위엔 심심하다. 경쟁 모드를 분리해 유사 실력끼리 붙이면 양쪽 리텐션이 함께 오른다. 다만 배틀로열 특성상 표본이 커야 MMR이 수렴한다는 리스크가 있어 초안으로 검토 중이다.",
@@ -549,7 +549,7 @@
       "type": "decision",
       "author": "person:po-seo-yena",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "맵이 늘어난 뒤에는 전 맵 상시 매칭 대신 로테이션 풀로 운영해 매칭 시간을 방어한다.",
         "rationale": "맵이 많아질수록 유저 선택이 분산되어 각 맵의 풀이 얇아지고 매칭이 느려진다. 로테이션은 풀을 모아 대기시간을 줄이지만, 선호 맵을 못 하는 불만이 생겨 주기 설계가 관건이다.",
@@ -594,7 +594,7 @@
       "type": "decision",
       "author": "person:po-lee-jihoon",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "제품 의사결정 히스토리를 '결정 기록'으로 축적해, 신규 합류자가 지난 판단의 근거·기각안을 열람할 수 있게 한다.",
         "rationale": "빠른 성장으로 조직이 커지며 '왜 이렇게 정했는지'가 구전으로만 남아 반복 논쟁이 생긴다. 결론·근거·기각 대안을 구조화해 남기면 같은 논의를 다시 하지 않는다. 아직 포맷·운영 주체가 확정 안 돼 초안이다.",
@@ -655,7 +655,7 @@
       "type": "decision",
       "author": "person:po-park-soyeon",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "빠른 매치 수요를 위해 4x4km 소형 맵을 추가해, 세션 길이 옵션을 8x8과 이원화한다.",
         "rationale": "30분 매치는 몰입도가 높지만 세션이 길어 캐주얼·모바일 이탈 유저를 못 잡는다. 15분 내외 소형 맵을 병치해 '짧게 자주' 수요를 흡수하되, 코어 8x8의 정체성은 유지한다.",
@@ -802,7 +802,7 @@
       "type": "fact",
       "author": "person:po-lim-hyunju",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "에란겔 리마스터 유저 반응(테스트값)",
         "statement": "에란겔 지형·텍스처 리마스터 패치 직후 커뮤니티 반응은 초반 엄폐물 배치 변경을 두고 찬반이 갈렸고, 첫 2주 부정 리뷰가 일시 상승 후 회복됐다. (합성 테스트 수치)"
@@ -993,7 +993,7 @@
       "type": "resource",
       "author": "person:po-choi-eunji",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "라이브 운영 캘린더 (합성 테스트 문서)",
         "statement": "월간 정규 패치·핫픽스·시즌 전환·대회 일정을 한 축에 정렬한 라이브 운영 캘린더 포인터. 콘텐츠 케이던스와 e스포츠 서킷, 안티치트 대량 밴 주기를 상호 충돌 없이 배치하는 것이 목적이다. 초안 상태. 합성 테스트 데이터.",
@@ -1005,7 +1005,7 @@
       "type": "resource",
       "author": "person:po-oh-donghyun",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "e스포츠 포맷·표준 룰셋 (합성 테스트 문서)",
         "statement": "지역 예선–글로벌 결승 서킷 구조와 킬+순위 합산 표준 스코어링, 옵저버 툴 요구사항을 정의한 문서 포인터. 100인 매치의 관전성을 확보하기 위한 제작 기능 요구도 함께 담았다. 합성 테스트 데이터.",
@@ -1017,7 +1017,7 @@
       "type": "resource",
       "author": "person:po-seo-yena",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "콘텐츠 로드맵: 맵 확장·시즌 테마 (합성 테스트 문서)",
         "statement": "에란겔 단일 맵 이후의 맵 확장 순서(대형 8x8 추가 → 소형 4x4 병치)와 시즌 테마·서바이버 패스 연계를 정리한 로드맵 포인터. 맵 로테이션 풀 전환 시점과 매칭 시간 방어 기준을 함께 검토 중인 초안이다. 합성 테스트 데이터.",

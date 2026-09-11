@@ -71,7 +71,7 @@ describe("runCli", () => {
     ).toBe(0);
     const added = JSON.parse(logs.at(-1) as string);
     expect(added.type).toBe("fact");
-    expect(added.status).toBe("draft");
+    expect(added.status).toBe("verified");
     expect(added.attributes.statement).toBe("hello");
 
     // get
@@ -113,7 +113,7 @@ describe("runCli", () => {
     expect(rows[0].detail).toContain("overview ->");
   });
 
-  it("review --stale orders most-consumed first and says the count", async () => {
+  it("review orders most-consumed first and says the count", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
     // Aged fixtures need a past clock, which the CLI does not have — seed through the store the way
@@ -135,7 +135,6 @@ describe("runCli", () => {
         past,
         then,
       );
-      await verify(store, [entity.id], "seed", then);
       return entity.id;
     };
     const cold = await mk("aged, never consumed");
@@ -154,7 +153,7 @@ describe("runCli", () => {
     });
     store.close();
 
-    expect(await runCli(["review", "--stale", "--db", db, "--json"])).toBe(0);
+    expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
     const rows = JSON.parse(logs.at(-1) as string) as Array<{
       id: string;
       injections: number;
@@ -164,7 +163,7 @@ describe("runCli", () => {
     expect(rows[1].injections).toBe(0);
 
     // The human line carries the same answer — parity is about the answer, not the format.
-    expect(await runCli(["review", "--stale", "--db", db])).toBe(0);
+    expect(await runCli(["review", "--db", db])).toBe(0);
     const human = logs.slice(-3).join("\n");
     expect(human).toContain("injected 2x");
   });
@@ -189,7 +188,6 @@ describe("runCli", () => {
       prov,
       at,
     );
-    await verify(store, [entity.id], "seed", at);
     store.close();
 
     // Every audit write now throws, as a held write lock would.
@@ -220,10 +218,10 @@ describe("runCli", () => {
     expect(errs.some((e) => e.includes("database is locked"))).toBe(true);
   });
 
-  // F1: `review --stale` counts consumption over the audit trail. Reading the WHOLE trail materialized
+  // F1: `review` counts consumption over the audit trail. Reading the WHOLE trail materialized
   // every row into JS (83ms at 100k, 2.7s at 1M, no retention). The read is now bounded to a recent
   // window, and the window is named in the output — never a silent slice.
-  it("F1: review --stale bounds the consumption read to a window, not the whole trail", async () => {
+  it("F1: review bounds the consumption read to a window, not the whole trail", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
     // An aged verified record, so the stale queue is non-empty and reaches the consumption count.
@@ -236,14 +234,13 @@ describe("runCli", () => {
       origin: "cli",
       occurred_at: then,
     };
-    const { entity } = await commit(
+    await commit(
       store,
       ont,
       { type: "fact", attributes: { statement: "aged" } },
       past,
       then,
     );
-    await verify(store, [entity.id], "seed", then);
     store.close();
 
     const calls: Array<{ limit?: number } | undefined> = [];
@@ -254,7 +251,7 @@ describe("runCli", () => {
         return [];
       });
     try {
-      expect(await runCli(["review", "--stale", "--db", db])).toBe(0);
+      expect(await runCli(["review", "--db", db])).toBe(0);
     } finally {
       spy.mockRestore();
     }
@@ -318,11 +315,11 @@ describe("runCli", () => {
     expect(rels.some((r) => r.from === factId && r.to === wsId)).toBe(true);
   });
 
-  it("lifecycle E2E: add(draft) → excluded from inject → review → verify → shown in inject → deprecate → excluded", async () => {
+  it("lifecycle E2E: add(born verified) → shown in inject → deprecate → excluded → verify revives", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
 
-    // add → draft
+    // add → live immediately, signed by the actor
     expect(
       await runCli([
         "add",
@@ -334,54 +331,25 @@ describe("runCli", () => {
         "--json",
       ]),
     ).toBe(0);
-    const id = JSON.parse(logs.at(-1) as string).id as string;
+    const added = JSON.parse(logs.at(-1) as string);
+    const id = added.id as string;
+    expect(added.status).toBe("verified");
 
-    // a draft is excluded from inject by default
-    expect(
-      await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
-    ).toBe(0);
-    expect(JSON.parse(logs.at(-1) as string)).toHaveLength(0);
-
-    // --include-draft shows it
-    expect(
-      await runCli([
-        "inject",
-        "lifecycletoken",
-        "--db",
-        db,
-        "--include-draft",
-        "--json",
-      ]),
-    ).toBe(0);
-    expect(JSON.parse(logs.at(-1) as string)).toHaveLength(1);
-
-    // the draft appears in review
-    expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
-    expect(
-      JSON.parse(logs.at(-1) as string).some(
-        (e: { id: string }) => e.id === id,
-      ),
-    ).toBe(true);
-
-    // verify → promoted
-    expect(await runCli(["verify", id, "--db", db, "--json"])).toBe(0);
-    expect(JSON.parse(logs.at(-1) as string)[0].status).toBe("verified");
-
-    // this fact disappears from review (the yoke:system draft may remain)
-    expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
-    expect(
-      JSON.parse(logs.at(-1) as string).some(
-        (e: { id: string }) => e.id === id,
-      ),
-    ).toBe(false);
-
-    // verified → shown in the default inject (with citation)
+    // injectable as committed, with citation
     expect(
       await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
     ).toBe(0);
     const injected = JSON.parse(logs.at(-1) as string);
     expect(injected).toHaveLength(1);
     expect(injected[0].citation).toContain(id);
+
+    // fresh, so the re-confirmation queue has nothing to say about it
+    expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
+    expect(
+      JSON.parse(logs.at(-1) as string).some(
+        (e: { id: string }) => e.id === id,
+      ),
+    ).toBe(false);
 
     // deprecate → disappears from inject
     expect(await runCli(["deprecate", id, "--db", db, "--json"])).toBe(0);
@@ -394,35 +362,21 @@ describe("runCli", () => {
       await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toHaveLength(0);
+
+    // verify revives: re-confirmation is the one lever that puts a retired record back in service
+    expect(await runCli(["verify", id, "--db", db, "--json"])).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)[0].status).toBe("verified");
+    expect(
+      await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toHaveLength(1);
   });
 
-  it("verify --all-drafts promotes every draft", async () => {
+  it("verify with no ids is a usage error", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
-    for (const t of ["alpha", "beta"]) {
-      expect(
-        await runCli(["add", "fact", "--db", db, "--attr", `statement=${t}`]),
-      ).toBe(0);
-    }
-    expect(await runCli(["verify", "--all-drafts", "--db", db, "--json"])).toBe(
-      0,
-    );
-    // yoke:system person (draft) + 2 facts = 3 promoted
-    expect(JSON.parse(logs.at(-1) as string).length).toBeGreaterThanOrEqual(2);
-    expect(await runCli(["review", "--db", db])).toBe(0);
-    expect(logs.at(-1)).toBe("no drafts");
-  });
-
-  // A batch run promotes namespace by namespace, and one whose extraction proposed nothing used to
-  // end the job with a usage message naming the flag the caller had passed correctly.
-  it("verify --all-drafts succeeds when there is nothing to promote", async () => {
-    const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli(["verify", "--all-drafts", "--db", db])).toBe(0);
-    expect(await runCli(["verify", "--all-drafts", "--db", db])).toBe(0);
-    expect(logs.at(-1)).toContain("nothing to verify");
-    // Without the flag, no ids is still the usage error it always was.
     expect(await runCli(["verify", "--db", db])).toBe(1);
+    expect(errs.at(-1)).toContain("usage: yoke verify");
   });
 
   it("conflicts lists conflicts_with pairs with both entities", async () => {
@@ -777,7 +731,7 @@ describe("runCli", () => {
       { existingId: "alex" },
     );
     store.close();
-    // Promoted by someone else — the latest row's provenance actor is now the promoter.
+    // Re-confirmed by someone else — the latest row's provenance actor is now the confirmer.
     expect(
       await runCli(["verify", entity.id, "--db", db, "--actor", "admin"]),
     ).toBe(0);
@@ -864,7 +818,6 @@ describe("runCli", () => {
       ]),
     ).toBe(0);
     const fact = JSON.parse(logs.at(-1) as string).id as string;
-    expect(await runCli(["verify", "--all-drafts", "--db", db])).toBe(0);
 
     // list: enumerate, filter, and page.
     expect(await runCli(["list", "--db", db, "--json"])).toBe(0);
@@ -1041,12 +994,12 @@ describe("runCli", () => {
     const id = JSON.parse(logs.at(-1) as string).id as string;
     expect(await runCli(["verify", id, "--db", db])).toBe(0);
 
-    // history: v1 draft + v2 verified, ascending
+    // history: v1 (born verified) + v2 (the re-confirmation), ascending
     expect(await runCli(["history", id, "--db", db, "--json"])).toBe(0);
     const history = JSON.parse(logs.at(-1) as string);
     expect(history.map((e: { version: number }) => e.version)).toEqual([1, 2]);
     expect(history.map((e: { status: string }) => e.status)).toEqual([
-      "draft",
+      "verified",
       "verified",
     ]);
     // absent id → exit 1
@@ -1292,7 +1245,7 @@ describe("runCli", () => {
       expect(await runCli(args)).toBe(1);
   });
 
-  it("connect notes ingests transcript chunks as drafts, idempotently (PLAN 8.5)", async () => {
+  it("connect notes ingests transcript chunks, idempotently (PLAN 8.5)", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
     const notesDir = join(dir, "notes-fixture");
@@ -1320,9 +1273,9 @@ describe("runCli", () => {
       skipped: 2,
     });
 
-    // staged as drafts (governance: connectors never bypass review)
-    expect(await runCli(["review", "--db", db, "--type", "fact"])).toBe(0);
-    expect(logs.at(-1)).toContain("we chose sqlite");
+    // through the gate like every other commit — live and listable as soon as it lands
+    expect(await runCli(["list", "--db", db, "--type", "fact"])).toBe(0);
+    expect(logs.join("\n")).toContain("we chose sqlite");
 
     // missing dir arg → usage, exit 1
     expect(await runCli(["connect", "notes", "--db", db])).toBe(1);
@@ -1394,7 +1347,7 @@ describe("runCli", () => {
     const id = JSON.parse(logs.at(-1) as string).id as string;
 
     const out = newDb();
-    // A far-future cut captures everything created so far, including the draft.
+    // A far-future cut captures everything created so far.
     expect(
       await runCli([
         "export",
@@ -1408,7 +1361,7 @@ describe("runCli", () => {
     ).toBe(0);
     const store = new SqliteStorage(out);
     await store.init();
-    expect((await store.getEntity(id))?.status).toBe("draft");
+    expect((await store.getEntity(id))?.status).toBe("verified");
     store.close();
 
     // missing flags → usage, exit 1
@@ -1557,19 +1510,21 @@ describe("runCli", () => {
     expect(errs.at(-1)).toContain("yoke init");
   });
 
-  it("inject with only draft matches says the drafts were withheld (json stays raw)", async () => {
+  it("inject with only stale matches says they were withheld (json stays raw)", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(
-      await runCli([
-        "add",
-        "fact",
-        "--db",
-        db,
-        "--attr",
-        "statement=quarantined",
-      ]),
-    ).toBe(0);
+    // Aged fixture: born verified in 2020, long past fact's TTL — the CLI reads the real clock.
+    const store = new SqliteStorage(db);
+    await store.init();
+    const then = "2020-06-01T00:00:00Z";
+    await commit(
+      store,
+      store.loadOntology(null),
+      { type: "fact", attributes: { statement: "quarantined" } },
+      { actor: "seed", origin: "cli", occurred_at: then },
+      then,
+    );
+    store.close();
 
     expect(await runCli(["inject", "quarantined", "--db", db])).toBe(0);
     expect(logs.at(-1)).toContain("withheld");
@@ -1736,7 +1691,7 @@ describe("runCli", () => {
   });
 });
 
-describe("review --stale (the queue SPEC promised and nothing built)", () => {
+describe("review (the re-confirmation queue)", () => {
   it("lists verified records past their TTL and says what it examined", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
@@ -1759,7 +1714,6 @@ describe("review --stale (the queue SPEC promised and nothing built)", () => {
       old,
       "2020-01-01T00:00:00Z",
     );
-    await verify(store, [entity.id], "alice", "2020-01-01T00:00:00Z");
     // A `term` has no ttl_days, so it can never age — the contrast that keeps this from passing on a
     // route that simply returns every verified row.
     const { entity: term } = await commit(
@@ -1772,29 +1726,22 @@ describe("review --stale (the queue SPEC promised and nothing built)", () => {
       old,
       "2020-01-01T00:00:00Z",
     );
-    await verify(store, [term.id], "alice", "2020-01-01T00:00:00Z");
     store.close();
 
-    expect(await runCli(["review", "--stale", "--db", db, "--json"])).toBe(0);
+    expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
     const rows = JSON.parse(logs.at(-1) as string) as { id: string }[];
     expect(rows.map((r) => r.id)).toContain(entity.id);
     expect(rows.map((r) => r.id)).not.toContain(term.id);
 
     // Human output states the bound: a bare count would read as a corpus-wide number.
-    expect(await runCli(["review", "--stale", "--db", db])).toBe(0);
+    expect(await runCli(["review", "--db", db])).toBe(0);
     expect(logs.at(-1)).toMatch(/1 stale among \d+ verified records scanned/);
-
-    // ...and the plain queue is untouched: this record is verified, so it is not a draft.
-    expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
-    expect(
-      (JSON.parse(logs.at(-1) as string) as { id: string }[]).map((r) => r.id),
-    ).not.toContain(entity.id);
   });
 
   it("says how many it scanned even when nothing aged out", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli(["review", "--stale", "--db", db])).toBe(0);
+    expect(await runCli(["review", "--db", db])).toBe(0);
     expect(logs.at(-1)).toMatch(/no stale records \(scanned \d+ verified\)/);
   });
 });
@@ -2054,7 +2001,7 @@ describe("loadDotEnv", () => {
 
 // A mistyped command used to answer with the whole help screen — every miss in a usability pass was
 // one edit away, and 25 lines of overview buries the correction in the noise it caused.
-// One record, four commands, two answers. `inject` withheld it, `review --stale` listed it and
+// One record, four commands, two answers. `inject` withheld it, `review` listed it and
 // `overview` counted it stale, while `get` and `list` — the two commands a person actually uses to
 // check whether their knowledge is live — printed "verified".
 describe("the CLI shows the status injection uses", () => {
@@ -2098,16 +2045,6 @@ describe("the CLI shows the status injection uses", () => {
     // The stored column still says verified, so a surface printing it says the wrong thing.
     expect(out).not.toMatch(/\bfact\s+verified\b/);
   });
-
-  it("still reports a draft as a draft", async () => {
-    const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(
-      await runCli(["add", "fact", "--attr", "statement=fresh", "--db", db]),
-    ).toBe(0);
-    expect(await runCli(["list", "--db", db])).toBe(0);
-    expect(logs.join("\n")).toContain("draft");
-  });
 });
 
 // A filter that cannot match is the same defect as an argument that is dropped: "nothing to list" is
@@ -2118,7 +2055,7 @@ describe("a filter value that cannot match is refused", () => {
     expect(await runCli(["init", "--db", db])).toBe(0);
     // `stale` is computed at read time and pushed down to SQL, so no stored row can carry it.
     expect(await runCli(["list", "--status", "stale", "--db", db])).toBe(1);
-    expect(errs.join("\n")).toContain("review --stale");
+    expect(errs.join("\n")).toContain("yoke review");
   });
 
   it.each([
@@ -2288,7 +2225,7 @@ describe("backup does not destroy what it writes over", () => {
 });
 
 // The web tier has resolved actor ids to names since v2.5. The CLI printed the raw actor on `list`,
-// `review`, `review --stale`, `history` and the injected citation — so a corpus whose authors are person
+// `review`, `history` and the injected citation — so a corpus whose authors are person
 // records, which is what `--actor <person-id>` and every seeded corpus produce, was a wall of ULIDs on
 // exactly the commands a person reads for meaning.
 describe("the CLI names people instead of printing their ids", () => {
@@ -2329,7 +2266,6 @@ describe("the CLI names people instead of printing their ids", () => {
 
   it.each([
     ["list", (_p: string, _f: string) => ["list"]],
-    ["review", (_p: string, _f: string) => ["review"]],
     ["history", (_p: string, f: string) => ["history", f]],
   ])("resolves the author in %s", async (_name, argv) => {
     const db = newDb();
@@ -2339,6 +2275,28 @@ describe("the CLI names people instead of printing their ids", () => {
     const out = logs.join("\n");
     expect(out).toContain("Alice Kim");
     expect(out).not.toContain(`  ${person}`);
+  });
+
+  it("resolves the author in review", async () => {
+    // The queue holds stale rows, so the authored fact has to be aged past its TTL first.
+    const db = newDb();
+    const { person } = await authored(db);
+    const store = new SqliteStorage(db);
+    await store.init();
+    const then = "2020-01-01T00:00:00Z";
+    await commit(
+      store,
+      store.loadOntology(null),
+      { type: "fact", attributes: { statement: "aged and authored" } },
+      { actor: person, origin: "cli", occurred_at: then },
+      then,
+    );
+    store.close();
+    logs.length = 0;
+    expect(await runCli(["review", "--db", db])).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("Alice Kim");
+    expect(out).not.toContain(`  ${person}  `);
   });
 
   it("names the author and the confirmer in an injected citation", async () => {
@@ -2420,7 +2378,7 @@ describe("--help never runs the command", () => {
     expect(await runCli(["init", "--db", db])).toBe(0);
     logs.length = 0;
     expect(await runCli(["review", "--help", "--db", db])).toBe(0);
-    expect(logs.join("\n")).toContain("--stale");
+    expect(logs.join("\n")).toContain("re-confirmation queue");
     logs.length = 0;
     expect(await runCli(["audit", "--help", "--db", db])).toBe(0);
     expect(logs.join("\n")).toContain("--shape");

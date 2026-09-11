@@ -4,7 +4,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -34,7 +33,6 @@ function InjectBody() {
   const router = useRouter();
   const q = params.get("q") ?? "";
   const scope = params.get("scope") ?? "";
-  const includeDraft = params.get("draft") === "1";
   // The control's own vocabulary is local wall time (`2026-07-30T16:43`) and that is what stays in the
   // URL, so a shared link reopens the same field. The ISO instant is derived at request time — the
   // audit screen learned the hard way that round-tripping ISO through `value` blanks the field.
@@ -49,28 +47,20 @@ function InjectBody() {
         ? api.inject({
             q: q || undefined,
             scope: scope || undefined,
-            includeDraft,
             limit: 50,
             asOf: asOf || undefined,
           })
         : Promise.resolve(null),
-    [q, scope, includeDraft, asOf],
+    [q, scope, asOf],
   );
 
-  const run = (next: {
-    q?: string;
-    scope?: string;
-    draft?: boolean;
-    asOf?: string;
-  }) => {
+  const run = (next: { q?: string; scope?: string; asOf?: string }) => {
     const u = new URLSearchParams();
     const nq = next.q ?? draft;
     const ns = next.scope ?? draftScope;
-    const nd = next.draft ?? includeDraft;
     const na = next.asOf ?? asOfLocal;
     if (nq) u.set("q", nq);
     if (ns) u.set("scope", ns);
-    if (nd) u.set("draft", "1");
     if (na) u.set("asOf", na);
     router.replace(`/inject/${u.toString() ? `?${u}` : ""}`);
   };
@@ -109,25 +99,9 @@ function InjectBody() {
         />
         <Button type="submit">{t.inject.run}</Button>
       </form>
-      {/* The QUERY row above, the LENS row here: what to ask, then under which reading — drafts in
-          or out, and as of when. Filters act immediately, so they need no seat next to the submit.
-          Labels sit BESIDE their control, never around it: a label that wraps the control it also
-          points at (htmlFor) makes some engines activate it twice per click — the two toggles cancel
-          and the checkbox reads as dead. */}
+      {/* The QUERY row above, the LENS row here: what to ask, then as of when. Filters act
+          immediately, so they need no seat next to the submit. */}
       <div className="controls">
-        <span className="flex items-center gap-1.5">
-          <Checkbox
-            id="inject-include-draft"
-            checked={includeDraft}
-            onCheckedChange={(v) => run({ draft: v === true })}
-          />
-          <Label
-            htmlFor="inject-include-draft"
-            className="text-[inherit] font-[inherit]"
-          >
-            {t.inject.includeDraft}
-          </Label>
-        </span>
         <Separator orientation="vertical" />
         <span className="flex items-center gap-1.5">
           <Label
@@ -162,9 +136,6 @@ function InjectBody() {
         </Panel>
       ) : (
         <>
-          {includeDraft && (
-            <Alert variant="warn">{t.inject.draftsIncluded}</Alert>
-          )}
           {/* Flagged from the SERVER's echo, not from the local field: if the two ever disagree, what
               matters is which clock actually produced these rows. A historical result that read as a
               current one would be worse than not offering the view at all. */}

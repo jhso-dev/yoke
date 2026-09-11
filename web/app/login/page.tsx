@@ -75,10 +75,7 @@ export default function Login() {
       <Alert variant="info">
         {t.login.noTokenBefore}
         <br />
-        <CopyCode value="yoke token create --name alex --scopes read" />
-        <br />
-        {t.login.addPrefix}
-        <CopyCode value="yoke token create --name alex --scopes read,verify" />
+        <CopyCode value="yoke token create --name alex --scopes read,write" />
         {t.login.noTokenAfter}
       </Alert>
     </div>

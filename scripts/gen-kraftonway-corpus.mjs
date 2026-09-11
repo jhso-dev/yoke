@@ -207,7 +207,7 @@ const c = {
   aRecords: 0,
   bRecords: 0,
   relations: 0,
-  draft: 0,
+  unconfirmed: 0,
   stale: 0,
   deprecated: 0,
   conflictPairs: 0,
@@ -218,8 +218,8 @@ const c = {
 const confirmAt = (type, state) =>
   state === "stale" ? iso(type === "decision" ? 400 : 200) : NOW;
 const verifyAsAuthor = async (id, type, author, state) => {
-  if (state === "draft") {
-    c.draft++;
+  if (state === "unconfirmed") {
+    c.unconfirmed++; // entered, never re-confirmed — ages toward the review queue
     return;
   }
   await verify(store, [id], author, confirmAt(type, state), NS);
@@ -494,7 +494,8 @@ for (let i = 0; made < bTarget; i++) {
           ? "term"
           : "resource";
   const stateRoll = k % 20;
-  const state = stateRoll < 3 ? "draft" : stateRoll < 6 ? "stale" : "verified";
+  const state =
+    stateRoll < 3 ? "unconfirmed" : stateRoll < 6 ? "stale" : "verified";
   const key = `b-${role}-${i}`;
   const at = state === "stale" ? confirmAt(type, "stale") : dateForKey(key);
 
@@ -551,28 +552,9 @@ for (let i = 0; made < bTarget; i++) {
     );
 }
 
-// The roster and anchors are not knowledge under review — leaving them draft would fill the review
-// queue with rows nobody is meant to act on. Verify as steward (people/collabs have no author to erase).
-for (const type of ["person", "collaboration"]) {
-  const { items } = await store.listEntities({
-    type,
-    status: "draft",
-    ns: NS,
-    limit: 5000,
-  });
-  if (items.length)
-    await verify(
-      store,
-      items.map((e) => e.id),
-      "person:steward",
-      NOW,
-      NS,
-    );
-}
-
 const token = store.createToken({
   name: "admin",
-  scopes: ["read", "write", "verify"],
+  scopes: ["read", "write", "admin"],
   created_at: NOW,
 }).token;
 store.close();

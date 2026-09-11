@@ -1,7 +1,7 @@
 // 한국어. `typeof en`으로 타입이 고정되어 있어 키를 빠뜨리면 컴파일이 실패한다 —
 // 번역 누락이 화면에 빈칸으로 나가는 대신 빌드에서 잡힌다.
 //
-// 번역하지 않는 것은 '저장된 값'이다: 상태 이름(draft, verified, stale, deprecated), 감사 로그의
+// 번역하지 않는 것은 '저장된 값'이다: 상태 이름(verified, stale, deprecated), 감사 로그의
 // 동작 이름, 타입·관계 이름(authored_by), CLI 명령과 스코프 이름. 이것들은 DB와 CLI에 그대로
 // 들어 있는 문자열이라 화면에서 다른 말로 바꾸면 같은 것을 가리키는 이름이 두 벌이 된다.
 //
@@ -22,7 +22,8 @@ export const ko: typeof en = {
     saving: "저장 중…",
     verify: "검증",
     reconfirm: "재확인",
-    verifyHint: "레코드를 승격하거나 오래된 레코드를 재확인합니다",
+    verifyHint:
+      "오래된 레코드를 여전히 맞다고 재확인하거나, 폐기된 레코드를 되살립니다",
     deprecate: "폐기",
     // 한국어는 수 일치를 하지 않으므로 en의 단·복수 분기를 흉내내지 않는다. 대신 숫자가 무엇의 개수인지를
     // 문장이 말하게 한다 — 이름 뒤에 벌거벗은 정수를 두는 것이 stale 담당자 패널에서 이미 한 번 문제였다.
@@ -39,7 +40,7 @@ export const ko: typeof en = {
     notInNamespace: "이 네임스페이스에 없음",
     notFound: "이 네임스페이스에서 찾을 수 없음",
     required: "온톨로지에서 필수로 지정한 속성",
-    draftNotice: "draft로 저장되며 검증이 필요합니다",
+    liveNotice: "즉시 반영되며, 기록자의 이름으로 서명됩니다",
     skipToContent: "본문으로 건너뛰기",
     search: "검색",
     query: "질문",
@@ -145,8 +146,8 @@ export const ko: typeof en = {
   },
   create: {
     newRecord: "새 레코드",
-    draftNotice:
-      "에이전트가 커밋한 레코드와 마찬가지로 draft로 저장되며, 검증이 필요합니다.",
+    liveNotice:
+      "에이전트가 커밋한 레코드와 마찬가지로 즉시 반영되고 서명됩니다 — 이 scope의 에이전트들이 바로 받습니다.",
     pickType: "타입 고르기",
     listHint: "(쉼표로 구분)",
     yes: "예",
@@ -157,7 +158,7 @@ export const ko: typeof en = {
     notChecked:
       "생성했습니다. 다만 무엇과도 비교하지 않았습니다: 이 작업 공간에 임베딩 제공자가 설정되지 않아 중복 탐지가 실행되지 않았습니다.",
     createdToast: (label: string) =>
-      `"${label}" 초안으로 생성됨 — 리뷰에서 검증하세요.`,
+      `"${label}" 생성됨 — 즉시 반영되며 기록자의 이름으로 서명됩니다.`,
     // 부분 커밋: 레코드는 저장됐지만 게이트가 함께 쓰려던 엣지가 기록되지 않았다. core는 세 종류를
     // 내보내며(commit.ts) 각각 처방이 다르다 — relates_to 첨부는 다시 연결, authored_by 엣지는
     // backfill로 재생성, conflicts_with 표식은 backfill로 되살릴 수 없다(backfill은 저작만 재생성).
@@ -179,13 +180,12 @@ export const ko: typeof en = {
         );
       if (parts.length === 0)
         parts.push("게이트가 함께 쓰려던 엣지가 기록되지 않았습니다");
-      return `"${label}" 초안으로 저장했지만 ${parts.join("; ")}.`;
+      return `"${label}"을(를) 기록했지만 ${parts.join("; ")}.`;
     },
   },
   status: {
     meaning: {
-      draft: "staged 상태이며 검증되지 않았습니다 — 주입에서 제외됩니다",
-      verified: "사람이 승격했습니다. 에이전트가 받을 수 있습니다",
+      verified: "기록되어 유효합니다. 에이전트가 받을 수 있습니다",
       stale:
         "타입의 신선도 기간을 넘겼습니다 — 누군가 재확인할 때까지 제외됩니다",
       deprecated: "폐기되었습니다. 주입되지 않습니다",
@@ -207,19 +207,11 @@ export const ko: typeof en = {
     noReason: "기록된 이유가 없습니다.",
   },
   review: {
-    heading: "리뷰 대기열",
-    lede: "아직 검증하지 않은 draft를 확인합니다. 사람이 승격하기 전까지 에이전트에는 주입되지 않습니다.",
+    heading: "재확인 대기열",
+    lede: "타입에 정해둔 신선도 기간을 넘긴 레코드입니다. 기간이 지난 순간부터 주입에서 빠졌지만 아무에게도 알리지 않았습니다 — 이 화면이 그걸 위해 있습니다. 재확인은 여전히 맞다는 답이고, 폐기는 아니라는 답입니다.",
     selectAll: "전체 선택",
     selectRow: (label: string) => `${label} 선택`,
-    empty: "대기 중인 draft가 없습니다",
-    draftCount: (n: number) => `draft ${n}개`,
-    // draft/verified/stale은 저장되는 상태 이름이라 영어를 유지하고, 탭 이름은 사람에게 하는
-    // 설명이므로 번역합니다 — 같은 Verify 버튼이 두 대기열에서 다른 뜻이라 어느 쪽인지가 분명해야 합니다.
-    tabDrafts: "검증 안 됨",
-    tabStale: "기한 지남",
-    staleLede:
-      "verified였다가 타입에 정해둔 신선도 기간을 넘긴 레코드입니다. 기간이 지난 순간부터 주입에서 빠졌지만 아무에게도 알리지 않았습니다 — 이 화면이 그걸 위해 있습니다. Verify는 여전히 맞다고 재확인하는 것이고, Deprecate는 폐기합니다.",
-    staleEmpty: "기한이 지난 verified 레코드가 없습니다",
+    empty: "기한이 지난 레코드가 없습니다",
     staleScanned: (n: number, scanned: number) =>
       `살펴본 verified 레코드 ${scanned}개 중 ${n}개가 기한을 넘겼습니다`,
     staleMore: "아직 살펴보지 않은 레코드가 남아 있습니다",
@@ -234,7 +226,7 @@ export const ko: typeof en = {
   },
   browse: {
     heading: "둘러보기",
-    lede: "이 네임스페이스의 모든 레코드를 오래된 순서대로 표시합니다. 연결되지 않았거나 오래된 레코드, 아직 검토하지 않은 draft를 확인할 수 있습니다.",
+    lede: "이 네임스페이스의 모든 레코드를 오래된 순서대로 표시합니다. 연결되지 않았거나 오래된 레코드, 폐기된 레코드를 확인할 수 있습니다.",
     allTypes: "모든 타입",
     anyStatus: "모든 상태",
     shown: (n: number, more: boolean) =>
@@ -293,7 +285,7 @@ export const ko: typeof en = {
     briefingNote:
       "inject(scope)가 반환하는 verified 레코드를 최근 확인 순서대로 표시합니다. 이 미리보기는 감사 로그에 기록됩니다",
     briefingEmptyLinked: (n: number) =>
-      `verified 지식이 없어 에이전트는 아무것도 받지 못합니다 — 아래 연결된 레코드 ${n}건은 draft이거나 오래되었습니다.`,
+      `유효한 지식이 없어 에이전트는 아무것도 받지 못합니다 — 아래 연결된 레코드 ${n}건은 오래되었거나 폐기되었습니다.`,
     memberAdded: (name: string) => `${name}을(를) 이 협업에 추가했습니다.`,
     alreadyOnThisWork: (name: string) =>
       `${name}은(는) 이미 이 협업에 있어 새로 기록하지 않았습니다.`,
@@ -383,16 +375,14 @@ export const ko: typeof en = {
     noDecisions: "이 사람이 기록한 결정이 없습니다",
     otherKnowledge: "그 밖의 지식",
     withheld: (w: {
-      draft: number;
       stale: number;
       deprecated: number;
       structural: number;
       superseded: number;
     }) =>
       `이 화면에 담기지 않은 레코드가 ${
-        w.draft + w.stale + w.deprecated + w.superseded
+        w.stale + w.deprecated + w.superseded
       }건 있습니다: ${[
-        w.draft && `검토 대기 ${w.draft}건`,
         w.stale && `신선도 만료 ${w.stale}건`,
         w.deprecated && `폐기됨 ${w.deprecated}건`,
         w.superseded && `새 지식으로 대체됨 ${w.superseded}건`,
@@ -404,7 +394,7 @@ export const ko: typeof en = {
     identityUnion: (n: number) =>
       `same_as로 동일인으로 기록된 신원 레코드 ${n}건을 결합했습니다:`,
     identityUnionNote: (name: string) =>
-      `이 연결은 검증되지 않은 주장입니다(관계는 검증할 수 없습니다). 이들이 동일인이 아니라면 이 화면은 다른 사람의 판단을 ${name}에게 귀속시킵니다.`,
+      `이 연결은 서명된 주장 하나에 기대고 있습니다. 이들이 동일인이 아니라면 이 화면은 다른 사람의 판단을 ${name}에게 귀속시킵니다.`,
   },
   inject: {
     heading: "주입 미리보기",
@@ -414,11 +404,8 @@ export const ko: typeof en = {
     queryPlaceholder: "에이전트가 무슨 일을 하고 있나요?",
     scopePlaceholder: "scope (협업 또는 사람 id, 선택)",
     run: "미리보기",
-    includeDraft: "draft 포함",
     prompt:
       "질문을 입력하세요. scope만 입력하면 해당 맥락의 브리핑을 확인할 수 있습니다",
-    draftsIncluded:
-      "검토 대기 중인 항목을 확인할 수 있도록 draft도 표시합니다. 에이전트에는 이 draft를 전달하지 않습니다.",
     wouldBeInjected: "주입될 내용",
     scopeNote: (id: string) => `scope: ${id} (범위를 제한하지 않고 우선합니다)`,
     truncated: (shown: number, total: number) =>
@@ -428,7 +415,6 @@ export const ko: typeof en = {
     disputedHead: "상충",
     withheld: (
       w: {
-        draft: number;
         stale: number;
         deprecated: number;
         structural: number;
@@ -436,10 +422,8 @@ export const ko: typeof en = {
       },
       sent: number,
     ) => {
-      const total =
-        w.draft + w.stale + w.deprecated + w.structural + w.superseded;
+      const total = w.stale + w.deprecated + w.structural + w.superseded;
       const parts = [
-        w.draft && `검토 대기 ${w.draft}건`,
         w.stale && `신선도 만료 ${w.stale}건`,
         w.deprecated && `폐기됨 ${w.deprecated}건`,
         w.superseded && `새 지식으로 대체됨 ${w.superseded}건`,
@@ -505,7 +489,7 @@ export const ko: typeof en = {
       inject: "에이전트가 지식을 받았습니다",
       inject_preview: "사람이 에이전트가 받을 내용을 미리 봤습니다",
       persona: "한 사람의 기록된 판단이 읽혔습니다",
-      verify: "레코드가 승격되었습니다",
+      verify: "레코드가 재확인되었습니다",
       deprecate: "레코드가 폐기되었습니다",
       rename_type: "온톨로지 타입이 저장된 모든 행에서 변경되었습니다",
       read: "레코드 하나를 전부 열어 봤습니다 — 속성·버전·관계",
@@ -522,9 +506,9 @@ export const ko: typeof en = {
     scopes: "스코프",
     permissions: "권한",
     readHint: "지식 읽기 — 브리핑·주입·검색",
-    writeHint: "레코드 생성 — draft로 들어갑니다",
-    verifyHint: "거버넌스 — 검증·재확인·폐기",
-    adminHint: "크레덴셜 발급·폐기 — 지식 자체에는 접근 권한을 주지 않습니다",
+    writeHint: "지식 권한 — 기록·재확인·폐기",
+    adminHint:
+      "배포 운영 — 크레덴셜 발급과 온톨로지 변경. 지식 자체에는 접근 권한을 주지 않습니다",
     restrictLegend: "(선택)",
     recordType: "레코드 타입",
     anyPlaceholder: "전체",
@@ -552,11 +536,10 @@ export const ko: typeof en = {
     noTokenBefore:
       "토큰이 없다면 yoke를 실행 중인 서버에서 다음 명령을 실행하세요:",
     noTokenAfter:
-      "이 스코프는 draft 승격을 허용합니다. verify는 별도로 부여해야 하는 거버넌스 권한입니다.",
-    addPrefix: "draft를 승격해야 한다면:",
+      "read는 지식을 조회하고, write는 기록·재확인·폐기까지 허용합니다.",
   },
   errors: {
     forbiddenHint:
-      "이 자격증명에는 해당 작업에 필요한 스코프가 없습니다. 다음 명령으로 발급하세요: yoke token create --scopes read,verify",
+      "이 자격증명에는 해당 작업에 필요한 스코프가 없습니다. 다음 명령으로 발급하세요: yoke token create --scopes read,write",
   },
 };

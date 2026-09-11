@@ -17,7 +17,7 @@ import { Modal } from "./Modal";
  *
  * A successful create CLOSES the dialog — the form's job ends at the commit, and a dialog that
  * lingers over the list reads as "not done yet". What the gate had to say about that commit (saved
- * as a draft, similar records already exist, nothing was compared) follows the reader out as a
+ * live, similar records already exist, nothing was compared) follows the reader out as a
  * toast, so closing does not swallow it. Errors are the opposite case: the dialog stays open with
  * the gate's words next to the fields that caused them, because an error is not an outcome to walk
  * away from.
@@ -50,7 +50,7 @@ export function CreateButton({
       <Modal
         open={open}
         title={text}
-        description={t.create.draftNotice}
+        description={t.create.liveNotice}
         onClose={() => setOpen(false)}
         holdsForm
       >

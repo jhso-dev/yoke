@@ -28,8 +28,6 @@ const badgeVariants = cva(
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
         /** Staged, not verified — withheld from injection. Dashed border: provisional. */
-        draft:
-          "border-dashed border-[var(--tone-draft)] bg-[var(--tone-draft-bg)] text-[var(--tone-draft)]",
         /** A human promoted it; agents may receive it. */
         verified: "bg-[var(--tone-verified-bg)] text-[var(--tone-verified)]",
         /** Past its type's TTL. Italic: no longer trusted. */

@@ -492,7 +492,7 @@
       "type": "decision",
       "author": "person:biz-seo-yerin",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "배틀그라운드 핵심 개발/운영 인력에 대해 상장 전후 별도 리텐션 패키지(추가 RSU + 2년 조건부 보너스)를 설계한다.",
         "rationale": "단일 IP의 핵심 인력 이탈은 회사 최대 리스크 중 하나다. 상장으로 종이 부(富)를 실현한 직후가 이탈 위험이 가장 높은 구간이므로, 이 시점을 겨냥한 정렬 장치가 필요하다.",
@@ -537,7 +537,7 @@
       "type": "decision",
       "author": "person:biz-lee-jaewon",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "인도·중동 등 신흥시장을 배틀그라운드 IP의 차기 성장 축으로 삼고, 현지 법인·현지화 퍼블리싱에 선제 투자한다.",
         "rationale": "성숙 시장의 성장은 둔화되나 인도 등은 모바일 이용자 기반이 폭발적으로 확대 중이다. 규제 리스크를 감수하더라도 초기 선점이 장기 점유율을 좌우한다.",
@@ -597,7 +597,7 @@
       "type": "decision",
       "author": "person:biz-choi-donghyun",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "스튜디오 창작 자율성은 보장하되, 본사가 통제하는 3개 가드레일(자본 배분·글로벌 퍼블리싱·핵심 리스크 관리)은 예외 없이 적용한다.",
         "rationale": "완전 자율은 포트폴리오 통제를 무력화하고, 완전 통제는 창작을 죽인다. 최소한의 가드레일만 본사가 쥐고 나머지는 스튜디오에 위임하는 것이 균형점.",
@@ -642,7 +642,7 @@
       "type": "decision",
       "author": "person:biz-lee-jaewon",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "배틀그라운드 IP를 게임에 가두지 않고 애니메이션·웹툰·라이선싱 등 미디어 프랜차이즈로 확장한다.",
         "rationale": "단일 게임의 라이프사이클을 넘어 IP 자산의 수명을 늘리고, 게임 외 접점으로 신규 이용자 유입을 만든다. 단일 IP 의존 헤지의 보조 축.",
@@ -672,7 +672,7 @@
       "type": "decision",
       "author": "person:biz-oh-taeyang",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "상장 후 주가가 내재가치 대비 과도하게 하락할 경우에 한해 자사주 매입을 주주환원 수단으로 사용한다(배당보다 우선).",
         "rationale": "성장주에서 배당은 성장 포기 신호지만, 저평가 구간의 자사주 매입은 주당 가치를 높이면서 성장 재투자와 병행 가능하다. 조건부·기회주의적으로 운용.",
@@ -779,7 +779,7 @@
       "type": "fact",
       "author": "person:biz-choi-donghyun",
       "size": "line",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "연합 스튜디오 수",
         "statement": "블루홀 2.0~크래프톤 전환기를 거치며 독립 스튜디오는 10여 개 수준으로 확장(합성 값)."
@@ -878,7 +878,7 @@
       "type": "fact",
       "author": "person:biz-jung-mina",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "조직 규모 추이",
         "statement": "2013년 감원 후 약 200명대 → 배틀그라운드 흥행 이후 급팽창하여 상장 시점 수천 명 규모(연결 기준, 합성 값)."
@@ -1021,7 +1021,7 @@
       "type": "term",
       "author": "person:biz-oh-taeyang",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "오버행 (overhang)",
         "statement": "잠재적 대량 매도 대기 물량. 락업 해제 예정 물량이나 미행사 옵션 등이 주가를 짓누르는 요인으로 작용한다."
@@ -1068,7 +1068,7 @@
       "type": "resource",
       "author": "person:biz-kang-hyewon",
       "size": "line",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "지노게임즈 인수 SPA 요지",
         "statement": "지분양수도계약(SPA)의 대가 구성·에스크로·언아웃·리텐션 조항 요지. 내부 보관. (합성 테스트 링크)",

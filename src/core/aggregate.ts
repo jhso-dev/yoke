@@ -51,7 +51,6 @@ export interface Overview {
 }
 
 const EMPTY: StatusCounts = {
-  draft: 0,
   verified: 0,
   stale: 0,
   deprecated: 0,

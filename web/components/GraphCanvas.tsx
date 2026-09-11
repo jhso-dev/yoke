@@ -227,17 +227,10 @@ export function GraphCanvas({
         const isSel = n.id === selectedRef.current;
         ctx.beginPath();
         ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, Math.PI * 2);
-        // Status by SHAPE as well as colour: hollow+dashed draft, solid verified, faded stale,
-        // grey ✕ deprecated. Colour alone would be unreadable to a meaningful share of people.
+        // Status by SHAPE as well as colour: solid verified, faded stale, grey ✕ deprecated.
+        // Colour alone would be unreadable to a meaningful share of people.
         ctx.globalAlpha = n.status === "stale" ? 0.45 : 1;
-        if (n.status === "draft") {
-          ctx.fillStyle = "transparent";
-          ctx.strokeStyle = colorOfRef.current(n.type);
-          ctx.lineWidth = 1.6 / k;
-          ctx.setLineDash([2.5 / k, 2.5 / k]);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        } else if (n.status === "deprecated") {
+        if (n.status === "deprecated") {
           ctx.fillStyle = "rgba(140,140,150,0.5)";
           ctx.fill();
         } else {

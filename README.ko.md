@@ -28,19 +28,19 @@ MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 ## 어떻게 생겼나
 
 에이전트가 받게 될 것을 미리 보고, 무엇이 빠졌는지와 그 이유까지 확인합니다.
-아래에서는 질의에 걸린 레코드 하나가 아직 검토 대기라 전달되지 않습니다:
+아래에서는 질의에 걸린 레코드 하나가 신선도 창을 넘겨 전달되지 않습니다:
 
-![주입 미리보기: 인용이 붙은 검증된 레코드 둘과, 무엇이 왜 보류됐는지 알리는 안내](docs/assets/ui-inject.png)
+![주입 미리보기: 인용이 붙은 유효 레코드 둘과, 무엇이 왜 보류됐는지 알리는 안내](docs/assets/ui-inject.png)
 
-새 지식은 `draft`로 들어와 사람이 승격할 때까지 주입에서 격리됩니다. 에이전트는
-기록만 할 수 있고, 검증은 사람만 합니다:
+아무도 재확인하지 않는 지식은 만료됩니다. 검토 큐는 아직 맞는 것은 남기고
+아닌 것은 퇴출하는, 사람의 자리입니다:
 
-![검토 큐: 작성자가 표시된 draft 3건과 Verify / Deprecate 동작](docs/assets/ui-review.png)
+![검토 큐: 재확인이 필요한 레코드들과 소유자, Verify / Deprecate 동작](docs/assets/ui-review.png)
 
 `decision`은 기각된 대안까지 남깁니다 — 결론만 남기면 버려지는 판단의 절반입니다.
-모든 버전은 계속 읽을 수 있고, 승격을 거쳐도 원저자가 보존됩니다:
+모든 버전은 계속 읽을 수 있고, 이후의 재확인을 거쳐도 원저자가 보존됩니다:
 
-![결정 상세: 결론·근거·기각 대안, provenance, draft에서 verified로 가는 버전 이력](docs/assets/ui-decision.png)
+![결정 상세: 결론·근거·기각 대안, provenance, 전체 버전 이력](docs/assets/ui-decision.png)
 
 검증된 레코드 둘이 서로 모순하면 yoke는 둘 다 보존하고 사람에게 묻습니다. 주입도
 한쪽을 고르지 않고 양쪽을 "상충" 표시와 함께 넘깁니다:
@@ -57,16 +57,15 @@ MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 1. **출처 없이는 들어오지 못한다.** 모든 쓰기는 단일 commit 게이트를 통과하며,
    출처(누가·어디서·언제) 없는 지식은 거절됩니다. 출처 없는 지식은 소문이고,
    소문은 못 들어옵니다.
-2. **사람이 검증하기 전엔 믿지 않는다.** 새 지식은 `draft`로 진입해 주입에서
-   격리됩니다. AI 에이전트는 MCP로 *기록*만 할 수 있고 승격은 못 합니다 —
-   검증은 의도적으로 사람의 행위이며(`yoke verify`), 그걸 하는 MCP 도구는
-   없습니다. 기본적으로 `verified`만 AI의 컨텍스트에 닿고, 에이전트가 명시적으로
-   요청하면(`includeDraft`) draft도 `[draft]` 표시와 함께 받습니다. 문서화된
-   예외 하나: `connect rdb`는 이미 조직의 system of record인 DB를 매핑하므로
-   매핑된 행은 verified로 들어옵니다 — docs/BACKENDS.md 참고.
+2. **틀린 기록은 정정보다 빨리 달아나지 못한다.** 지식은 서명된 행위자가
+   기록하는 순간 살아 있습니다 — 에이전트 팀을 세워 둘 승인 큐는 없습니다 —
+   그리고 책임은 하류에서, 실제로 무는 자리에서 작동합니다: 레코드 퇴출에는
+   사유가 붙고, 전달 원장이 그 사유를 **그 레코드를 받았던 모든 클라이언트**에게
+   실어 나릅니다. 삭제는 조용하지만, 여기서 철회는 방송입니다
+   (`yoke deprecate --reason`, docs/KNOWLEDGE-POLICY.md 규칙 8).
 3. **아무것도 조용히 덮이지 않는다.** 저장은 append-only입니다 — 수정은 새 버전이고,
    삭제는 아예 없습니다(폐기는 `deprecated` 상태). 임의 시점의 믿음을 언제든 재구성할 수 있고, 주입되는 모든
-   항목에 인용이 붙습니다 — `[type:id@vN] 저자 (confirmed by 승격자), occurred_at` —
+   항목에 인용이 붙습니다 — `[type:id@vN] 저자 (confirmed by 확인자), occurred_at` —
    그래서 모든 주장이 감사 가능하고, 누가 썼는지와 누가 보증했는지가 둘 다 남습니다.
    이력이 담을 수 없는 변경은 `rename-type` 하나입니다: 기존 버전 행의 타입을
    다시 쓰며, 그 사실을 감사 행으로 남깁니다.
@@ -81,8 +80,8 @@ MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
    빠집니다. 낡은 진실은 가장 정중한 형태의 허위정보이고, yoke는 그렇게
    취급합니다.
 
-그리고 주장이 아니라 측정입니다: 주입 품질 eval은 **오염률 0%**(draft 레코드가
-주입에 닿지 않음 — 심는 것이 draft입니다)와, 심어둔 쌍에 대한 **모순 미탐지율 0%**를
+그리고 주장이 아니라 측정입니다: 주입 품질 eval은 **오염률 0%**(stale·퇴출 레코드가
+주입에 닿지 않음 — 심는 것이 그것들입니다)와, 심어둔 쌍에 대한 **모순 미탐지율 0%**를
 보고합니다. 이 숫자들이 무엇을 덮고 무엇을 덮지 않는지는 [품질 측정](#품질-측정)에
 있습니다.
 
@@ -120,10 +119,10 @@ MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 | **한 줄 요약** | 지식에 최적화된 데이터베이스: 온톨로지로 구조화한 뒤, 지금 맥락에 맞는 검증된 부분집합만 인용과 함께 AI에 주입합니다. |
 | **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
 | **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `postgres`(네이티브 스코어드 FTS + pgvector, 의존성 추가 없음) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 넷 모두 하나의 conformance 스위트를 통과. |
-| **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `raw`(비정형 자료 — 대화록·문서를 모델이 추출) — 외부 소스 → draft 지식, 원본 시각으로 기록. `rdb`(Postgres/MySQL read-mapping)는 이미 system of record인 DB를 매핑하므로 verified로 들어옵니다. |
+| **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `raw`(비정형 자료 — 대화록·문서를 모델이 추출) — 외부 소스 → 커넥터가 서명한 지식, 원본 시각으로 기록. `rdb`(Postgres/MySQL read-mapping)는 이미 system of record인 DB를 매핑합니다. |
 | **persona** | "이 동료라면 어떻게 판단할까?" → 그 사람의 기록된 검증 판단을 인용과 함께, 실시간 생성으로. 흉내가 아니라 인용. |
 | **공유 작업 컨텍스트** | `collaboration`을 고정하면 팀이 하나의 컨텍스트를 공유 — 스코프는 전사 지식을 가리지 않고 우선순위만 부여. |
-| **엔터프라이즈** | 네임스페이스 멀티테넌시 · OIDC/SSO + API 토큰 · RBAC(`verify` 권한이 곧 거버넌스 권한) · 읽기 레플리카 · 온라인 백업 + 시점 복원. |
+| **엔터프라이즈** | 네임스페이스 멀티테넌시 · OIDC/SSO + API 토큰 + GitHub 교환 · RBAC(read / write / admin) · 읽기 레플리카 · 온라인 백업 + 시점 복원. |
 | **라이선스** | MIT |
 
 ## 60초 시작하기
@@ -135,14 +134,13 @@ curl -fsSL https://raw.githubusercontent.com/jhso-dev/yoke/main/scripts/install.
 
 yoke init                                    # ./yoke.db 생성 + 온톨로지 시드
 yoke add fact --attr statement="배포는 화요일 오전에만 한다"
-yoke review                                  # draft 큐 확인
-yoke verify <id>                             # 승격 (또는: yoke verify --all-drafts)
-yoke inject "배포 언제 하는 거지"              # 검증된 지식만, 인용과 함께 주입
+yoke inject "배포 언제 하는 거지"              # 유효한 지식만, 인용과 함께 — 즉시 반영
+yoke review                                  # 나중에: 지식이 낡으면 재확인 큐
 ```
 
-`add`로 넣은 것은 전부 `draft`로 시작합니다. `verify`로 승격하기 전까지는
-`inject`에 나오지 않습니다 — 그 게이트가 거버넌스 모델의 핵심입니다. 콜드
-스타트에는 `yoke verify --all-drafts`로 일괄 승격하세요.
+`add`로 넣은 것은 행위자의 서명과 함께 즉시 `inject`에 나옵니다. 거버넌스는
+하류에서 돕니다: 레코드는 타입별 TTL을 넘기면 누군가 재확인(`yoke verify`)하기
+전까지 만료되고, `yoke review`가 그 대기 큐입니다.
 
 소스에서 빌드하시겠습니까(기여자)? 직접 클론 후 링크:
 
@@ -176,7 +174,8 @@ yoke add decision \
 
 설치하고 MCP로 에이전트에 붙인 뒤([아래](#mcp-설정)) 결정을 내릴 때마다 기록하세요.
 주입은 지금 하는 일로 스코프되고 모든 주장에 인용이 붙으니, "에이전트가 지어냈다"가
-확인 가능한 질문이 됩니다. 초기에는 `yoke verify --all-drafts`로 승격 비용을 낮추세요.
+확인 가능한 질문이 됩니다. 채워 넣을 승인 큐도 없습니다 — 기록하는 즉시 작업
+컨텍스트입니다.
 
 이어서: [MCP 설정](#mcp-설정) · [컨텍스트를 덜 씁니다](#컨텍스트를-덜-씁니다)
 
@@ -204,9 +203,10 @@ docs/ADOPTION.md에 있습니다.
 에이전트가 사내 정책을 자신 있게 말했는데 그게 옛 내용이었습니다. 어디서 가져왔는지,
 누가 승인했는지, 또 무엇을 되풀이하고 있는지 아무도 답하지 못합니다.
 
-검증은 권한(`verify`)이며 그것이 곧 거버넌스 권한입니다 — 에이전트는 제안만 하고
-승격은 권한 있는 사람만 합니다. 저장은 삭제가 없는 append-only라 과거 시점을 언제든
-재구성할 수 있고, 모든 주입이 감사에 남습니다. 이미 system of record인 데이터베이스는
+모든 레코드에는 서명이 있습니다 — `serve --auth`에서는 행위자가 자격증명에
+묶이므로, "에이전트가 그걸 어디서 얻었나"에는 언제나 이름이 붙습니다. 저장은
+삭제가 없는 append-only라 과거 시점을 언제든 재구성할 수 있고, 모든 주입이
+감사에 남습니다. 이미 system of record인 데이터베이스는
 `connect rdb`로 읽어 오세요 — 읽기 전용, 마이그레이션 없음. 그리고 지식은 TTL로
 만료되므로 조용히 낡아 오정보가 되지 않습니다.
 
@@ -240,7 +240,7 @@ claude plugin install yoke@yoke        # 이후 레포마다 /yoke:setup 한 번
 노출되는 도구:
 
 - `yoke_inject` — 맥락 질의 → 검증된 지식을 인용과 함께 주입
-- `yoke_commit` — 지식 적재 (`draft`로 진입)
+- `yoke_commit` — 지식 기록 (행위자의 서명과 함께 즉시 반영)
 - `yoke_record_decision` — 결정 숏컷 (결론 + 근거 + 기각한 대안)
 - `yoke_persona` — 사람 스코프 주입 ("이 동료라면 어떻게 판단할까?")
 - `yoke_overview` — 코퍼스 한눈에 보기: 타입별 수, 최다 연결 레코드, 저자별 검증 지식
@@ -356,8 +356,8 @@ yoke serve --auth --host 0.0.0.0   # 팀 공유. YOKE_GITHUB_ORG 를 설정하�
 
 ```
 yoke init | add | get | search | list | link | verify | deprecate
-yoke review [--stale]                         # 검토 대기 draft / TTL 지난 verified
-yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
+yoke review                                   # 재확인 큐: TTL 지난 레코드
+yoke inject <query> [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--limit n]             # 코퍼스 한눈에 보기 / 엣지로 보기
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
@@ -384,7 +384,7 @@ yoke backfill --occurred-at [--dry-run]       # 이전 verify가 덮어쓴 이�
 팀이 하나의 지식 공간을 함께, 실시간으로 쌓습니다. 사용자가 "이건 PAY-42
 작업이야"라고 하면 에이전트가 `yoke_use_scope`로 한 번 선언하고, 세션 전체가 그
 `collaboration`을 기본값으로 씁니다 — 주입은 그 지식을 앞세우고, 기록되는 것은
-자동으로 거기 연결됩니다. 한 사람이 기록(하고 사람이 검증)한 결정은, 다음 질의부터
+자동으로 거기 연결됩니다. 한 사람이 기록한 결정은, 다음 질의부터
 다른 모든 세션의 컨텍스트에 들어 있습니다.
 
 스코프는 **우선순위일 뿐, 가두지 않습니다**: 고정한 collaboration이 앞장서지만, 쿼리에는
@@ -405,16 +405,16 @@ yoke는 세 가지를 측정하며, 각각 다른 질문에 답합니다.
 
 | 지표 | 정의 | 목표 | 측정값 |
 |---|---|---|---|
-| 오염률 | 주입 결과 중 draft 비율 | 0% | **0.0%** (후보 40건 중 verified 20건만 주입) |
+| 오염률 | 주입 결과 중 stale·퇴출 비율 | 0% | **0.0%** (후보 40건 중 유효 20건만 주입) |
 | 모순 미탐지율 | 반대 결론 decision 쌍 중 conflicts_with 미연결 비율 | 0% | **0.0%** (5/5 탐지) |
 
 이 두 숫자의 범위를 그대로 읽으세요: 50건 합성 코퍼스와, 심어둔 주제어로 벡터를 만드는
 스텁 임베더입니다. 그래서 모순 수치는 게이트 4단계가 돌아 엣지를 만든다는 뜻이고, 실제
 임베딩 모델이 알아챈다는 뜻은 아닙니다. 정밀도는 어느 축에서도 측정하지 않습니다.
 
-**persona 품질**(`npm run eval:persona`) — persona가 그 사람의 검증된 판단만 돌려주는가.
-심어둔 실패 모드 다섯 가지(같은 주제에 대한 동료의 기록, 저작이 아닌 연결, 남이 쓴 출처,
-본인의 draft, 본인의 오래된 기록)에 대해 사칭·draft 누출·stale 누출률 **0%**, recall은
+**persona 품질**(`npm run eval:persona`) — persona가 그 사람의 유효한 판단만 돌려주는가.
+심어둔 실패 모드(같은 주제에 대한 동료의 기록, 저작이 아닌 연결, 남이 쓴 출처,
+본인의 오래된 기록)에 대해 사칭·stale 누출률 **0%**, recall은
 전체와 주제 질의 모두 **100%**입니다.
 
 **검색 품질**(`npm run eval:retrieval -- <db>`) — 올바른 레코드가 돌아오는가. 적재된

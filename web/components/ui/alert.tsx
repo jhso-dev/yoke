@@ -13,7 +13,7 @@ const alertVariants = cva(
           "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 [&>svg]:text-current",
         // The page-level notice. A tighter box than `default` on purpose: these are one sentence
         // above a table, whereas `default` is an inline result panel with a title. The three kinds
-        // reuse the lifecycle tones so a warning on any screen is the colour a draft record already
+        // reuse the warning tone so a caution on any screen is one colour everywhere
         // is.
         //
         // `block` is not cosmetic. The base is a two-column GRID sized for an icon and an
@@ -22,7 +22,7 @@ const alertVariants = cva(
         // text.
         error:
           "mb-3 block rounded-[var(--radius)] border-[var(--tone-deprecated)] bg-[var(--tone-deprecated-bg)] px-3 py-[9px] text-[13px] text-[var(--tone-deprecated)]",
-        warn: "mb-3 block rounded-[var(--radius)] border-[var(--tone-draft)] bg-[var(--tone-draft-bg)] px-3 py-[9px] text-[13px] text-[var(--tone-draft)]",
+        warn: "mb-3 block rounded-[var(--radius)] border-[var(--tone-warn)] bg-[var(--tone-warn-bg)] px-3 py-[9px] text-[13px] text-[var(--tone-warn)]",
         info: "mb-3 block rounded-[var(--radius)] border-border bg-secondary px-3 py-[9px] text-[13px]",
       },
     },

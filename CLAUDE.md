@@ -29,7 +29,7 @@ When in doubt, cut. A smaller diff that removes is worth more than a larger one 
 2. **Every storage backend implements the same storage port interface and passes a shared conformance test suite.** Backend-specific behavior must never leak into the core.
 3. **There are exactly two front adapters: the MCP server and a thin CLI.** We do not build a separate adapter per AI tool (one for Claude, one for Codex, and so on) — they are all MCP clients.
 4. **Local-first by default, and the local path never asks for a credential.** `yoke`, `yoke mcp` and `yoke ui` are single-user and ungated. Multi-tenancy, auth and RBAC exist (v3.0) but activate only under `yoke serve --auth`. Servers bind loopback by default: exposing a non-loopback interface is an explicit `--host`, and `serve` refuses it without auth.
-5. **Knowledge enters only through the core's single commit path, and context injection injects only verified knowledge by default.** For the detailed rules see docs/KNOWLEDGE-POLICY.md — lenient on write, strict on injection.
+5. **Knowledge enters only through the core's single commit path, and context injection serves only standing (`verified`) knowledge.** A record is born verified under a signed actor; what holds it accountable is downstream — freshness expiry, dispute marking, retirement broadcast. For the detailed rules see docs/KNOWLEDGE-POLICY.md — free to enter, signed to stay, loud to leave.
 
 ## Terminology
 
@@ -56,7 +56,7 @@ When in doubt, cut. A smaller diff that removes is worth more than a larger one 
 - `docs/WEB-UI.md` — the governance workbench UI design
 - `docs/SCALE.md` — what breaks at 10M records, measured, and the ceiling that remains
 - `docs/RESEARCH.md` — outside findings that bear on decisions not yet made (multi-reviewer verify, dissent preservation, and where GraphRAG's measured wins do and do not apply to us). §1–4 are unimplemented; §5 names the SPEC clauses it produced
-- `docs/ADOPTION.md` — the maker-org rollout playbook: the shared capture→verify→inject loop, per-role capture/consumption, the three rituals that build capture density, and the scale rehearsal (`scripts/gen-kraftonway-corpus.mjs`)
+- `docs/ADOPTION.md` — the maker-org rollout playbook: the shared capture→inject loop and its weeding rituals, per-role capture/consumption, and the scale rehearsal (`scripts/gen-kraftonway-corpus.mjs`)
 
 ## Commands
 

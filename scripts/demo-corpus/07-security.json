@@ -134,7 +134,7 @@
       "type": "decision",
       "author": "person:no-taekyung",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "결제 도메인(payments-api 계열)은 Critical 취약점이라도 카나리 배포 절차상 실제 패치 반영까지 최대 5영업일까지 허용한다.",
         "rationale": "payments-api는 배포 전 PG사 연동 회귀 테스트가 필수라 48시간 내 전체 배포가 물리적으로 어렵다는 결제팀 의견을 받아 잠정 합의했다. 아직 보안팀 공식 SLA 문서에는 반영되지 않은 상태라 다음 분기 SLA 개정 때 정식 예외 조항으로 편입할지 논의가 필요하다. 그 사이에는 WAF 룰로 임시 차단하는 선에서 리스크를 낮추고 있으며, 결제팀 리드가 매주 진행 상황을 보안팀에 공유하기로 구두 합의했다.",
@@ -217,7 +217,7 @@
       "type": "fact",
       "author": "person:baek-donghyun",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "접근 로그 감사 & 이상탐지 룰 초안",
         "statement": "일단 초안. 같은 계정으로 5분 내 3개 이상 리전에서 로그인 성공 시 impossible travel로 잡음. 실패 로그인 10회/1분 넘으면 계정 임시 잠금. 아직 룰 threshold 튜닝 안 끝남 — 오탐 많아서 임계값 다시 잡아야 함. SOC 검토 후 정식 룰로 반영 예정."
@@ -339,7 +339,7 @@
       "type": "fact",
       "author": "person:no-taekyung",
       "size": "line",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "pre-commit 시크릿 훅 초안",
         "statement": "로컬 pre-commit 훅으로도 시크릿 패턴 잡으려는 중 — 아직 오탐 많아서 opt-in 상태, 강제 아님."

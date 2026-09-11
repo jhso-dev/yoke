@@ -655,7 +655,7 @@ function CollaborationBody() {
               </Alert>
             )}
             {/* What was linked here but held back, and why — the exact reason the server already
-                ships (draft/stale/deprecated/superseded/structural). Without it this panel guessed
+                ships (stale/deprecated/superseded/structural). Without it this panel guessed
                 the empty-state from the linked-record count and named none of these on a partial
                 briefing. Same sentence as the inject preview, since it is the same inject(). */}
             {briefing.data?.withheld && (
@@ -667,10 +667,10 @@ function CollaborationBody() {
               </Alert>
             )}
             {/* An empty briefing is not an unlinked collaboration. This is `inject(scope)`, which
-                returns VERIFIED records only, so a collaboration whose attached records are all draft
-                or stale read as "no knowledge is linked to this collaboration" — contradicted by the
+                returns standing records only, so a collaboration whose attached records have all
+                aged out read as "no knowledge is linked to this collaboration" — contradicted by the
                 linked-records panel two below, which listed them. When something IS linked, name
-                draft/stale as the reason an agent still receives nothing. */}
+                stale/retired as the reason an agent still receives nothing. */}
             <KnowledgeTable
               rows={briefing.data?.items ?? []}
               empty={

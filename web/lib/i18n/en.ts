@@ -19,7 +19,8 @@ export const en = {
     saving: "Saving…",
     verify: "Verify",
     reconfirm: "Re-confirm",
-    verifyHint: "promote a record or re-confirm a stale one",
+    verifyHint:
+      "re-confirm a stale record as still true, or restore a retired one",
     deprecate: "Deprecate",
     /** Shown after retiring a record, above the records that declared they rest on it. Says what to DO
      * with the list — a heading that only named the relationship would leave a reader looking at links. */
@@ -36,7 +37,7 @@ export const en = {
     notInNamespace: "not in this namespace",
     notFound: "not found in this namespace",
     required: "required by the ontology",
-    draftNotice: "saved as a draft and must be verified",
+    liveNotice: "recorded live immediately, signed with your name",
     skipToContent: "Skip to content",
     /** Accessible names for controls whose visible label is a placeholder or an icon. They were
      * English literals in JSX, which neither the untranslated nor the dead-key guard can see. */
@@ -148,8 +149,8 @@ export const en = {
   },
   create: {
     newRecord: "New record",
-    draftNotice:
-      "Saved as a draft and must be verified, just like a record committed by an agent.",
+    liveNotice:
+      "Recorded live immediately and signed — agents on this scope receive it, just like a record committed by an agent.",
     pickType: "pick a type",
     listHint: "(comma separated)",
     yes: "yes",
@@ -161,7 +162,7 @@ export const en = {
     notChecked:
       "Created. Nothing was compared against it: this workspace has no embedding provider configured, so duplicate detection did not run.",
     createdToast: (label: string) =>
-      `Created "${label}" as a draft — verify it in Review.`,
+      `Created "${label}" — it is live and signed with your name.`,
     // A partial commit: the record is durable but an edge the gate tried alongside it was not written.
     // Core emits three kinds (commit.ts) and each has a DIFFERENT remedy: a `relates_to` attachment
     // must be re-linked, an `authored_by` edge re-derives with backfill, and a `conflicts_with` marker
@@ -187,15 +188,14 @@ export const en = {
       // An edge core added that this list does not name yet — reported, never dropped as success.
       if (parts.length === 0)
         parts.push("an edge the gate tried alongside it was NOT recorded");
-      return `Saved "${label}" as a draft, but ${parts.join("; ")}.`;
+      return `Recorded "${label}", but ${parts.join("; ")}.`;
     },
   },
   status: {
     /** Why a record in this state is or is not injected. The stored NAME stays English (it is what
      * the database and the CLI say); the explanation is said to a person, so it is translated. */
     meaning: {
-      draft: "staged but not verified — withheld from injection",
-      verified: "a human promoted this; agents may receive it",
+      verified: "on the record and standing; agents may receive it",
       stale:
         "past its type's freshness window — withheld until someone re-confirms it",
       deprecated: "retired; never injected",
@@ -221,21 +221,12 @@ export const en = {
     noReason: "No reason was recorded.",
   },
   review: {
-    heading: "Review queue",
-    lede: "Review drafts that have not been verified. They are not injected into an agent until a person promotes them.",
+    heading: "Re-confirmation queue",
+    lede: "These records passed their type's freshness window. They stopped being injected the moment they aged out, and nobody was told — that is what this screen is for. Re-confirm answers that one is still true; Deprecate retires it.",
     selectAll: "Select all",
     /** The row checkbox's accessible name — the record, not its id. */
     selectRow: (label: string) => `Select ${label}`,
-    empty: "no drafts are waiting for review",
-    draftCount: (n: number) => `${n} draft(s)`,
-    // The two queues. Named for what a record in each needs, not for its status: a draft was never
-    // trusted, a stale record was and has aged out, and the same Verify button means something
-    // different in each — so the tab has to make which queue you are in unmissable.
-    tabDrafts: "Never verified",
-    tabStale: "Aged out",
-    staleLede:
-      "These were verified, then passed their type's freshness window. They stopped being injected the moment they aged out, and nobody was told — that is what this screen is for. Verify re-confirms one as still true; Deprecate retires it.",
-    staleEmpty: "no verified records have aged out",
+    empty: "no records have aged out",
     // Bounded walk, so say what it covered. A bare count reads as a corpus-wide number.
     staleScanned: (n: number, scanned: number) =>
       `${n} aged out among the ${scanned} verified record(s) examined`,
@@ -255,7 +246,7 @@ export const en = {
   },
   browse: {
     heading: "Browse",
-    lede: "View every record in this namespace, oldest first. Find records that are unlinked, stale, or still waiting for review.",
+    lede: "View every record in this namespace, oldest first. Find records that are unlinked, stale, or retired.",
     allTypes: "all types",
     anyStatus: "any status",
     shown: (n: number, more: boolean) =>
@@ -315,7 +306,7 @@ export const en = {
     briefingNote:
       "Shows the verified records returned by inject(scope), most recently confirmed first. This preview is recorded in the audit log",
     briefingEmptyLinked: (n: number) =>
-      `No VERIFIED knowledge yet, so an agent receives nothing — the ${n} linked record(s) below are draft or stale.`,
+      `No standing knowledge, so an agent receives nothing — the ${n} linked record(s) below are stale or retired.`,
     memberAdded: (name: string) => `Added ${name} to this collaboration.`,
     alreadyOnThisWork: (name: string) =>
       `${name} was already on this work — nothing new was recorded.`,
@@ -345,7 +336,7 @@ export const en = {
   conflicts: {
     heading: "Conflicts",
     /** Not "verified records": the list is every `conflicts_with` pair whatever its sides' status,
-     * so it holds draft and already-retired ones too, and saying otherwise made a reader distrust
+     * so it holds stale and already-retired ones too, and saying otherwise made a reader distrust
      * the screen rather than the sentence. */
     lede: "Review records that contradict each other. yoke keeps both and does not decide which one is correct. Deprecate one record, or keep both when the disagreement itself matters.",
     empty: "no contradictions recorded",
@@ -409,19 +400,17 @@ export const en = {
     noDecisions: "this person has not recorded any decisions",
     otherKnowledge: "other knowledge",
     // What this person has on record but this view does NOT contain, by reason — the same wording the
-    // inject preview and the exported SKILL.md use. An empty view and a person whose every record is
-    // in review look identical without this; the note says why the omission matters.
+    // inject preview and the exported SKILL.md use. An empty view and a person whose every record has
+    // aged out look identical without this; the note says why the omission matters.
     withheld: (w: {
-      draft: number;
       stale: number;
       deprecated: number;
       structural: number;
       superseded: number;
     }) =>
       `This view leaves out ${
-        w.draft + w.stale + w.deprecated + w.superseded
+        w.stale + w.deprecated + w.superseded
       } of this person's records: ${[
-        w.draft && `${w.draft} awaiting review`,
         w.stale && `${w.stale} past its freshness window`,
         w.deprecated && `${w.deprecated} retired`,
         w.superseded && `${w.superseded} replaced by newer knowledge`,
@@ -435,7 +424,7 @@ export const en = {
     identityUnion: (n: number) =>
       `Combined ${n} identity records recorded as the same person by same_as:`,
     identityUnionNote: (name: string) =>
-      `That link is an unreviewed claim (relations cannot be verified): if these are not one person, this view attributes someone else's judgment to ${name}.`,
+      `That link rests on one signed claim: if these are not one person, this view attributes someone else's judgment to ${name}.`,
   },
   inject: {
     heading: "Injection preview",
@@ -445,10 +434,7 @@ export const en = {
     queryPlaceholder: "what is the agent working on?",
     scopePlaceholder: "scope (collaboration or person id, optional)",
     run: "Preview",
-    includeDraft: "include drafts",
     prompt: "Enter a query. To view a context briefing, enter only its scope",
-    draftsIncluded:
-      "Drafts are shown so you can see what is waiting for review. They are not sent to an agent.",
     wouldBeInjected: "would be injected",
     scopeNote: (id: string) => `scope: ${id} (prioritized, not isolated)`,
     truncated: (shown: number, total: number) =>
@@ -460,10 +446,9 @@ export const en = {
     // database deliberately does not make. Each cell names the contradicted record (DisputedLinks).
     disputedHead: "disputed",
     // The empty state above claims nothing matches. When something DID match and was held back, saying
-    // so is the difference between "we know nothing about this" and "this is waiting for review".
+    // so is the difference between "we know nothing about this" and "this aged out or was retired".
     withheld: (
       w: {
-        draft: number;
         stale: number;
         deprecated: number;
         structural: number;
@@ -473,10 +458,8 @@ export const en = {
       // reader's mistake is not "we know nothing" but "this is all we know".
       sent: number,
     ) => {
-      const total =
-        w.draft + w.stale + w.deprecated + w.structural + w.superseded;
+      const total = w.stale + w.deprecated + w.structural + w.superseded;
       const parts = [
-        w.draft && `${w.draft} awaiting review`,
         w.stale && `${w.stale} past its freshness window`,
         w.deprecated && `${w.deprecated} retired`,
         w.superseded && `${w.superseded} replaced by newer knowledge`,
@@ -548,7 +531,7 @@ export const en = {
       inject: "an agent received knowledge",
       inject_preview: "a human previewed what an agent would receive",
       persona: "a person's recorded judgment was read",
-      verify: "records were promoted",
+      verify: "records were re-confirmed",
       deprecate: "records were retired",
       rename_type: "an ontology type was renamed in every stored row",
       read: "a record was opened in full — attributes, versions, relations",
@@ -565,12 +548,11 @@ export const en = {
     scopes: "scopes",
     permissions: "permissions",
     readHint: "see knowledge — briefings, injections, search",
-    writeHint: "create records — they enter as drafts",
-    verifyHint: "governance — verify, re-confirm, deprecate",
-    // Spelled out because it is the one permission that hands out permissions, and it deliberately
-    // does NOT include reading knowledge.
+    writeHint: "the knowledge permission — record, re-confirm, retire",
+    // Spelled out because it is the one permission that hands out permissions and reshapes the
+    // schema, and it deliberately does NOT include reading knowledge.
     adminHint:
-      "issue and revoke credentials — grants no access to knowledge itself",
+      "operate the deployment — credentials and ontology changes; no access to knowledge itself",
     restrictLegend: "(optional)",
     recordType: "record type",
     anyPlaceholder: "any",
@@ -599,11 +581,10 @@ export const en = {
     noTokenBefore:
       "If you do not have a token, run this command on the yoke server:",
     noTokenAfter:
-      "This scope allows draft promotion. verify is a governance permission that must be granted separately.",
-    addPrefix: "For promoting drafts:",
+      "read sees knowledge; write also records, re-confirms and retires it.",
   },
   errors: {
     forbiddenHint:
-      "This credential lacks the scope required for this action. Issue one with: yoke token create --scopes read,verify",
+      "This credential lacks the scope required for this action. Issue one with: yoke token create --scopes read,write",
   },
 };

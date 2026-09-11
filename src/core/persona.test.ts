@@ -200,9 +200,14 @@ describe("personaQuery", () => {
     ).toEqual([]);
   });
 
-  it("excludes drafts (unverified)", async () => {
+  it("excludes retired records", async () => {
     await node("alex");
-    await add("decision", { conclusion: "x", rationale: "y" }, "alex");
+    const d = await add(
+      "decision",
+      { conclusion: "x", rationale: "y" },
+      "alex",
+    );
+    await deprecate(port, [d], "admin", now);
     const res = await personaQuery(port, ont, "alex", now);
     expect(res.decisions).toEqual([]);
     expect(res.facts).toEqual([]);
@@ -415,7 +420,7 @@ describe("parsePersonaSources", () => {
     const header = parsePersonaSources(md);
     expect(header.recognized).toBe(true);
     expect(header.unparsed).toEqual([]);
-    // v2: the gate writes v1 as a draft and verify appends the verified row.
+    // v2: the record entered as v1 and a re-confirmation appended the second row.
     expect(header.sources).toEqual([
       { id: d, version: 2 },
       { id: f, version: 2 },
@@ -533,9 +538,7 @@ describe("checkPersonaSources", () => {
 
   it("a newer version → outdated, and names both versions", async () => {
     const src = await exported();
-    // Re-commit bumps the version AND resets status to draft, so verify again — otherwise the verdict
-    // would be `draft` and this case would silently stop testing version drift.
-    const { entity } = await commit(
+    await commit(
       port,
       ont,
       { type: "fact", attributes: { statement: "ships thursdays now" } },
@@ -543,12 +546,11 @@ describe("checkPersonaSources", () => {
       now,
       { existingId: src.id },
     );
-    await verify(port, [entity.id], "alex", now);
 
     const [c] = await checkPersonaSources(port, ont, [src], now);
     expect(c.verdict).toBe("outdated");
     expect(c.version).toBe(src.version);
-    expect(c.current).toBe(src.version + 2);
+    expect(c.current).toBe(src.version + 1);
   });
 
   it("past its TTL → stale, while a longer-lived type beside it stays ok", async () => {
@@ -941,20 +943,23 @@ describe("an exported record says what it actually says", () => {
   });
 
   it("says when this person's records were withheld, instead of reading as an empty person", async () => {
-    // "(no recorded decisions)" is what an unrecorded person and a person with ten decisions in the
-    // review queue BOTH rendered as, and the second is a reviewer's backlog. Same argument as
-    // WithheldStats one surface over: an absence a reader can see beats a filter they cannot.
+    // "(no recorded decisions)" is what an unrecorded person and a person whose decisions all sit
+    // past their freshness window BOTH render as, and the second is a re-confirmation backlog. Same
+    // argument as WithheldStats one surface over: an absence a reader can see beats a filter they
+    // cannot.
     const person = await anchored();
     await add(
       "decision",
       { conclusion: "settle nightly", rationale: "the window is quiet" },
       "aisha",
     );
-    const result = await personaQuery(port, ont, "aisha", now);
+    // decision TTL = 365 days: read after the window closes.
+    const late = "2028-01-01T00:00:00Z";
+    const result = await personaQuery(port, ont, "aisha", late);
     expect(result.decisions).toEqual([]);
-    expect(result.withheld?.draft).toBe(1);
-    const md = renderPersonaSkill(person, result, now, ont);
-    expect(md).toContain("1 awaiting review");
+    expect(result.withheld?.stale).toBe(1);
+    const md = renderPersonaSkill(person, result, late, ont);
+    expect(md).toContain("1 past its freshness window");
     // The words the other surfaces use for the same fact — a document that phrases it differently
     // reads as a different fact.
     expect(md).toContain("Withheld (not injectable)");
@@ -1095,20 +1100,6 @@ describe("a retired person is not an anchor", () => {
     await expect(personaQuery(port, ont, "departed", now)).rejects.toThrow(
       /retired/,
     );
-  });
-
-  it("still answers for a person whose record is merely unverified", async () => {
-    // A connector-filed person record has not been through review, and refusing that anchor would
-    // disable the persona of everyone an RDB mapping created. Retirement is a decision; a draft is a
-    // queue position.
-    const { entity } = await commit(
-      port,
-      ont,
-      { type: "person", attributes: { name: "Just arrived" } },
-      prov("admin"),
-      now,
-    );
-    await expect(personaQuery(port, ont, entity.id, now)).resolves.toBeTruthy();
   });
 });
 

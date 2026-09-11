@@ -55,7 +55,7 @@ beforeAll(async () => {
 });
 
 describe("yoke MCP server", () => {
-  it("a decision recorded by Client A is seen (as a draft) by a separate Client B", async () => {
+  it("a decision recorded by Client A is live for a separate Client B at once", async () => {
     // (A) record a decision → close the connection
     const a = await openSession();
     const rec = await a.client.callTool({
@@ -67,27 +67,17 @@ describe("yoke MCP server", () => {
       },
     });
     expect(rec.isError).toBeFalsy();
-    expect(text(rec)).toMatch(/"status":"draft"/);
+    expect(text(rec)).toMatch(/"status":"verified"/);
     await a.close();
 
-    // (B) read from a separate connection — as a draft it does not show in the default inject
+    // (B) a separate connection is handed it by the default inject — born verified, no ceremony
     const b = await openSession();
     const def = await b.client.callTool({
       name: "yoke_inject",
       arguments: { query: "sqlitembed" },
     });
-    // ...and the tool says WHY: an agent that reads "no verified knowledge" as "there is none"
-    // answers from nothing and says so confidently. Same clause the CLI and the web print.
-    expect(text(def)).toContain("no verified knowledge");
-    expect(text(def)).toContain("1 awaiting review");
-
-    // with includeDraft it does show (status label + attributes)
-    const withDraft = await b.client.callTool({
-      name: "yoke_inject",
-      arguments: { query: "sqlitembed", includeDraft: true },
-    });
-    const out = text(withDraft);
-    expect(out).toContain("[draft]");
+    const out = text(def);
+    expect(out).toContain("[verified]");
     expect(out).toContain("use sqlitembed for storage");
     await b.close();
   });
@@ -106,7 +96,7 @@ describe("yoke MCP server", () => {
       arguments: { type: "fact", attributes: { statement: "hello" } },
     });
     expect(good.isError).toBeFalsy();
-    expect(text(good)).toMatch(/"status":"draft"/);
+    expect(text(good)).toMatch(/"status":"verified"/);
     await s.close();
   });
 
@@ -183,7 +173,7 @@ describe("yoke MCP server", () => {
     await s.close();
   });
 
-  it("does not expose verify/deprecate tools (governance: agents may only ingest drafts)", async () => {
+  it("does not expose verify/deprecate tools — re-confirming and retiring are a person's acts", async () => {
     const s = await openSession();
     const { tools } = await s.client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -300,15 +290,12 @@ describe("yoke MCP server", () => {
     expect(out).toContain("adopt append-only storage");
     expect(out).toContain(id); // citation
 
-    // query filter: no match. The answer names the query it found nothing for — it used to say "no
-    // recorded knowledge (no record)", which is a statement of fact about the person and was false
-    // whenever their records were merely awaiting review.
+    // query filter: no match, and nothing withheld either — so "no record" is simply true here.
     const filtered = await s.client.callTool({
       name: "yoke_persona",
       arguments: { person: "yoke:system", query: "nonexistent-topic-xyz" },
     });
-    expect(text(filtered)).toContain("no verified knowledge for yoke:system");
-    expect(text(filtered)).toContain("nonexistent-topic-xyz");
+    expect(text(filtered)).toContain("no recorded knowledge for yoke:system");
 
     // absent person → tool error
     const missing = await s.client.callTool({
@@ -371,10 +358,8 @@ describe("yoke MCP server", () => {
       prov("mcp:seed"),
       at,
     );
-    // A draft of theirs, so the withheld line has something true to say.
-    await mk({ conclusion: "unreviewed", rationale: "still in the queue" });
     port.close();
-    // Promoted by the REVIEWER, which is what puts a different name in provenance.actor.
+    // Re-confirmed by the REVIEWER, which is what puts a different name in provenance.actor.
     expect(
       await runCli(["verify", kept, other, "--db", db, "--actor", "reviewer"]),
     ).toBe(0);
@@ -404,22 +389,19 @@ describe("yoke MCP server", () => {
     expect(out).toContain("settle payouts hourly");
     expect(out).toContain(`CONTRADICTED by ${other}`);
     expect(out).toContain(`CONTRADICTED by ${kept}`);
-    // ...and the answer admits to the record it is not showing.
-    expect(out).toContain("1 awaiting review");
   });
 
-  it("yoke_persona does not call a review backlog 'no recorded knowledge'", async () => {
-    // The empty answer was a statement of FACT, and false whenever the person's records were merely
-    // awaiting review — the normal state, since everything an agent commits is a draft. An agent told
-    // that answers from nothing and says so confidently.
+  it("yoke_persona does not call aged-out knowledge 'no recorded knowledge'", async () => {
+    // The empty answer is a statement of FACT, and false whenever the person's records merely went
+    // stale. An agent told that answers from nothing and says so confidently.
     const port = new SqliteStorage(db);
     await port.init();
-    const at = "2026-08-01T00:00:00Z";
+    const at = "2020-08-01T00:00:00Z"; // far past fact's 180-day TTL
     const person = (
       await commit(
         port,
         seedOntology(),
-        { type: "person", attributes: { name: "Only drafts" } },
+        { type: "person", attributes: { name: "Only stale" } },
         { actor: "mcp:seed", origin: "cli", occurred_at: at },
         at,
       )
@@ -429,7 +411,7 @@ describe("yoke MCP server", () => {
       seedOntology(),
       {
         type: "fact",
-        attributes: { statement: "this one is still in the queue" },
+        attributes: { statement: "this one aged out unconfirmed" },
       },
       { actor: person, origin: "cli", occurred_at: at },
       at,
@@ -445,7 +427,7 @@ describe("yoke MCP server", () => {
     );
     await s.close();
     expect(out).not.toContain("no recorded knowledge");
-    expect(out).toContain("1 awaiting review");
+    expect(out).toContain("past its freshness window");
   });
 
   it("scope links captured knowledge and scopes injection (v4.0)", async () => {
@@ -831,7 +813,7 @@ describe("yoke_commit / yoke_record_decision derived_from", () => {
     await s.close();
 
     // The knowledge is in — a derived edge must never fail the caller's own commit (gate stage 4b's rule).
-    expect(out.status).toBe("draft");
+    expect(out.status).toBe("verified");
     expect(out.derived_from).toBe(0);
     expect(await downstream(basis)).toEqual([]);
   });
@@ -976,9 +958,9 @@ describe("what the agent-facing surface would not tell an agent", () => {
   });
 
   it("names the people on record when a persona anchor does not resolve", async () => {
-    // The only route to a person id was `yoke_overview`'s author list, which counts VERIFIED knowledge —
-    // so on a corpus with a review backlog, which is the normal state since everything an agent records is
-    // a draft, it is empty. A dead end unless the agent already held a ULID.
+    // The only route to a person id was `yoke_overview`'s author list, which counts VERIFIED
+    // knowledge — empty on a corpus whose records have aged out or been retired. A dead end unless
+    // the agent already held a ULID.
     const s = await openSession();
     const res = await s.client.callTool({
       name: "yoke_persona",
@@ -991,9 +973,9 @@ describe("what the agent-facing surface would not tell an agent", () => {
   });
 });
 
-describe("a decision its author confirms is verified in the same call", () => {
+describe("a decision is live at birth", () => {
   /** A session whose authorize hook denies exactly the actions named — the serve binding's shape. */
-  async function openDenying(denied: Array<"read" | "write" | "verify">) {
+  async function openDenying(denied: Array<"read" | "write">) {
     const store = new SqliteStorage(db);
     await store.init();
     const server = createYokeMcpServer({
@@ -1016,7 +998,7 @@ describe("a decision its author confirms is verified in the same call", () => {
     };
   }
 
-  it("verify: true files the draft AND promotes it — two versions, the CLI's audit row, injectable now", async () => {
+  it("one version, born verified, injectable now — and no verify row on the trail", async () => {
     const s = await openSession();
     const before = s.store.listAudit().length;
     const res = await s.client.callTool({
@@ -1026,24 +1008,19 @@ describe("a decision its author confirms is verified in the same call", () => {
         rationale: "fees",
         rejected_alternatives: ["KCP", "Nice"],
         actor: "po",
-        verify: true,
       },
     });
     expect(res.isError).toBeFalsy();
     const body = JSON.parse(text(res));
     expect(body.status).toBe("verified");
-    // v1 is the draft the gate wrote, v2 the promotion — a decision that entered and was confirmed, so
-    // an as-of read between the two instants sees a draft, never one born verified.
-    expect(body.version).toBe(2);
+    // v1 IS the record: filing under a signed actor is the entry bar, so there is no
+    // entered-then-confirmed dance for the as-of timeline to show.
+    expect(body.version).toBe(1);
     const stored = await s.store.getEntity(body.id);
     expect(stored?.status).toBe("verified");
-    expect(stored?.provenance.transitioned_at).toBeDefined();
-    // The promotion is on the trail as `verify`, the same row `yoke verify` writes, under the author.
+    // No promotion happened, so no verify row — the v1 row itself is the act on record.
     const rows = s.store.listAudit().slice(before);
-    expect(rows.find((r) => r.action === "verify")).toMatchObject({
-      actor: "po",
-      detail: body.id,
-    });
+    expect(rows.find((r) => r.action === "verify")).toBeUndefined();
     // And it reaches an agent at once: verified-only injection returns it.
     const got = await s.client.callTool({
       name: "yoke_inject",
@@ -1053,53 +1030,31 @@ describe("a decision its author confirms is verified in the same call", () => {
     await s.close();
   });
 
-  it("without it, the draft it always was", async () => {
-    const s = await openSession();
-    const res = await s.client.callTool({
-      name: "yoke_record_decision",
-      arguments: {
-        conclusion: "zq draft as ever",
-        rationale: "r",
-        actor: "po",
-      },
-    });
-    expect(JSON.parse(text(res))).toMatchObject({
-      status: "draft",
-      version: 1,
-    });
-    await s.close();
-  });
-
-  it("a token without verify is refused BEFORE anything is written — no stray draft", async () => {
-    const s = await openDenying(["verify"]);
+  it("a token without write is refused BEFORE anything is written — no stray record", async () => {
+    const s = await openDenying(["write"]);
     const count = async () =>
       (await s.store.listEntities({ type: "decision" })).items.length;
     const n = await count();
     const res = await s.client.callTool({
       name: "yoke_record_decision",
-      arguments: { conclusion: "zq refused", rationale: "r", verify: true },
+      arguments: { conclusion: "zq refused", rationale: "r" },
     });
     expect(res.isError).toBeTruthy();
     expect(await count()).toBe(n);
-    // The same call without the flag is the write the token IS allowed.
-    const ok = await s.client.callTool({
-      name: "yoke_record_decision",
-      arguments: { conclusion: "zq refused", rationale: "r" },
-    });
-    expect(ok.isError).toBeFalsy();
-    expect(JSON.parse(text(ok)).status).toBe("draft");
     await s.close();
   });
 
-  it("yoke_commit has no such switch: the authority is the decision's author, not a writer", async () => {
+  it("neither commit tool carries a verify switch — there is nothing left to promote", async () => {
     const s = await openSession();
     const tools = (await s.client.listTools()).tools;
-    const commitTool = tools.find((t) => t.name === "yoke_commit");
-    expect(commitTool).toBeDefined();
-    const schema = commitTool?.inputSchema as
-      | { properties?: Record<string, unknown> }
-      | undefined;
-    expect(Object.keys(schema?.properties ?? {})).not.toContain("verify");
+    for (const name of ["yoke_commit", "yoke_record_decision"]) {
+      const tool = tools.find((t) => t.name === name);
+      expect(tool).toBeDefined();
+      const schema = tool?.inputSchema as
+        | { properties?: Record<string, unknown> }
+        | undefined;
+      expect(Object.keys(schema?.properties ?? {})).not.toContain("verify");
+    }
     await s.close();
   });
 });

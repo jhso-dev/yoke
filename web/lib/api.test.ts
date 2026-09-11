@@ -95,10 +95,10 @@ describe("apiFetch", () => {
     });
     await api.entities({ type: "fact", limit: 10 });
     await api.entities({});
-    await api.entities({ type: "", status: "draft" });
+    await api.entities({ type: "", status: "deprecated" });
     expect(urls[0]).toBe("/api/entities?type=fact&limit=10");
     expect(urls[1]).toBe("/api/entities");
-    expect(urls[2]).toBe("/api/entities?status=draft");
+    expect(urls[2]).toBe("/api/entities?status=deprecated");
   });
 
   it("encodes ids that would otherwise break the path", async () => {

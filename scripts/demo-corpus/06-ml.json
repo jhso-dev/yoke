@@ -115,7 +115,7 @@
       "type": "fact",
       "author": "person:jang-doyoon",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "재색인 배치 GPU 큐 07-22 3시간 적체",
         "statement": "07-22 새벽 임베딩 재색인 배치(A10G x4)가 다른 팀의 LLM 파인튜닝 job과 동일 큐(`gpu-shared-pool`)를 공유하면서 대기가 3시간 넘게 발생했고, 재색인 완료가 예정보다 늦어져 당일 신규 아이템 노출이 약 5시간 밀렸다. 임시로 재색인 job의 priority class를 높여 대응했지만 근본적으로는 GPU pool 분리가 필요해 보인다. 아직 우선순위 조정 방안 검토가 끝나지 않은 초안 상태다. 재색인 주기를 2시간으로 단축하는 계획(migration-embedding-reindex)이 그대로 진행되면 같은 큐 공유 상황에서 적체가 더 잦아질 수 있어, 전용 GPU pool 분리 또는 최소한 재색인 job 전용 priority class 상시 적용 중 하나는 프로덕션 적용 전에 결정해야 한다는 의견이 나왔다."
@@ -166,7 +166,7 @@
       "type": "fact",
       "author": "person:jang-doyoon",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "모델 롤백 기준: CTR -3% 하락 시",
         "statement": "온라인 CTR이 기준 대비 3% 이상 하락하면 latency 상태와 무관하게 롤백해야 한다는 의견. p99 latency는 배포 직후 일시적으로 튀는 경우가 많아 단독 트리거로 쓰면 false positive 롤백이 잦다고 본다. 아직 팀 내 합의가 끝나지 않은 초안이다."
@@ -177,7 +177,7 @@
       "type": "fact",
       "author": "person:han-jiwon",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "섀도 트래픽 비교 중 로그 중복 이슈",
         "statement": "v3 섀도 트래픽 테스트 중 응답은 실제 유저에게 반환하지 않고 로깅만 했는데, 로깅 파이프라인이 실제 트래픽과 섀도 트래픽을 같은 topic에 태그 없이 적재해 오프라인 지표 집계 시 두 배로 카운트되는 문제를 발견했다. 태그 필드를 추가해 재집계해야 한다. 아직 재집계 전 초안 상태."

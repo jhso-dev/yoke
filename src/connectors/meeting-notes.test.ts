@@ -186,9 +186,9 @@ describe("a corrected transcript is re-versioned, not skipped", () => {
     // The field the source still owns is overwritten; the one it stopped emitting is not deleted.
     expect(after.attributes.statement).toContain("3 attempts");
     expect(after.attributes.title).toBe("retry policy");
-    // And the promotion does NOT carry across: the text someone vouched for is not the text now
-    // stored, so the record goes back through review rather than staying 'verified' about new content.
-    expect(after.status).toBe("draft");
+    // And the new version is live at once: the correction replaces what agents are being served,
+    // rather than knocking the record out of injection while it waits for anyone.
+    expect(after.status).toBe("verified");
   });
 
   it("still skips an unchanged re-ingest, so a cron job is not a version generator", async () => {

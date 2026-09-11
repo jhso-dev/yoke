@@ -4,7 +4,7 @@
 // boundary to point at, so a model has to say where the records are.
 //
 // It is a front-tier producer like every other connector piece — it proposes, and everything it
-// proposes goes through the commit gate as a draft. Nothing here can write.
+// proposes goes through the commit gate, signed by the ingest caller's actor. Nothing here can write.
 //
 // The contract mirrors Embedder (core/embedding.ts) on purpose: env-configured, OpenAI-compatible,
 // no SDK, and null rather than a throw when unavailable. An unconfigured extractor degrades to

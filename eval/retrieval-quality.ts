@@ -10,7 +10,7 @@
 // often that happens. This can.
 //
 // It measures `inject()`, not `search()`: what an agent actually receives, gate and all. Consequence
-// worth stating — a gold target that is draft, stale or deprecated is UNREACHABLE by design, so the
+// worth stating — a gold target that is stale or deprecated is UNREACHABLE by design, so the
 // run reports those instead of scoring them, and the gold set is expected to name injectable records.
 //
 // The keyword/hybrid comparison is the whole point, so the same queries run twice: once with the
@@ -71,7 +71,7 @@ for (const file of new Set([...named].map((r) => r.split("#")[0]))) {
     records?: Array<{ key: string; attributes: Record<string, unknown> }>;
   };
   // Only the keys the gold set actually names. Indexing every record in the file made the
-  // "cannot inject" report list 47 drafts nobody had asked about, which is noise that hides the
+  // "cannot inject" report list 47 records nobody had asked about, which is noise that hides the
   // handful that are a real problem with the set.
   for (const r of doc.records ?? [])
     if (named.has(`${file}#${r.key}`))
@@ -112,7 +112,7 @@ for (const [key, sig] of wantByKey) {
   if (ids.length > 1)
     ambiguous.push(`${key} (${ids.length} records share its title)`);
   idByKey.set(key, ids[0]);
-  // 'stale' is computed at read time and never stored, so this catches draft/deprecated only; a stale
+  // 'stale' is computed at read time and never stored, so this catches deprecated only; a stale
   // target still fails to inject and shows up as a miss. Reported either way, never silently zeroed.
   if (statusById.get(ids[0]) !== "verified")
     notInjectable.push(`${key} (${statusById.get(ids[0])})`);

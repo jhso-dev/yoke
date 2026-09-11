@@ -34,25 +34,22 @@ const rel = async (type: string, from: string, to: string) => {
 
 describe("overview", () => {
   it("counts by type and by EFFECTIVE status, not stored status", async () => {
-    const fresh = await add("fact", { statement: "current" });
-    const aging = await add("fact", { statement: "will go stale" });
+    await add("fact", { statement: "current" });
+    await add("fact", { statement: "will go stale" });
     const gone = await add("fact", { statement: "retired" });
-    await add("term", { title: "grace window", statement: "never reviewed" }); // stays draft
-    await verify(port, [fresh, aging, gone], "alice", now);
+    await add("term", { title: "grace window", statement: "no TTL" }); // term has no TTL — never stale
     await deprecate(port, [gone], "alice", now);
 
-    // 200 days on: `fact` TTL is 180, so `aging` and `fresh` are both stale — the point is that this
+    // 200 days on: `fact` TTL is 180, so both standing facts are stale — the point is that this
     // is computed here and stored nowhere, so no query could have reported it.
     const late = await overview(port, ont, "2028-01-28T00:00:00Z");
     expect(late.entities.byType.fact).toEqual({
-      draft: 0,
       verified: 0,
       stale: 2,
       deprecated: 1,
     });
     expect(late.entities.byType.term).toEqual({
-      draft: 1,
-      verified: 0,
+      verified: 1,
       stale: 0,
       deprecated: 0,
     });
@@ -89,16 +86,17 @@ describe("overview", () => {
     expect(res.relations.total).toBe(8);
   });
 
-  it("attributes only injectable knowledge to its author", async () => {
-    const kept = await add("fact", { statement: "verified work" }, "bora");
-    await add("fact", { statement: "still a draft" }, "chul");
+  it("attributes only standing knowledge to its author", async () => {
+    const kept = await add("fact", { statement: "standing work" }, "bora");
+    const pulled = await add("fact", { statement: "since retired" }, "chul");
+    await deprecate(port, [pulled], "admin", now);
     await verify(port, [kept], "admin", now);
 
     const res = await overview(port, ont, now);
-    // `chul` filed a record; nobody confirmed it. Counting drafts would rank whoever files the most,
-    // and the question is whose judgment the corpus carries.
+    // `chul` filed a record that was retired. The question is whose judgment the corpus carries NOW,
+    // so retired knowledge credits nobody.
     expect(res.authors).toEqual([{ actor: "bora", verified: 1 }]);
-    // And promoting is not authoring: `admin` verified it and does not appear.
+    // And re-confirming is not authoring: `admin` confirmed it and does not appear.
     expect(res.authors.map((a) => a.actor)).not.toContain("admin");
   });
 
@@ -130,7 +128,7 @@ describe("overview", () => {
     expect(mine.entities.total).toBe(1);
     const theirs = await overview(port, ont, now, { ns: "acme" });
     expect(theirs.entities.total).toBe(1);
-    expect(theirs.entities.byType.fact.draft).toBe(1);
+    expect(theirs.entities.byType.fact.verified).toBe(1);
   });
 
   it("counts everything but ranks only the top N", async () => {

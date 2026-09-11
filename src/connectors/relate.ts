@@ -346,8 +346,7 @@ export async function candidates(
       after,
       limit: SCAN_PAGE,
     });
-    for (const e of page.items)
-      if (e.status === "verified" || e.status === "draft") kept.push(e);
+    for (const e of page.items) if (e.status === "verified") kept.push(e);
     // Stable: rows arrive in id order, so records sharing a timestamp keep it.
     kept.sort(byTime);
     if (kept.length > limit) kept.splice(0, kept.length - limit);

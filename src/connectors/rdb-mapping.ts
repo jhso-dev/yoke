@@ -1,29 +1,18 @@
 // RDB read-mapping connector (PLAN 8.3, BACKENDS "Traditional-DB read-mapping") — the enterprise wedge.
 // Exposes an existing RDB as ontology entities with no migration and no bidirectional sync (read-only).
 //
-// DESIGN EXCEPTION vs the capture connectors (github-pr, slack, notes), which stage everything as a
-// draft and let a human verify it. Read-mapping does NOT — the source RDB is already the org's system of
-// record, so mapped rows bypass draft staging and land status='verified' directly. They STILL pass
-// ontology validation (commit gate step 1); only the human-review step is skipped.
-//
-// That auto-verify, and the second pass below, are the WHOLE difference from `ingest`: every row goes
-// through `ingestItem`, the one probe/compare/merge/commit sequence. A copy of that sequence here would
-// be a second set of the things it has to get right — the merge that keeps an attribute a mapping edit
-// dropped, the critical section that keeps two concurrent syncs from double-writing a row, the probe's
+// The second pass below is the WHOLE difference from `ingest`: every row goes through `ingestItem`,
+// the one probe/compare/merge/commit sequence. A copy of that sequence here would be a second set of
+// the things it has to get right — the merge that keeps an attribute a mapping edit dropped, the
+// critical section that keeps two concurrent syncs from double-writing a row, the probe's
 // `terms: "all"` (292 ms per item at 1M records, against 3 ms).
 //
-// Single-write-path invariant preserved: we never touch putEntity. We commit() (draft) then
-// lifecycle.verify() (verified) — the exact pattern cmdInit uses to seed yoke:system. Reaching 'verified'
-// through the allowed paths therefore costs two versions per write (draft v_n, verified v_n+1).
-//
-// Provenance caveat: commit() records prov {actor:'rdb', origin:'rdb:<table>'} on the draft version, but
-// verify() (core, unmodifiable here) rewrites the promoted head's provenance.origin to 'lifecycle'. The
-// rdb origin therefore lives on the draft history row and, durably, in attributes.external_id
-// (`rdb:<table>:<pk>`), which is also the idempotency key.
+// Single-write-path invariant preserved: we never touch putEntity — every row is a commit(), born
+// verified with the row's own instant as `last_confirmed` (freshness is measured from it), signed
+// {actor:'rdb', origin:'rdb:<table>'} and idempotent on attributes.external_id (`rdb:<table>:<pk>`).
 
 import { CommitRejected, commit } from "../core/commit.js";
 import type { Embedder } from "../core/embedding.js";
-import { verify } from "../core/lifecycle.js";
 import type { TypeDef } from "../core/ontology.js";
 import type { StoragePort } from "../ports/storage.js";
 import { findByExternalId, ingestItem } from "./ingest.js";
@@ -75,7 +64,7 @@ const externalId = (table: string, pk: unknown): string =>
   `rdb:${table}:${String(pk)}`;
 
 /**
- * Ingest mapped RDB rows as verified entities (+ FK relations). See file header for the design exception.
+ * Ingest mapped RDB rows as entities (+ FK relations). See file header for what this adds over `ingest`.
  * @param now ISO 8601 — injected (core does not create time).
  */
 export async function ingestMapped(
@@ -165,17 +154,9 @@ export async function ingestMapped(
           { ns, embedder },
         );
         idByExtId.set(extId, id);
-        // The design exception, and the only thing this loop adds to `ingestItem`. NOT on the skipped
-        // path: verify appends a version whose whole content is a fresh `last_confirmed`, so promoting
-        // an unchanged row would grow its history by one version per sync and reset the freshness clock
-        // on knowledge nobody re-read.
         if (outcome === "skipped") skipped++;
-        else {
-          // Freshness is measured from `last_confirmed`, so the row's own instant has to reach it too.
-          await verify(port, [id], "rdb", at ?? now, ns);
-          if (outcome === "updated") updated++;
-          else added++;
-        }
+        else if (outcome === "updated") updated++;
+        else added++;
       } catch (e) {
         if (e instanceof CommitRejected) {
           // Ontology-invalid row: surface it, keep going (one bad row must not abort the whole sync).
@@ -210,9 +191,8 @@ export async function ingestMapped(
         // Idempotent: skip if this exact edge already exists (commit has no dedup for relations).
         const existingEdges = await port.neighbors(fromId, rel.relType, "out");
         if (existingEdges.some((r) => r.to === toId)) continue;
-        // Relations pass the gate as drafts and stay there: `getRelation` makes an edge readable by
-        // id, but promotion still means nothing for one (no read filters on an edge's status — see the
-        // ceiling in lifecycle.ts). Only mapped entities are the read-mapping's verified surface.
+        // Relations pass the same gate; no read filters on an edge's status (see lifecycle.ts), so
+        // an edge is just stored — the mapped entities are the read-mapping's knowledge surface.
         try {
           await commit(
             port,

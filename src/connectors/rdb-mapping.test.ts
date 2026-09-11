@@ -74,15 +74,11 @@ describe("ingestMapped", () => {
     if (!found) return;
     expect(found.type).toBe("person");
     expect(found.attributes.name).toBe("Ada");
-    // commit(draft) + verify(verified) = 2 versions per write (same cost as cmdInit seeding).
+    // One commit, one version — born verified with the row's own provenance on the head.
     expect(found.status).toBe("verified");
-    expect(found.version).toBe(2);
+    expect(found.version).toBe(1);
     expect(found.provenance.actor).toBe("rdb");
-
-    // The rdb origin lives on the draft version (verify rewrites the head's origin to 'lifecycle').
-    const draft = await port.getEntity(found.id, 1);
-    expect(draft?.provenance.origin).toBe("rdb:employees");
-    expect(draft?.status).toBe("draft");
+    expect(found.provenance.origin).toBe("rdb:employees");
   });
 
   it("is idempotent — an unchanged re-run skips every row", async () => {
@@ -110,7 +106,7 @@ describe("ingestMapped", () => {
     const before = (await port.search({ text: "rdb:employees:2" })).find(
       (e) => e.attributes.external_id === "rdb:employees:2",
     );
-    expect(before?.version).toBe(2);
+    expect(before?.version).toBe(1);
 
     src.prepare("UPDATE employees SET name = ? WHERE id = 2").run("Bobby");
     const res = await ingestMapped(port, ont, connector, now);
@@ -122,7 +118,7 @@ describe("ingestMapped", () => {
     expect(after?.id).toBe(before?.id);
     expect(after?.attributes.name).toBe("Bobby");
     expect(after?.status).toBe("verified");
-    expect(after?.version).toBe(4); // +2 (draft then verify) over the initial v2
+    expect(after?.version).toBe(2); // one new version per changed row
   });
 
   it("rejects an ontology-invalid row and keeps going (error counted)", async () => {

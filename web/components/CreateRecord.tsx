@@ -35,7 +35,7 @@ export type CreateOutcome = Knowledge & {
  * the client is how a client and a server come to disagree about what is valid, so a rejection comes
  * back as the gate's own words and is shown as such.
  *
- * The record enters as a draft with `origin: "web"`, so a reviewer can tell what was typed at a
+ * The record enters live with `origin: "web"`, so a reader can tell what was typed at a
  * screen from what an agent or a connector captured — the labelling that replaced the old
  * outright ban for.
  */
@@ -204,7 +204,7 @@ export function CreateRecord({
           {busy ? tr.common.creating : tr.common.create}
         </Button>
         <span className="text-muted-foreground text-xs">
-          {tr.common.draftNotice}
+          {tr.common.liveNotice}
         </span>
       </div>
       <ErrorBanner error={error} />

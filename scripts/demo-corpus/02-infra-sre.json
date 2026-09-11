@@ -130,7 +130,7 @@
       "type": "decision",
       "author": "person:yoon-daeun",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "batch-spot 노드풀 비중을 배치/비필수 워크로드 기준 전체 용량의 40%까지 확대한다 (아직 검토 중, 최종 승인 전).",
         "rationale": "스팟 인스턴스가 온디맨드 대비 60~70% 저렴한데 지금은 배치 워크로드의 15%만 스팟을 쓰고 있음. interruption 대응(2분 termination notice 받으면 drain)은 이미 구현돼 있어서 안정성 이슈는 크게 없었던 걸로 보임(최근 3개월 interruption 47건 중 SLA 영향 0건). 40%까지 늘리면 월 인프라 비용이 대략 800만원 정도 줄 걸로 추정 — 근데 이 숫자는 러프하게 잡은 거라 재무팀 검토가 더 필요함. 일단 30%까지만 먼저 늘려보고 안정적이면 40%로 가는 걸로.",
@@ -202,7 +202,7 @@
       "type": "resource",
       "author": "person:yoon-daeun",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "스팟 인스턴스 절감 대시보드 (작업 중)",
         "statement": "스팟 전환 비중별 예상 절감액과 실제 interruption 빈도를 비교하는 대시보드. 아직 일부 패널(비용 추정치)이 러프해서 정식 배포 전이고, spot-instance-adoption-decision 검토가 끝나면 정리할 예정.",
@@ -225,7 +225,7 @@
       "type": "fact",
       "author": "person:yoon-daeun",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "시크릿 로테이션 정책 (초안)",
         "statement": "일단 Vault 관리 시크릿은 90일 주기로 자동 로테이션하는 걸로 잡아봤음. DB 비밀번호는 로테이션 시 커넥션 풀 재시작이 필요해서 서비스별로 예외 주기를 둘지 아직 정리 안 됨 — 다음 스프린트에 팀별로 확인 필요. API 키류는 60일로 더 짧게 갈지도 논의 중."
@@ -313,7 +313,7 @@
       "type": "fact",
       "author": "person:choi-yerim",
       "size": "line",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "스팟 회수 대응 (초안)",
         "statement": "termination notice 2분에 바로 drain 시작, 배치 체크포인트 주기 안 맞는 케이스 점검 중."

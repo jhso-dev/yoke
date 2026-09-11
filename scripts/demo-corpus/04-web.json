@@ -89,7 +89,7 @@
       "type": "decision",
       "author": "person:jang-minho",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "라우트당 First Load JS 예산을 gzip 170KB로 설정하고, 초과 시 동적 import로 코드 스플리팅한다.",
         "rationale": "일단 170KB로 잡아봄. 근거는 상품 목록 페이지가 지금 168KB인데 이게 그나마 우리 라우트 중 제일 무거운 축에 속해서(다른 페이지들은 대체로 110~140KB) 여기 맞추면 대충 다 커버될 듯. Webpack Bundle Analyzer 찍어보니 date-fns 전체 import가 22KB 먹고 있어서 그것부터 tree-shaking 가능한 형태로 바꾸면 될 것 같고, 나머지 채팅 위젯 같은 무거운 3rd party는 다 dynamic import(next/dynamic)로 빼기로. 근데 체크아웃 퍼널에 결제 SDK 붙이면 이 예산 못 지킬 수도 있어서 그건 따로 다시 정해야 함 — 일단 이번 스프린트엔 나머지 라우트부터 정리하고 체크아웃은 보류. 숫자 자체도 한 스프린트 지나고 실측 데이터 더 모이면 재조정할 수 있음.",
@@ -156,7 +156,7 @@
       "type": "fact",
       "author": "person:yoon-dain",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "접근성 QA 체크리스트 (초안)",
         "statement": "일단 릴리즈 전에 확인할 것들 초안임 — 포커스 링이 배경색이랑 대비 3:1 이상인지, 탭 순서가 시각적 순서랑 맞는지, 스크린리더로 폼 에러가 읽히는지 이 세 개만이라도 먼저 체크리스트화. axe-core 자동 스캔은 붙여놨는데 색상 대비랑 포커스 순서는 아직 수동 확인만 가능해서 QA 인력 리소스 문제가 있음. 자동화는 다음 스프린트에 더 붙여볼 예정."
@@ -200,7 +200,7 @@
       "type": "term",
       "author": "person:han-seoyeon",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "골든 패스 컴포넌트 (초안 용어)",
         "statement": "아직 확정 용어는 아닌데 잠정적으로 쓰는 중 — Figma에 등록돼 있고, Code Connect 매핑도 있고, v2 토큰만 쓰는 컴포넌트를 '골든 패스 컴포넌트'라고 부르기 시작함. 이거 아닌 애들(레거시 v1 스타일이 남아있거나 Figma 매핑 없는 것들)은 신규 화면에서 쓰지 말라고 안내 중인데, 아직 사내 공식 문서에는 이 용어가 안 올라가 있어서 팀마다 부르는 말이 조금씩 다르다."
@@ -223,7 +223,7 @@
       "type": "resource",
       "author": "person:yoon-dain",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "i18n 미번역 문자열 주간 리포트",
         "statement": "매주 월요일 09:00 KST에 check-i18n-parity 스크립트 결과를 모아서 언어별 누락 키 개수와 담당 화면을 정리해 올리는 리포트 페이지. 아직 자동 생성이 아니라 담당자가 수동으로 스크립트 돌리고 붙여넣는 중이라 가끔 하루이틀 밀린다 — 자동화는 백로그에 있음.",

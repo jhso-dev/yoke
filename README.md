@@ -28,20 +28,20 @@ remembers*; yoke governs *what your AI is allowed to believe*.
 ## What it looks like
 
 Ask what an agent would be handed, and see what was held back — and why. Here
-one record matched the query but is still awaiting review, so it is not sent:
+one record matched the query but is past its freshness window, so it is not sent:
 
-![Injection preview: two verified records with citations, and a notice naming what was withheld and why](docs/assets/ui-inject.png)
+![Injection preview: two standing records with citations, and a notice naming what was withheld and why](docs/assets/ui-inject.png)
 
-New knowledge lands as a `draft`, quarantined from injection until a person
-promotes it. Agents can record; only people can verify:
+Knowledge that nobody re-confirms expires. The review queue is where a person
+keeps what is still true and retires what is not:
 
-![Review queue: three drafts with their authors, and Verify / Deprecate actions](docs/assets/ui-review.png)
+![Review queue: records due for re-confirmation with their owners, and Verify / Deprecate actions](docs/assets/ui-review.png)
 
 A `decision` keeps the alternatives that were rejected — the half of a judgment
 that a conclusion alone throws away — and every version stays readable, with
-the author preserved across promotion:
+the author preserved across every later confirmation:
 
-![Decision detail: conclusion, rationale, rejected alternatives, provenance, and a draft to verified version history](docs/assets/ui-decision.png)
+![Decision detail: conclusion, rationale, rejected alternatives, provenance, and the full version history](docs/assets/ui-decision.png)
 
 When two verified records contradict each other, yoke keeps both and asks a
 person. Injection serves both sides marked as disputed rather than picking one:
@@ -58,18 +58,16 @@ Trust isn't a promise here — it's five mechanisms, each enforced in code:
 1. **Nothing enters without a source.** Every write passes through a single
    commit gate that rejects knowledge with no provenance (who said it, where,
    when). Knowledge without a source is just a rumor, and rumors don't get in.
-2. **Nothing is believed until a human verifies it.** New knowledge lands as a
-   `draft`, quarantined from injection. AI agents can *record* knowledge over
-   MCP, but they cannot promote it — verification is deliberately a human act
-   (`yoke verify`), and there is no MCP tool that does it. By default only
-   `verified` knowledge reaches your AI's context; an agent can ask for drafts
-   explicitly (`includeDraft`) and they arrive labelled `[draft]`. One documented
-   exception: `connect rdb` maps an existing database that is already the org's
-   system of record, so mapped rows land verified — see docs/BACKENDS.md.
+2. **A wrong record cannot outrun its correction.** Knowledge is live the
+   moment a signed actor files it — there is no approval queue to stall a team
+   of agents — and the accountability runs downstream, where it bites: retiring
+   a record carries a reason, and the delivery ledger carries that reason to
+   **every client that was previously handed the record**. Deletion is silent;
+   retraction here is a broadcast (`yoke deprecate --reason`, docs/KNOWLEDGE-POLICY.md rule 8).
 3. **Nothing is silently overwritten.** Storage is append-only: an edit is a new
    version, and there is no delete at all — retirement is a status (`deprecated`). You can always reconstruct what the
    system believed at any point in time, and every injected item carries a
-   citation — `[type:id@vN] author (confirmed by promoter), occurred_at` — so
+   citation — `[type:id@vN] author (confirmed by confirmer), occurred_at` — so
    every claim is auditable and names both who wrote it and who vouched for it.
    The one mutation history cannot record is `rename-type`, which rewrites the
    type on existing version rows; it leaves an audit row saying so.
@@ -86,8 +84,8 @@ Trust isn't a promise here — it's five mechanisms, each enforced in code:
    politest form of misinformation, and yoke treats them that way.
 
 And it's measured, not asserted: the injection-quality eval reports **0%
-contamination** (no draft record reaching an injection — drafts are what it plants) and
-**0% missed contradictions** on its planted pairs. What those numbers cover, and what
+contamination** (no stale or retired record reaching an injection — those are what it
+plants) and **0% missed contradictions** on its planted pairs. What those numbers cover, and what
 they do not, is in [Measuring quality](#measuring-quality).
 
 Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server required.
@@ -126,10 +124,10 @@ Every record also arrives with its citation, which a pasted passage cannot do.
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
-| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → draft knowledge, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record, so its rows land verified. |
+| **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → knowledge signed by the connector, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
-| **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens · RBAC (the `verify` permission is the governance permission) · read replicas · online backup + point-in-time export. |
+| **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens + the GitHub exchange · RBAC (read / write / admin) · read replicas · online backup + point-in-time export. |
 | **License** | MIT |
 
 ## 60-second quickstart
@@ -141,14 +139,14 @@ curl -fsSL https://raw.githubusercontent.com/jhso-dev/yoke/main/scripts/install.
 
 yoke init                                    # create ./yoke.db + seed the ontology
 yoke add fact --attr statement="Deployments only happen Tuesday mornings"
-yoke review                                  # inspect the draft queue
-yoke verify <id>                             # promote it (or: yoke verify --all-drafts)
-yoke inject "when do we deploy"              # inject only verified knowledge, with citations
+yoke inject "when do we deploy"              # standing knowledge, with citations — live immediately
+yoke review                                  # later: the re-confirmation queue, when knowledge ages
 ```
 
-Anything added via `add` starts as a `draft`. It won't show up in `inject` until
-you promote it with `verify` — that gate is the whole point of the governance
-model. Use `yoke verify --all-drafts` to promote in bulk on a cold start.
+Anything added via `add` is live in `inject` immediately, signed by its actor.
+The governance runs downstream: records expire past their type's TTL unless
+someone re-confirms them (`yoke verify`), and `yoke review` is the queue of what
+is due.
 
 Prefer to build from source (contributors)? Clone and link directly:
 
@@ -184,7 +182,8 @@ invents an answer when it does not know one — with no way to tell which is whi
 Install, attach it to your agent over MCP ([below](#mcp-setup)), and record
 decisions as you make them. Injection is scoped to what you are working on, and
 every claim arrives with a citation, so "the agent made this up" becomes a
-checkable question. `yoke verify --all-drafts` keeps the cold start cheap.
+checkable question. There is no approval queue to seed — what you record is
+already working context.
 
 Read next: [MCP setup](#mcp-setup) · [Less context, not more](#less-context-not-more)
 
@@ -214,9 +213,10 @@ Read next: [Shared working context](#shared-working-context) · [docs/ADOPTION.m
 An agent stated an internal policy confidently and it was out of date. Nobody
 can say where it got that, who approved it, or what else it is repeating.
 
-Verification is a permission (`verify`), and it is the governance permission —
-agents can propose, only authorized people promote. Storage is append-only with
-no delete, so any past state is reconstructible and every injection is audited.
+Every record is signed — under `serve --auth` the actor is bound to the
+credential, so "where did the agent get that" always has a name on it. Storage
+is append-only with no delete, so any past state is reconstructible and every
+injection is audited.
 Point it at the database that is already your system of record with
 `connect rdb` — read-only, no migration — and knowledge expires on a TTL
 instead of quietly aging into misinformation.
@@ -251,7 +251,7 @@ Any other MCP client attaches yoke as a stdio MCP server. In your project root `
 Tools exposed:
 
 - `yoke_inject` — query a context → inject verified knowledge, with citations
-- `yoke_commit` — stage knowledge (enters as `draft`)
+- `yoke_commit` — record knowledge (live immediately, signed by its actor)
 - `yoke_record_decision` — decision shortcut (conclusion + rationale + rejected alternatives)
 - `yoke_persona` — person-scoped injection ("how would a teammate decide?")
 - `yoke_overview` — the corpus at a glance: counts by type, the most-connected records, who authored what
@@ -387,8 +387,8 @@ authenticate and therefore has no reason not to.
 
 ```
 yoke init | add | get | search | list | link | verify | deprecate
-yoke review [--stale]                         # drafts awaiting review / verified past their TTL
-yoke inject <query> [--include-draft] [--limit n] [--scope <id>] [--depth n] [--as-of ts]
+yoke review                                   # the re-confirmation queue: records past their TTL
+yoke inject <query> [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--limit n]             # the corpus at a glance / as edges
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
@@ -410,7 +410,7 @@ A team builds one knowledge space together, in real time. When the user says
 "this is PAY-42 work", the agent declares it once with `yoke_use_scope`, and the
 whole session defaults to that `collaboration` — injections lead with its knowledge,
 and anything recorded links to it automatically. A decision one person records
-(and a human verifies) is in every other session's context the next time they ask.
+is in every other session's context the next time they ask.
 
 Scope **prioritizes, it doesn't imprison**: a pinned collaboration leads, but
 org-wide facts and personas still flow in on a query. And the context outlives
@@ -432,7 +432,7 @@ wired up:
 
 | Metric | Definition | Target | Measured |
 |---|---|---|---|
-| Contamination rate | Share of draft entries among inject results | 0% | **0.0%** (only the 20 verified of 40 candidates were injected) |
+| Contamination rate | Share of stale or retired entries among inject results | 0% | **0.0%** (only the 20 standing of 40 candidates were injected) |
 | Missed-contradiction rate | Share of opposing-conclusion decision pairs with no conflicts_with edge | 0% | **0.0%** (5/5 detected) |
 
 Read those two numbers for what they cover: a 50-record synthetic corpus and a stub
@@ -441,10 +441,10 @@ figure measures that stage 4 runs and files the edge — not that a real embeddi
 would notice. Precision is not measured on either axis.
 
 **Persona quality** (`npm run eval:persona`) — does a persona return that person's
-verified judgment and nothing else. Five planted failure modes (a colleague's records on
+standing judgment and nothing else. Planted failure modes (a colleague's records on
 the same topics, association without authorship, sources someone else wrote, the
-person's own drafts, their own aged records): impersonation, draft-leak and stale-leak
-rates **0%**, recall **100%** whole and under a topic query.
+person's own aged records): impersonation and stale-leak rates **0%**, recall **100%**
+whole and under a topic query.
 
 **Retrieval quality** (`npm run eval:retrieval -- <db>`) — does the right record come
 back, over `eval/gold-set.json` on a loaded corpus. This is the one that measures search

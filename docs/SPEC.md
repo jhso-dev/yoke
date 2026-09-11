@@ -9,7 +9,7 @@ Defines only the contract the implementation must follow. For background and rat
   id: string          // ULID. an opaque string that may accept a namespace prefix
   type: string        // an entity type registered in the ontology (commit rejected if unregistered)
   attributes: Record<string, unknown>  // validated against the ontology's per-type schema
-  status: 'draft' | 'verified' | 'stale' | 'deprecated'
+  status: 'verified' | 'stale' | 'deprecated'   // born verified; stale is computed, deprecated is retirement
   provenance: {
     actor: string     // a person entity id or an agent identifier (required)
     origin: string    // 'cli' | 'mcp' | 'connector:github-pr' | ...
@@ -53,8 +53,7 @@ interface StoragePort {
   getEntities?(ids: string[]): Promise<Entity[]>
   putRelation(r: Relation): Promise<void>
   neighbors(id: string, relType?: string, dir?: 'in'|'out'): Promise<Relation[]>
-  // q.status may be a single status or an ARRAY (['verified','draft'] is how includeDraft
-  // injection asks) — every backend must accept both forms.
+  // q.status may be a single status or an ARRAY — every backend must accept both forms.
   search(q: TextQuery): Promise<Entity[]>    // keyword (FTS)
   // enumeration (v5.0) — the read primitive behind browse and the graph explorer
   listEntities(q: ListQuery): Promise<Page<Entity>>
@@ -358,13 +357,13 @@ new entity's id — a rejection still happens before anything is written, since 
 2. Provenance required-field validation → reject on failure
 3. Similar-entity lookup **by embedding, or not at all**
    → return duplicate candidates (no auto-merge; propose to the caller)
-4. Set status='draft', assign a version, and store
+4. Set status='verified' (born standing — the signed actor is the entry bar, KNOWLEDGE-POLICY rule 4), assign a version, and store
 5. On contradiction, create a `conflicts_with` relation (keep both sides)
 5b. Record authorship as an `authored_by` relation (entity → `provenance.actor`), so provenance is
    reachable by graph traversal and not only as a stored field. Idempotent per (entity, actor), no
    self-edge, and skipped when the ontology in force does not declare `authored_by` — a derived edge
    must never fail the caller's own commit. `verify`/`deprecate` do not pass through the gate, so
-   promoting is not authoring.
+   confirming is not authoring.
 
 **Stage 3 has no FTS fallback, deliberately.** When there is no embedder, the embedding request
 fails, or the backend has no `similar`, duplicate detection is **skipped entirely** — every FTS
@@ -448,19 +447,19 @@ and the trail is per-client local sqlite rather than knowledge, so it is not tra
 
 `inject(query, opts)`:
 
-- Default filter: `status === 'verified'` and exclude anything not fresh
+- Filter: `status === 'verified'` and exclude anything not fresh
   (freshness = `last_confirmed` + a per-ontology-type TTL, **computed at read time**)
-- With `opts.includeDraft`, include drafts but label their status in the result.
-  stale/deprecated are **always excluded** regardless of options (strict on injection —
-  we don't inject a decay signal. Viewing stale is the job of review/CLI)
+- stale/deprecated are **always excluded**, and there is deliberately no option that includes
+  them (strict on injection — we don't inject a decay signal. Viewing stale is the job of
+  review/CLI)
 - Returns: a list of entities, each with its provenance (an auditable citation format)
 - **The citation names the author, and the confirmer when they differ.**
   `[type:id@vN] author (confirmed by promoter), occurred_at` — collapsing to
   `[type:id@vN] actor, occurred_at` when one actor did both, which is every single-user install.
-  `verify` appends a version whose provenance IS the promotion, so the plain form named whoever
-  approved the knowledge rather than whoever wrote it; the author comes off the `authored_by` edge,
-  as the overview clause below already required. Both are kept: who vouched for a record is the
-  other half of what makes a citation auditable.
+  `verify` (re-confirmation) appends a version whose provenance IS the confirmation, so the plain
+  form would name whoever last confirmed the knowledge rather than whoever wrote it; the author
+  comes off the `authored_by` edge, as the overview clause below already required. Both are kept:
+  who vouched for a record is the other half of what makes a citation auditable.
 - **An injected item carries what it contradicts.** `conflicts_with` marks both sides and withholds
   neither (contradictions are surfaced, never auto-resolved). A record with an incoming `supersedes`
   edge is withheld and counted under that reason instead — a supersession is settled, and the
@@ -547,8 +546,8 @@ no way to ask: **what would this query have injected at time T.**
 - **Two times, and the rewind is why they are separate.** `occurred_at` is when the KNOWLEDGE
   happened and survives every transition; `transitioned_at` is when that VERSION came into being and
   is what the rewind reads. **The invariant: a verify/deprecate changes status, never when the
-  knowledge happened** — one `verify --all-drafts` over a batch of dated documents must not leave
-  them all sharing the promoter's clock. `transitioned_at` is optional and additive (provenance is a
+  knowledge happened** — one batch re-confirmation over a set of dated documents must not leave
+  them all sharing the confirmer's clock. `transitioned_at` is optional and additive (provenance is a
   JSON blob on every backend), so no migration: a row without one carries its version time in
   `occurred_at`, which is what the fallback reads. A store restamped by an older build is repaired
   with `yoke backfill --occurred-at`.
@@ -634,25 +633,25 @@ yoke API token.
   `https://api.github.com`; point it at GHE, or a test double), then discarded — never stored, never
   logged, never echoed. What the server keeps is a token of its own minting, named `github:<login>`,
   so the audit actor is the GitHub identity rather than a self-declared string.
-- **Scopes**: `read,write`; plus `verify` when the login is in `YOKE_GITHUB_VERIFIERS` — issuance is
-  automatic, governance stays a person's list (ENTERPRISE.md: verify is the knowledge-governance
-  permission).
+- **Scopes**: `read,write` — the whole knowledge permission (commit, re-confirm, retire; see the
+  action table). Membership is the only tier: what a member files is signed and answerable, which is
+  the accountability this policy runs on. `admin` is never minted here.
 - **Re-exchange replaces** the previous token for that login, which is what makes revocation
   self-healing on the client: a 401 clears the cache and exchanges again. The durable revocation
-  levers are therefore GitHub's own — remove the person from the org, or from the verifier list.
+  lever is therefore GitHub's own — remove the person from the org.
 - A GitHub outage is a **502**, not a 401: an upstream failure is not a verdict on the caller.
 - The plugin's `auth.mjs` is the zero-action client: cache in `~/.yoke` (0600, keyed by server),
   `gh auth token` → exchange on miss, one announce line when a credential actually moved
   (`YOKE_TOKEN` set explicitly disables all of it). `YOKE_DEBUG=1` explains failures on stderr —
   the one escape hatch from the hooks' silence rule.
 
-### The stale queue (v5.2 — implementing a clause that was written and never built)
+### The stale queue (v5.2)
 
-"Viewing stale is the job of review/CLI" has been in the filter rule above since v1, and neither
-`yoke review` nor `/review` ever showed a stale record — both listed `status: 'draft'` only. Stale
-knowledge therefore left injection **silently**: no agent received it and no person was told it had
-aged out. That is worse than a flag, not better, and it is the one failure mode
-docs/RESEARCH.md's freshness findings converge on.
+"Viewing stale is the job of review/CLI" is the filter rule's counterpart: without a queue, stale
+knowledge leaves injection **silently** — no agent receives it and no person is told it aged out.
+That is worse than a flag, not better, and it is the one failure mode docs/RESEARCH.md's freshness
+findings converge on. It is also this policy's primary human surface: entry has no approval step,
+so the stale queue is where a person's attention is actually spent (KNOWLEDGE-POLICY rule 7).
 
 - `staleEntities(port, ontology, now, opts)` returns the records whose **stored** status is `verified`
   but whose `effectiveStatus` is `stale`. `stale` is computed from the ontology's TTL at read time and
@@ -678,9 +677,8 @@ docs/RESEARCH.md's freshness findings converge on.
   still-true record leaves the queue with no new verb) and `deprecate` retires. No third lifecycle
   transition is introduced — a stale record is not a new state, it is a verified record that needs a
   human to say whether it still holds.
-- Exposed as `yoke review --stale` and `GET /api/review?stale=1` — the same command and route as the
-  draft queue, because the contract clause names `review` and because both queues take the same two
-  actions. `--type` narrows either queue.
+- Exposed as `yoke review` and `GET /api/review` — review IS this queue; there is no other.
+  `--type` narrows it.
 - **The page is ordered by consumption, and each row says its count.** The count is the number of
   `inject` and `persona` audit rows naming the record — what AGENTS have been fed, not what humans
   looked at (`inject_preview`/`read`/`search` do not count) — so re-confirmation effort meets the
@@ -702,7 +700,7 @@ entry points**: a `collaboration` anchor is the shared working context, a `perso
   working context leads, org-wide matches still flow in. `limit` applies after ordering.
 - With no `query`: only the one-hop set is returned — a briefing of that working context.
   The scope entity itself is never returned.
-- **A briefing has a defined order**, and it is part of this contract: verified before draft, then
+- **A briefing has a defined order**, and it is part of this contract: nearest hop first, then
   most-recently-confirmed first, then `id` ascending as the tiebreak. Without it `limit` cuts by
   whatever order a backend returns relations in — creation order on SQLite, whatever the query planner
   chose on a remote one — so the same question would answer differently per backend, which is backend behaviour
@@ -738,9 +736,9 @@ entry points**: a `collaboration` anchor is the shared working context, a `perso
   purpose and still gets it. Ontology **data** for the same reason `membership` is: an org whose unit
   is `squad` or `service` marks that type. The two flags are separate because they say different
   things — one is about an edge, the other about a type — so clearing one does not clear the other.
-- The **same filters** apply as unscoped injection: verified-only by default (`includeDraft` still
-  works), stale/deprecated always excluded, and the namespace filter is enforced on fetched
-  entities (`getEntity` is id-based, so the ns check happens in `inject`, not the port).
+- The **same filters** apply as unscoped injection: verified-only, stale/deprecated always
+  excluded, and the namespace filter is enforced on fetched entities (`getEntity` is id-based, so
+  the ns check happens in `inject`, not the port).
 - `opts.scopeRel` / `opts.scopeDir` narrow the anchor walk (passed straight to `port.neighbors`).
   Default is every relation type, both directions — right for a collaboration, whose point is
   everything attached to the work.
@@ -760,7 +758,7 @@ answered it with silence.
   about anchoring — this only grades what was binary. With a query: candidates are partitioned by
   distance ascending (1, then 2, … then everything the walk never reached), and fusion still owns the
   order *within* each band. Without a query: distance leads the briefing sort, ahead of
-  verified-before-draft and freshness. A hop-3 record is context; a hop-1 record is the subject.
+  freshness. A hop-3 record is context; a hop-1 record is the subject.
 - **A record is held at its shortest distance.** Cycles and diamonds are ordinary graph shapes here,
   not corruption, and a record reachable in 1 hop and again in 3 is a 1-hop record.
 - **`authored_by` leaving *any* node is skipped, not just the anchor's.** v4.0 dropped the anchor's own
@@ -807,10 +805,10 @@ records, and who the verified knowledge came from. Exposed as `yoke overview` an
   today" appears as a number. Consequence: two overviews of an unchanged corpus at two instants
   legitimately differ.
 - **Authorship comes off the `authored_by` edge, never `provenance.actor`.** `verify` replaces
-  provenance, so on a verified record that field names whoever *promoted* it — an authors list built
-  from it ranks reviewers, calls them authors, and in a corpus with a single reviewer credits
-  everything to one person. The gate mirrors the real author into an edge and promoting does not pass
-  through the gate, so the edge is the durable claim. It is also what `personaQuery` anchors on, so an
+  provenance, so on a re-confirmed record that field names whoever last *confirmed* it — an authors
+  list built from it ranks confirmers, calls them authors, and in a corpus with a single active
+  confirmer credits everything to one person. The gate mirrors the real author into an edge and
+  confirming does not pass through the gate, so the edge is the durable claim. It is also what `personaQuery` anchors on, so an
   overview naming persona candidates and a persona built from one of them cannot disagree.
 - **Degree excludes `authored_by` and `membership` types.** Every record has exactly one author edge,
   so counting them adds a constant to everything and puts *people* at the top of a list meant to say
@@ -857,7 +855,7 @@ picks the wrong scope.
 |---|---|
 | `yoke_inject` | contextual query → inject verified knowledge (with citations) |
 | `yoke_commit` | load knowledge (through the gate) |
-| `yoke_record_decision` | a commit shortcut dedicated to decision entities. `verify: true` when the decision's own author confirmed the filed wording in the conversation: the draft is written and promoted in the same call — two versions, `transitioned_at` on the second, the `verify` audit row under the author — and reaches every agent on the scope at once (KNOWLEDGE-POLICY rule 4). Refused before anything is written when the caller lacks `verify` |
+| `yoke_record_decision` | a commit shortcut dedicated to decision entities — conclusion, rationale, rejected alternatives, in the wording the decision's owner used. Live at birth like every commit, so it reaches every agent on the scope at once; a reversal is a new decision plus a `supersedes` edge, never an edit |
 | ↳ both take `derived_from: string[]` | the citation ids this record rests on (see "Derivation") — optional, caller-asserted, never inferred |
 | `yoke_persona` | person-anchored injection ("what would Alex do") |
 | `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
@@ -868,18 +866,19 @@ picks the wrong scope.
 The server ships MCP `instructions` telling every connected agent the loop: inject first,
 also consult the live sources it can reach (yoke never searches them — invariant 5 plus
 one auth stack per source is why), and file back only the **delta** against what inject
-returned — new knowledge as a draft with `attributes.sources` (origin pointer + a verbatim
-excerpt, so a reviewer can check the claim), contradictions as a record plus a
-`conflicts_with` edge (gate rule 6), nothing when yoke already has it. The delta filter is
-what keeps the review queue growing at the rate knowledge changes, not the rate questions
-are asked. Whether an org makes step 2 mandatory is its harness's line, not a server flag.
+returned — new knowledge live at birth with `attributes.sources` mandatory (origin pointer
++ a verbatim excerpt: with no reviewer on the way in, the excerpt is how any later reader
+checks the claim), contradictions as a record plus a `conflicts_with` edge (gate rule 6),
+nothing when yoke already has it. The delta filter is what keeps the corpus growing at the
+rate knowledge changes, not the rate questions are asked. Whether an org makes step 2
+mandatory is its harness's line, not a server flag.
 
 `yoke_commit` takes an optional `externalId` for the one case an agent files a source item
 essentially verbatim: same key + same content is a no-op (the connector idempotency probe,
 `findByExternalId`/`sameContent`), and same key + different content is **refused with
-instructions** rather than re-versioned — re-versioning would demote the stored head to
-draft, handing any writer the promotion authority this server deliberately does not expose.
-A distillation carries `sources`, never `externalId`.
+instructions** rather than re-versioned — re-versioning would let any writer silently
+rewrite a record other answers already cite. A distillation carries `sources`, never
+`externalId`.
 
 ## HTTP API (v5.0 contract)
 
@@ -892,7 +891,7 @@ endpoint shares it at `POST /mcp`.
 |---|---|---|---|
 | `GET /` and the static bundle | — (no knowledge) | ungated, even under `--auth` | no |
 | `GET /api/meta` | — | ungated | no |
-| `GET /api/review` | `listEntities({status:'draft', ns})`, or `staleEntities` with `?stale=1` | read | no |
+| `GET /api/review` | `staleEntities` — the re-confirmation queue | read | no |
 | `GET /api/conflicts` | `listRelations({type: 'conflicts_with', ns})` | read | no |
 | `GET /api/ontology` | `loadOntology(ns)` | read | no |
 | `GET /api/entities` | `listEntities` | read (typed when `?type=`) | no |
@@ -902,13 +901,13 @@ endpoint shares it at `POST /mcp`.
 | `GET /api/search` | `search({text, type, status, limit, ns})` | read (typed when `?type=`) | **yes** (`search`) |
 | `GET /api/graph` | per-type `listEntities` + `neighbors` per node; anchored (`?scope=&depth=1..3`): a breadth-first `getEntity`/`neighbors`/`readEntities` walk | read | no |
 | `GET /api/audit` | `listAudit({since, ns, limit})` | read | no |
-| `POST /api/verify` | `verify` | verify | yes |
-| `POST /api/deprecate` | `deprecate` + `downstreamOf` | verify | yes |
+| `POST /api/verify` | `verify` (re-confirm; also revives a retired id) | write | yes |
+| `POST /api/deprecate` | `deprecate` + `downstreamOf` | write | yes |
 | `POST /api/entity` | `commit({type, attributes})` (+ a `relates_to` commit when `scope` is given) | write (typed) | no — the v1 row records it |
 | `POST /api/link` | `commit({type, attributes, from, to})` | write (typed) | no — same. **200 with `existed: true`** when that edge is already recorded, 201 when it is new |
 | `POST /api/backfill` | `backfillAuthorship`, or `backfillEmbeddings` with `{embeddings:true, rebuild?}` | write | no — the edges it creates record it, and a vector is not knowledge |
-| `POST /api/ontology` | `saveOntology([def], ns)` | **verify** | no |
-| `POST /api/rename-type` | `renameType(from, to, ns)` | **verify** | **yes** (`rename_type`) |
+| `POST /api/ontology` | `saveOntology([def], ns)` | **admin** | no |
+| `POST /api/rename-type` | `renameType(from, to, ns)` | **admin** | **yes** (`rename_type`) |
 | `GET /api/tokens` | `listTokens` (names + scopes, never secrets) | **admin** | no |
 | `POST /api/login/github` | GitHub token in, yoke token out (see "GitHub exchange") | none — it is the door | no |
 | `POST /api/tokens` | `createToken` — 201 with the plaintext secret, shown once | **admin** | no |
@@ -948,26 +947,25 @@ Rules that hold for every route:
   relation attributes needs a way to name an existing edge first.
 - **Creation goes through the gate, never around it.** `POST /api/entity` and `POST /api/link` call
   `commit()` like every other adapter, so a record made in a browser is validated against the
-  ontology, enters as `draft`, and needs the same human `verify`. It carries
+  ontology and born verified under its signed actor, exactly as one an agent commits. It carries
   `provenance.origin = "web"`, which is what makes hand-typed knowledge visible as such rather
   than merely forbidden. No audit row: the v1 row it produces already carries actor, origin and
   timestamp — the schema's rule for entity mutations. **Editing an existing record's attributes
   over HTTP remains absent**: correcting a record is a new version through the gate, from the
-  adapter that owns the source. The lifecycle mutations are still `verify` and `deprecate`, and
-  nothing here writes a record in any state but `draft`.
-- **The two schema-level writes are gated on `verify`, not `write`.** `POST /api/ontology`
+  adapter that owns the source. The lifecycle mutations are still `verify` and `deprecate`.
+- **The two schema-level writes are gated on `admin`, not `write`.** `POST /api/ontology`
   is the one write that BYPASSES the commit gate — the gate reads the ontology, so validating
   it against itself would be circular — and `POST /api/rename-type` rewrites every stored row
-  carrying a name, history included. Neither is a per-type permission, because neither is
-  scoped to a type: they change what types mean.
+  carrying a name, history included. They change what types MEAN, which is operating the
+  deployment rather than recording knowledge, and `admin` is the operating permission.
 - **Not exposed over HTTP, and why.** `init` (bootstrap: the server is already holding the
   database it would create), `connect <source>` (needs credentials and runs long), `backup` /
   `restore` / `export` (server-side filesystem paths — a browser form choosing where a process
   writes is a foot-gun, not a feature), and `mcp` / `ui` / `serve` (process lifecycle, not actions).
 
   **`token` IS exposed** (the three routes in the table above). Minting from a browser is gated on
-  `admin`, NOT on `verify`: this is the credential surface, and every reviewer holds verify —
-  governing knowledge and issuing the credentials that reach it are different powers. An admin
+  `admin`, NOT on `write`: this is the credential surface — recording knowledge and issuing the
+  credentials that reach it are different powers. An admin
   scoped to a namespace grants only within it, a token it could not have issued reads as absent
   rather than forbidden (otherwise one tenant enumerates another's credentials by name), the secret
   is returned once and never listed, and under plain `yoke ui` the routes are as open as the terminal
@@ -979,7 +977,7 @@ Rules that hold for every route:
   answer — see the
   query-box guarantees in WEB-UI.md.
 - **A 403 names the scope that would have granted the call** (v5.6): `{ error: "forbidden: this
-  credential has no 'verify' scope[ for type 'x'[ in namespace 'y']]", required, type?, ns? }`. Only
+  credential has no 'write' scope[ for type 'x'[ in namespace 'y']]", required, type?, ns? }`. Only
   the required grant is named, never the credential's own scopes — what the caller holds does not
   change what they must go and ask for, and saying it would mean threading the principal into the
   handler for nothing. The body was `{"error":"forbidden"}` until a read-only token was actually
@@ -1009,7 +1007,7 @@ Rules that hold for every route:
   | `persona` | someone's recorded judgment was read | MCP, CLI, web |
   | `read` | a full record — attributes, versions, relations — was read | CLI, web |
   | `search` | someone queried the store for text and got matching records | CLI, web |
-  | `verify` | records were promoted | CLI, web, MCP (`yoke_record_decision verify: true` only) |
+  | `verify` | records were re-confirmed (or revived) | CLI, web |
   | `deprecate` | records were retired | CLI, web |
   | `rename_type` | an ontology type was renamed in the declaration and in every stored row | CLI, web |
   | `overview` | the corpus shape — including hub rows carrying record text — was read | MCP, CLI — the web has no overview route |
@@ -1018,8 +1016,8 @@ Rules that hold for every route:
   them": it rewrites those very rows, so the history cannot record it and this row is the only trace.
 
   This is written down because the two adapters drifted: the web audited `verify`, `deprecate` and
-  `persona` and the CLI audited only `inject`, so "who promoted this" was unanswerable for every
-  promotion done through the CLI — the interface ROADMAP v0.2 makes primary for review and verify.
+  `persona` and the CLI audited only `inject`, so "who confirmed this" was unanswerable for every
+  confirmation done through the CLI — the interface ROADMAP v0.2 makes primary for review.
   `detail` uses the same shape in both (`<subject> -> <id> <id> …`, or a bare id list for a
   lifecycle transition) so rows from different adapters are comparable. A parity test in
   `cli.test.ts` asserts the CLI writes the actions it owns and never writes `inject_preview`.
@@ -1052,8 +1050,9 @@ Rules that hold for every route:
 - **Namespace isolation holds on every route**, including the global listings. `getEntity`
   is id-based and deliberately not ns-filtered, so a route that resolves an id re-checks
   the resulting row's ns — the guard `inject` already applies for the same reason.
-- **`verify` is a permission separate from `read` and `write`**, including for a browser
-  session. A logged-in human is not automatically a verifier (ENTERPRISE.md).
+- **`write` is a permission separate from `read`**, including for a browser session: a
+  logged-in human is a viewer until granted more (ENTERPRISE.md), because what enters under
+  `write` is live to every agent on the scope.
 - **The static shell is ungated even under `--auth`.** It contains no knowledge, and a
   static export has no middleware, so the shell must load before a login form can render.
   Everything that returns data is gated.
@@ -1076,11 +1075,10 @@ yoke search <text> [--type t] [--status s] [--limit n]   # the port's FTS; what 
 yoke link <from> <relation> <to>   # record a relation — the only creation path for one
 yoke list [--type t] [--status s] [--limit n] [--after id]   # enumerate (keyset paging)
 yoke graph [--limit n]     # the entity/relation graph, bounded, truncation reported
-yoke review [--stale] [--type t]   # list drafts; --stale lists verified records past their TTL
-yoke verify <id...> [--all-drafts]   # promote (batch), refresh last_confirmed — also how a stale record is re-confirmed
-                                     # --all-drafts over an empty queue succeeds; no ids and no flag is the usage error
+yoke review [--type t]     # the re-confirmation queue: verified records past their TTL, most-consumed first
+yoke verify <id...>        # re-confirm (batch) — refresh last_confirmed; also revives a retired id
 yoke deprecate <id...>     # deprecate (e.g. resolving a contradiction) — reports what derived_from it
-yoke inject <query> [--include-draft] [--limit n] [--scope id] [--depth n] [--as-of ts] [--since ts]   # retrieve, with citations
+yoke inject <query> [--limit n] [--scope id] [--depth n] [--as-of ts] [--since ts]   # retrieve, with citations
 yoke inject --scope <id> --unseen   # what this context has that this client was not handed yet; silent when nothing
 yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
 yoke conflicts             # list conflicts_with
@@ -1093,7 +1091,7 @@ yoke backfill              # derive missing authored_by edges (upgrade path, ide
 yoke backfill --embeddings [--rebuild] [--limit n] [--after id]   # repair vector coverage; --rebuild changes dimension
 yoke backfill --occurred-at [--dry-run]      # restore event times a pre-fix verify overwrote (idempotent)
 yoke rename-type <from> <to>   # rename an ontology type in the declaration AND every stored row
-yoke connect <github-pr|slack|notes|raw|rdb>   # external sources → draft knowledge
+yoke connect <github-pr|slack|notes|raw|rdb>   # external sources → knowledge, signed by the connector
                                            # raw extracts via a model — see "Extractor contract"
 yoke relate [--limit n]    # a model proposes the links BETWEEN stored records — see "Relater contract"
 yoke mcp                   # start the MCP server (stdio)
@@ -1173,12 +1171,12 @@ A persona is the person-anchored reading of an anchored injection — not a seco
 Because authorship is a graph edge rather than a provenance lookup outside the storage contract,
 persona works on every conformant backend (sqlite, sharded, opensearch, postgres).
 
-**Measured, not asserted** (`npm run eval:persona`): against a corpus of five planted failure modes —
+**Measured, not asserted** (`npm run eval:persona`): against a corpus of planted failure modes —
 another author's records on the same topics, records tied to the person by `relates_to`, the
-`derived_from` sources under their decisions, their own drafts, their own aged records — the eval
-reports impersonation, draft-leak and stale-leak rates (target 0%) and whole/query recall (target
-100%), and exits non-zero on any miss. Both regressions it exists to catch were planted once to prove
-it bites: including drafts reads as a 100% draft leak, dropping `scopeRel` as 50% impersonation.
+`derived_from` sources under their decisions, their own aged records — the eval reports
+impersonation and stale-leak rates (target 0%) and whole/query recall (target 100%), and exits
+non-zero on any miss. The regression it exists to catch was planted once to prove it bites:
+dropping `scopeRel` reads as 50% impersonation.
 
 **Upgrade path**: databases written before stage 4b have no authorship edges. `yoke backfill`
 re-derives them through the gate from each version's recorded provenance, skipping `origin:
@@ -1232,7 +1230,6 @@ reports each source against the store as it is *now*:
 | `deprecated` | retired |
 | `superseded` | something `supersedes` it |
 | `missing` | not in the store on this `--ns` |
-| `draft` | any non-verified stored status is reported verbatim; unreachable through `inject`-built snapshots today, emitted for a hand-edited one |
 
 - **Exit code 1 when any source is not `ok` — and when the file or a header token cannot be parsed**
   (an unreadable source is not a source that is fine), so the check is usable as a CI or pre-commit
@@ -1310,9 +1307,10 @@ property of the material, not a preference.
   passes `.md`/`.txt`/`.log` through. A new format is a case in that function.
 
 - **A producer, not a writer.** It lives in the connector tier and proposes `EntityInput`s; every one
-  goes through the commit gate as a `draft`. Nothing about review, injection or the gate changes,
-  which is the whole reason this is safe to add: the model gets a say in what is *proposed* and none
-  in what is *known*.
+  goes through the commit gate, signed by the connector's actor and carrying its grounding quote.
+  Nothing about injection or the gate changes, which is the whole reason this is safe to add: the
+  model proposes, the gate validates, and what it filed answers to the same freshness, dispute and
+  retraction machinery as everything else.
 - **The type menu is the ontology, not a list in the prompt.** Extractable = entity types not marked
   `structural`. An org that adds `incident` gets it extracted with no code change; `person` and
   `collaboration` are withheld because they name what knowledge attaches to rather than asserting
@@ -1327,9 +1325,9 @@ property of the material, not a preference.
 - **Quote grounding defends against fabrication, not against a hostile document.** It proves the
   model did not invent the claim; it cannot prove the SOURCE is honest. Anyone who controls a file in
   the directory being ingested can write text that says whatever they want and have records proposed
-  that quote it exactly — grounding is satisfied by construction. What contains that is the same
-  thing that contains every other automatic path: everything lands as a `draft`, injection returns
-  verified knowledge by default, and a person has to verify a record before an agent is told it. Read
+  that quote it exactly — grounding is satisfied by construction. What contains that is what contains every
+  other path: the records enter signed by the connector's actor with the quote attached, expire
+  unless a person re-confirms them, and are retired with a broadcast reason when challenged. Read
   `connect raw` as "a model reading material you already trust", not as a filter that makes untrusted
   material safe.
 - **In a `.jsonl` transcript, `thinking` blocks, tool calls, tool results and sidechains are dropped
@@ -1437,7 +1435,7 @@ a language model, and the first that can produce a relation without a person typ
   instead of an obvious mistake. Equal timestamps carry no direction and are dropped too.
 - **`because` is filed as the edge's `rationale`.** A reviewer deciding whether a link is real should
   not have to reconstruct why a model thought so — the same reason a record keeps its quote.
-- **Everything is a draft, and one rejection does not end a batch.** A proposal the gate refuses is
+- **One rejection does not end a batch.** A proposal the gate refuses is
   counted and skipped. A run whose every call failed exits 1 naming the endpoint, rather than
   reporting a corpus with nothing to connect; unconfigured is refused outright, as `connect raw` is.
 - **Each record is asked about its search neighbours, not about a batch (`YOKE_RELATE_NEIGHBOURS`,

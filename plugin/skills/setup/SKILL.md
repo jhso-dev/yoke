@@ -25,11 +25,11 @@ nothing set means `./yoke.db` in the repo; a team store is `YOKE_POSTGRES_URL`/`
 ## 3. The working context
 
 `yoke list --type collaboration` — the anchor must be a real record. If the initiative has none,
-create it with the user's wording and have the user confirm before promoting:
+create it with the user's wording, and have the user confirm the wording first — it is live the
+moment it is filed:
 
 ```
 yoke add collaboration --actor <user> --attr title=<key> --attr summary="…"
-yoke verify <id> --actor <user>
 ```
 
 ## 4. The binding

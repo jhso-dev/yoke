@@ -1,6 +1,7 @@
 // slack connector (PLAN 8.5). Calls the Slack Web API directly with fetch (no SDK — 2 endpoints).
-// One channel message (thread replies included) → one draft fact. Mapping is deliberately dumb:
-// no decision-marker NLP — humans promote what matters via review/verify (the governance model).
+// One channel message (thread replies included) → one fact record. Mapping is deliberately dumb:
+// no decision-marker NLP — what matters is retrieval's problem, and a wrong capture is retired with
+// a reason (the governance model).
 // external_id = slack:<channel>:<ts> (stable message address; a permalink needs an extra API call).
 
 import type { Connector, SourceItem } from "./types.js";
@@ -20,7 +21,7 @@ interface SlackPage {
   response_metadata?: { next_cursor?: string };
 }
 
-/** Slack channel → draft fact connector. since accepts a unix ts (Slack native) or ISO 8601. */
+/** Slack channel → fact connector. since accepts a unix ts (Slack native) or ISO 8601. */
 export function makeSlackConnector(opts: {
   channel: string;
   token: string;

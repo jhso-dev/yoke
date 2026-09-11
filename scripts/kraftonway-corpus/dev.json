@@ -233,7 +233,7 @@
       "type": "decision",
       "author": "person:dev-seo-junho",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "클라이언트 안티치트와 별개로, 서버사이드에 통계적 이상탐지(비정상 명중률·시야각 스냅·이동속도 위반)를 상시 가동해 클라 안티치트를 우회한 치트를 사후 탐지한다.",
         "rationale": "클라이언트 방어는 언젠가 우회된다는 전제로, 서버가 관측 가능한 궤적·명중 패턴만으로 이상치를 집계했다. 예: 헤드샷 비율 + 조준 각속도 분포가 상위 0.1% 꼬리에 지속적으로 머무는 계정을 리뷰 큐에 올린다. 클라 신호가 아니라 서버 관측이므로 커널 우회 핵도 흔적을 남긴다.",
@@ -399,7 +399,7 @@
       "type": "decision",
       "author": "person:dev-kang-taehee",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "콘솔(Xbox/PS) 크로스플레이는 콘솔 간에만 우선 허용하고 PC 풀과는 기본 분리한다. PC-콘솔 혼합은 옵트인 파티에 한해 검토한다.",
         "rationale": "입력 방식(마우스 vs 패드) 조준 정확도 격차 때문에 PC-콘솔 혼합은 공정성 논란이 크다. 콘솔 간은 입력이 유사해 풀을 합쳐 큐타임을 줄이는 이득이 명확하다. PC 혼합은 aim assist 정책이 확정되지 않아 draft 상태로 둔다.",
@@ -489,7 +489,7 @@
       "type": "decision",
       "author": "person:dev-kang-taehee",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "랭크 큐 매칭은 배틀로열 특성(1v99, 순위 기반 결과)에 맞춘 커스텀 스킬 레이팅을 쓰되, 매칭 폭을 큐타임에 따라 점진 완화한다.",
         "rationale": "체스식 1:1 Elo/TrueSkill을 그대로 쓰기 어렵다 — 한 매치에 100명이 있고 결과가 순위 분포다. 킬·생존시간·순위를 가중한 커스텀 레이팅을 시험 중이며, 얇은 시간대엔 스킬 매칭보다 큐타임 성립을 우선한다. 파라미터가 미확정이라 draft.",
@@ -579,7 +579,7 @@
       "type": "decision",
       "author": "person:dev-nam-jihye",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "계정/인벤토리 저장소는 account_id 해시 기반 수평 샤딩으로 확장한다(계획). 크로스 샤드 트랜잭션은 회피하도록 소유권 경계를 계정 단위로 정렬한다.",
         "rationale": "글로벌 유저 증가로 단일 PostgreSQL 쓰기 상한이 보이기 시작해 샤딩을 설계 중이다. 계정 단위로 데이터가 자기완결적이면 크로스 샤드 조인/트랜잭션을 피할 수 있다. 아직 라이브 검증 전이라 draft.",
@@ -683,7 +683,7 @@
       "type": "fact",
       "author": "person:dev-moon-taeyang",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "리전별 인게임 RTT p99 (합성)",
         "statement": "리전 확장 정착 후 인게임 RTT p99: NA 82ms, EU 76ms, AS 91ms, SEA 105ms, SA 118ms. 목표선은 전 리전 p99 <120ms이며 SA가 상한 근처라 추가 엣지 검토 대상."
@@ -694,7 +694,7 @@
       "type": "fact",
       "author": "person:dev-moon-taeyang",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "최대 동시접속 및 동시 매치 수 (합성)",
         "statement": "합성 피크 기준 전 세계 동시접속(CCU) 약 3.2M, 동시 진행 매치 약 34,000개, 분당 신규 매치 생성률 피크 약 2,100 matches/min. 이 생성률이 예비 버퍼 산정의 지배 변수(fact-launch-2018-postmortem)."
@@ -749,7 +749,7 @@
       "type": "fact",
       "author": "person:dev-yoon-garam",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "dedicated server 매치당 비용 (합성)",
         "statement": "스팟 인스턴스 혼합 운영 기준 매치당 서버 원가는 20Hz에서 약 x, 30Hz 풀에서 약 1.6x(fact-tickrate-cost 반영). 콜드스타트 프리풀·프리워밍 도입 후 유휴 예비 버퍼 비용이 콜드스타트 단축(6분→90초)만큼 줄어, 같은 실패율 목표를 더 얇은 버퍼로 달성했다."
@@ -793,7 +793,7 @@
       "type": "fact",
       "author": "person:dev-jeong-eunbi",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "클라이언트 크래시율 (합성)",
         "statement": "합성 라이브 기준 세션당 클라 크래시율 약 0.6%. 상위 크래시 버킷은 콘솔 텍스처 스트리밍 OOM(fact-memory-oom)과 특정 GPU 드라이버 조합. 자동 미니덤프 그룹핑(dec-crash-reporting)으로 상위 3개 버킷이 전체의 절반 이상."
@@ -848,7 +848,7 @@
       "type": "fact",
       "author": "person:dev-seo-junho",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "안티치트 오탐 사건 (합성)",
         "statement": "커널 안티치트(dec-anticheat-kernel) 롤아웃 중 특정 오버클럭 유틸리티/RGB 드라이버가 치트 시그니처와 충돌해 정당 유저를 오탐 차단하는 사건이 있었다. 하드웨어 호환 화이트리스트와 스테이징 카나리 롤아웃을 강화하고, 커널 차단은 즉시 밴이 아니라 매치 진입 차단 + 리뷰 큐로 우회하게 정책을 바꿨다."
@@ -859,7 +859,7 @@
       "type": "fact",
       "author": "person:dev-moon-taeyang",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "텔레메트리 볼륨 (합성)",
         "statement": "게임 이벤트 텔레메트리 유입 합성 피크 약 하루 40TB(교전·이동·데미지·아이템 이벤트). Kafka 파티션 수는 리전x이벤트타입으로 스케일. 원본 90일 보존, 집계본은 장기 보존(dec-telemetry-pipeline)."
@@ -1038,7 +1038,7 @@
       "type": "resource",
       "author": "person:dev-seo-junho",
       "size": "line",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "안티치트 다층 방어 설계 (합성, 대외비 초안)",
         "statement": "클라 유저모드→커널 격상, 서버사이드 이상탐지, 오탐 롤아웃 정책을 묶은 설계. 세부 시그니처는 비공개.",

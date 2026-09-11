@@ -1,6 +1,6 @@
 // UI API tests (PLAN 9.2 DoD) — in-process: start createUiServer on port 0, hit the JSON API with
-// fetch. No browser automation. Exercises review→verify→review-empty, conflicts/ontology/persona
-// shapes, the verify audit row, and GET / serving the four-tab HTML.
+// fetch. No browser automation. Exercises the re-confirmation queue (stale→verify→queue-empty),
+// conflicts/ontology/persona shapes, the verify audit row, and GET / serving the four-tab HTML.
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import type { Server } from "node:http";
@@ -40,7 +40,7 @@ beforeAll(async () => {
   await store.init();
   await store.saveOntology(ont);
 
-  // One draft fact (for the review queue), plus two decisions with a conflicts_with relation.
+  // One fact, plus two decisions with a conflicts_with relation — all born verified.
   const fact = await commit(
     store,
     ont,
@@ -252,20 +252,43 @@ const del = (p: string) =>
   }));
 
 describe("ui API", () => {
-  it("review lists drafts with citations, verify promotes, review then empties that row", async () => {
-    const drafts = await get("/api/review");
-    const draft = drafts.find((d: { id: string }) => d.id === factId);
-    expect(draft).toBeDefined();
-    expect(draft.summary).toBe("sky is blue");
-    expect(draft.actor).toBe("tester");
-    expect(draft.citation).toContain(`[fact:${factId}@v1]`);
+  it("review is the re-confirmation queue: an aged row with its citation, gone once verified", async () => {
+    // Aged past fact's TTL relative to the suite clock; the fixtures committed at `now` are fresh.
+    const then = "2020-01-01T00:00:00Z";
+    const aged = await commit(
+      store,
+      store.loadOntology(null),
+      {
+        type: "fact",
+        attributes: { statement: "the weather was fine in 2020" },
+      },
+      { actor: "tester", origin: "cli", occurred_at: then },
+      then,
+    );
+    const agedId = aged.entity.id;
 
-    const verified = await post("/api/verify", { ids: [factId] });
-    expect(verified[0].id).toBe(factId);
+    const queue = await get("/api/review");
+    const row = queue.items.find((d: { id: string }) => d.id === agedId);
+    expect(row).toBeDefined();
+    expect(row.summary).toBe("the weather was fine in 2020");
+    expect(row.actor).toBe("tester");
+    expect(row.citation).toContain(`[fact:${agedId}@v1]`);
+    // The queue names its own bounds — a bare count would read as a corpus-wide number.
+    expect(queue.scanned).toBeGreaterThan(0);
+    expect(queue.consumptionWindow).toBeGreaterThan(0);
+    // A fresh record is not in it.
+    expect(queue.items.some((d: { id: string }) => d.id === factId)).toBe(
+      false,
+    );
+
+    const verified = await post("/api/verify", { ids: [agedId] });
+    expect(verified[0].id).toBe(agedId);
     expect(verified[0].status).toBe("verified");
 
     const after = await get("/api/review");
-    expect(after.some((d: { id: string }) => d.id === factId)).toBe(false);
+    expect(after.items.some((d: { id: string }) => d.id === agedId)).toBe(
+      false,
+    );
   });
 
   // /api/deprecate had no test at all, which is how the shape change below could have shipped unnoticed:
@@ -342,33 +365,12 @@ describe("ui API", () => {
     expect(res[0].status).toBe("verified");
   });
 
-  it("review lists newest drafts first", async () => {
-    const ont = store.loadOntology(null);
-    const older = await commit(
-      store,
-      ont,
-      { type: "fact", attributes: { statement: "older draft" } },
-      { actor: "tester", origin: "cli", occurred_at: "2026-07-01T00:00:00Z" },
-      "2026-07-01T00:00:00Z",
-    );
-    const newer = await commit(
-      store,
-      ont,
-      { type: "fact", attributes: { statement: "newer draft" } },
-      { actor: "tester", origin: "cli", occurred_at: "2026-07-31T00:00:00Z" },
-      "2026-07-31T00:00:00Z",
-    );
-
-    const drafts = await get("/api/review");
-    const ids = drafts.map((d: { id: string }) => d.id);
-    expect(ids.indexOf(newer.entity.id)).toBeLessThan(
-      ids.indexOf(older.entity.id),
-    );
-  });
-
-  it("verify wrote an audit row", () => {
-    const events = store.listAudit();
-    const verifyEvent = events.find((e) => e.action === "verify");
+  it("verify wrote an audit row", async () => {
+    await post("/api/verify", { ids: [factId] });
+    const verifyEvent = store
+      .listAudit()
+      .filter((e) => e.action === "verify")
+      .at(-1);
     expect(verifyEvent).toBeDefined();
     expect(verifyEvent?.actor).toBe("reviewer");
     expect(verifyEvent?.detail).toContain(factId);
@@ -396,7 +398,7 @@ describe("ui API", () => {
   it("tokens can be created, listed without secret, and revoked", async () => {
     const created = await post("/api/tokens", {
       name: "ui-test",
-      scopes: ["read", "verify"],
+      scopes: ["read", "write"],
     });
     expect(created.token).toMatch(/^yk_[0-9a-f]{64}$/);
     expect(created.name).toBe("ui-test");
@@ -405,7 +407,7 @@ describe("ui API", () => {
     const row = listed.find((t: { name: string }) => t.name === "ui-test");
     expect(row).toEqual({
       name: "ui-test",
-      scopes: ["read", "verify"],
+      scopes: ["read", "write"],
       created_at: now,
     });
     expect(JSON.stringify(listed)).not.toContain(created.token);
@@ -631,31 +633,26 @@ describe("ui API", () => {
   });
 
   it("injection preview shows exactly what an agent would receive, and audits the look", async () => {
-    // The fact was verified earlier; the two decisions are still drafts.
     const shown = await get("/api/inject?q=sky");
     expect(shown.items.map((r: { id: string }) => r.id)).toEqual([factId]);
     expect(shown.items[0].citation).toContain(factId);
     expect(shown.query).toBe("sky");
 
-    // Drafts are withheld by default and labelled when asked for — the injection filter itself,
-    // not a re-implementation of it.
-    const withoutDrafts = await get("/api/inject?q=mysql");
-    expect(withoutDrafts.items).toEqual([]);
-    const withDrafts = await get("/api/inject?q=mysql&includeDraft=true");
-    expect(withDrafts.items.map((r: { id: string }) => r.id)).toEqual([
-      decisionBId,
-    ]);
-    expect(withDrafts.items[0].effectiveStatus).toBe("draft");
     // The contradiction travels with the row. This screen's own claim is that it shows what an agent
     // receives; the agent receives the marker, and without it two records that flatly disagree render as
     // two ordinary rows — which is what the conflicts screen one page over was already doing.
-    expect(withDrafts.items[0].conflictsWith).toEqual([decisionAId]);
+    const disputed = await get("/api/inject?q=mysql");
+    expect(disputed.items.map((r: { id: string }) => r.id)).toEqual([
+      decisionBId,
+    ]);
+    expect(disputed.items[0].effectiveStatus).toBe("verified");
+    expect(disputed.items[0].conflictsWith).toEqual([decisionAId]);
 
     // A preview is a read of knowledge, so it leaves a trail — under its own action name, so it
     // never gets mistaken for what an agent was told.
     const events = store.listAudit();
     const preview = events.filter((e) => e.action === "inject_preview");
-    expect(preview.length).toBeGreaterThanOrEqual(3);
+    expect(preview.length).toBeGreaterThanOrEqual(2);
     expect(preview[0].actor).toBe("reviewer");
     expect(events.some((e) => e.action === "inject")).toBe(false);
 
@@ -1003,11 +1000,6 @@ describe("scope-anchored injection over HTTP", () => {
     // The hard rule (KNOWLEDGE-POLICY): an anchor prioritises, it never lowers the gate.
     for (const i of out.items)
       expect(["verified", "stale"]).toContain(i.effectiveStatus);
-    expect(
-      out.items.every(
-        (i: { effectiveStatus: string }) => i.effectiveStatus !== "draft",
-      ),
-    ).toBe(true);
   });
 
   it("audits a scoped preview like any other read", async () => {
@@ -1133,27 +1125,24 @@ describe("creating from the browser", () => {
       body: JSON.stringify(body),
     });
 
-  it("creates a draft carrying origin 'web' — allowed, and labelled as hand-typed", async () => {
+  it("creates a record carrying origin 'web' — allowed, and labelled as hand-typed", async () => {
     const res = await postRaw("/api/entity", {
       type: "fact",
       attributes: { statement: "typed at a screen" },
     });
     expect(res.status).toBe(201);
     const created = await res.json();
-    // Draft, never verified: a screen may create, never promote. A screen that could
-    // write a verified record would route around the one human gate this product is built on.
-    expect(created.status).toBe("draft");
+    expect(created.status).toBe("verified");
 
-    // And not because the caller happened to omit it — asking for another state changes nothing.
-    // The gate assigns status; it is not an input, on any adapter.
+    // Status is not an input, on any adapter — the gate assigns it, whatever the caller asks for.
     const asked = await (
       await postRaw("/api/entity", {
         type: "fact",
-        status: "verified",
-        attributes: { statement: "asked to be born verified" },
+        status: "deprecated",
+        attributes: { statement: "asked to be born retired" },
       })
     ).json();
-    expect(asked.status).toBe("draft");
+    expect(asked.status).toBe("verified");
 
     // The label is the whole trade — the ban went away, the ability to tell did not.
     const stored = await store.getEntity(created.id);
@@ -1162,9 +1151,11 @@ describe("creating from the browser", () => {
     // the record also says who.
     expect(stored?.provenance.actor).toBe("reviewer");
 
-    // And it is a real record: it shows up in the queue a human reviews.
-    const drafts = await get("/api/review");
-    expect(drafts.some((d: { id: string }) => d.id === created.id)).toBe(true);
+    // And it is a real record: live to injection like any other commit.
+    const shown = await get("/api/inject?q=typed%20at%20a%20screen");
+    expect(shown.items.some((i: { id: string }) => i.id === created.id)).toBe(
+      true,
+    );
   });
 
   it("hands back the gate's own rejection rather than inventing validation", async () => {
@@ -1541,14 +1532,14 @@ describe("the stale queue over HTTP (SPEC's unimplemented clause)", () => {
 
     // Non-vacuity first: at the suite's own clock nothing has aged, so the route is not merely
     // returning every verified row.
-    const fresh = await get("/api/review?stale=1");
+    const fresh = await get("/api/review");
     expect(fresh.items).toEqual([]);
     expect(fresh.scanned).toBeGreaterThan(0);
 
     // A year on, the fact is past its window and the term still is not.
     const late = await laterServer("2027-09-01T00:00:00Z");
     try {
-      const aged = await late.get("/api/review?stale=1");
+      const aged = await late.get("/api/review");
       const ids = aged.items.map((i: { id: string }) => i.id);
       expect(ids).toContain(factId);
       expect(ids).not.toContain(termId);
@@ -1619,7 +1610,7 @@ describe("the stale queue over HTTP (SPEC's unimplemented clause)", () => {
 
     const late = await laterServer("2027-09-01T00:00:00Z");
     try {
-      const aged = await late.get("/api/review?stale=1");
+      const aged = await late.get("/api/review");
       const rows = aged.items.filter((i: { id: string }) =>
         [hot, cold].includes(i.id),
       );
@@ -1632,14 +1623,6 @@ describe("the stale queue over HTTP (SPEC's unimplemented clause)", () => {
     } finally {
       late.close();
     }
-  });
-
-  it("the draft queue is unaffected by the parameter it does not get", async () => {
-    const drafts = await get("/api/review");
-    // Still an array, not the {items,next,scanned} envelope — the two shapes are different on
-    // purpose and a screen switching tabs must not get one where it expects the other.
-    expect(Array.isArray(drafts)).toBe(true);
-    for (const d of drafts) expect(d.effectiveStatus).toBe("draft");
   });
 });
 
@@ -1841,7 +1824,7 @@ describe("POST /api/backfill --embeddings", () => {
 // `yoke ui --host 0.0.0.0` warns and binds anyway, deliberately: a container cannot port-forward to a
 // loopback-bound process. What the operator did not choose is that anonymous LAN callers may mint
 // credentials — measured before the fix, `POST /api/tokens` from another machine returned a working
-// `["read","write","verify"]` token, and that token authenticated against a hardened `serve --auth`
+// all-scopes token, and that token authenticated against a hardened `serve --auth`
 // process on the same database. The exposure escaped the server that was exposed.
 //
 // The route wiring was verified against a real LAN peer (403 on all three credential routes, 200 on
@@ -1930,7 +1913,7 @@ describe("W-PERSONA-ENVELOPE: the persona carries withheld and identities", () =
   let s: SqliteStorage;
   let srv: Server;
   let b: string;
-  let draftOnly: string;
+  let staleOnly: string;
   let merged: string;
   let mergedAlt: string;
   beforeAll(async () => {
@@ -1943,15 +1926,16 @@ describe("W-PERSONA-ENVELOPE: the persona carries withheld and identities", () =
       origin: "cli",
       occurred_at: at,
     });
-    // A person whose only authored record is a DRAFT: 0 injectable, but withheld says why.
+    // A person whose only authored record has aged out: 0 injectable, but withheld says why.
     const a = await commit(
       s,
       ont,
-      { type: "person", attributes: { name: "Draft Dana" } },
+      { type: "person", attributes: { name: "Stale Dana" } },
       P("seed"),
       at,
     );
-    draftOnly = a.entity.id;
+    staleOnly = a.entity.id;
+    const long_ago = "2020-01-01T00:00:00Z";
     await commit(
       s,
       ont,
@@ -1959,8 +1943,8 @@ describe("W-PERSONA-ENVELOPE: the persona carries withheld and identities", () =
         type: "decision",
         attributes: { conclusion: "flag it", rationale: "safer" },
       },
-      P(draftOnly),
-      at,
+      { actor: staleOnly, origin: "cli", occurred_at: long_ago },
+      long_ago,
     );
     // Two identities merged by same_as, each authoring a verified record.
     const m = await commit(
@@ -2018,14 +2002,14 @@ describe("W-PERSONA-ENVELOPE: the persona carries withheld and identities", () =
     s.close();
   });
 
-  it("a draft-only person renders 'in review', distinct from 'nothing on record'", async () => {
+  it("a stale-only person renders 'aged out', distinct from 'nothing on record'", async () => {
     const p = await fetch(
-      `${b}/api/persona/${encodeURIComponent(draftOnly)}`,
+      `${b}/api/persona/${encodeURIComponent(staleOnly)}`,
     ).then((r) => r.json());
     expect(p.decisions).toHaveLength(0);
     expect(p.facts).toHaveLength(0);
-    // The difference that used to be invisible: something IS on record, awaiting review.
-    expect(p.withheld).toMatchObject({ draft: 1 });
+    // The difference that used to be invisible: something IS on record, past its window.
+    expect(p.withheld).toMatchObject({ stale: 1 });
     expect(p.identities).toBeUndefined();
   });
 

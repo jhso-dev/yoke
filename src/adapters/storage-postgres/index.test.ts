@@ -95,7 +95,7 @@ async function withStore<T>(
 
 const base = {
   type: "note",
-  status: "draft" as const,
+  status: "verified" as const,
   last_confirmed: "2026-01-01T00:00:00Z",
   provenance: {
     actor: "t",
@@ -235,7 +235,7 @@ suite("postgres policies that are contract, not implementation", () => {
   it("applies the status filter before the limit, in either spelling", async () => {
     await withStore(URL_ as string, "yoketest_status", async (store) => {
       for (const [id, status] of [
-        ["st1", "draft"],
+        ["st1", "deprecated"],
         ["st2", "verified"],
         ["st3", "deprecated"],
       ] as const) {
@@ -254,18 +254,18 @@ suite("postgres policies that are contract, not implementation", () => {
       expect(single.map((e) => e.id)).toEqual(["st2"]);
       const many = await store.search({
         text: "zqstatusword",
-        status: ["verified", "draft"],
+        status: ["verified", "deprecated"],
       });
-      expect(many.map((e) => e.id).sort()).toEqual(["st1", "st2"]);
+      expect(many.map((e) => e.id).sort()).toEqual(["st1", "st2", "st3"]);
       // Filter first, THEN cut: a limit of 1 over a filtered set of two is one of the two, never a
       // record the filter excluded.
       const capped = await store.search({
         text: "zqstatusword",
-        status: ["verified", "draft"],
+        status: ["verified", "deprecated"],
         limit: 1,
       });
       expect(capped.length).toBe(1);
-      expect(["st1", "st2"]).toContain(capped[0].id);
+      expect(["st1", "st2", "st3"]).toContain(capped[0].id);
     });
   });
 

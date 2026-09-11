@@ -222,7 +222,7 @@ export function dedupeByQuote<T extends { quote: string }>(items: T[]): T[] {
 }
 
 /**
- * A directory of raw material → extracted draft records. Recursive; files are visited in sorted path
+ * A directory of raw material → extracted records. Recursive; files are visited in sorted path
  * order. `since` compares against each file's own time, which is what makes a re-run cheap: skipping
  * happens before the model is called, whereas ingest's external_id check happens after.
  *

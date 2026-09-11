@@ -134,14 +134,11 @@ type Values = {
   until?: string;
   force?: boolean;
   "replica-of"?: string;
-  "all-drafts"?: boolean;
-  "include-draft"?: boolean;
   relations?: boolean;
   after?: string;
   status?: string;
   "as-of"?: string;
   unseen?: boolean;
-  stale?: boolean;
   embeddings?: boolean;
   rebuild?: boolean;
   "occurred-at"?: boolean;
@@ -181,14 +178,11 @@ const OPTIONS = {
   reason: { type: "string" },
   force: { type: "boolean" },
   "replica-of": { type: "string" },
-  "all-drafts": { type: "boolean" },
-  "include-draft": { type: "boolean" },
   relations: { type: "boolean" },
   after: { type: "string" },
   status: { type: "string" },
   "as-of": { type: "string" },
   unseen: { type: "boolean" },
-  stale: { type: "boolean" },
   embeddings: { type: "boolean" },
   rebuild: { type: "boolean" },
   "occurred-at": { type: "boolean" },
@@ -293,8 +287,8 @@ function noExtra(positionals: string[], keep: number, usage: string): void {
     );
 }
 
-/** The four stored values of `status`. `stale` is NOT among them — see `statusFilter`. */
-const STORED_STATUSES = ["draft", "verified", "deprecated"] as const;
+/** The stored values of `status`. `stale` is NOT among them — see `statusFilter`. */
+const STORED_STATUSES = ["verified", "deprecated"] as const;
 
 /**
  * A `--status` filter, or a refusal that names why the value cannot match.
@@ -309,7 +303,7 @@ function statusFilter(raw: string | undefined): string | undefined {
   if (raw === "stale")
     throw new UsageError(
       "stale is computed at read time, not stored, so no filter can match it — " +
-        "'yoke review --stale' is the queue of verified records past their TTL",
+        "'yoke review' is the queue of verified records past their TTL",
     );
   if (!STORED_STATUSES.includes(raw as (typeof STORED_STATUSES)[number]))
     throw new UsageError(
@@ -387,7 +381,7 @@ function formatEntity(
   at?: string,
 ): string {
   // With the ontology, the column is what injection would decide; without it, the stored value. The two
-  // callers that omit it print a record they have just committed, and a fresh commit is a draft.
+  // callers that omit it print a record they have just committed, whose freshness window has just opened.
   const status = ontology && at ? shownStatus(e, ontology, at) : e.status;
   return `${e.id}  ${e.type}  ${status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
 }
@@ -480,9 +474,10 @@ function usage(): string {
 
 getting started:
   init                      create ./yoke.db and seed the ontology
-  add <type> --attr k=v     stage knowledge (enters as draft)
-  review / verify <id...>   inspect and promote drafts
-  inject <query>            retrieve verified knowledge with citations (--scope id, --depth n, --unseen)
+  add <type> --attr k=v     record knowledge (live immediately, signed by --actor)
+  review                    the re-confirmation queue: what went stale, most-consumed first
+  verify <id...>            re-confirm — refresh a record's freshness window (also revives a retired id)
+  inject <query>            retrieve standing knowledge with citations (--scope id, --depth n, --unseen)
 
 knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, persona
   overview                  the shape of the whole corpus: types, hubs, authors (--limit n)
@@ -623,8 +618,6 @@ async function cmdInit(v: Values, env: Env): Promise<number> {
         ts,
         { existingId: "yoke:system" },
       );
-      // Leaving the system person as a draft would keep it in the review queue forever — promote right after seeding.
-      await verify(store, ["yoke:system"], "yoke:system", ts);
       if (deco) {
         const b = banner();
         if (b) console.log(`\n${b}\n`);
@@ -1074,10 +1067,10 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
   const limit = intFlag(v.limit, "limit");
   return withStore(v, env, async (store) => {
     const ontology = store.loadOntology(ns);
-    // --stale is the OTHER queue: verified records past their type's TTL. SPEC makes viewing stale
-    // review's job — otherwise knowledge leaves injection with nobody told. The rows carry the owner
+    // The queue is the verified records past their type's TTL. SPEC makes viewing stale review's
+    // job — otherwise knowledge leaves injection with nobody told. The rows carry the owner
     // because the fix is a person, not a flag.
-    if (v.stale) {
+    {
       const { items, next, scanned } = await staleEntities(
         store,
         ontology,
@@ -1119,29 +1112,6 @@ async function cmdReview(v: Values, env: Env): Promise<number> {
       emit(v, lines.join("\n"), ranked);
       return 0;
     }
-    const drafts = (
-      await store.listEntities({
-        status: "draft",
-        ns,
-        type: typeFilter(v.type, ontology),
-      })
-    ).items;
-    if (drafts.length === 0) {
-      emit(v, "no drafts", []);
-      return 0;
-    }
-    const { nameOf, prefetch } = makeActorNames(store, ontology, ns);
-    await prefetch(drafts);
-    const lines = await Promise.all(
-      drafts.map(
-        async (e) =>
-          `${e.id}  ${e.type}  ${summarize(e, ontology)}  ${
-            (await nameOf(e.provenance.actor)) ?? e.provenance.actor
-          }  ${e.provenance.occurred_at}`,
-      ),
-    );
-    emit(v, lines.join("\n"), drafts);
-    return 0;
   });
 }
 
@@ -1153,27 +1123,15 @@ async function cmdVerify(
   const actor = resolveActor(v, env);
   const ns = resolveNs(v.ns, env);
   return withStore(v, env, async (store) => {
-    const ids = v["all-drafts"]
-      ? (await store.listEntities({ status: "draft", ns })).items.map(
-          (e) => e.id,
-        )
-      : positionals;
-    // "Verify everything" over an empty queue is a queue that is empty, not a mistake. It failed as
-    // a usage error until a batch run hit it: a namespace whose extraction proposed nothing ended
-    // the whole job, and the message named flags the caller had already passed correctly.
-    if (ids.length === 0 && v["all-drafts"]) {
-      emit(v, "nothing to verify: no drafts on this scope", []);
-      return 0;
-    }
+    const ids = positionals;
     if (ids.length === 0) {
-      console.error("usage: yoke verify <id...> [--all-drafts] [--actor a]");
+      console.error("usage: yoke verify <id...> [--actor a]");
       return 1;
     }
     const ts = now();
     const promoted = await verify(store, ids, actor, ts, ns);
-    // Verify is THE governance act — ENTERPRISE.md calls it the most important axis in this
-    // product's permission model — and the CLI is its primary interface (ROADMAP v0.2), so the trail
-    // must be able to answer "who promoted this" for a promotion done the normal way.
+    // Re-confirming extends what injection keeps serving, and reviving a retired record changes it
+    // outright, so the trail must answer "who confirmed this" for a confirmation done the normal way.
     store.logAudit({
       actor,
       action: "verify",
@@ -1183,7 +1141,7 @@ async function cmdVerify(
     });
     emit(
       v,
-      `verified ${promoted.length}: ${promoted.map((e) => e.id).join(" ")}`,
+      `re-confirmed ${promoted.length}: ${promoted.map((e) => e.id).join(" ")}`,
       promoted,
     );
     return 0;
@@ -1243,7 +1201,7 @@ async function cmdDeprecate(
 }
 
 const INJECT_USAGE =
-  "usage: yoke inject <query> [--include-draft] [--limit n] [--scope id] [--as-of ts] [--since ts]\n" +
+  "usage: yoke inject <query> [--limit n] [--scope id] [--as-of ts] [--since ts]\n" +
   '  quote a phrase: yoke inject "retry budget"\n' +
   "       yoke inject --scope <id>            briefing of that working context\n" +
   "       yoke inject --scope <id> --depth 2  and what that context's context knows\n" +
@@ -1330,7 +1288,6 @@ async function cmdInject(
       query,
       ts,
       {
-        includeDraft: v["include-draft"],
         limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
         ns,
         // The scope the MCP tool passes, so the two front ends reproduce each other's results
@@ -1417,7 +1374,7 @@ async function cmdInject(
     // Zero hits: say why, don't imply the knowledge simply isn't there. The counts and the reasons come
     // from core (`withheld`), so the terminal, `--json` and the MCP tool explain the same emptiness.
     // The one next action this surface can name is kept: it is the sentence that teaches readers the
-    // gate exists ("review with 'yoke review'").
+    // re-confirmation queue exists ("re-confirm with 'yoke review'").
     //
     // The same sentence rides a PARTIAL answer, where it matters more: a full page of loosely related
     // records reads as "that is everything we know", and the record that answered the question can be
@@ -1426,7 +1383,7 @@ async function cmdInject(
     const reasonLine = withheld
       ? `${items.length ? "-- also held back:" : "no verified knowledge —"} ` +
         describeWithheld(withheld) +
-        (withheld.draft > 0 ? " — review with 'yoke review'" : "")
+        (withheld.stale > 0 ? " — re-confirm with 'yoke review'" : "")
       : "no results";
     if (items.length && withheld) lines.push(reasonLine);
     const human = items.length ? lines.join("\n") : reasonLine;
@@ -1572,7 +1529,7 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
     const typeRows = Object.entries(o.entities.byType)
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([type, c]) => {
-        const parts = (["verified", "draft", "stale", "deprecated"] as const)
+        const parts = (["verified", "stale", "deprecated"] as const)
           .filter((k) => c[k] > 0)
           .map((k) => `${c[k]} ${k}`);
         return `  ${type.padEnd(14)} ${parts.join(", ")}`;
@@ -1703,8 +1660,8 @@ async function cmdRenameType(
 }
 
 // relate — a model proposes the edges between records already in the store (connectors/relate.ts
-// says why that is a command of its own). Everything it proposes is a draft, like every other
-// automatic path; what a reviewer sees is a claim about two records rather than one.
+// says why that is a command of its own). What it files is a claim about two records rather than
+// one, signed by the connector's actor like every other automatic path.
 async function cmdRelate(v: Values, env: Env): Promise<number> {
   const actor = resolveActor(v, env);
   const ns = resolveNs(v.ns, env);
@@ -1998,7 +1955,7 @@ async function cmdOntology(
   return 1;
 }
 
-/** Shared connect tail: route any connector through ingest (draft staging, idempotent external_id). */
+/** Shared connect tail: route any connector through ingest (the commit gate, idempotent external_id). */
 async function runIngest(
   // A factory, because an extracting connector is built FROM the ontology (the type menu it may
   // propose into) and the ontology is only in hand once the store is open.
@@ -2144,8 +2101,8 @@ async function cmdConnect(
   );
 }
 
-// connect rdb (PLAN 8.3): read-map an existing RDB into verified entities. See rdb-mapping.ts for the
-// design exception (bypasses draft staging, still validates against the ontology).
+// connect rdb (PLAN 8.3): read-map an existing RDB into entities. See rdb-mapping.ts for the
+// design exception (bulk bypasses the per-record gate, still validates against the ontology).
 async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
   if (!v.mapping) {
     console.error(
@@ -2423,9 +2380,9 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
 // machine actors (CI, scheduled connectors), the bootstrap admin credential (the exchange never
 // grants admin), and a deployment with no GitHub.
 const TOKEN_CREATE_USAGE =
-  'usage: yoke token create --name <n> --scopes "<ns>:read,<ns>:write[,<ns>:<type>:verify,<ns>:admin]"\n' +
+  'usage: yoke token create --name <n> --scopes "<ns>:read,<ns>:write[,<ns>:admin]"\n' +
   "  scope = action | namespace:action | namespace:type:action\n" +
-  "  actions: read, write, verify (promote/retire), admin (issue credentials)\n" +
+  "  actions: read, write (commit/re-confirm/retire), admin (credentials, ontology migration)\n" +
   "  an action with NO namespace grants every tenant — name the namespace unless you mean that\n" +
   "  people on a GitHub org need no token: the server exchanges their gh login (YOKE_GITHUB_ORG) —\n" +
   "  this command is for machine actors, the bootstrap admin credential, and a GitHub-less deployment";
@@ -2689,9 +2646,8 @@ const COMMAND_USAGE: Record<string, string> = {
   ontology: ONTOLOGY_USAGE,
   backup: BACKUP_USAGE,
   review:
-    "usage: yoke review [--stale] [--type t] [--limit n] [--after cursor]\n" +
-    "  no flags   drafts awaiting review\n" +
-    "  --stale    verified records past their type's TTL, most-injected first",
+    "usage: yoke review [--type t] [--limit n] [--after cursor]\n" +
+    "  the re-confirmation queue: verified records past their type's TTL, most-injected first",
   audit:
     "usage: yoke audit [--since ts] [--until ts] [--limit n] [--shape]\n" +
     "  --shape    workload composition: anchored / briefing / plain injections",
@@ -2702,7 +2658,7 @@ const COMMAND_USAGE: Record<string, string> = {
     "  no flags       re-derive missing authorship edges\n" +
     "  --embeddings   embed records that have no vector\n" +
     "  --rebuild      re-embed records that already have one",
-  verify: "usage: yoke verify <id...> [--all-drafts] [--actor a]",
+  verify: "usage: yoke verify <id...> [--actor a]",
   deprecate:
     'usage: yoke deprecate <id...> [--actor a] [--reason "why it was retired"]',
   add: "usage: yoke add <type> [--actor id] [--attr k=v ...] [--scope entity-id]",
@@ -2776,7 +2732,7 @@ export async function runCli(
   // `--help` never reaches a command: for a command with no required arguments the convention that
   // saves it ("run it with missing arguments to see its usage") does not fire, so without this
   // `<cmd> --help` would EXECUTE the command — and `backfill` writes. Those five commands are also
-  // why the table below exists: their flags (`review --stale`, `audit --since`, `overview --limit`,
+  // why the table below exists: their flags (`review --type`, `audit --since`, `overview --limit`,
   // `backfill --embeddings`) are documented at no point the convention reaches.
   if (values.help) {
     console.log(COMMAND_USAGE[command] ?? usage());
