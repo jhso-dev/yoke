@@ -279,6 +279,60 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     ).toBe(400);
   });
 
+  it("a retirement reaches the record's AUTHOR, who was never handed it (S5)", async () => {
+    // The ledger counts inject rows, and an author never pulled what they wrote — yet theirs is the
+    // session most likely to still be building on it. The recall must chase authorship, not only
+    // deliveries.
+    const ont = store.loadOntology();
+    const scope = (
+      await commit(
+        store,
+        ont,
+        { type: "collaboration", attributes: { title: "PROJ-2" } },
+        { actor: "po", origin: "cli", occurred_at: now() },
+        now(),
+      )
+    ).entity.id;
+    const beToken = store.createToken({
+      name: "be",
+      scopes: ["read", "write"],
+      created_at: now(),
+    }).token;
+    // BE files a fact through the server (signed token:be — the same handle the authored_by edge
+    // carries), and never reads the scope.
+    const created = await authPost(
+      "/api/entity",
+      {
+        type: "fact",
+        attributes: { statement: "settlement API allows 100 rps" },
+        scope,
+      },
+      beToken,
+    );
+    expect(created.status).toBe(201);
+    const badId = ((await created.json()) as { id: string }).id;
+    // Someone else retires it with a reason.
+    const dep = await authPost(
+      "/api/deprecate",
+      { ids: [badId], reason: "measured 429 at 30 rps" },
+      writeToken,
+    );
+    expect(dep.status).toBe(200);
+    // BE's next hook: the recall, with the reason — via authorship, since BE holds no delivery.
+    const be = await authGet(`/api/inject?scope=${scope}&unseen=1`, beToken);
+    expect(be.status).toBe(200);
+    const body = await be.text();
+    expect(body).toContain("changed since handed to you");
+    expect(body).toContain("measured 429 at 30 rps");
+    // Delivered once: the recall rode an inject row, so the next call is silent.
+    const again = await authGet(`/api/inject?scope=${scope}&unseen=1`, beToken);
+    expect(again.status).toBe(204);
+    // The retirer's own session needs no recall of what it retired.
+    const po = await authGet(`/api/inject?scope=${scope}&unseen=1`, writeToken);
+    if (po.status === 200)
+      expect(await po.text()).not.toContain("measured 429 at 30 rps");
+  });
+
   it("UI shell (GET /) stays ungated even under auth", async () => {
     const res = await fetch(run.base + "/");
     expect(res.status).toBe(200);

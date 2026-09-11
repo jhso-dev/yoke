@@ -376,6 +376,17 @@ export function deliveries(
  * path, a new decision that supersedes the old one, is caught here). Second: the briefing's records
  * since the last anchored delivery, minus any version this reader already holds from another read.
  *
+ * "Handed" includes what `reader` AUTHORED on this context. The ledger counts inject rows, so
+ * without this the session most invested in a record — its author's, still building on what it
+ * wrote — is the one a retirement never reaches (found live: S5, the writer of a retired record
+ * kept believing it). An author needs no new-half copy of their own record; what they need is the
+ * changed-half when someone ELSE retires it, so only retired hop-1 records are checked for
+ * authorship — one targeted `neighbors(id, 'authored_by')` per RETIRED row, never per hop row, on
+ * top of one `neighbors(anchor)` for the hop set. Delivery dedups itself: the recall goes on the
+ * same inject row every delivery rides, so the next call reads it as already handed.
+ * ceiling: hop-1 only, matching the walk `--unseen` briefs; an author two hops out learns of the
+ * retirement when any read reaches it.
+ *
  * `delivered` empty means: say nothing, write no row, so the bound stays put and the next call costs
  * the same. Otherwise every id in it goes on one `inject` row — that row is what stops the next call
  * from saying this again.
@@ -388,6 +399,7 @@ export async function unseenReport(
   anchor: Entity,
   handed: ReturnType<typeof deliveries>,
   result: { items: InjectItem[]; omitted: number },
+  reader: string,
 ): Promise<{ lines: string[]; delivered: string[] }> {
   const unseenOf = (e: Entity) => {
     const at = handed.lastHanded.get(e.id);
@@ -408,6 +420,27 @@ export async function unseenReport(
         `-> ${effectiveStatus(e, ontology, now)}${reason ? `: ${reason}` : ""}`,
       );
     }
+  // Author recall: retired records on this context that `reader` wrote and someone else retired.
+  const hop = await store.neighbors(anchor.id);
+  const hopIds = [
+    ...new Set(hop.map((r) => (r.from === anchor.id ? r.to : r.from))),
+  ].filter((id) => id !== anchor.id && !heldById.has(id));
+  const attached = (await readEntities(store, hopIds)).filter(
+    (e) => normalizeNs(e.ns) === normalizeNs(ns),
+  );
+  for (const e of attached) {
+    if (e.status !== "deprecated") continue;
+    // The retiring version names the retirer; the author lives on the authored_by edge the gate
+    // wrote at commit. Self-retired needs no notice.
+    if (e.provenance.actor === reader || !unseenOf(e)) continue;
+    const wrote = (await store.neighbors(e.id, "authored_by", "out")).some(
+      (r) => r.to === reader,
+    );
+    if (!wrote) continue;
+    const reason = retirementOf(e)?.reason;
+    heldById.set(e.id, e);
+    changed.set(e.id, `-> deprecated${reason ? `: ${reason}` : ""}`);
+  }
   const fresh = result.items.filter(
     (it) => !changed.has(it.entity.id) && unseenOf(it.entity),
   );

@@ -1312,6 +1312,7 @@ async function cmdInject(
         anchor,
         handed,
         { items, omitted },
+        resolveActor(v, env),
       );
       if (delivered.length === 0) return 0;
       console.log(lines.join("\n"));

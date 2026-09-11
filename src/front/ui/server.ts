@@ -839,6 +839,7 @@ export function createUiHandler(
           anchor,
           handed,
           { items, omitted },
+          actor,
         );
         if (delivered.length === 0) {
           res.writeHead(204);
