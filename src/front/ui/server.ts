@@ -195,19 +195,6 @@ function instantParam(url: URL, name: string): string | undefined {
   }
 }
 
-function newestFirst<
-  T extends { provenance: { occurred_at: string }; id: string },
->(rows: T[]): T[] {
-  return [...rows].sort(
-    (a, b) =>
-      // By instant, not by string: a database predating the gate's canonicalization holds both
-      // vintages, and `Z` sorts after `.`, so a record confirmed at 00:00:00.500Z would sort OLDER
-      // than one at 00:00:00Z. The last collating comparison of a timestamp in the product.
-      Date.parse(b.provenance.occurred_at) -
-        Date.parse(a.provenance.occurred_at) || b.id.localeCompare(a.id),
-  );
-}
-
 async function graphEntities(
   store: YokeStore,
   ontology: TypeDef[],
@@ -831,7 +818,7 @@ export function createUiHandler(
         },
       );
       if (handed && anchor) {
-        const { lines, delivered } = await unseenReport(
+        const { lines, delivered, changed } = await unseenReport(
           store,
           injectOntology,
           ns,
@@ -857,7 +844,7 @@ export function createUiHandler(
         bestEffortAudit({
           actor,
           action: "inject",
-          detail: injectDetail(delivered, { scope }),
+          detail: injectDetail(delivered, { scope, changed }),
           at: ts,
           ns,
         });

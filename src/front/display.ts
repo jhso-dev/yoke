@@ -223,16 +223,30 @@ export const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
  */
 export function injectDetail(
   ids: string[],
-  opts?: { query?: string; scope?: string; asOf?: string },
+  opts?: { query?: string; scope?: string; asOf?: string; changed?: number },
 ): string {
   const subject = [
     opts?.scope,
+    // How many of the ids are the changed-half of an unseen delivery — a recall or reversal landing
+    // in a running session, as opposed to new knowledge. This is the interrupt-rate instrumentation
+    // `audit --pulse` reads; rows written before it carry no token and are counted as unjudgeable,
+    // never as zero.
+    opts?.changed !== undefined ? `changed=${opts.changed}` : undefined,
     opts?.asOf ? `@${opts.asOf}` : undefined,
     opts?.query,
   ]
     .filter((t): t is string => !!t)
     .join(" ");
   return `${subject} -> ${ids.join(" ")}`;
+}
+
+/** `injectDetail`'s changed token read back: the count, or undefined for a row written before the
+ * instrumentation (or by a non-unseen read) — the two must stay distinguishable (see --pulse). */
+export function changedOf(detail: string): number | undefined {
+  const m = (detail.split(" -> ")[0] ?? "").match(
+    /(?:^| )changed=(\d+)(?: |$)/,
+  );
+  return m ? Number(m[1]) : undefined;
 }
 
 /**
@@ -248,7 +262,11 @@ export function injectShape(detail: string): {
   shape: "anchored" | "briefing" | "plain";
   asOf: boolean;
 } {
-  const tokens = (detail.split(" -> ")[0] ?? "").split(" ").filter(Boolean);
+  const tokens = (detail.split(" -> ")[0] ?? "")
+    .split(" ")
+    .filter(Boolean)
+    // The changed token is delivery metadata, not part of the subject's shape.
+    .filter((t) => !/^changed=\d+$/.test(t));
   const anchored = ULID.test(tokens[0] ?? "");
   const rest = tokens.slice(anchored ? 1 : 0);
   const asOf = !!rest[0]?.startsWith("@");
@@ -338,7 +356,10 @@ export function deliveries(
     if (e.action !== "inject" && e.action !== "persona") continue;
     const arrow = e.detail.lastIndexOf(" -> ");
     if (arrow === -1) continue;
-    const subject = e.detail.slice(0, arrow).split(" ");
+    const subject = e.detail
+      .slice(0, arrow)
+      .split(" ")
+      .filter((t) => !/^changed=\d+$/.test(t));
     // An as-of read hands over the version current THEN, so it says nothing about whether the client
     // holds the current one. The `@<instant>` token sits first, or second after an anchor — read there
     // rather than via `injectShape`, whose anchor test is ULID-shaped and ids are not all ULIDs.
@@ -400,7 +421,7 @@ export async function unseenReport(
   handed: ReturnType<typeof deliveries>,
   result: { items: InjectItem[]; omitted: number },
   reader: string,
-): Promise<{ lines: string[]; delivered: string[] }> {
+): Promise<{ lines: string[]; delivered: string[]; changed: number }> {
   const unseenOf = (e: Entity) => {
     const at = handed.lastHanded.get(e.id);
     return at === undefined || !atOrBefore(versionTime(e), at);
@@ -487,6 +508,7 @@ export async function unseenReport(
   return {
     lines,
     delivered: [...changed.keys(), ...fresh.map((it) => it.entity.id)],
+    changed: changed.size,
   };
 }
 

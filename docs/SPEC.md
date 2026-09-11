@@ -1033,6 +1033,7 @@ Rules that hold for every route:
   | `<anchorId> <query> -> <ids>` | a query with a working-context anchor |
   | `<anchorId> -> <ids>` | a briefing (anchor, no query) |
   | `<anchorId> @<asOf> <query> -> <ids>` | an as-of read — without the timestamp the trail cannot tell a historical read from a current one |
+  | `<anchorId> changed=<n> -> <ids>` | an unseen delivery — `n` of the ids were the changed-half (a recall or reversal landing in a running session). `audit --pulse` reads this as the interrupt rate; a row without the token predates the instrumentation and is counted as unjudgeable, never as zero |
 
   Three adapters were formatting this string themselves and only the shapes above are legal, so the
   formatter is **one function** in `src/front/display.ts` (where `summarize` already lives for the
@@ -1083,7 +1084,12 @@ yoke inject --scope <id> --unseen   # what this context has that this client was
 yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
 yoke conflicts             # list conflicts_with
 yoke history <id>          # every version of one id (the append-only rows)
-yoke audit [--since ts] [--until ts] [--limit n] [--shape]   # the audit trail; both bounds inclusive; --shape counts workload composition
+yoke audit [--since ts] [--until ts] [--limit n] [--shape|--pulse]   # the audit trail; both bounds inclusive
+                           # --shape: workload composition · --pulse: loop health — capture density
+                           # (human/agent/connector), delivery interrupt rate, recall reach,
+                           # relitigation (superseded decisions younger than 14d), and with --scope
+                           # the opening briefing's decision share. Every ratio names its denominator
+                           # and its skipped rows
 yoke ontology <subcmd>     # inspect types / migrate
 yoke persona <person>      # generate/export a persona skill (SKILL.md)
 yoke persona --check <file> # audit an exported SKILL.md against the store now; exit 1 if any source moved
