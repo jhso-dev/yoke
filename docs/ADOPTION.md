@@ -40,8 +40,32 @@
 핵심은 `decision`이다: `conclusion`(결론) + `rationale`(근거) + `rejected_alternatives`(기각 대안). 기각 대안이
 "판단의 절반"이며 페르소나의 원료다. 결론만 남기고 대안을 버리면 나중에 "왜 그때 그렇게 안 했지?"에 답할 수 없다.
 
-**개발 역할의 자동 캡처**: `yoke connect github-pr --repo owner/name`으로 PR 논의를 흡수한다 — 커넥터의
-서명과 원본 시각이 붙는다. 사람이 매번 타이핑하지 않아도 결정의 원료가 쌓인다.
+**개발 역할의 자동 캡처**: `yoke connect github-pr --repo owner/name`으로 머지된 PR과 리뷰 논의를
+흡수한다 — 머지된 PR 하나가 결정 하나(제목=결론, 본문=근거, 머지 시각=사건 시각)로, 커넥터의 서명과
+함께 들어온다. 사람이 이미 쓰고 리뷰어가 이미 읽은 텍스트가 원료라서 기록 세금이 0이다 (실측:
+이 저장소의 머지 PR 51건이 명령 하나로 결정 51건이 됐다). 백필은 명령 한 번, 이후에는 **머지가
+캡처 시점**이다 — 머지마다 CI가 델타만 흘려 넣는다:
+
+```yaml
+# .github/workflows/yoke-capture.yml — 머지 = 캡처
+on:
+  pull_request:
+    types: [closed]
+jobs:
+  capture:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm install -g <yoke 배포 패키지>   # 또는 조직의 설치 경로
+      - run: yoke connect github-pr --repo ${{ github.repository }} --since ${{ github.event.pull_request.created_at }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          YOKE_SERVER: ${{ vars.YOKE_SERVER }}      # 팀 서버
+          YOKE_TOKEN: ${{ secrets.YOKE_CAPTURE_TOKEN }}  # 기계 토큰: yoke token create --name ci-capture --scopes read,write
+```
+
+외부 ID(`pr:<repo>#<번호>`)가 멱등을 보장하므로 겹쳐 돌아도 중복은 없다. 같은 PR을 다시 흘려도
+`skipped`로 끝난다.
 
 ## 3. 협업은 역할이 아니라 이니셔티브에 모인다 (cross-role)
 

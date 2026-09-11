@@ -7,7 +7,14 @@ import { seedOntology } from "../core/ontology.js";
 import { makeGithubPrConnector } from "./github-pr.js";
 import { ingest } from "./ingest.js";
 
-const PR = { number: 7, title: "Add cache" };
+const PR = {
+  number: 7,
+  title: "Add cache",
+  merged_at: "2026-07-10T09:00:00Z",
+  body: "LRU over TTL because the hot set is small and stable.\n\nRejected: redis (an extra service for 200 keys).",
+  html_url: "https://github.com/o/r/pull/7",
+  user: { login: "alice" },
+};
 const COMMENTS = [
   {
     html_url: "https://github.com/o/r/pull/7#discussion_r1",
@@ -30,7 +37,8 @@ function stubFetch(): typeof fetch {
   return (async (url: string | URL) => {
     const u = String(url);
     let body: unknown;
-    if (u.includes("/pulls?")) body = [PR];
+    // The pager stops on an empty page, so every page past the first is empty.
+    if (u.includes("/pulls?")) body = u.endsWith("&page=1") ? [PR] : [];
     else if (u.includes("/pulls/7/comments")) body = COMMENTS;
     else throw new Error(`unexpected url: ${u}`);
     return {
@@ -61,8 +69,17 @@ describe("github-pr connector", () => {
     const items = [];
     for await (const item of connector.pull()) items.push(item);
 
-    expect(items).toHaveLength(2);
-    const [first] = items;
+    // The merged PR itself leads: one decision from the artifact the team accepted, then the two
+    // review comments.
+    expect(items).toHaveLength(3);
+    const [merged, first] = items;
+    expect(merged.type).toBe("decision");
+    expect(merged.attributes.conclusion).toBe("Add cache");
+    expect(merged.attributes.rationale).toContain("LRU over TTL");
+    expect(merged.attributes.sources).toBe("https://github.com/o/r/pull/7");
+    expect(merged.externalId).toBe("pr:o/r#7");
+    // Acceptance time, not import time.
+    expect(merged.occurredAt).toBe("2026-07-10T09:00:00Z");
     expect(first.type).toBe("decision");
     expect(first.attributes.conclusion).toBe("use lru_cache here");
     expect(first.attributes.rationale).toBe(
@@ -105,7 +122,7 @@ describe("ingest", () => {
       fetchImpl: stubFetch(),
     });
     const res = await ingest(port, ont, connector, "yoke:system", now);
-    expect(res).toEqual({ added: 2, updated: 0, skipped: 0 });
+    expect(res).toEqual({ added: 3, updated: 0, skipped: 0 });
 
     const stored = await port.search({
       text: "https://github.com/o/r/pull/7#discussion_r1",
@@ -126,8 +143,8 @@ describe("ingest", () => {
       fetchImpl: stubFetch(),
     });
     const first = await ingest(port, ont, connector, "yoke:system", now);
-    expect(first).toEqual({ added: 2, updated: 0, skipped: 0 });
+    expect(first).toEqual({ added: 3, updated: 0, skipped: 0 });
     const second = await ingest(port, ont, connector, "yoke:system", now);
-    expect(second).toEqual({ added: 0, updated: 0, skipped: 2 });
+    expect(second).toEqual({ added: 0, updated: 0, skipped: 3 });
   });
 });

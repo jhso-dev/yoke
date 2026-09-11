@@ -791,6 +791,23 @@ said the experiment decides. It decided against all of them.
   in it outright), so if `audit --pulse` ever shows live hands-free capture density LOW while
   session counts are high, re-run this against long transcripts before concluding the same.
 
+## v7.4 — the merge button is the capture moment
+
+- [x] **A merged PR is a decision** — `connect github-pr` yields one decision per merged pull
+      request: title as conclusion, body as rationale (quoted and bounded, never summarized —
+      a connector inventing a conclusion would be writing knowledge nobody recorded), the merge
+      instant as the event time, `pr:<repo>#<n>` as the idempotency key. The review-comment path
+      stays; the listing walk is paged (measured before paging: 53 merged PRs, 28 captured).
+- [x] **Measured on this repository**: one backfill command turned the repo's own history into 48
+      merged-PR decisions + 3 review-comment records, zero duplicates on re-run. Precision of the
+      merged-PR path is the merge semantics itself — every record is a change the team accepted;
+      what varies is rationale density, which is the PR culture's property, not the connector's.
+- [x] **The recipe is the deliverable** (ADOPTION §2): a 12-line workflow makes every future merge
+      stream its own delta into the team server under a machine token. This repo has no persistent
+      server to point it at, so the live wiring waits for a deployment — stated, not faked.
+- Deferred: `relate`-proposed supersedes edges between captured decisions need the LLM relater
+  (`YOKE_LLM_*`), which this measurement session did not run. Measure when an endpoint is up.
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.
