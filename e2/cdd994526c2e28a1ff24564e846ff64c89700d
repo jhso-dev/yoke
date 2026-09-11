@@ -1,0 +1,267 @@
+src/front/mcp/index.ts
+  s_03673cb32bfdc1::t_f6d0f2226f08ed 667,725-726,791-793,798-799,801-803
+  s_03673cb32bfdc1::t_359d837028c3ce 5-7,56-59,70-73,75-80
+  s_03673cb32bfdc1::t_c5fb5d41e5af84 62-63
+  s_03673cb32bfdc1::t_3b7887ba8f1c81 100
+  s_03673cb32bfdc1::t_8a3fed35155850 262
+  s_03673cb32bfdc1::t_243051c163bd5b 223
+  s_03673cb32bfdc1::t_14cfcb8bb3279b 389
+  s_03673cb32bfdc1::t_a024d0b7d454d3 428
+  s_03673cb32bfdc1::t_84394456cb6c47 465,498-503
+  s_03673cb32bfdc1::t_eb0b45bbba1b73 509-510,579,581-583
+src/connectors/rdb-mapping.test.ts
+  s_03673cb32bfdc1::t_15358aad56492c 77,79,81
+  s_03673cb32bfdc1::t_38ec4190b558e9 109,121
+docs/KNOWLEDGE-POLICY.md
+  s_03673cb32bfdc1::t_ce01ab2df59653 5-11,16,22-36,39-41,43-51,55,58,63-64,68,70-76
+scripts/load-demo-corpus.mjs
+  s_03673cb32bfdc1::t_5583712957b021 109,166,173,264
+web/app/review/page.tsx
+  s_03673cb32bfdc1::t_e9835106019a17 3,18,20-24,26-27,29-31,33,35,48,52,62-63,65,67,71,86,88-91,97,100-102,104-105,117,123-124,127-130,153,155-163
+web/lib/i18n/en.ts
+  s_03673cb32bfdc1::t_a402ae289dfe0f 191,339
+  s_03673cb32bfdc1::t_ec23ad7dc1a081 153,165,198,224-225,229,249,309,403-404,412,427,449,461,534,551-553,555,584,588
+  s_03673cb32bfdc1::t_072b602043c551 22-23
+  s_03673cb32bfdc1::t_326dde4a0634ca 40,152
+src/core/persona.test.ts
+  s_03673cb32bfdc1::t_dd480f449a77c0 203,210,423,541,553,946-949,956-958,960-962
+  s_03673cb32bfdc1::t_1114f9fa334976 205-209
+web/app/collaboration/page.tsx
+  s_03673cb32bfdc1::t_22d32091a9bd83 658,670-671,673
+docs/BACKENDS.md
+  s_03673cb32bfdc1::t_8029a4c2b90326 162,164-166,190-191,194-195,198
+src/front/ui/ui.test.ts
+  s_03673cb32bfdc1::t_8a229f45459b1b 1154-1158
+  s_03673cb32bfdc1::t_69454abf2591cd 261-264
+  s_03673cb32bfdc1::t_a1f61dcca8ca95 2-3,43,255-260,265-272,274-285,289-291,644-649,655,1535,1542,1613,1827
+  s_03673cb32bfdc1::t_2698c2ed0d0d1f 273,368-373,401,410,1128,1135,1137,1141-1142,1145,1916,1929,1933,1937-1938,1946-1947,2005,2007,2011-2012
+docs/VISION.md
+  s_03673cb32bfdc1::t_e7d62e44f59228 17
+web/app/inject/page.tsx
+  s_03673cb32bfdc1::t_853bafd8af5f3c 54,102-103
+  s_03673cb32bfdc1::t_072b602043c551 57
+scripts/demo-corpus/02-infra-sre.json
+  s_03673cb32bfdc1::t_5583712957b021 133,205,228,316
+src/core/commit.ts
+  s_03673cb32bfdc1::t_a210c1c226213c 341
+eval/persona-quality.ts
+  s_03673cb32bfdc1::t_b57a8e153cce22 32
+  s_03673cb32bfdc1::t_1eb4b803262c21 18-20,90,111-114,135,148-149,195,221,230-232,264,276
+src/adapters/storage-opensearch/index.test.ts
+  s_03673cb32bfdc1::t_dec1fbb8e715ad 81
+web/app/tokens/page.tsx
+  s_03673cb32bfdc1::t_d23059dee0ba85 39-42
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_bacfb475437ae8 3,104,106,113,120,126-128,168,178-179,192,199-200,202-209,211,258,265-268
+  s_03673cb32bfdc1::t_adb20c0d391e6f 406,412,426,428,449,454,460,463-464,492,561,740,756,846,911
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_5d9272e3ed0298 65
+  s_03673cb32bfdc1::t_eb348bccfbf200 426,553,1262-1265,1396,1398-1400,1402,1464,1468
+  s_03673cb32bfdc1::t_16ce6ca4ef1b3e 574,576-577,635,888,1305
+README.md
+  s_03673cb32bfdc1::t_0c1e6adbbdc69e 31,33,35-36,38,42,44,61-66,70,87-88,127,130,142-143,146-149,185-186,216-219,254,390-391,413,435,444,446-447
+src/connectors/meeting-notes.test.ts
+  s_03673cb32bfdc1::t_15358aad56492c 189-191
+src/core/lifecycle.ts
+  s_03673cb32bfdc1::t_56c7c0166b8116 36-40,92-95,98
+docs/RESEARCH.md
+  s_03673cb32bfdc1::t_d818bb1579f53b 329
+  s_03673cb32bfdc1::t_6354576afc4bd5 7-13,40-43,64-65,80-82,92
+src/front/cli/cli.test.ts
+  s_03673cb32bfdc1::t_91bf1ad38a5163 74,116,156,166,221,224,237,254
+  s_03673cb32bfdc1::t_85bc20a81d74ab 2280-2299
+  s_03673cb32bfdc1::t_afc56764b24fed 318,322,334-336,338,342-344,346,366-372,375,379
+  s_03673cb32bfdc1::t_a8ef04d5642270 734,997,1002,1248,1276-1278,1350,1364,1513,1516-1527,1694,1731,1737,1744,2004,2058
+  s_03673cb32bfdc1::t_44bb435f9fb20f 2228,2300-2301,2381
+scripts/demo-corpus/08-qa.json
+  s_03673cb32bfdc1::t_5583712957b021 73,205,217,228
+src/core/commit.test.ts
+  s_03673cb32bfdc1::t_a26d06bf81ed3d 2,243,251,297
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_b734513d0ac7e4 743-769
+src/front/serve/index.ts
+  s_03673cb32bfdc1::t_07bdbeb87fe82a 64,73-75,156-157,180-183,249-250
+  s_03673cb32bfdc1::t_70bcb9e38b19db 310,453
+eval/inject-quality.ts
+  s_03673cb32bfdc1::t_54d8bcceeae25e 6-7,19,104,106-107,122,124,136-139,146,152,154,191,194,200-202,222-223,244,248
+src/core/persona.ts
+  s_03673cb32bfdc1::t_42dae095a05b26 127-128,214
+  s_03673cb32bfdc1::t_5d9272e3ed0298 191
+  s_03673cb32bfdc1::t_2f04c441a21437 463-464,643
+docs/ENTERPRISE.md
+  s_03673cb32bfdc1::t_53a7f04c8348b7 36,41-48,50-54,58-59
+src/adapters/storage-sharded/index.test.ts
+  s_03673cb32bfdc1::t_dec1fbb8e715ad 34
+src/adapters/storage-sqlite/index.test.ts
+  s_03673cb32bfdc1::t_dec1fbb8e715ad 187,343,361,366,548,553,562,586,589
+  s_03673cb32bfdc1::t_badbd3635b7306 53,55
+scripts/demo-corpus/05-data.json
+  s_03673cb32bfdc1::t_5583712957b021 104,171,206,218
+web/lib/types.ts
+  s_03673cb32bfdc1::t_442ebba3517baf 8,194,201
+scripts/demo-corpus/09-backend.json
+  s_03673cb32bfdc1::t_5583712957b021 62,88,189,303
+web/lib/status.ts
+  s_03673cb32bfdc1::t_442ebba3517baf 8-11,20
+src/core/inject.ts
+  s_03673cb32bfdc1::t_5d9272e3ed0298 236,778
+  s_03673cb32bfdc1::t_f731a80c1bec93 138-141,173-178,416,420,580,679-680,687-688
+  s_03673cb32bfdc1::t_7d9198525958e4 2,68-69,72,608,729,768-769,774
+web/components/ui/alert.tsx
+  s_03673cb32bfdc1::t_c139542d551b2a 16,25
+README.ko.md
+  s_03673cb32bfdc1::t_a25084ff63163b 31,33,35-36,38,41,43,60-65,68,83-84,122,125,137-138,141-143,177-178,206-209,243,359-360,387,408,415-417
+web/app/login/page.tsx
+  s_03673cb32bfdc1::t_d23059dee0ba85 78
+plugin/skills/setup/SKILL.md
+  s_03673cb32bfdc1::t_e7d62e44f59228 28-29
+src/front/serve/rbac.test.ts
+  s_03673cb32bfdc1::t_c9d460226b15ef 2-3,18,20,32,35,39-41,43,54-62,65-66,68-70,74,94,110,127
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_679997552de704 1532,1663-1664,1958,2104-2105,2649-2650,2661
+  s_03673cb32bfdc1::t_503db5b0c54f7b 290-291,306,384,477-480,1070-1071,1073,1126,1128,1133-1134,1144,1204,1377,1386
+  s_03673cb32bfdc1::t_27f0f233cf8447 2383,2385
+  s_03673cb32bfdc1::t_8f2c7e929ddebd 2735
+src/core/lifecycle.test.ts
+  s_03673cb32bfdc1::t_6ee7b074dcbeea 46,63,65-67,71-72,111-112,196,236,238-241,246,415-416,418,429,445-446,458-459,463,469,480,496-497,503,506-507,509,514,519
+scripts/kraftonway-corpus/biz.json
+  s_03673cb32bfdc1::t_5583712957b021 495,540,600,645,675,782,881,1024,1071
+web/components/CreateRecord.tsx
+  s_03673cb32bfdc1::t_c139542d551b2a 38,207
+scripts/seed-scale-corpus.mjs
+  s_03673cb32bfdc1::t_31e68bd7f79e51 73-75,95
+  s_03673cb32bfdc1::t_ff7dd52ea635d0 69-72
+docs/WEB-UI.md
+  s_03673cb32bfdc1::t_f9185e40e79987 15,20-24,28-30,50-52,72-80,128,130-131
+web/components/CreateButton.tsx
+  s_03673cb32bfdc1::t_c139542d551b2a 20,53
+web/lib/api.ts
+  s_03673cb32bfdc1::t_442ebba3517baf 95-98
+  s_03673cb32bfdc1::t_c139542d551b2a 156
+scripts/demo-corpus/04-web.json
+  s_03673cb32bfdc1::t_5583712957b021 92,159,203,226
+src/front/serve/rbac.ts
+  s_03673cb32bfdc1::t_07bdbeb87fe82a 55
+  s_03673cb32bfdc1::t_eb348bccfbf200 2-6,14-15,18-19,24-25,87-88
+src/connectors/github-pr.test.ts
+  s_03673cb32bfdc1::t_15358aad56492c 102,119
+src/core/aggregate.test.ts
+  s_03673cb32bfdc1::t_bc093e8cb98c5b 37-38,40,43,52,89-92,96-97,99,131
+src/front/display.ts
+  s_03673cb32bfdc1::t_22fe18c1806ab0 500
+web/components/GraphCanvas.tsx
+  s_03673cb32bfdc1::t_c139542d551b2a 230-231,233
+docs/SPEC.md
+  s_03673cb32bfdc1::t_85340b9ee9fb64 904-905,909-910,950,955-956,959-960
+  s_03673cb32bfdc1::t_c51db3d60b67f1 648,650-654,680-681,703,761,808-811,858,869-874,879-881,894
+  s_03673cb32bfdc1::t_0ead4fde0f63c1 12,56,360,366,450,452-454,549-550
+  s_03673cb32bfdc1::t_dfe2f971487b14 459-462,636-638,641,967-968,980,1010,1019-1020,1053-1055
+  s_03673cb32bfdc1::t_7863e59b67123a 739-741,1310-1313
+  s_03673cb32bfdc1::t_d3e44e3dc3faf2 1078-1079,1081,1094,1174,1176-1179,1328-1330,1438
+src/front/mcp/mcp.test.ts
+  s_03673cb32bfdc1::t_4c7bdb50a3c239 976,978,1001,1016-1018,1021,1023,1033-1034,1040,1047,1050-1057
+  s_03673cb32bfdc1::t_7a0eac594d4c25 58,70,73,79-80,99,176,362
+  s_03673cb32bfdc1::t_1d5f17f537d547 293,298
+  s_03673cb32bfdc1::t_bea4d69e2abcd5 394-396,399,404,414,430,816,961-963
+docs/ADOPTION.md
+  s_03673cb32bfdc1::t_1d5f17f537d547 3,12-14,19-21,24-26,43-44,103,115-121,127,129-130,141-142,150
+src/adapters/storage-postgres/index.test.ts
+  s_03673cb32bfdc1::t_dec1fbb8e715ad 98,238,257,259,264,268
+web/lib/i18n/ko.ts
+  s_03673cb32bfdc1::t_8ef9e8be4e7f82 288,384,397,425,492,509-511
+  s_03673cb32bfdc1::t_d23059dee0ba85 539,543
+  s_03673cb32bfdc1::t_072b602043c551 25-26
+  s_03673cb32bfdc1::t_eed65846fcd0a0 43,149-150,161,183,188,210-211,214,229
+  s_03673cb32bfdc1::t_e4cc7c053d903c 4
+docs/ARCHITECTURE.md
+  s_03673cb32bfdc1::t_0a48b88d5a6787 47
+scripts/kraftonway-corpus/dev.json
+  s_03673cb32bfdc1::t_5583712957b021 236,402,492,582,686,697,752,796,851,862,1041
+scripts/demo-corpus/03-mobile.json
+  s_03673cb32bfdc1::t_5583712957b021 70,183,282
+src/core/identity.test.ts
+  s_03673cb32bfdc1::t_dec1fbb8e715ad 132
+scripts/demo-corpus/07-security.json
+  s_03673cb32bfdc1::t_5583712957b021 137,220,342
+scripts/gen-kraftonway-corpus.mjs
+  s_03673cb32bfdc1::t_1ab08e33c6d714 210,221-222,557
+  s_03673cb32bfdc1::t_31e68bd7f79e51 497-498
+scripts/demo-corpus/06-ml.json
+  s_03673cb32bfdc1::t_5583712957b021 118,169,180
+web/lib/api.test.ts
+  s_03673cb32bfdc1::t_22d32091a9bd83 98,101
+web/lib/i18n/partial-toast.test.ts
+  s_03673cb32bfdc1::t_f740dacf1df204 62
+docs/MARKET.md
+  s_03673cb32bfdc1::t_1198b265c3ce4e 6,24-26,34,45
+web/app/theme.css
+  s_03673cb32bfdc1::t_c139542d551b2a 51-53,89-90,124-125
+src/ports/conformance-cases.ts
+  s_03673cb32bfdc1::t_22fe18c1806ab0 30,54,507,510
+CLAUDE.md
+  s_03673cb32bfdc1::t_e3f6542f5cf980 59
+  s_03673cb32bfdc1::t_9d423b482d921b 32
+scripts/kraftonway-corpus/pd.json
+  s_03673cb32bfdc1::t_5583712957b021 181,254,315,330,435,480,525,736,857,939
+scripts/kraftonway-corpus/po.json
+  s_03673cb32bfdc1::t_5583712957b021 394,537,552,597,658,805,996,1008,1020
+src/connectors/rdb-mapping.ts
+  s_03673cb32bfdc1::t_40bf2f52dbd646 4-7,10-12,67,158-159,194-195
+src/connectors/raw.test.ts
+  s_03673cb32bfdc1::t_15358aad56492c 169,180
+plugin/harness.test.ts
+  s_03673cb32bfdc1::t_d98a5d14d2bcaa 23,224
+src/core/inject.test.ts
+  s_03673cb32bfdc1::t_a823cfcf41156f 2,64-66,72-73
+  s_03673cb32bfdc1::t_5946af53f5bf2a 125,135,139,141-142,145,590-592,594,596,765-769,771,775-776,994-995,997-1000,1004,1011,1018-1021,1039,1046,1060,1062,1069-1070,1076-1079,1082,1102-1108,1110-1111
+scripts/demo-corpus/10-support.json
+  s_03673cb32bfdc1::t_5583712957b021 184,207,219,307
+src/ports/storage.ts
+  s_03673cb32bfdc1::t_27bb4addaec4df 42-44
+web/lib/status.test.ts
+  s_03673cb32bfdc1::t_22d32091a9bd83 9
+scripts/demo-corpus/01-payments.json
+  s_03673cb32bfdc1::t_5583712957b021 121,147,149,220,231
+src/connectors/ingest.ts
+  s_03673cb32bfdc1::t_40bf2f52dbd646 158-160,176
+src/core/types.ts
+  s_03673cb32bfdc1::t_a210c1c226213c 5-7
+src/connectors/slack.test.ts
+  s_03673cb32bfdc1::t_15358aad56492c 170-172
+web/app/browse/page.tsx
+  s_03673cb32bfdc1::t_c139542d551b2a 33-34,39-40
+src/connectors/relate.ts
+  s_03673cb32bfdc1::t_5d9272e3ed0298 349
+eval/retrieval-quality.ts
+  s_03673cb32bfdc1::t_9e7bc38f98b00a 13,74,115
+scripts/demo-corpus/README.md
+  s_03673cb32bfdc1::t_74acf733dd9a7f 12-14,36
+src/connectors/extract.ts
+  s_03673cb32bfdc1::t_cd9db5aa92dca9 7
+src/connectors/github-pr.ts
+  s_03673cb32bfdc1::t_76a7d3dd1b308a 2
+src/connectors/meeting-notes.ts
+  s_03673cb32bfdc1::t_5a1cab1dca8b87 1-3,18
+src/connectors/raw.ts
+  s_03673cb32bfdc1::t_e03226f320bba6 225
+src/connectors/slack.ts
+  s_03673cb32bfdc1::t_6cd24968a7a794 2-4,24
+src/front/cli/banner.ts
+  s_03673cb32bfdc1::t_754516d2be3e85 73-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e2cdd994526c2e28a1ff24564e846ff64c89700d",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
