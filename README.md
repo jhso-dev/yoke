@@ -366,7 +366,9 @@ MCP): every screen shows **records**, typed and versioned and cited.
 
 ```bash
 yoke ui                      # http://127.0.0.1:4800 — local, single-user, ungated
-yoke serve --auth --host 0.0.0.0   # a team; log in with a token from `yoke token create`
+yoke serve --auth --host 0.0.0.0   # a team; set YOKE_GITHUB_ORG and people log in with the
+                                   # GitHub identity they already have (`yoke token create` stays
+                                   # for machine actors and bootstrap)
 ```
 
 Screens: the review queue, conflicts, the ontology browser, persona preview, entity

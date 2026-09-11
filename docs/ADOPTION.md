@@ -93,11 +93,18 @@
   CLI 하나고, 봉투는 클라이언트 것이다.
 
   **팀 서버(`yoke serve`)에 붙는 경우** 배달 기록은 서버에 있으므로 `yoke inject … --unseen` 자리에 서버를 묻는다 — 같은
-  줄, 같은 봉투, 토큰 하나(`yoke token create --name fe --scopes read`), 실측 1–5ms(조용할 때 ~1ms):
+  줄, 같은 봉투, 실측 1–5ms(조용할 때 ~1ms). 자격증명은 아래 GitHub 교환이 알아서 받는다 —
+  `yoke token create` 는 GitHub 계정이 없는 기계 액터(CI·야간 커넥터)용으로만 남는다:
 
   ```
   curl -s -H "Authorization: Bearer $YOKE_TOKEN" "$YOKE_SERVER/api/inject?scope=<initiative>&unseen=1"
   ```
+
+  **토큰은 아무도 배포하지 않는다** — 플러그인이 개발자의 `gh` 로그인을 1회 교환해 스스로 받는다
+  (SPEC "GitHub exchange"): 서버에 `YOKE_GITHUB_ORG`(+선택 `YOKE_GITHUB_VERIFIERS`)를 설정하고, 레포
+  `.claude/settings.json`에 `YOKE_SERVER`를 두면 끝. 첫 배달에 `yoke: authenticated as <login> via
+  GitHub` 한 줄이 공지되고, 서버가 토큰을 회수해도 다음 훅이 알아서 재교환한다. 수동 경로:
+  `curl -X POST $YOKE_SERVER/api/login/github -H "Authorization: Bearer $(gh auth token)"`.
 
   서버는 **그 토큰이 받은 것만** 기준으로 답한다 — PO가 결정을 읽었다고 FE의 훅이 조용해지지 않는다. **ceiling**: 장부는
   읽는 주체 단위(로컬은 DB, 서버는 토큰)라, 같은 주체로 같은 이니셔티브에 세션 두 개가 동시에 열려 있으면 변경을 먼저 읽은

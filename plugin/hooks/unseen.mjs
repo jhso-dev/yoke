@@ -7,13 +7,18 @@
 // UserPromptSubmit, while PostToolUse takes only the `additionalContext` envelope (Claude Code hooks
 // reference — its plain stdout goes to the debug log). The event name on stdin decides.
 
-import { readStdin, resolveScope, runInject } from "./lib.mjs";
+import { fetchUnseen, readStdin, resolveScope, resolveSetting, runInject } from "./lib.mjs";
 
 const input = readStdin();
 const cwd = typeof input.cwd === "string" && input.cwd ? input.cwd : process.cwd();
 const scope = resolveScope(cwd, process.env);
 if (scope) {
-  const out = runInject(["--scope", scope, "--unseen"], cwd, process.env);
+  // A bound YOKE_SERVER means the deliveries ledger lives there (per token), so ask the server;
+  // otherwise the CLI reads this client's own trail. Same lines either way — one unseenReport.
+  const server = resolveSetting(cwd, process.env, "YOKE_SERVER");
+  const out = server
+    ? await fetchUnseen(server, scope, process.env)
+    : runInject(["--scope", scope, "--unseen"], cwd, process.env);
   if (out?.trim()) {
     process.stdout.write(
       input.hook_event_name === "PostToolUse"

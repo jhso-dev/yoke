@@ -57,7 +57,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx vitest run src/adapters/storage-opensearch
+      # The serve file rides along for its one OpenSearch-gated case: the company-DB deployment —
+      # knowledge remote, credentials in the serve host's local sqlite.
+      - run: npx vitest run src/adapters/storage-opensearch src/front/serve/serve.test.ts
         env:
           YOKE_TEST_OPENSEARCH_URL: http://localhost:9200
       # Non-vacuity: the suite above must not have been skipped. Without this the job is green either

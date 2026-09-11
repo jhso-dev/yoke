@@ -725,6 +725,21 @@ shape rather than imported:
       event, reported once) runs the real CLI via tsx. Distributed independently so a downstream
       harness can take it as a dependency instead of owning knowledge delivery itself
 
+## v6.6 — the credential a non-interactive client can get by itself
+
+- [x] **`POST /api/login/github`** — a GitHub token in, a yoke token out (`github:<login>`, read+write,
+      +verify per `YOKE_GITHUB_VERIFIERS`). Enabled only under `--auth` with `YOKE_GITHUB_ORG`; org
+      membership is the access decision; the presented token is spent on two lookups and never kept;
+      GitHub down answers 502, not 401. Re-exchange replaces, so revocation self-heals client-side and
+      the durable levers stay GitHub's own
+- [x] **`plugin/hooks/auth.mjs`** — the zero-action client: cache → `gh auth token` → exchange, one
+      announce line when a credential actually moves, silence otherwise; `YOKE_SERVER` bound in repo
+      settings switches both hook entrypoints to the server read with 401 self-heal. Verified end to
+      end in-suite: real `serve --auth` + a GitHub double + a fake `gh` — exchange announced once,
+      delivery, PO reversal with reason over HTTP, server-side revocation healed without a touch.
+      ceiling: no server-side text briefing yet, so a serve-bound SessionStart re-briefs only what the
+      token was never handed; the MCP `yoke_inject` covers in-session re-briefing
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

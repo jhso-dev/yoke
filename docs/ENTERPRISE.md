@@ -27,8 +27,17 @@ directional decisions.
 
 ## Auth / RBAC (v3.0)
 
-- Authentication: OIDC/SSO (the enterprise standard) + API tokens (for agents and
-  CI). We don't store passwords ourselves.
+- Authentication, three doors for three kinds of caller (we store no passwords, and no
+  plaintext credentials — tokens are salted hashes; the plaintext exists only on the
+  holder's machine):
+  - **the GitHub exchange** (SPEC "GitHub exchange") — the developer path. A hook or MCP
+    client is non-interactive, so its credential is exchanged from the `gh` login the
+    machine already holds; nobody distributes tokens. Org membership is the access
+    decision, `YOKE_GITHUB_VERIFIERS` the verify grant.
+  - **OIDC/SSO** — a human at the web UI under the company IdP.
+  - **API tokens** (`yoke token create`) — machine actors (CI, scheduled connectors),
+    the bootstrap `admin` credential (the exchange never grants admin), and a
+    deployment with no GitHub.
 - Authorization axes: namespace × ontology type × action (read / write / **verify**).
   **The verify permission *is* the knowledge-governance permission** — who can
   promote knowledge is the single most important axis in this product's permission
