@@ -54,6 +54,7 @@ import {
   WALK_BUDGET,
 } from "../../core/inject.js";
 import {
+  atOrBefore,
   deprecate,
   downstreamOf,
   listVersions,
@@ -81,6 +82,7 @@ import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
 import {
   CONSUMPTION_WINDOW,
+  changedOf,
   citeActors,
   consumptionCounts,
   DELIVERY_WINDOW,
@@ -144,6 +146,7 @@ type Values = {
   "occurred-at"?: boolean;
   "dry-run"?: boolean;
   shape?: boolean;
+  pulse?: boolean;
   depth?: string;
   check?: string;
 };
@@ -188,6 +191,7 @@ const OPTIONS = {
   "occurred-at": { type: "boolean" },
   "dry-run": { type: "boolean" },
   shape: { type: "boolean" },
+  pulse: { type: "boolean" },
   depth: { type: "string" },
   check: { type: "string" },
 } as const;
@@ -488,6 +492,7 @@ capture:    connect github-pr|slack|notes|rdb
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
 data:       backup, restore, export, audit, backfill, rename-type
   audit --shape             workload composition: anchored / briefing / plain injections
+  audit --pulse             collaboration health: capture, interrupts, recall reach, relitigation
 
 common options: --db <path> --ns <namespace> --actor <id> --json
 run 'yoke <command>' with missing args to see its usage`;
@@ -1304,7 +1309,7 @@ async function cmdInject(
       },
     );
     if (handed && anchor) {
-      const { lines, delivered } = await unseenReport(
+      const { lines, delivered, changed } = await unseenReport(
         store,
         ontology,
         ns,
@@ -1312,13 +1317,14 @@ async function cmdInject(
         anchor,
         handed,
         { items, omitted },
+        resolveActor(v, env),
       );
       if (delivered.length === 0) return 0;
       console.log(lines.join("\n"));
       auditRead(store, {
         actor: resolveActor(v, env),
         action: "inject",
-        detail: injectDetail(delivered, { scope: v.scope }),
+        detail: injectDetail(delivered, { scope: v.scope, changed }),
         at: ts,
         ns,
       });
@@ -1459,6 +1465,7 @@ async function cmdAudit(v: Values, env: Env): Promise<number> {
       limit: intFlag(v.limit, "limit"),
     });
     if (v.shape) return emitShapes(v, events);
+    if (v.pulse) return emitPulse(v, store, ns, events, now());
     const lines = events.map(
       (e) => `${e.at}  ${e.actor}  ${e.action}  ${e.detail}`,
     );
@@ -1497,6 +1504,166 @@ function emitShapes(v: Values, events: AuditEvent[]): number {
     `skipped: ${previews} inject_preview, ${other} other`,
   ].join("\n");
   emit(v, human, { total, ...counts, asOf, skipped: { previews, other } });
+  return 0;
+}
+
+/** How soon after birth a superseded decision counts as relitigated rather than evolved. A reversal
+ * inside this window means the decision did not hold long enough to have been settled — the failure
+ * yoke exists to prevent. Chosen, not measured; --pulse reports the raw ages so a corpus can argue. */
+const RELITIGATION_WINDOW_DAYS = 14;
+
+/** `yoke audit --pulse` — is the collaboration loop actually working, from the trail and the corpus.
+ *
+ * Every ratio prints its denominator and what it skipped: rows written before an instrumentation
+ * carry no signal for it and are counted as unjudgeable, never as zero — otherwise the metric
+ * launders the absence of measurement into a verdict (the anchored-0% mistake, docs/RESEARCH.md). */
+async function emitPulse(
+  v: Values,
+  store: YokeStore,
+  ns: string | null,
+  events: AuditEvent[],
+  at: string,
+): Promise<number> {
+  const sinceBound = instantFlag(v.since, "since");
+  // Capture density: who is filing knowledge, at what rate. occurred_at is the knowledge's own
+  // clock and survives transitions; a head whose origin is 'lifecycle' no longer says who CAPTURED
+  // it, so it lands in unjudged rather than in a class it may not belong to.
+  const cap = { human: 0, agent: 0, connector: 0, unjudged: 0 };
+  let scanned = 0;
+  let after: string | undefined;
+  do {
+    const page = await store.listEntities({ ns, after, limit: 1000 });
+    for (const e of page.items) {
+      if (sinceBound && atOrBefore(e.provenance.occurred_at, sinceBound))
+        continue;
+      scanned++;
+      const org = e.provenance.origin;
+      if (org === "lifecycle") cap.unjudged++;
+      else if (org === "mcp") cap.agent++;
+      else if (org.includes(":")) cap.connector++;
+      else cap.human++;
+    }
+    after = page.next ?? undefined;
+  } while (after);
+
+  // Delivery interrupts: unseen rows carry changed=<n> — how often a delivery lands as a recall or
+  // reversal (an interrupt) rather than as news. Rows without the token predate the instrumentation.
+  let deliveries0 = 0;
+  let interrupts = 0;
+  let preToken = 0;
+  for (const e of events) {
+    if (e.action !== "inject") continue;
+    const c = changedOf(e.detail);
+    if (c === undefined) {
+      if (injectShape(e.detail).shape === "briefing") preToken++;
+      continue;
+    }
+    deliveries0++;
+    if (c > 0) interrupts++;
+  }
+
+  // Recall reach: for every retirement, of the actors previously handed the record, how many were
+  // handed the recall afterwards. Both halves read from the same inject rows the ledger reads.
+  const handedBy = new Map<string, Array<{ actor: string; at: string }>>();
+  for (const e of events) {
+    if (e.action !== "inject") continue;
+    const arrow = e.detail.lastIndexOf(" -> ");
+    if (arrow === -1) continue;
+    for (const id of e.detail.slice(arrow + 4).split(" "))
+      if (id) {
+        const l = handedBy.get(id) ?? [];
+        l.push({ actor: e.actor, at: e.at });
+        handedBy.set(id, l);
+      }
+  }
+  let recallOwed = 0;
+  let recallReached = 0;
+  for (const e of events) {
+    if (e.action !== "deprecate") continue;
+    for (const id of e.detail.split(" ").filter(Boolean)) {
+      const rows = handedBy.get(id) ?? [];
+      const before = new Set(
+        rows.filter((r) => atOrBefore(r.at, e.at)).map((r) => r.actor),
+      );
+      for (const actor of before) {
+        if (actor === e.actor) continue; // the retirer needs no recall
+        recallOwed++;
+        if (rows.some((r) => r.actor === actor && !atOrBefore(r.at, e.at)))
+          recallReached++;
+      }
+    }
+  }
+
+  // Relitigation: decisions whose supersedes edge arrived within the window of their birth.
+  let superseded = 0;
+  let relitigated = 0;
+  {
+    let cursor: string | undefined;
+    do {
+      const page = await store.listRelations({
+        type: "supersedes",
+        ns,
+        after: cursor,
+        limit: 1000,
+      });
+      for (const r of page.items) {
+        const oldRec = await store.getEntity(r.to);
+        if (oldRec?.type !== "decision") continue;
+        superseded++;
+        const ageDays =
+          (Date.parse(r.provenance.occurred_at) -
+            Date.parse(oldRec.provenance.occurred_at)) /
+          86_400_000;
+        if (ageDays >= 0 && ageDays <= RELITIGATION_WINDOW_DAYS) relitigated++;
+      }
+      cursor = page.next ?? undefined;
+    } while (cursor);
+  }
+
+  // Briefing composition, when a scope is named: what an opening session actually sees.
+  let brief: { total: number; decisions: number } | undefined;
+  if (v.scope) {
+    const ontology = store.loadOntology(ns);
+    const r = await inject(store, ontology, "", at, {
+      scope: v.scope,
+      limit: BRIEFING_LIMIT,
+      ns,
+    });
+    brief = {
+      total: r.items.length,
+      decisions: r.items.filter(
+        (it) => it.entity.type === "decision" || it.entity.type === "term",
+      ).length,
+    };
+  }
+
+  const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
+  const human = [
+    `capture (${sinceBound ? `since ${sinceBound}` : "all time"}): ${scanned} records`,
+    `  human ${cap.human} · agent ${cap.agent} · connector ${cap.connector}` +
+      ` · hands-free ${pct(cap.agent + cap.connector, scanned - cap.unjudged)}%` +
+      ` (of ${scanned - cap.unjudged} judgeable; ${cap.unjudged} lifecycle-headed skipped)`,
+    `deliveries: ${deliveries0} with interrupt instrumentation — ${interrupts} carried a recall/reversal` +
+      ` (${pct(interrupts, deliveries0)}%); ${preToken} pre-instrumentation rows skipped`,
+    `recall reach: ${recallReached}/${recallOwed} handed-before actors were handed the retirement`,
+    `relitigation: ${relitigated}/${superseded} superseded decisions were reversed within ${RELITIGATION_WINDOW_DAYS}d of birth`,
+    ...(brief
+      ? [
+          `briefing (${v.scope}): ${brief.decisions}/${brief.total} decisions+terms in the opening page`,
+        ]
+      : []),
+  ].join("\n");
+  emit(v, human, {
+    capture: { ...cap, scanned, since: sinceBound ?? null },
+    deliveries: { instrumented: deliveries0, interrupts, preToken },
+    recall: { owed: recallOwed, reached: recallReached },
+    relitigation: {
+      superseded,
+      relitigated,
+      windowDays: RELITIGATION_WINDOW_DAYS,
+    },
+    ...(brief ? { briefing: brief } : {}),
+  });
   return 0;
 }
 
@@ -2649,8 +2816,10 @@ const COMMAND_USAGE: Record<string, string> = {
     "usage: yoke review [--type t] [--limit n] [--after cursor]\n" +
     "  the re-confirmation queue: verified records past their type's TTL, most-injected first",
   audit:
-    "usage: yoke audit [--since ts] [--until ts] [--limit n] [--shape]\n" +
-    "  --shape    workload composition: anchored / briefing / plain injections",
+    "usage: yoke audit [--since ts] [--until ts] [--limit n] [--shape|--pulse]\n" +
+    "  --shape    workload composition: anchored / briefing / plain injections\n" +
+    "  --pulse    collaboration health: capture density, delivery interrupts, recall reach,\n" +
+    "             relitigation (--scope adds briefing composition; --since bounds capture)",
   overview: "usage: yoke overview [--limit n]",
   conflicts: "usage: yoke conflicts",
   backfill:

@@ -1245,6 +1245,97 @@ describe("runCli", () => {
       expect(await runCli(args)).toBe(1);
   });
 
+  it("audit --pulse reads the loop's health from the trail, skipped denominators named", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const tick = () => new Promise((r) => setTimeout(r, 5));
+    const add = async (type: string, attrs: string[]) => {
+      expect(
+        await runCli([
+          "add",
+          type,
+          "--db",
+          db,
+          "--actor",
+          "po",
+          ...attrs,
+          "--json",
+        ]),
+      ).toBe(0);
+      return JSON.parse(logs.at(-1) as string).id as string;
+    };
+    const scope = await add("collaboration", ["--attr", "title=PROJ-P"]);
+    const d1 = await add("fact", [
+      "--scope",
+      scope,
+      "--attr",
+      "statement=rate limit is 100rps",
+    ]);
+    const unseen = async () => {
+      logs = [];
+      return runCli([
+        "inject",
+        "--db",
+        db,
+        "--scope",
+        scope,
+        "--unseen",
+        "--actor",
+        "fe",
+      ]);
+    };
+    // Delivery 1: news (changed=0 on the row). Then the retirement, then delivery 2: the recall.
+    expect(await unseen()).toBe(0);
+    await tick();
+    expect(
+      await runCli([
+        "deprecate",
+        d1,
+        "--db",
+        db,
+        "--actor",
+        "po",
+        "--reason",
+        "measured 30rps",
+      ]),
+    ).toBe(0);
+    expect(await unseen()).toBe(0);
+
+    logs = [];
+    expect(await runCli(["audit", "--db", db, "--pulse", "--json"])).toBe(0);
+    const pulse = JSON.parse(logs.at(-1) as string);
+    // Capture: both records came through the CLI under a person's hand.
+    expect(pulse.capture.human).toBeGreaterThanOrEqual(2);
+    expect(pulse.capture.agent).toBe(0);
+    // Interrupt instrumentation: two deliveries carried the token; one was a recall.
+    expect(pulse.deliveries.instrumented).toBe(2);
+    expect(pulse.deliveries.interrupts).toBe(1);
+    // Recall reach: fe was handed d1 before the retirement and handed the recall after; po (the
+    // retirer) is owed nothing.
+    expect(pulse.recall).toEqual({ owed: 1, reached: 1 });
+    expect(pulse.relitigation.superseded).toBe(0);
+
+    // --scope adds what an opening session actually sees.
+    logs = [];
+    expect(
+      await runCli([
+        "audit",
+        "--db",
+        db,
+        "--pulse",
+        "--scope",
+        scope,
+        "--json",
+      ]),
+    ).toBe(0);
+    const scoped = JSON.parse(logs.at(-1) as string);
+    expect(scoped.briefing.total).toBeGreaterThanOrEqual(0);
+    // The human report never hides a denominator: skipped rows are named, not folded into 0%.
+    logs = [];
+    expect(await runCli(["audit", "--db", db, "--pulse"])).toBe(0);
+    expect(logs.join("\n")).toContain("skipped");
+  });
+
   it("connect notes ingests transcript chunks, idempotently (PLAN 8.5)", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

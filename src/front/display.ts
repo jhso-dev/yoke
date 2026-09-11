@@ -223,16 +223,30 @@ export const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
  */
 export function injectDetail(
   ids: string[],
-  opts?: { query?: string; scope?: string; asOf?: string },
+  opts?: { query?: string; scope?: string; asOf?: string; changed?: number },
 ): string {
   const subject = [
     opts?.scope,
+    // How many of the ids are the changed-half of an unseen delivery — a recall or reversal landing
+    // in a running session, as opposed to new knowledge. This is the interrupt-rate instrumentation
+    // `audit --pulse` reads; rows written before it carry no token and are counted as unjudgeable,
+    // never as zero.
+    opts?.changed !== undefined ? `changed=${opts.changed}` : undefined,
     opts?.asOf ? `@${opts.asOf}` : undefined,
     opts?.query,
   ]
     .filter((t): t is string => !!t)
     .join(" ");
   return `${subject} -> ${ids.join(" ")}`;
+}
+
+/** `injectDetail`'s changed token read back: the count, or undefined for a row written before the
+ * instrumentation (or by a non-unseen read) — the two must stay distinguishable (see --pulse). */
+export function changedOf(detail: string): number | undefined {
+  const m = (detail.split(" -> ")[0] ?? "").match(
+    /(?:^| )changed=(\d+)(?: |$)/,
+  );
+  return m ? Number(m[1]) : undefined;
 }
 
 /**
@@ -248,7 +262,11 @@ export function injectShape(detail: string): {
   shape: "anchored" | "briefing" | "plain";
   asOf: boolean;
 } {
-  const tokens = (detail.split(" -> ")[0] ?? "").split(" ").filter(Boolean);
+  const tokens = (detail.split(" -> ")[0] ?? "")
+    .split(" ")
+    .filter(Boolean)
+    // The changed token is delivery metadata, not part of the subject's shape.
+    .filter((t) => !/^changed=\d+$/.test(t));
   const anchored = ULID.test(tokens[0] ?? "");
   const rest = tokens.slice(anchored ? 1 : 0);
   const asOf = !!rest[0]?.startsWith("@");
@@ -338,7 +356,10 @@ export function deliveries(
     if (e.action !== "inject" && e.action !== "persona") continue;
     const arrow = e.detail.lastIndexOf(" -> ");
     if (arrow === -1) continue;
-    const subject = e.detail.slice(0, arrow).split(" ");
+    const subject = e.detail
+      .slice(0, arrow)
+      .split(" ")
+      .filter((t) => !/^changed=\d+$/.test(t));
     // An as-of read hands over the version current THEN, so it says nothing about whether the client
     // holds the current one. The `@<instant>` token sits first, or second after an anchor — read there
     // rather than via `injectShape`, whose anchor test is ULID-shaped and ids are not all ULIDs.
@@ -376,6 +397,17 @@ export function deliveries(
  * path, a new decision that supersedes the old one, is caught here). Second: the briefing's records
  * since the last anchored delivery, minus any version this reader already holds from another read.
  *
+ * "Handed" includes what `reader` AUTHORED on this context. The ledger counts inject rows, so
+ * without this the session most invested in a record — its author's, still building on what it
+ * wrote — is the one a retirement never reaches (found live: S5, the writer of a retired record
+ * kept believing it). An author needs no new-half copy of their own record; what they need is the
+ * changed-half when someone ELSE retires it, so only retired hop-1 records are checked for
+ * authorship — one targeted `neighbors(id, 'authored_by')` per RETIRED row, never per hop row, on
+ * top of one `neighbors(anchor)` for the hop set. Delivery dedups itself: the recall goes on the
+ * same inject row every delivery rides, so the next call reads it as already handed.
+ * ceiling: hop-1 only, matching the walk `--unseen` briefs; an author two hops out learns of the
+ * retirement when any read reaches it.
+ *
  * `delivered` empty means: say nothing, write no row, so the bound stays put and the next call costs
  * the same. Otherwise every id in it goes on one `inject` row — that row is what stops the next call
  * from saying this again.
@@ -388,7 +420,8 @@ export async function unseenReport(
   anchor: Entity,
   handed: ReturnType<typeof deliveries>,
   result: { items: InjectItem[]; omitted: number },
-): Promise<{ lines: string[]; delivered: string[] }> {
+  reader: string,
+): Promise<{ lines: string[]; delivered: string[]; changed: number }> {
   const unseenOf = (e: Entity) => {
     const at = handed.lastHanded.get(e.id);
     return at === undefined || !atOrBefore(versionTime(e), at);
@@ -408,6 +441,27 @@ export async function unseenReport(
         `-> ${effectiveStatus(e, ontology, now)}${reason ? `: ${reason}` : ""}`,
       );
     }
+  // Author recall: retired records on this context that `reader` wrote and someone else retired.
+  const hop = await store.neighbors(anchor.id);
+  const hopIds = [
+    ...new Set(hop.map((r) => (r.from === anchor.id ? r.to : r.from))),
+  ].filter((id) => id !== anchor.id && !heldById.has(id));
+  const attached = (await readEntities(store, hopIds)).filter(
+    (e) => normalizeNs(e.ns) === normalizeNs(ns),
+  );
+  for (const e of attached) {
+    if (e.status !== "deprecated") continue;
+    // The retiring version names the retirer; the author lives on the authored_by edge the gate
+    // wrote at commit. Self-retired needs no notice.
+    if (e.provenance.actor === reader || !unseenOf(e)) continue;
+    const wrote = (await store.neighbors(e.id, "authored_by", "out")).some(
+      (r) => r.to === reader,
+    );
+    if (!wrote) continue;
+    const reason = retirementOf(e)?.reason;
+    heldById.set(e.id, e);
+    changed.set(e.id, `-> deprecated${reason ? `: ${reason}` : ""}`);
+  }
   const fresh = result.items.filter(
     (it) => !changed.has(it.entity.id) && unseenOf(it.entity),
   );
@@ -454,6 +508,7 @@ export async function unseenReport(
   return {
     lines,
     delivered: [...changed.keys(), ...fresh.map((it) => it.entity.id)],
+    changed: changed.size,
   };
 }
 
