@@ -1,0 +1,25 @@
+src/connectors/github-pr.test.ts
+  s_03673cb32bfdc1::t_7e0ba791e36420 10-17,40-41,72-82,125,146,148
+src/connectors/github-pr.ts
+  s_03673cb32bfdc1::t_7e0ba791e36420 1-9,17-20,62-68,70-114
+docs/ADOPTION.md
+  s_03673cb32bfdc1::t_7e0ba791e36420 43-68
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_a68255f26cc1a5 794-810
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ecb1ba676f9ea626a285050ec14d85b34f1c040b",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
