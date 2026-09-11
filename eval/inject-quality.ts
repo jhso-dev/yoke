@@ -100,6 +100,12 @@ function makeStubEmbedder(topics: string[]): Embedder {
 }
 
 interface Report {
+  briefing: {
+    /** Of the `leads`-marked records planted on the scope, how many survive in the opening page. */
+    planted: number;
+    surviving: number;
+    noise: number; // noise facts filed after them, competing on recency
+  };
   contamination: {
     ftsCandidates: number; // total items FTS raised as candidates (live+retired)
     injected: number; // total items inject() let through
@@ -202,6 +208,56 @@ async function run(): Promise<Report> {
     ).length;
   }
 
+  // Measurement 3: gold-in-brief. A working context holds 3 decisions, then a noisy week files 80
+  // unrelated facts onto it. The opening briefing (BRIEFING_LIMIT slots) must still carry the
+  // decisions — the regression this catches is recency evicting exactly the records a session must
+  // not miss (SPEC "A briefing has a defined order", the `leads` rung).
+  const ws = await commit(
+    store,
+    ontology,
+    { type: "collaboration", attributes: { title: "gold-in-brief" } },
+    prov(),
+    NOW,
+  );
+  const gold: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const d = await commit(
+      store,
+      ontology,
+      {
+        type: "decision",
+        attributes: {
+          conclusion: `standing decision ${i}`,
+          rationale: "planted before the noise",
+        },
+      },
+      prov(),
+      NOW,
+      { attachTo: ws.entity.id },
+    );
+    gold.push(d.entity.id);
+  }
+  const NOISE = 80;
+  for (let i = 0; i < NOISE; i++)
+    await commit(
+      store,
+      ontology,
+      {
+        type: "fact",
+        attributes: { statement: `unrelated notice ${i} parking snacks` },
+      },
+      prov(),
+      NOW,
+      { attachTo: ws.entity.id },
+    );
+  const brief = await inject(store, ontology, "", NOW, {
+    scope: ws.entity.id,
+    limit: 50,
+  });
+  const surviving = gold.filter((id) =>
+    brief.items.some((it) => it.entity.id === id),
+  ).length;
+
   // Measurement 2: conflict miss rate. Check in the DB whether each planted pair got a conflicts_with relation.
   const conflictRels = (await store.listRelations({ type: "conflicts_with" }))
     .items;
@@ -216,6 +272,7 @@ async function run(): Promise<Report> {
   store.close();
 
   return {
+    briefing: { planted: gold.length, surviving, noise: NOISE },
     contamination: {
       ftsCandidates,
       injected,
@@ -248,6 +305,9 @@ console.log(
   `  of which retired (contamination) ${r.contamination.injectedRetired}`,
 );
 console.log(`contamination rate (target 0%)    ${pct(r.contamination.rate)}`);
+console.log(
+  `gold-in-brief (target all)        ${r.briefing.surviving}/${r.briefing.planted} decisions survive ${r.briefing.noise} noise facts`,
+);
 console.log("----------------------------------------");
 console.log(`decision pairs (planted)          ${r.conflict.plantedPairs}`);
 console.log(`conflicts_with created (detected) ${r.conflict.detected}`);
@@ -258,4 +318,10 @@ console.log("========================================");
 console.log(JSON.stringify(r, null, 2));
 
 // Non-zero exit on anomalies (contamination > 0 or misses > 0) — so CI/humans notice immediately.
-process.exit(r.contamination.rate === 0 && r.conflict.rate === 0 ? 0 : 1);
+process.exit(
+  r.contamination.rate === 0 &&
+    r.conflict.rate === 0 &&
+    r.briefing.surviving === r.briefing.planted
+    ? 0
+    : 1,
+);
