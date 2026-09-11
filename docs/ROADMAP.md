@@ -767,6 +767,30 @@ delivery. Approval on entry was protecting readers with the weakest of the five 
 - [x] **`yoke_record_decision` loses `verify:`** — a decision is live at birth like everything
       else; the owner's-confirmation ceremony existed only to cross a gate that no longer exists.
 
+## v7.3 — the session-end flush, measured and not shipped
+
+The plan (캡처와 계측 로드맵) named three candidates for recovering knowledge an agent failed to
+file in-band — a Stop-hook one-time block, a PreCompact instruction, a per-prompt reminder — and
+said the experiment decides. It decided against all of them.
+
+- [x] **Measured, 12 runs** (claude -p, sonnet, CC 2.1.268; two scenarios × 3 control + 3 Stop-hook
+      runs; a fresh store per run, the MCP instructions as the only in-band pressure; judged by
+      which of 3 planted learnings landed as records). Scenario 1 states the learnings outright;
+      scenario 2 buries them in a config-repair task where filing competes with real work.
+      **Control captured 18/18 with zero noise in both.** The in-band knowledge loop is not the
+      weak link this hook was designed for — not on this model, at this session length.
+- [x] **The Stop-hook flush recovered nothing and manufactured records.** Recall delta 0/18; in one
+      run of six the flush prompt produced a meta-fact about the working repo and a second,
+      contradicting decision filed with a conflicts_with edge — an invented dispute, delivered to
+      the scope like any other record. Plus one extra model turn per session, every session.
+      A nudge aimed at an agent that already filed everything has nothing left to elicit except
+      invention.
+- Nothing ships. The hard rule that hooks never break a session survives untested against blocking,
+  because nothing earned the block. ceiling: single-turn -p sessions — a days-long session that
+  compacts repeatedly is the case this harness cannot reach (the PreCompact candidate is untestable
+  in it outright), so if `audit --pulse` ever shows live hands-free capture density LOW while
+  session counts are high, re-run this against long transcripts before concluding the same.
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.
