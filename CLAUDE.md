@@ -55,7 +55,7 @@ When in doubt, cut. A smaller diff that removes is worth more than a larger one 
 - `docs/BACKENDS.md` — backend adapter extension and the RDB read-mapping design
 - `docs/WEB-UI.md` — the governance workbench UI design
 - `docs/SCALE.md` — what breaks at 10M records, measured, and the ceiling that remains
-- `docs/RESEARCH.md` — outside findings that bear on decisions not yet made (multi-reviewer verify, dissent preservation, and where GraphRAG's measured wins do and do not apply to us). §1–4 are unimplemented; §5 names the SPEC clauses it produced
+- `docs/RESEARCH.md` — outside findings that bear on decisions not yet made (dissent preservation, and where GraphRAG's measured wins do and do not apply to us), plus §6's dated `audit --pulse` baseline. §1–4 are unimplemented; §5 names the SPEC clauses it produced
 - `docs/ADOPTION.md` — the maker-org rollout playbook: the shared capture→inject loop and its weeding rituals, per-role capture/consumption, and the scale rehearsal (`scripts/gen-kraftonway-corpus.mjs`)
 
 ## Commands

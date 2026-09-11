@@ -323,11 +323,34 @@ printed the column being worked on would have called this an unqualified win.
 
 ---
 
+## 6. Pulse baseline — the loop's health before anything tried to move it
+
+`yoke audit --pulse` (v7.1) exists so the v7.x capture work is judged by before/after numbers
+rather than by having shipped. This is the BEFORE, taken 2026-09-12 against this repository's own
+`yoke.db` (the auth/born-verified decision corpus) — recorded with its own caveats attached,
+because the numbers say almost nothing yet and pretending otherwise would launder tooling into
+verdicts:
+
+| pulse metric | 2026-09-12 | what the number can and cannot say |
+|---|---|---|
+| capture | 15 records, 1 judgeable: 1 human, 0 agent, 0 connector — hands-free 0% | 14 heads carry `origin: lifecycle` (promoted under the pre-v7.0 model), so their capture class is unjudgeable. The 0% hands-free is a fact about one judgeable record, not about the loop |
+| delivery interrupts | 0 instrumented rows; 1 pre-instrumentation row skipped | the `changed=` token shipped with the same commit as the metric — every delivery before it is unjudgeable. The v7.0 ceiling (interrupt cost unmeasured) stays open until real deliveries accumulate |
+| recall reach | 0/0 | no retirement has chased a delivery in this corpus yet |
+| relitigation | 1/1 superseded decisions reversed within 14d | the one data point is the verifiers-scope decision, reversed a day after birth by the born-verified redesign — a true positive, and a reminder that n=1 |
+| briefing share (the collaboration scope) | 7/11 decisions+terms | pre-v7.2; the number the briefing-ordering change must not regress |
+
+The tool is ready; the answer is pending. The judgment this baseline exists for — did v7.3/v7.4
+raise hands-free capture, did v7.2 hold the briefing's decision share under noise, what is the real
+interrupt rate — needs four weeks of live traffic (the plan's soak window), not this table.
+
+---
+
 ## How to use this file
 
 Cite it from the design document that owns the decision, rather than copying the argument. Current
 hook: the scope note above, which binds any future multi-person confirmation design. When a claim here is checked against its primary source, replace the
 "unverified" marker with the page reference — the marker is a debt, not a disclaimer.
 
-§1–4 are unimplemented; §5 is **partly implemented** and names the two SPEC clauses it produced. Where
-a section drives code, it says which code — so the next reader can tell the argument from the artifact.
+§1–4 are unimplemented; §5 is **partly implemented** and names the two SPEC clauses it produced; §6
+is a dated measurement that `audit --pulse` re-takes. Where a section drives code, it says which
+code — so the next reader can tell the argument from the artifact.
