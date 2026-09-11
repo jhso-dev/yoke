@@ -101,7 +101,7 @@
       "type": "decision",
       "author": "person:kim-dohyun",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "clickstream 스트림 처리의 워터마크는 이벤트 시간 기준 lateness 5분으로 설정하고, 5분을 넘긴 late event는 별도 dead-letter topic(`clickstream-late-dlq`)으로 분리한다.",
         "rationale": "초안 단계 — 아직 실제 프로덕션 트래픽으로 lateness 분포를 측정하지 못했다. 모바일 오프라인 이벤트가 재전송될 때 최대 3분 정도 늦게 도착하는 걸 로그 샘플링으로 봤지만, 표본이 하루치뿐이라 5분이 충분한지 확신이 없다. 다음 주까지 일주일치 트래픽으로 lateness 분포(p50/p95/p99)를 다시 뽑아보고 확정할 예정. 리뷰 필요.",
@@ -168,7 +168,7 @@
       "type": "term",
       "author": "person:lee-suyeon",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "신선도 버짓",
         "statement": "'신선도 버짓'은 SLA 45분 중 파이프라인 단계별로 실제 얼마를 쓰고 있는지 배분한 예산 개념이다(CDC 8분 + 배치 대기 15분 + dbt run 12분 + 여유 10분). 아직 팀 전체에 공식 용어로 확정되지 않은 초안이라, 리뷰 없이 회의록 밖에서 인용하지 말 것."
@@ -203,7 +203,7 @@
       "type": "resource",
       "author": "person:kim-dohyun",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "야간 배치 의존성 그래프 뷰어",
         "statement": "Airflow DAG들을 도메인 간 의존 관계까지 묶어 시각화하는 내부 툴 초안. 아직 일부 레거시 크론잡(스케줄러 밖에서 도는 것들)은 반영이 안 돼 있어 draft 상태로 둔다.",
@@ -215,7 +215,7 @@
       "type": "fact",
       "author": "person:kim-dohyun",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "야간 배치 의존 순서 초안",
         "statement": "orders → payments_reconciliation → finance_daily_summary 순으로 돌아야 하는데, 이 의존관계가 코드에는 없고 사람이 크론 시각 간격(각 30분)으로만 맞춰둔 상태다. Airflow sensor로 명시적 의존성을 걸어야 한다는 논의 중이며 아직 초안이다."

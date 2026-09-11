@@ -3,8 +3,8 @@
 // Run: npm run eval  (tsx eval/inject-quality.ts)
 //
 // Two measurements:
-//   1) Contamination rate = the share of drafts among inject() results (expected 0%).
-//      Proves the hard rule that the gate injects only verified knowledge, by planting a verified/draft
+//   1) Contamination rate = the share of retired records among inject() results (expected 0%).
+//      Proves the hard rule that injection serves only standing knowledge, by planting a live/retired
 //      pair on the same topic side by side and querying it.
 //   2) Conflict miss rate = the share of planted opposing-conclusion decision pairs with no conflicts_with
 //      created (expected 0%). Gate stage 4 runs only with an embedder + similar(), so we inject a
@@ -16,7 +16,7 @@ import { SqliteStorage } from "../src/adapters/storage-sqlite/index.js";
 import { commit } from "../src/core/commit.js";
 import type { Embedder } from "../src/core/embedding.js";
 import { inject } from "../src/core/inject.js";
-import { verify } from "../src/core/lifecycle.js";
+import { deprecate } from "../src/core/lifecycle.js";
 import { seedOntology } from "../src/core/ontology.js";
 import type { Provenance } from "../src/core/types.js";
 
@@ -101,10 +101,10 @@ function makeStubEmbedder(topics: string[]): Embedder {
 
 interface Report {
   contamination: {
-    ftsCandidates: number; // total items FTS raised as candidates (verified+draft)
+    ftsCandidates: number; // total items FTS raised as candidates (live+retired)
     injected: number; // total items inject() let through
-    injectedDraft: number; // of those, drafts (contamination)
-    rate: number; // injectedDraft / injected
+    injectedRetired: number; // of those, retired records (contamination)
+    rate: number; // injectedRetired / injected
   };
   conflict: {
     plantedPairs: number;
@@ -119,9 +119,9 @@ async function run(): Promise<Report> {
   await store.init();
   const ontology = seedOntology();
 
-  // (a) 20 verified facts + (b) 20 draft facts on the same topics. Committed without an embedder —
+  // (a) 20 live facts + (b) 20 retired facts on the same topics. Committed without an embedder —
   // the contamination measurement only uses inject()'s FTS path, so it is independent of embeddings.
-  const verifiedIds: string[] = [];
+  const retiredIds: string[] = [];
   for (const topic of FACT_TOPICS) {
     const verified = await commit(
       store,
@@ -133,23 +133,25 @@ async function run(): Promise<Report> {
       prov(),
       NOW,
     );
-    verifiedIds.push(verified.entity.id);
-    // Assumed-contaminating draft: states the same topic differently. Left unverified → stays a draft.
-    await commit(
+    void verified;
+    // Assumed-contaminating record: states the same topic differently, then is retired — the one
+    // stored status injection must never serve.
+    const retired = await commit(
       store,
       ontology,
       {
         type: "fact",
         attributes: {
           topic,
-          statement: `Unverified rumor contradicting ${topic}.`,
+          statement: `Withdrawn claim contradicting ${topic}.`,
         },
       },
       prov(),
       NOW,
     );
+    retiredIds.push(retired.entity.id);
   }
-  await verify(store, verifiedIds, ACTOR, NOW);
+  await deprecate(store, retiredIds, ACTOR, NOW);
 
   // (c) Opposing-conclusion decision pairs — inject the deterministic stub embedder → exercises gate stage 4.
   const embedder = makeStubEmbedder(DECISION_TOPICS);
@@ -186,16 +188,18 @@ async function run(): Promise<Report> {
     pairIds.push([first.entity.id, second.entity.id]);
   }
 
-  // Measurement 1: contamination rate. Per-topic query → share of drafts among inject() results.
+  // Measurement 1: contamination rate. Per-topic query → share of retired records among inject() results.
   let ftsCandidates = 0;
   let injected = 0;
-  let injectedDraft = 0;
+  let injectedRetired = 0;
   for (const topic of FACT_TOPICS) {
     ftsCandidates += (await store.search({ text: topic })).length;
     const { items } = await inject(store, ontology, topic, NOW, { limit: 100 });
     injected += items.length;
     // Honest judgment: read the injected entity's stored status directly (the source, not effectiveStatus).
-    injectedDraft += items.filter((it) => it.entity.status === "draft").length;
+    injectedRetired += items.filter(
+      (it) => it.entity.status === "deprecated",
+    ).length;
   }
 
   // Measurement 2: conflict miss rate. Check in the DB whether each planted pair got a conflicts_with relation.
@@ -215,8 +219,8 @@ async function run(): Promise<Report> {
     contamination: {
       ftsCandidates,
       injected,
-      injectedDraft,
-      rate: injected === 0 ? 0 : injectedDraft / injected,
+      injectedRetired,
+      rate: injected === 0 ? 0 : injectedRetired / injected,
     },
     conflict: {
       plantedPairs: pairIds.length,
@@ -237,11 +241,11 @@ const r = await run();
 console.log("yoke — inject quality eval");
 console.log("========================================");
 console.log(
-  `FTS candidates (verified+draft)   ${r.contamination.ftsCandidates}`,
+  `FTS candidates (live+retired)    ${r.contamination.ftsCandidates}`,
 );
 console.log(`injected (passed gate)            ${r.contamination.injected}`);
 console.log(
-  `  of which draft (contamination)  ${r.contamination.injectedDraft}`,
+  `  of which retired (contamination) ${r.contamination.injectedRetired}`,
 );
 console.log(`contamination rate (target 0%)    ${pct(r.contamination.rate)}`);
 console.log("----------------------------------------");

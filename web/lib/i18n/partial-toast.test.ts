@@ -59,7 +59,7 @@ describe("W-TOAST: partial-commit toast names each remedy", () => {
     const msg = en.create.partial("R", ["future_edge -> 01X"]);
     expect(msg).toContain("NOT recorded");
     // The label still ends as a partial-commit sentence, not a bare "created".
-    expect(msg).toContain("Saved");
+    expect(msg).toContain("Recorded");
   });
 
   it("ko classifies the same three labels (Hangul, same structure)", () => {

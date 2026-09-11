@@ -1,5 +1,5 @@
 // github-pr connector (PLAN 5.2). Calls GitHub REST v3 directly with fetch (no octokit — only 2 endpoints).
-// One review comment → one decision draft. It does not auto-create an author person: no actor-mapping
+// One review comment → one decision record. It does not auto-create an author person: no actor-mapping
 // policy (GitHub login ↔ person) exists in the SPEC, so inventing one violates the no-invention rule.
 // provenance.actor is left to the ingest caller (--actor), and the comment author's login is preserved in attributes.author.
 

@@ -43,7 +43,7 @@ async function addFact(statement: string) {
 }
 
 describe("lifecycle", () => {
-  it("verify bumps version, sets verified, preserves history and lifecycle provenance", async () => {
+  it("verify re-confirms: bumps version, refreshes last_confirmed, preserves history and lifecycle provenance", async () => {
     const id = await addFact("water boils at 100C");
     const later = "2026-07-13T00:00:00Z";
     const [v] = await verify(port, [id], "alice", later);
@@ -60,16 +60,16 @@ describe("lifecycle", () => {
       occurred_at: new Date(now).toISOString(),
       transitioned_at: new Date(later).toISOString(),
     });
-    // History preserved: v1, which was a draft, is still queryable.
+    // History preserved: v1, the record as it entered, is still queryable.
     const v1 = await port.getEntity(id, 1);
-    expect(v1?.status).toBe("draft");
-    // Latest is the verified v2.
+    expect(v1?.version).toBe(1);
+    expect(v1?.provenance.transitioned_at).toBeUndefined();
+    // Latest is the re-confirmed v2.
     expect((await port.getEntity(id))?.status).toBe("verified");
   });
 
-  it("effectiveStatus is 'stale' when verified fact exceeds its TTL", async () => {
-    const id = await addFact("stale-able");
-    await verify(port, [id], "alice", now); // fact TTL = 180 days
+  it("effectiveStatus is 'stale' when a fact exceeds its TTL", async () => {
+    const id = await addFact("stale-able"); // fact TTL = 180 days, window opens at entry
     const e = await port.getEntity(id);
     if (!e) throw new Error("missing");
 
@@ -108,8 +108,8 @@ describe("lifecycle", () => {
     expect((await port.getEntity(id))?.status).toBe("deprecated");
   });
 
-  // The defect this pins: `verify --all-drafts` restamped every record's occurred_at to one instant,
-  // so a corpus of dated documents came out claiming it all happened when someone ran the promotion.
+  // A batch re-confirmation must not restamp occurred_at: a corpus of dated documents would come out
+  // claiming it all happened the moment someone confirmed it.
   it("a batch verify leaves each record's own event time alone", async () => {
     const dated = async (statement: string, at: string) => {
       const { entity } = await commit(
@@ -153,7 +153,6 @@ describe("lifecycle", () => {
       /nope/,
     );
     const after = await port.getEntity(id);
-    expect(after?.status).toBe("draft");
     expect(after?.version).toBe(1);
   });
 });
@@ -194,7 +193,7 @@ describe("versionAsOf", () => {
     await verify(port, [entity.id], "alice", "2026-07-13T00:00:00Z");
     await deprecate(port, [entity.id], "alice", "2026-07-20T00:00:00Z");
 
-    expect((await versionAsOf(port, entity.id, now))?.status).toBe("draft");
+    expect((await versionAsOf(port, entity.id, now))?.version).toBe(1);
     expect(
       (await versionAsOf(port, entity.id, "2026-07-15T00:00:00Z"))?.status,
     ).toBe("verified");
@@ -234,15 +233,17 @@ describe("staleEntities", () => {
   it("finds verified records past their TTL and leaves fresh ones alone", async () => {
     const old = await addFact("aged out");
     const fresh = await addFact("still good");
-    await verify(port, [old], "alice", now);
+    // Re-confirmed in December, so its window is open at `aged`.
     await verify(port, [fresh], "alice", "2026-12-20T00:00:00Z");
-    // A draft is not stale — it was never verified, so it belongs in the other queue.
-    await addFact("never verified");
+    // A retired record is not stale — it left injection deliberately, and re-confirming it is not
+    // the fix the queue exists to prompt.
+    const retired = await addFact("withdrawn");
+    await deprecate(port, [retired], "alice", now);
 
     const r = await staleEntities(port, ont, aged);
     expect(r.items.map((e) => e.id)).toEqual([old]);
     expect(r.next).toBeNull();
-    // Only the two VERIFIED rows were examined; the draft never entered the walk.
+    // Only the two VERIFIED rows were examined; the retired record never entered the walk.
     expect(r.scanned).toBe(2);
   });
 
@@ -411,10 +412,10 @@ describe("downstreamOf", () => {
   });
 });
 
-// `link` prints an id and the word `draft`, so the next thing tried is `verify <that id>`. The answer
-// was "cannot transition unknown entity" — the store denying a row it was holding.
+// A transition handed an edge id must refuse it AS an edge — "cannot transition unknown entity"
+// would be the store denying a row it is holding.
 describe("an edge id is refused as an edge, not as a stranger", () => {
-  it("names the relation and why promotion does not apply", async () => {
+  it("names the relation and why a transition does not apply", async () => {
     const a = await addFact("one end");
     const b = await addFact("the other end");
     const { entity: edge } = await commit(
@@ -425,7 +426,7 @@ describe("an edge id is refused as an edge, not as a stranger", () => {
       now,
     );
     await expect(verify(port, [edge.id], "admin", now)).rejects.toThrow(
-      /is a relation, and relations are not promoted/,
+      /is a relation, and relations have no lifecycle/,
     );
   });
 
@@ -441,8 +442,8 @@ describe("an edge id is refused as an edge, not as a stranger", () => {
 // scoped `teamA:verify` promoted, read back the text of, and then retired a record belonging to teamB —
 // and since the audit row is written with the CALLER's namespace, teamB's own trail showed nothing.
 describe("a governance act stays inside the caller's namespace", () => {
-  /** A draft belonging to `ns`. */
-  async function draftIn(ns?: string): Promise<string> {
+  /** A record belonging to `ns`. */
+  async function recordIn(ns?: string): Promise<string> {
     const { entity } = await commit(
       port,
       ont,
@@ -454,20 +455,18 @@ describe("a governance act stays inside the caller's namespace", () => {
     return entity.id;
   }
 
-  it("refuses to verify another tenant's record", async () => {
-    const theirs = await draftIn("team-b");
+  it("refuses to re-confirm another tenant's record", async () => {
+    const theirs = await recordIn("team-b");
     await expect(
       verify(port, [theirs], "a-verifier", now, "team-a"),
     ).rejects.toThrow(/unknown entity/);
-    // Untouched: still the draft it was, still one version.
+    // Untouched: still the record it was, still one version.
     const after = await port.getEntity(theirs);
-    expect(after?.status).toBe("draft");
     expect(after?.version).toBe(1);
   });
 
   it("refuses to retire another tenant's record", async () => {
-    const theirs = await draftIn("team-b");
-    await verify(port, [theirs], "b-verifier", now, "team-b");
+    const theirs = await recordIn("team-b");
     await expect(
       deprecate(port, [theirs], "a-verifier", now, "team-a"),
     ).rejects.toThrow(/unknown entity/);
@@ -478,7 +477,7 @@ describe("a governance act stays inside the caller's namespace", () => {
   // watching which refusals change wording. Reads already answer this way (a foreign id 404s), so the
   // two agree — and the test pins the wording rather than leaving it to be "improved" later.
   it("says unknown, not forbidden, so the refusal is not an existence oracle", async () => {
-    const theirs = await draftIn("team-b");
+    const theirs = await recordIn("team-b");
     const foreign = await verify(port, [theirs], "a", now, "team-a").catch(
       (e: Error) => e.message,
     );
@@ -494,37 +493,36 @@ describe("a governance act stays inside the caller's namespace", () => {
   });
 
   it("refuses the WHOLE batch when one id is another tenant's", async () => {
-    const mine = await draftIn("team-a");
-    const theirs = await draftIn("team-b");
+    const mine = await recordIn("team-a");
+    const theirs = await recordIn("team-b");
     await expect(
       verify(port, [mine, theirs], "a-verifier", now, "team-a"),
     ).rejects.toThrow(/unknown entity/);
     // The existing validate-then-write rule holds across the ns filter too: a half-applied governance
     // action is worse than a refused one.
-    expect((await port.getEntity(mine))?.status).toBe("draft");
+    expect((await port.getEntity(mine))?.version).toBe(1);
   });
 
-  it("still promotes a record in the caller's own namespace", async () => {
-    const mine = await draftIn("team-a");
+  it("still re-confirms a record in the caller's own namespace", async () => {
+    const mine = await recordIn("team-a");
     const [done] = await verify(port, [mine], "a-verifier", now, "team-a");
-    expect(done.status).toBe("verified");
+    expect(done.version).toBe(2);
     expect(done.ns).toBe("team-a");
   });
 
   it("treats the default namespace as its own tenant", async () => {
-    const shared = await draftIn(undefined);
+    const shared = await recordIn(undefined);
     await expect(
       verify(port, [shared], "a-verifier", now, "team-a"),
     ).rejects.toThrow(/unknown entity/);
     const [done] = await verify(port, [shared], "admin", now);
-    expect(done.status).toBe("verified");
+    expect(done.version).toBe(2);
   });
 });
 
 describe("a retirement says why, on the version that is the retirement", () => {
   it("deprecate writes the reason into that version's provenance", async () => {
     const f = await addFact("we ship on fridays");
-    await verify(port, [f], "admin", now);
     const [retired] = await deprecate(
       port,
       [f],

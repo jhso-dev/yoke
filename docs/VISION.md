@@ -14,7 +14,7 @@ AI agents don't know an organization's or a person's knowledge. That knowledge i
 
 ## v1 scope
 
-**Included**: the core knowledge model (entity/relation/ontology), one SQLite backend, the MCP server, a thin CLI, basic search (keyword + relation traversal), the full knowledge policy (docs/KNOWLEDGE-POLICY.md — the gate, lifecycle, injection filter, duplicate/contradiction detection, freshness, and the promotion CLI), **persona** (person-scoped queries + skill export), and three capture paths (an MCP recording tool, the CLI, and a GitHub PR review connector).
+**Included**: the core knowledge model (entity/relation/ontology), one SQLite backend, the MCP server, a thin CLI, basic search (keyword + relation traversal), the full knowledge policy (docs/KNOWLEDGE-POLICY.md — the gate, lifecycle, injection filter, duplicate/contradiction detection, freshness, and the re-confirmation CLI), **persona** (person-scoped queries + skill export), and three capture paths (an MCP recording tool, the CLI, and a GitHub PR review connector).
 
 v1 build order: core model → SQLite → knowledge-policy gate → MCP server → capture → persona. persona sits on top of everything before it, so it comes last.
 

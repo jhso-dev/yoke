@@ -31,7 +31,7 @@ function makeEntity(over: Partial<Entity> & { id: string }): Entity {
   return {
     type: "fact",
     attributes: { title: "x" },
-    status: "draft",
+    status: "verified",
     version: 1,
     last_confirmed: "2026-01-01T00:00:00Z",
     provenance: {

@@ -159,10 +159,11 @@ an adapter (a read-only entity source, not a storage port implementation).
 - A mapping declaration file (yaml): tables/views → entity types, columns →
   attributes, FKs → relations. e.g. `employees` → `person`, `employees.manager_id`
   → `reports_to`.
-- Mapped entities are treated as `status: verified` but distinguished by
+- Mapped entities land `status: verified` like everything else, distinguished by
   `provenance.origin: 'rdb:...'` — the source DB is already the org's source of
-  truth, so draft isolation isn't needed. Freshness still applies, though (last sync
-  time = last_confirmed).
+  truth. Freshness still applies (last sync time = last_confirmed). The bulk path
+  bypasses the per-record gate for throughput but still validates against the
+  ontology.
 - Read-only by principle. Bidirectional sync is designed separately if and when the
   need is real (conflict resolution is inherently hard — we don't add it casually).
 - Target order: Postgres → MySQL. The rest by demand.
@@ -186,13 +187,13 @@ an adapter (a read-only entity source, not a storage port implementation).
 ## Connector roadmap (the capture family)
 
 github-pr (v0.5) → Slack, meeting notes (v2.0) → Confluence/Notion (by demand).
-Shared pattern: external source → draft entity staging (unlike read-mapping, it
-passes the gate).
+Shared pattern: external source → signed records through the gate, one per source
+item (unlike read-mapping's bulk path).
 
 **Slack connector verified live (2026-07-14, real workspace channel)**: history +
-thread replies ingested as draft facts, external_id idempotency, `--since`
-scoping, and the review→verify→inject flow all confirmed. Two real-API fixes
+thread replies ingested as facts, external_id idempotency, `--since`
+scoping, and the capture→inject flow all confirmed. Two real-API fixes
 came out of it: 429 rate-limit retry honoring Retry-After (a busy channel trips
 the replies limit fast) and skipping `subtype` system events (join notices were
-landing in the review queue as noise). Note: a full-history first sync of a
+landing in the corpus as noise). Note: a full-history first sync of a
 large channel is rate-limit-bound and slow by nature — scope with `--since`.

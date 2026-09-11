@@ -1,5 +1,5 @@
 // inject — context injection (KNOWLEDGE-POLICY soft rule 5: inject strictly).
-// search → compute effectiveStatus → by default only verified passes (stale/draft/deprecated excluded).
+// search → compute effectiveStatus → only verified passes (stale/deprecated excluded).
 // The citation format is the smallest unit of the audit trail — pinned by tests.
 
 import { readEntities, type StoragePort } from "../ports/storage.js";
@@ -65,16 +65,14 @@ export interface WalkStats {
  * of labour `omitted` and `WalkStats` already have).
  *
  * An empty injection is the one result a reader cannot interpret: knowledge that is absent, knowledge
- * that is waiting for review, and knowledge that was retired all read as "no results", and the reader
- * has no way to tell which.
+ * that went stale waiting for re-confirmation, and knowledge that was retired all read as "no
+ * results", and the reader has no way to tell which.
  *
  * `structural` is the reason that misdirects worst if left unsaid: a verified `person` matching the
- * query is withheld by type, so a reader told "draft withheld" verifies it and the answer gets no
+ * query is withheld by type, so a reader told "stale withheld" re-confirms it and the answer gets no
  * better — the record was never injectable knowledge (see the structural note below).
  */
 export interface WithheldStats {
-  /** Matched, but still awaiting review. Reachable with `includeDraft`, or by verifying. */
-  draft: number;
   /** Matched and verified, but past its type's TTL. Reachable by re-confirming. */
   stale: number;
   /** Matched, but retired. Not reachable — the retirement is the answer. */
@@ -137,10 +135,10 @@ export const BRIEFING_LIMIT = 50;
  *
  * Two parts, and the first is the one that matters:
  *
- * `status` is pushed DOWN. Injection wants stored-verified rows (plus stored-draft when asked), and
- * `search` can express that, so deprecated rows never occupy the window. Over-fetching alone does not
- * work: `verify` rewrites the FTS row, so on tied relevance the verified records sort LAST, and a 4x
- * window over a corpus with a review backlog can contain none of them.
+ * `status` is pushed DOWN. Injection wants stored-verified rows, and `search` can express that, so
+ * deprecated rows never occupy the window. Over-fetching alone does not work: a transition rewrites
+ * the FTS row, so on tied relevance the standing records sort LAST, and a 4x window over a corpus
+ * with a long retirement history can contain none of them.
  *
  * The multiplier remains for the one filter that cannot be pushed: `stale` is computed from the
  * ontology's TTL at read time and is never stored (lifecycle.ts), so a stored-verified row may still
@@ -172,13 +170,12 @@ const STALE_HEADROOM = 3;
  * which is `versionAsOf`'s comparison and has to be: comparing the two clocks differently makes one
  * as-of read answer itself two ways.
  *
- * ceiling: an edge's `status` is not consulted, and cannot be. Every relation is committed `draft` and
- * no path promotes one (`lifecycle.transition` refuses relation ids), so requiring `verified` here would
- * disable supersession entirely rather than make it stricter. That leaves withholding — the one thing
- * here that REMOVES verified knowledge from an answer — trusting an edge the governance layer cannot
- * reach. The gate is the only check it passed. Fix the asymmetry by making edges promotable (a
- * KNOWLEDGE-POLICY decision: should an unverified edge route injection at all?), not by tightening this
- * line.
+ * An edge's `status` is not consulted: an edge is born verified like everything else and
+ * `lifecycle.transition` refuses relation ids, so status could only ever say what being stored
+ * already says. Withholding — the one thing here that REMOVES standing knowledge from an answer —
+ * rests on the edge's signature and the gate it passed, and on the retraction path: a wrong
+ * supersession is answered by retiring the edge's author record or filing the counter-claim, both of
+ * which the unseen ledger broadcasts.
  *
  * ceiling: one relation read per record handed over — the cap, not the retrieval window, so a page of
  * ten costs ten and a fifty-record briefing costs fifty. Not benchmarked: the sqlite read is a single
@@ -223,7 +220,6 @@ async function meaningEdges(
   };
 }
 const candidateQuery = (opts?: {
-  includeDraft?: boolean;
   limit?: number;
   ns?: string | null;
   asOf?: string;
@@ -237,9 +233,7 @@ const candidateQuery = (opts?: {
   // ceiling: that leaves the 3x window as the only bound on an as-of read, so over a corpus that is
   // mostly deprecated it can return a short page. Widen the multiplier when a real corpus shows it,
   // not on the strength of this comment.
-  ...(opts?.asOf
-    ? {}
-    : { status: opts?.includeDraft ? ["verified", "draft"] : "verified" }),
+  ...(opts?.asOf ? {} : { status: "verified" }),
   limit: opts?.limit === undefined ? undefined : opts.limit * STALE_HEADROOM,
 });
 
@@ -346,17 +340,17 @@ async function vectorHits(
  * `[{type}:{id}@v{version}] {actor}, {occurred_at}` — the audit citation format.
  *
  * With `author` (the `authored_by` edge's target) it becomes
- * `[…] {author} (confirmed by {promoter}), {occurred_at}` — and ONLY when the two differ, so the
+ * `[…] {author} (confirmed by {confirmer}), {occurred_at}` — and ONLY when the two differ, so the
  * single-user local path renders exactly as before.
  *
  * The plain form names whoever wrote the version being pointed at, which for a verified record is
- * whoever PROMOTED it: `verify` appends a version whose provenance is the promotion. That is correct
+ * whoever last CONFIRMED it: `verify` appends a version whose provenance is the confirmation. That is correct
  * about the version and wrong about the knowledge — a decision authored under one person's id and
  * verified by a reviewer would be served inside that person's persona citing the reviewer, so an agent
  * quoting yoke names the wrong person. Authorship comes off the `authored_by` edge, never
  * `provenance.actor` (docs/SPEC.md:682); `overview` obeys that and says so in its own output.
  *
- * Both, rather than swapping one for the other. The promoter is not noise — it is who vouched for this,
+ * Both, rather than swapping one for the other. The confirmer is not noise — it is who vouched for this,
  * which is the other half of what makes a citation auditable — and dropping it to fix attribution would
  * trade one missing fact for another. It is invisible on a single-user database, where the two ARE the
  * same actor.
@@ -413,18 +407,17 @@ export function entityIdCandidates(raw: string): string[] {
 
 /**
  * Returns the verified knowledge matching a query, each with its citation.
- * @param includeDraft also include drafts (the label is carried by effectiveStatus). stale/deprecated are always excluded.
  * @param scope an entity id to anchor the injection on — one mechanism with two named entry points:
  *   a collaboration anchor is the shared working context, a person anchor is a persona.
  *   - scope + query: the full query results, with knowledge one relation hop from the scope entity
  *     ordered first — the working context leads, org-wide knowledge still flows in (scope
  *     PRIORITIZES, it does not imprison).
  *   - scope, no query: only the one-hop set (a briefing of that anchor), ordered
- *     verified-first → most-recently-confirmed → id. That order is part of the contract: without it
+ *     nearest-first → most-recently-confirmed → id. That order is part of the contract: without it
  *     `limit` cuts by whatever order the backend happened to return relations in.
  *   The scope entity itself is never returned, and neither is anything reached only through a
  *   relation the ontology marks `membership` (a roster is not knowledge — pass that type as
- *   `scopeRel` to ask for it on purpose). The same verified/draft/ns filters apply, and
+ *   `scopeRel` to ask for it on purpose). The same verified/ns filters apply, and
  *   `limit` is applied after ordering/filtering.
  * @param scopeRel @param scopeDir narrow the anchor walk, passed straight to port.neighbors.
  *   Default: every relation type, both directions — right for a collaboration, whose whole point is
@@ -450,7 +443,6 @@ export async function inject(
   query: string,
   now: string,
   opts?: {
-    includeDraft?: boolean;
     limit?: number;
     ns?: string | null;
     scope?: string;
@@ -585,7 +577,7 @@ export async function inject(
     }
   } else {
     // See candidateQuery. Asking the store for exactly `limit` returns `limit` minus however many are
-    // draft, stale or deprecated — a request for 50 comes back at 29 while injectable records past the
+    // stale or deprecated — a request for 50 comes back at 29 while injectable records past the
     // window sit unreturned (docs/SCALE.md).
     candidates = await retrieve();
   }
@@ -613,9 +605,7 @@ export async function inject(
       : found;
     if (!entity) continue;
     const status = effectiveStatus(entity, ontology, readAt);
-    const pass =
-      status === "verified" || (opts?.includeDraft && status === "draft");
-    if (!pass) continue;
+    if (status !== "verified") continue;
     // Before the cap, so a working context's newest record is never what `limit` cuts. Not counted as
     // withheld: a record unchanged since T was not held back from the caller, it was already theirs.
     if (opts?.since && atOrBefore(versionTime(entity), opts.since)) continue;
@@ -635,9 +625,6 @@ export async function inject(
         // cannot happen on this path (every candidate came out of the walk), so the fallback is only
         // there to keep the comparator total.
         (distance.get(a.entity.id) ?? 0) - (distance.get(b.entity.id) ?? 0) ||
-        // Verified before draft (only differ when includeDraft is on).
-        Number(b.effectiveStatus === "verified") -
-          Number(a.effectiveStatus === "verified") ||
         // Most recently confirmed first — the freshest knowledge about this work leads.
         // By instant, not by collation: on a database holding both pre- and post-canonicalization
         // stamps, `Z` sorts after `.`, so 00:00:00.500Z read as older than 00:00:00Z.
@@ -689,16 +676,16 @@ export async function inject(
   // answers the query — rationale, rejected alternatives and all — sits one TTL past its window. An
   // absence a reader can see beats a filter they cannot, and that argument does not stop at zero.
   //
-  // The query path has to re-ask because `candidateQuery` pushes `status` DOWN: a withheld draft never
-  // reached this function to be counted, and over-fetching instead of pushing does not work (see
+  // The query path has to re-ask because `candidateQuery` pushes `status` DOWN: a withheld retirement
+  // never reached this function to be counted, and over-fetching instead of pushing does not work (see
   // candidateQuery). The anchor path already holds every status (the walk filters none), so it reuses
   // the candidates it has and costs nothing.
   //
   // The diagnostic asks for the same 3x window the primary retrieval uses, minus the status push-down.
   // At the caller's bare limit it cannot see what it is looking for: the whole point is a record ranked
   // BELOW the page that was filtered out of it, and a window the size of the page contains only records
-  // that made the page. The bias the push-down exists to correct — verified rows sorting last on tied
-  // relevance, because `verify` rewrites the FTS row — is harmless here and mildly helpful: this pass
+  // that made the page. The bias the push-down exists to correct — standing rows sorting last on tied
+  // relevance, because a transition rewrites the FTS row — is harmless here and mildly helpful: this pass
   // wants the rows injection rejected.
   //
   // ceiling: one extra `search` per query-path injection, bounded by the same O(matches) ranking cost
@@ -739,7 +726,7 @@ export async function inject(
  * Classify what matched but did not pass, by the reason it did not.
  *
  * One reason per record, structural first: a structural record is withheld by TYPE whatever its
- * status, so counting it as "draft" would name a fix (verify it) that cannot work.
+ * status, so counting it as "stale" would name a fix (re-confirm it) that cannot work.
  *
  * Returns undefined when nothing was withheld, which is what lets a caller distinguish "the query
  * matched nothing" from "the query matched only knowledge you cannot have".
@@ -763,7 +750,6 @@ async function countWithheld(
       .map((t) => t.name),
   );
   const stats: WithheldStats = {
-    draft: 0,
     stale: 0,
     deprecated: 0,
     structural: 0,
@@ -779,21 +765,16 @@ async function countWithheld(
     }
     // Classify the version that was current at the instant asked about, the way the returning path
     // already does. Judging today's row would make an as-of read blame a retirement that had not
-    // happened yet — a record that was a draft at the instant asked about, reported retired because it
-    // is retired now.
+    // happened yet — a record that was standing at the instant asked about, reported retired because
+    // it is retired now.
     const entity = asOf ? await versionAsOf(port, found.id, asOf) : found;
     // No version at or before that instant: the record did not exist yet, so nothing was withheld.
     if (!entity) continue;
     const status = effectiveStatus(entity, ontology, readAt);
-    if (status === "draft") stats.draft++;
-    else if (status === "stale") stats.stale++;
+    if (status === "stale") stats.stale++;
     else if (status === "deprecated") stats.deprecated++;
   }
   const total =
-    stats.draft +
-    stats.stale +
-    stats.deprecated +
-    stats.structural +
-    stats.superseded;
+    stats.stale + stats.deprecated + stats.structural + stats.superseded;
   return total > 0 ? stats : undefined;
 }

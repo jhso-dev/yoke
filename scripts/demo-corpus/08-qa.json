@@ -70,7 +70,7 @@
       "type": "decision",
       "author": "person:mun-jihu",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "3회 연속 실행 중 1회라도 실패하는 테스트는 자동으로 quarantine 태그를 붙여 CI 게이트 집계에서 제외한다.",
         "rationale": "이번 스프린트에 e2e-checkout.spec이 열흘 새 4번이나 랜덤하게 실패해서 릴리스 때마다 재실행 버튼을 3번씩 눌러야 했다. CI 스크립트에 자동 quarantine 로직을 넣어서, 같은 PR 안에서 재실행 2회 후에도 실패-성공이 왔다갔다 하면 quarantine 라벨을 달고 Gate 2 집계에서 빼기로 했다. 대신 quarantine 큐는 매주 금요일 QA 싱크 때 리뷰해서 방치되지 않게 한다. 아직 threshold(3회 vs 5회)는 확정이 아니고 다음 스프린트 데이터를 보고 조정할 예정.",
@@ -202,7 +202,7 @@
       "type": "resource",
       "author": "person:mun-jihu",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "플래키 테스트 트래커",
         "statement": "quarantine된 테스트 목록과 담당자, 격리된 지 며칠 됐는지를 보여주는 신규 대시보드. 아직 베타 단계라 quarantine 태그가 CI에서 자동으로 안 넘어오는 케이스가 있어 수동 보정 중이다.",
@@ -214,7 +214,7 @@
       "type": "fact",
       "author": "person:oh-taeyang",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "E2E 스위트 실행시간 예산",
         "statement": "E2E 스위트를 12-shard 병렬로 나눠 25분 안에 끝내는 걸 SLO로 잡았다. 지금은 평균 22분대인데 shard 하나가 가끔 40분 넘게 튀는 경우가 있어서, 원인(DB seed 단계 병목으로 추정)을 아직 조사 중이다. shard 배분을 테스트 실행 시간 기준으로 재조정하는 것도 후보로 올라와 있음."
@@ -225,7 +225,7 @@
       "type": "fact",
       "author": "person:jang-mirae",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "팀별 커버리지 기준 불일치",
         "statement": "Platform 팀은 자체적으로 신규 코드 커버리지 80%를 내부 기준으로 요구하는데, QA 게이트에 걸려 있는 공식 기준은 70%다. 크로스팀 PR에서 이 차이 때문에 리뷰가 한 번씩 막힌다. 아직 어느 쪽으로 통일할지 정해지지 않았고, 다음 QA·Platform 합동 싱크에서 논의할 예정이다."

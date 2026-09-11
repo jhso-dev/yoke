@@ -30,14 +30,14 @@ export const versionTime = (e: Entity): string =>
 
 /**
  * Shared transition path. Reads every row in ONE batch, then appends a new version row each
- * (append-only). Provenance records the promote/retire action itself (actor, origin 'lifecycle',
+ * (append-only). Provenance records the confirm/retire action itself (actor, origin 'lifecycle',
  * `transitioned_at`) on top of the knowledge's own provenance, which is carried forward.
  *
- * `occurred_at` SURVIVES the transition. It used to be restamped to the transition instant, which
- * meant `verify --all-drafts` gave a whole corpus one event time — a batch of dated documents read
- * as though everything in it happened the moment someone promoted it, and every time-aware read
- * (as-of, claim ordering, the citation's date) got governance time in place of the knowledge's own.
- * The transition still needs a time of its own, for the as-of rewind; that is `transitioned_at`.
+ * `occurred_at` SURVIVES the transition. Restamping it to the transition instant would give a batch
+ * re-confirmation one event time — a corpus of dated documents reading as though everything in it
+ * happened the moment someone confirmed it, and every time-aware read (as-of, claim ordering, the
+ * citation's date) getting governance time in place of the knowledge's own. The transition still
+ * needs a time of its own, for the as-of rewind; that is `transitioned_at`.
  * The invariant: a verify/deprecate changes status, never when the knowledge happened.
  *
  * ONE batch read, not a `getEntity` per id: a bulk verify of 54 rows from the review queue would
@@ -54,7 +54,7 @@ async function transition(
   reason?: string,
 ): Promise<Entity[]> {
   // The SECOND write path into storage, and it stamps both `last_confirmed` and a fresh `provenance`.
-  // The gate normalizes its instants (commit.ts `normalizeProvenance`); a promotion that did not would
+  // The gate normalizes its instants (commit.ts `normalizeProvenance`); a transition that did not would
   // reintroduce mixed spellings into the same rows the gate had just canonicalized, and every
   // collating read — the briefing sort, `newestFirst`, the SQL windows — would disagree about which
   // record is newest. Rejecting garbage here rather than storing an uncomparable stamp, for the reason
@@ -84,23 +84,18 @@ async function transition(
   // write (id, version+1) twice — two governance rows for one action.
   const distinct = [...new Set(ids)];
   // Refuse the WHOLE batch before the first write — do not silently skip unknown ids either, since
-  // promote/retire are explicit actions. TWO loops, not one: validating inside the write loop makes
-  // `verify([known, "nope"])` throw with `known` already promoted, which is a half-applied governance
+  // confirm/retire are explicit actions. TWO loops, not one: validating inside the write loop makes
+  // `verify([known, "nope"])` throw with `known` already confirmed, which is a half-applied governance
   // action nobody asked for.
   for (const id of distinct)
     if (!found.has(id)) {
-      // An edge id gets its own refusal. `link` prints `draft` next to the id it returns, so the next
-      // thing a reader tries is `verify <that id>` — and "cannot transition unknown entity" says the
-      // store has never heard of a row it is holding. Name what it is and why the action does not
-      // apply, rather than denying it exists.
-      //
-      // ceiling: relations are not promotable, and a `draft` edge is not weaker than a `verified` one
-      // — no read filters on an edge's status, so an unverified relation routes a briefing exactly as
-      // a verified one does. Making promotion mean something for edges is a KNOWLEDGE-POLICY decision
-      // (should an unverified edge route injection at all?), not a missing branch here.
+      // An edge id gets its own refusal: "cannot transition unknown entity" would say the store has
+      // never heard of a row it is holding. Name what it is and why the action does not apply, rather
+      // than denying it exists. Relations have no lifecycle — born verified like everything else, and
+      // no read filters on an edge's status — so there is nothing a transition could change.
       if (await port.getRelation?.(id))
         throw new Error(
-          `${id} is a relation, and relations are not promoted: no read filters on an edge's status, so this would change nothing`,
+          `${id} is a relation, and relations have no lifecycle: no read filters on an edge's status, so this would change nothing`,
         );
       throw new Error(`cannot transition unknown entity: ${id}`);
     }

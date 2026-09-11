@@ -740,6 +740,33 @@ shape rather than imported:
       ceiling: no server-side text briefing yet, so a serve-bound SessionStart re-briefs only what the
       token was never handed; the MCP `yoke_inject` covers in-session re-briefing
 
+## v7.0 — born verified: the gate moves from the door to the lease
+
+Reverses a founding rule, decided 2026-09-11 after surveying how OpenClaw, Hermes Agent, mem0,
+Zep and AiKA capture knowledge: every capture system in production is opt-out (post-hoc
+correction), and the pre-use approval queue was our adoption cliff — a corpus stuck in draft is a
+product that looks dead, and confirmation prompts are friction at exactly the moment capture must
+be free. What made the flip safe HERE is machinery none of those systems have: signed provenance
+bound to the credential, TTL expiry that composts what nobody re-confirms, disputes served
+marked, and the `--unseen` ledger turning a retirement into a recall notice that chases every
+delivery. Approval on entry was protecting readers with the weakest of the five mechanisms.
+
+- [x] **`Status = verified | stale | deprecated`** — `draft` leaves the vocabulary; the gate births
+      records verified (single v1, `last_confirmed` = entry). `verify` is re-confirmation: it
+      refreshes the lease and revives a retired id. Relations have no lifecycle at all.
+- [x] **Injection unchanged where it matters** — verified-only, stale/deprecated never served,
+      `includeDraft` deleted rather than defaulted.
+- [x] **`yoke review` IS the stale queue** — the draft listing, `--stale`, `--all-drafts` and
+      `--include-draft` are gone; the human surface is re-confirmation and retirement, ordered by
+      what agents actually consume.
+- [x] **RBAC collapses to read / write / admin** — committing, re-confirming and retiring are one
+      trust level (`write`), because the checks live downstream of the act; ontology migration and
+      `rename-type` move to `admin` (they change what types mean — operating, not recording).
+      `YOKE_GITHUB_VERIFIERS` is deleted: org membership mints `read,write`, membership is the only
+      tier.
+- [x] **`yoke_record_decision` loses `verify:`** — a decision is live at birth like everything
+      else; the owner's-confirmation ceremony existed only to cross a gate that no longer exists.
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

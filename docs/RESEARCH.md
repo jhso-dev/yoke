@@ -4,6 +4,13 @@ Findings from outside this codebase that bear on design decisions not yet made. 
 implemented; §5 partly is, and says which SPEC clauses it produced. It exists so that when the version
 that needs it starts, the argument is already made and sourced instead of re-derived from memory.
 
+**Scope note (2026-09-11).** §1–4 were gathered when promotion was a pre-use approval step; the
+born-verified decision (ROADMAP v7.0) removed that step, so there is no approval to aggregate and
+no pending-approval state to leak. The findings stand and still bind the decisions that remain
+multi-person: resolving a `conflicts_with`, and any future design where more than one person's
+judgment settles a record's fate. §5's freshness findings bind harder than before — the TTL lease
+is now the primary weeder.
+
 **Provenance of this file.** It was written from a research brief handed to the project on
 2026-07-31, not from reading the primary sources. Paper titles and venues below are given as
 identified; the effect sizes are quoted **as they appeared in that brief and have not been checked
@@ -30,10 +37,10 @@ against confidence-weighted voting.
 *a person who is right but in the minority knows their answer is unusual.* Majority rule discards
 exactly that person. The meta-prediction is what recovers them.
 
-**Where it would apply.** `verify` is the knowledge-governance permission (ENTERPRISE.md) — the
-decision about what an AI is allowed to believe. If that decision is ever made by more than one
-person, the aggregation rule is a real design choice, and **majority is the wrong default**.
-`conflicts_with` resolution is the same shape of decision and the same argument applies.
+**Where it would apply.** Re-confirming and retiring are the decisions about what an AI keeps
+being allowed to believe. If either is ever made by more than one person, the aggregation rule is a
+real design choice, and **majority is the wrong default**. `conflicts_with` resolution is the same
+shape of decision and the same argument applies.
 
 **Why nothing is implemented.** There is no vote to aggregate. `verify(port, ids, actor, now)` flips
 status immediately; the first person with the permission decides, and no approval accumulates. SP
@@ -54,8 +61,8 @@ deliberation social influence can improve accuracy. The distinction that matters
 exposure — which is what makes (3) below the operative design, rather than a blanket ban on people
 talking to each other.
 
-**Consequence for yoke.** Any multi-reviewer `verify` screen that shows pending peer approvals is
-building the failure mode, not avoiding it — the first approvals become the answer.
+**Consequence for yoke.** Any multi-person confirmation screen that shows pending peer positions is
+building the failure mode, not avoiding it — the first positions become the answer.
 
 ---
 
@@ -70,11 +77,9 @@ Technological Forecasting and Social Change 2 (1970).
 kept, both sides intact, rather than auto-resolved. The product already made this choice for stored
 knowledge; Delphi is the same choice for the humans deciding about it.
 
-**Status: partially in place, as a design hook only.** `PLAN-V2.md` records "the review queue does
-NOT show other reviewers' pending approvals", and `src/front/ui/server.ts` carries the note at the
-route. Both are promises about a future version — **there is no per-reviewer approval state today to
-leak**, so the guard currently constrains nothing. It is a constraint on the design of multi-reviewer
-verify when that is built, and should not be read as an implemented protection.
+**Status: a design constraint only.** There is no per-person approval state to leak — nothing
+accumulates before a record stands. The constraint binds whoever builds multi-person confirmation
+or conflict resolution, and should not be read as an implemented protection.
 
 ---
 
@@ -84,7 +89,7 @@ verify when that is built, and should not be read as an implemented protection.
 correctness required. Sister line of work to (1); the brief cites PLOS One and Management Science,
 and those specific papers are **not verified here**.
 
-**Where it would apply.** `persona` is a stored query over one person's verified knowledge. If
+**Where it would apply.** `persona` is a stored query over one person's standing knowledge. If
 meta-prediction data ever exists, weighting a person's *minority positions that turned out right*
 would make "what would Nathen say" mean something sharper than "what did Nathen write". Post-v1, and
 strictly downstream of (1) — it needs the same data.
@@ -321,8 +326,7 @@ printed the column being worked on would have called this an unqualified win.
 ## How to use this file
 
 Cite it from the design document that owns the decision, rather than copying the argument. Current
-hooks: `ENTERPRISE.md` (the verify permission model) and `WEB-UI.md` (the review screen's
-independence constraint). When a claim here is checked against its primary source, replace the
+hook: the scope note above, which binds any future multi-person confirmation design. When a claim here is checked against its primary source, replace the
 "unverified" marker with the page reference — the marker is a debt, not a disclaimer.
 
 §1–4 are unimplemented; §5 is **partly implemented** and names the two SPEC clauses it produced. Where

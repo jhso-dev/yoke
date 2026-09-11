@@ -1,6 +1,6 @@
-// meeting-notes connector (PLAN 8.5). Scans local .txt/.md transcripts and yields one draft fact per
-// chunk. Chunking is a dumb heuristic (headings / blank-line paragraphs) by design — no NLP; humans
-// promote what matters via review/verify. fs access is fine here: connectors are front-tier producers.
+// meeting-notes connector (PLAN 8.5). Scans local .txt/.md transcripts and yields one fact per
+// chunk. Chunking is a dumb heuristic (headings / blank-line paragraphs) by design — no NLP; a
+// wrong capture is retired with a reason. fs access is fine here: connectors are front-tier producers.
 // external_id = file:<relpath>#<index> (index is the chunk position within the file).
 
 import * as fs from "node:fs";
@@ -15,7 +15,7 @@ export function splitChunks(text: string): string[] {
     .filter(Boolean);
 }
 
-/** Local transcript dir → draft fact connector. Recursive; files are visited in sorted path order. */
+/** Local transcript dir → fact connector. Recursive; files are visited in sorted path order. */
 export function makeNotesConnector(opts: { dir: string }): Connector {
   return {
     name: "meeting-notes",

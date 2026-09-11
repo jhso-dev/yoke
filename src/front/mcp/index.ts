@@ -2,9 +2,9 @@
 
 // yoke MCP server (PLAN 3.1–3.3) — stdio transport. Started with `yoke mcp [--db path]`.
 // Six tools: yoke_inject / yoke_commit / yoke_record_decision / yoke_overview / yoke_persona / yoke_use_scope.
-// Governance: agents ingest drafts. The one promotion this server performs is a decision its own author
-// confirms in the conversation (yoke_record_decision verify: true) — a decision is true by declaration,
-// so its author's confirmation IS the verification. No verify/deprecate tool otherwise.
+// Governance: every commit enters verified under a signed actor — filing is the entry bar, and the
+// quality controls are downstream (TTL re-confirmation, retirement with reason, conflicts_with).
+// No verify/deprecate tool: re-confirming and retiring are a person's acts, on the CLI and the UI.
 // Time is obtained only in this front tier (core receives `now` by injection).
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -26,7 +26,6 @@ import {
   inject,
   WALK_BUDGET,
 } from "../../core/inject.js";
-import { verify } from "../../core/lifecycle.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import {
@@ -54,28 +53,31 @@ const ORIGIN = "mcp";
  *
  * This is the one harness yoke itself can ship without a per-client adapter (invariant 3): the
  * protocol carries it, so it reaches Claude, Codex and the rest identically. It only ENCOURAGES —
- * everything that must hold regardless of whether an agent listens (drafts only, the gate, one
- * record per external id) is enforced server-side, so an agent that ignores all of this can add
- * noise but cannot corrupt the corpus.
+ * everything that must hold regardless of whether an agent listens (the gate, signed provenance,
+ * one record per external id) is enforced server-side, so an agent that ignores all of this can add
+ * noise but cannot corrupt the corpus — and noise is answered downstream: what it files is signed,
+ * broadcast on retraction, and expires without re-confirmation.
  */
 export const INSTRUCTIONS =
-  "yoke is the governed knowledge base: yoke_inject returns only human-verified records, each with " +
-  "a citation and its last-confirmed date. The knowledge loop:\n" +
+  "yoke is the governed knowledge base: yoke_inject returns only standing records — signed, cited, " +
+  "within their freshness window, with retirements and disputes surfaced. The knowledge loop:\n" +
   "1. Before non-trivial work, call yoke_inject with your question (set scope when you know the " +
   "working context).\n" +
   "2. Also consult the live sources you can reach (Slack, wikis, databases, code) — yoke never " +
   "searches them for you, and a verified record may lag reality; judge from its last-confirmed date.\n" +
   "3. File back only the DELTA between what you learned and what yoke returned, via yoke_commit:\n" +
   "   - already in yoke: file nothing.\n" +
-  "   - new: commit it (it lands as a draft for human review). Set attributes.sources to the origin " +
-  "pointer plus a short verbatim excerpt, so a reviewer can check the claim without you.\n" +
+  "   - new: commit it. It is live immediately, under your actor's name, to every agent on the " +
+  "scope — so file what you can stand behind, and ALWAYS set attributes.sources to the origin " +
+  "pointer plus a short verbatim excerpt: the excerpt is how any later reader checks the claim " +
+  "without you.\n" +
   "   - contradicts a yoke record: commit it AND link the two with a conflicts_with relation. Do " +
-  "not decide the winner — the disagreement itself is knowledge.\n" +
-  "4. Decisions you make mid-task go to yoke_record_decision as you make them, with the rejected " +
-  "alternatives. When the person who OWNS a decision states it to you, show them the conclusion, " +
-  "rationale and rejected alternatives as you will file them; once they confirm, pass verify: true — " +
-  "their confirmation is the verification, and the decision reaches every agent on the scope at once. " +
-  "Never set it for a decision you inferred or for anyone else's.";
+  "not decide the winner — the disagreement itself is knowledge, and injection serves both sides " +
+  "marked as disputed.\n" +
+  "4. Decisions go to yoke_record_decision as they are made, with the rejected alternatives — " +
+  "in the wording the decision's owner used, naming them in the content. A wrong or reversed " +
+  "record is never deleted: a person retires it with a reason, and the retraction reaches " +
+  "everyone who was handed it.";
 
 export interface YokeMcpDeps {
   /** logAudit (PLAN 8.4) is optional: adapters without it simply skip injection auditing.
@@ -95,7 +97,7 @@ export interface YokeMcpDeps {
   keywordWeight?: number;
   /** Per-request RBAC hook (PLAN-V2 10.4). Default allow-all — stdio `yoke mcp` is single-user
    * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */
-  authorize?: (action: "read" | "write" | "verify", type?: string) => boolean;
+  authorize?: (action: "read" | "write", type?: string) => boolean;
   /** Default injection/capture scope (a collaboration/entity id) resolved at startup from YOKE_SCOPE
    * (v4.0). The agent can also pin one at runtime via yoke_use_scope; a tool-call `scope` argument
    * always overrides both. null = no default. */
@@ -189,12 +191,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     scope?: string,
     derivedFrom?: string[],
     externalId?: string,
-    andVerify = false,
   ) {
     if (!authorize("write", input.type)) return forbidden();
-    // Checked before anything is written: a caller refused the promotion must not be left with a stray
-    // draft it did not ask for — it retries without `verify` and gets exactly the draft it meant.
-    if (andVerify && !authorize("verify", input.type)) return forbidden();
     const ts = now();
     const prov = {
       actor: resolveActor(actor),
@@ -212,9 +210,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     try {
       // The agent-as-connector idempotency probe. Same key + same content = a no-op, so re-filing a
       // source item across sessions cannot duplicate it. Same key + DIFFERENT content is refused with
-      // instructions rather than re-versioned: re-versioning demotes the stored head to draft, which
-      // would hand any writer the power to knock verified knowledge out of injection — the promotion
-      // authority this server deliberately does not expose (see the header). The stored record stays
+      // instructions rather than re-versioned: re-versioning would let any writer silently rewrite a
+      // record other answers already cite. The stored record stays
       // authoritative for that source item; a disagreement is filed as its own record plus a
       // conflicts_with edge, which is policy rule 6 rather than a workaround.
       if (externalId !== undefined) {
@@ -222,7 +219,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         // The probe runs as a critical section where the port offers one (C4 in ingest.ts).
         // ceiling: the commit below runs OUTSIDE it, so two agents filing one source item in the same
         // instant can still both insert — an accepted window on this path (agent traffic is sparse,
-        // both land as drafts, and the reviewer sees twins), where ingestItem's bulk syncs close it.
+        // and twins read as the duplicates they are), where ingestItem's bulk syncs close it.
         // Wrap the whole body if agent-driven filing ever becomes bulk.
         const probe = async () => {
           const stored = await findByExternalId(store, externalId, ns);
@@ -261,22 +258,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         ...(linkTo ? { attachTo: linkTo } : {}),
       });
       const { duplicates, duplicateDetection, unrecorded } = committed;
-      let entity = committed.entity;
-      // The author's confirmation, filed the way the CLI would: the gate wrote v1 as a draft, and the
-      // promotion is its own version with its own `transitioned_at`, so the as-of timeline shows a
-      // decision that entered and was confirmed — never one born verified. Same audit row as
-      // `yoke verify`, so "who promoted this" reads the same whichever adapter did it.
-      if (andVerify) {
-        const at = now();
-        [entity] = await verify(store, [entity.id], prov.actor, at, ns);
-        store.logAudit?.({
-          actor: prov.actor,
-          action: "verify",
-          detail: entity.id,
-          at,
-          ns,
-        });
-      }
+      const entity = committed.entity;
       const edges: Array<[string, string]> = [];
       // Derivation (v5.8) travels this same road for the same reason: the caller declares its basis, so
       // the edge belongs where the caller is. Deduped and self-edge-free — citing one record twice, or
@@ -369,16 +351,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       description:
         "Before starting a task, use this tool to retrieve relevant knowledge (past decisions, facts, terms). " +
         "It returns verified knowledge matching the query, each with its citation. " +
-        "Set includeDraft to also include unverified (draft) knowledge, tagged with its status label. " +
         "Set scope to focus on one working context — e.g. the collaboration the team is currently on.",
       inputSchema: {
         query: z.string().describe("Natural-language query to search for"),
-        includeDraft: z
-          .boolean()
-          .optional()
-          .describe(
-            "Whether to include unverified draft knowledge (default false)",
-          ),
         limit: z
           .number()
           .int()
@@ -410,7 +385,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           ),
       },
     },
-    async ({ query, includeDraft, limit, scope, depth }) => {
+    async ({ query, limit, scope, depth }) => {
       if (!authorize("read")) return forbidden();
       const ts = now();
       const anchor = effectiveScope(scope);
@@ -424,7 +399,6 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         query,
         ts,
         {
-          includeDraft,
           limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
           ns,
           scope: anchor,
@@ -450,7 +424,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         ns,
       });
       // An agent that reads "no verified knowledge" as "there is none" answers from nothing and says
-      // so confidently. Knowledge awaiting review, retired, or of a type that is not injectable are
+      // so confidently. Knowledge gone stale, retired, or of a type that is not injectable are
       // three different situations and none of them is absence — so the reason travels, phrased by the
       // same helper the CLI and the web use.
       if (items.length === 0)
@@ -487,7 +461,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         blocks.push(
           `[Also matched but NOT injected: ${describeWithheld(withheld)}. ` +
             `Do not report the records above as everything known on this subject — say that ` +
-            `${withheld.draft > 0 ? "unreviewed or " : ""}withheld knowledge exists and name the reason.]`,
+            `withheld knowledge exists and name the reason.]`,
         );
       // Never a silent slice — and for a model the notice has to be an INSTRUCTION, not a flag. An
       // agent that reads a truncated briefing as the complete record answers from part of the
@@ -520,17 +494,19 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     {
       description:
         "Ingest a new piece of knowledge into the knowledge DB — an entity (a fact, term, resource) or a " +
-        "RELATION between two records (supersedes, conflicts_with, relates_to, derived_from). It enters in " +
-        "the draft state and only becomes eligible for injection after a human verifies it. Rejected if the " +
-        "type is not in the ontology or a required attribute is missing; the rejection lists the types that " +
-        "are. To record a decision, use yoke_record_decision.\n" +
+        "RELATION between two records (supersedes, conflicts_with, relates_to, derived_from). It enters " +
+        "live, signed with your actor: it is injectable to every agent on the scope immediately, stays " +
+        "only while re-confirmed within its type's freshness window, and is retired by a person with a " +
+        "reason that reaches everyone who was handed it. Rejected if the type is not in the ontology or " +
+        "a required attribute is missing; the rejection lists the types that are. To record a decision, " +
+        "use yoke_record_decision.\n" +
         'A relation is knowledge in its own right: "this decision replaced that one" and "these two ' +
         'records disagree" are things only you may know after reading both, and injection reads both — a ' +
         "superseded record stops being served, and contradicting ones are served marked as disputed.\n" +
         "When you learned something from a live source (Slack, a wiki, a database), file only what yoke " +
         "does not already have: compare against what yoke_inject returned and commit the delta, with " +
-        "attributes.sources set to the origin pointer plus a short verbatim excerpt so a reviewer can " +
-        "check the claim. If it contradicts an injected record, commit it anyway and add a conflicts_with " +
+        "attributes.sources set to the origin pointer plus a short verbatim excerpt so any later reader " +
+        "can check the claim. If it contradicts an injected record, commit it anyway and add a conflicts_with " +
         "relation — do not decide the winner.",
       inputSchema: {
         type: z
@@ -599,10 +575,11 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     "yoke_record_decision",
     {
       description:
-        "When you make a decision, always record its conclusion and rationale with this tool. Call it right " +
+        "When a decision is made, always record its conclusion and rationale with this tool. Call it right " +
         "after an architecture, design, or trade-off choice. Include any rejected alternatives to prevent them " +
-        "from being relitigated later. The record enters as a draft and is injected only after a human verifies it — " +
-        "unless the decision's own author confirmed it to you, in which case pass verify: true.",
+        "from being relitigated later. The record is live immediately, to every agent on the scope — use the " +
+        "wording the decision's owner used, and name the owner in the content. If the decision reverses or " +
+        "replaces an earlier one, also file the supersedes relation via yoke_commit.",
       inputSchema: {
         conclusion: z.string().describe("The conclusion reached"),
         rationale: z.string().describe("The reasoning that led to it"),
@@ -625,16 +602,6 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .array(z.string())
           .optional()
           .describe(DERIVED_FROM_DESC),
-        verify: z
-          .boolean()
-          .optional()
-          .describe(
-            "Set true ONLY when the person who owns this decision has seen the conclusion, rationale and " +
-              "rejected alternatives exactly as you will file them and confirmed them in this conversation. " +
-              "A decision is true by declaration — its author is its authority — so their confirmation is the " +
-              "verification, and the record is injected to every agent on the scope at once. Never for a " +
-              "decision you inferred, and never for anyone else's. `actor` must then be that person.",
-          ),
       },
     },
     ({
@@ -644,7 +611,6 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       actor,
       scope,
       derived_from,
-      verify: confirmed,
     }) => {
       const attributes: Record<string, unknown> = { conclusion, rationale };
       if (rejected_alternatives)
@@ -654,8 +620,6 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         actor,
         scope,
         derived_from,
-        undefined,
-        confirmed === true,
       );
     },
   );
@@ -699,7 +663,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const typeLines = Object.entries(o.entities.byType)
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([type, c]) => {
-          const parts = (["verified", "draft", "stale", "deprecated"] as const)
+          const parts = (["verified", "stale", "deprecated"] as const)
             .filter((k) => c[k] > 0)
             .map((k) => `${c[k]} ${k}`);
           return `  ${type}: ${parts.join(", ")}`;
@@ -757,8 +721,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         });
       } catch (e) {
         if (!(e instanceof NotAPerson)) throw e;
-        // yoke_overview's author list counts VERIFIED knowledge, so on a corpus with a review backlog
-        // (the normal state — everything an agent records is a draft) it is empty. List the people
+        // yoke_overview's author list counts VERIFIED knowledge, so on a corpus where everything has
+        // aged out or been retired it can be empty. List the people
         // directly so a persona anchor is always one read away.
         const people = (
           await store.listEntities({ type: PERSON_TYPE, ns, limit: 20 })
@@ -823,19 +787,19 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         blocks.push(
           `[knowledge] ${JSON.stringify(i.entity.attributes)}\n${await readableCite(i, nameOf)}${marker(i)}`,
         );
-      // Say when this answer is a union, and that the link behind it is unreviewed. `same_as` is the
-      // one input that adds a SECOND person's judgment under this anchor, and no path can promote a
-      // relation, so the claim sits permanently outside governance (see inject's meaningEdges ceiling).
+      // Say when this answer is a union. `same_as` is the one input that adds a SECOND person's
+      // judgment under this anchor on the strength of one signed edge, so the reader must be able to
+      // see the merge to challenge it.
       if (persona.identities)
         blocks.push(
           `[This person has ${persona.identities.length} records, combined here: ` +
             `${persona.identities.map((p) => `${p.name} (${p.id})`).join(", ")}. They are recorded as ` +
-            `one person by same_as, which is an unreviewed claim — if it is wrong, some of the above ` +
-            `is someone else's judgment.]`,
+            `one person by a same_as claim — if it is wrong, some of the above is someone else's ` +
+            `judgment.]`,
         );
-      // "no recorded knowledge" is false whenever the person's records are merely awaiting review —
-      // the normal state, since everything an agent commits is a draft — and an agent told it answers
-      // from nothing. Same reasons, same phrasing helper as yoke_inject's empty answer.
+      // "no recorded knowledge" is false whenever the person's records merely went stale or were
+      // superseded — and an agent told it answers from nothing. Same reasons, same phrasing helper as
+      // yoke_inject's empty answer.
       //
       // Phrased as a fact about the PERSON rather than about `query`: core returns counts, not ids, so
       // a filtered persona cannot say how many of the withheld records the filter would have matched.

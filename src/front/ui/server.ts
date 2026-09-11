@@ -62,10 +62,7 @@ export interface UiDeps {
   now?: () => string;
   /** RBAC hook (PLAN-V2 10.4) — checked per API endpoint. Default allow-all (local single-user
    * `yoke ui` stays ungated); serve mode injects a per-request scope check. */
-  authorize?: (
-    action: "read" | "write" | "verify" | "admin",
-    type?: string,
-  ) => boolean;
+  authorize?: (action: "read" | "write" | "admin", type?: string) => boolean;
   /**
    * Which of `wanted` this caller may NOT put into a credential (empty = all of them).
    *
@@ -426,7 +423,7 @@ export function createUiHandler(
    */
   const denied = (
     res: ServerResponse,
-    action: "read" | "write" | "verify" | "admin",
+    action: "read" | "write" | "admin",
     type?: string,
   ): boolean => {
     if (authorize(action, type)) return false;
@@ -553,7 +550,7 @@ export function createUiHandler(
       // learn it. Fails closed: an anonymous caller has authorize()===false for every pair, so it still
       // cannot enumerate the actor or namespace.
       const metaOntology = store.loadOntology(ns);
-      const actions = ["read", "write", "verify", "admin"] as const;
+      const actions = ["read", "write", "admin"] as const;
       const authenticated =
         actions.some((a) => authorize(a)) ||
         metaOntology.some((t) => actions.some((a) => authorize(a, t.name)));
@@ -574,11 +571,10 @@ export function createUiHandler(
 
     if (method === "GET" && path === "/api/review") {
       if (denied(res, "read")) return;
-      // The other queue: verified records past their type's TTL. SPEC's injection filter makes viewing
+      // The queue: verified records past their type's TTL. SPEC's injection filter makes viewing
       // stale review's job — otherwise stale knowledge leaves injection with nobody told, the failure
-      // docs/RESEARCH.md's freshness findings all land on. Same route because it takes the same two
-      // actions.
-      if (url.searchParams.get("stale") === "1") {
+      // docs/RESEARCH.md's freshness findings all land on.
+      {
         const { items, next, scanned } = await staleEntities(
           store,
           store.loadOntology(ns),
@@ -612,14 +608,6 @@ export function createUiHandler(
         });
         return;
       }
-      // Every draft in the namespace. It carries no peer approval state — not because it is
-      // filtered out, but because none exists: verify is immediate and per-actor, so there is no
-      // pending approval to leak. The Delphi independence constraint (docs/RESEARCH.md §2–3) binds
-      // whoever adds multi-reviewer aggregation. This route enforces nothing of the sort today, and
-      // saying it returned "only this reviewer's list" would describe a filter that is not here.
-      const drafts = await store.listEntities({ status: "draft", ns });
-      sendJson(res, 200, await rowsOf(newestFirst(drafts.items)));
-      return;
     }
 
     // Browse: enumerate knowledge. `type` doubles as the RBAC key, so a token scoped to one
@@ -644,8 +632,7 @@ export function createUiHandler(
 
     // The text query on browse. Deliberately the port's own `search()` — the one `inject` falls
     // back to when there is no embedder — so there is no second ranker in the product and WEB-UI
-    // test 2 still holds. Same summary row shape as the listing above, through the same table, so
-    // a draft hit reads as a draft.
+    // test 2 still holds. Same summary row shape as the listing above, through the same table.
     //
     // No cursor, by design: `search` is a top-N, not a walk of the corpus. `next` is always null
     // and `truncated` says when the cap bit, which is the honest way to cap something (the graph
@@ -787,7 +774,6 @@ export function createUiHandler(
       if (!query && !scope)
         throw new Error("q or scope is required (scope alone is a briefing)");
       const ts = now();
-      const includeDraft = url.searchParams.get("includeDraft") === "true";
       // `unseen=1` is `yoke inject --unseen` for a hook whose deliveries are on THIS server — a `serve`
       // deployment, where every client's `inject` rows land in one trail. The ledger is the reader's,
       // so only this actor's rows count (SPEC "Since, and unseen"). Text, not JSON: the caller is a
@@ -828,7 +814,6 @@ export function createUiHandler(
         query,
         ts,
         {
-          includeDraft,
           limit: explicitLimit ?? (briefing ? BRIEFING_LIMIT : undefined),
           ns,
           scope,
@@ -894,14 +879,13 @@ export function createUiHandler(
         query,
         scope: scope ?? null,
         asOf: asOfParam ?? null,
-        includeDraft,
         omitted,
         // Present only when the walk went deeper than one hop — same shape core hands the MCP tool,
         // so the preview can state what a depth-2 answer walked (`{ depth, nodes, truncated }`).
         walk: walk ?? null,
         // Why an empty preview is empty. The preview's claim is that it shows what an agent receives,
         // and an agent now receives the reason too — without this the screen would be the one surface
-        // still rendering a bare "no results" for knowledge that is merely awaiting review.
+        // still rendering a bare "no results" for knowledge that merely went stale.
         withheld: withheld ?? null,
         items: await (async () => {
           const es = items.map((it) => it.entity);
@@ -1275,8 +1259,10 @@ export function createUiHandler(
       (path === "/api/verify" || path === "/api/deprecate")
     ) {
       const action = path === "/api/verify" ? "verify" : "deprecate";
-      // Both verify and deprecate are governance actions → gated on the verify permission.
-      if (denied(res, "verify")) return;
+      // Re-confirming and retiring are knowledge acts like committing — one trust level, `write`:
+      // the act is signed and audited, and a retirement is broadcast to everyone who was handed the
+      // record, which is where the check lives.
+      if (denied(res, "write")) return;
       const { ids, reason } = await readIds(req);
       const ts = now();
       // The caller's namespace, so a governance act cannot reach another tenant's record — every READ
@@ -1316,7 +1302,7 @@ export function createUiHandler(
 
     // Creating a record, and linking two of them. WEB-UI.md test 3 permits it:
     // the gate, not the adapter, is what enforces entry, so a record typed at a screen faces the
-    // same ontology validation and the same draft-then-verify path as one an agent commits. What
+    // same ontology validation and the same signed commit path as one an agent commits. What
     // makes that honest is `origin: "web"` below — hand-typed knowledge is permitted and labelled,
     // rather than forbidden and therefore invisible when someone works around the ban.
     //
@@ -1407,12 +1393,13 @@ export function createUiHandler(
       }
     }
 
-    // Ontology migration — `yoke ontology add-type`. Gated on `verify`, not `write`: this is the
+    // Ontology migration — `yoke ontology add-type`. Gated on `admin`, not `write`: this is the
     // one write that BYPASSES the commit gate (the gate reads the ontology, so validating it against
-    // itself would be circular), which makes it the most powerful action here. Append-only per name,
-    // so an existing name is a new version — a migration, exactly as it is from the CLI.
+    // itself would be circular), which makes it an operating action rather than a knowledge act.
+    // Append-only per name, so an existing name is a new version — a migration, exactly as it is
+    // from the CLI.
     if (method === "POST" && path === "/api/ontology") {
-      if (denied(res, "verify")) return;
+      if (denied(res, "admin")) return;
       const def = (await readBody(req)).def;
       // attrs defaulted, not overridden: a type with no attributes is legitimate (the seed's `term`
       // and `resource` both are), and the CLI's JSON-file path allows omitting the key.
@@ -1474,11 +1461,11 @@ export function createUiHandler(
       return;
     }
 
-    // Renaming a type rewrites every row that carries it, including history. Gated on `verify` for
+    // Renaming a type rewrites every row that carries it, including history. Gated on `admin` for
     // that reason, and it writes the `rename_type` audit row for the reason the store documents:
     // it is the one mutation the append-only history cannot record, because it rewrites those rows.
     if (method === "POST" && path === "/api/rename-type") {
-      if (denied(res, "verify")) return;
+      if (denied(res, "admin")) return;
       const body = await readBody(req);
       const { from, to } = body;
       if (typeof from !== "string" || typeof to !== "string" || !from || !to) {

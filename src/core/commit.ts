@@ -338,7 +338,7 @@ export async function commit(
   const prev = existingId ? await port.getEntity(existingId) : null;
   const governed = {
     id: existingId ?? ulid(),
-    status: "draft" as const,
+    status: "verified" as const,
     version: prev ? prev.version + 1 : 1,
     last_confirmed: now,
     provenance: prov,

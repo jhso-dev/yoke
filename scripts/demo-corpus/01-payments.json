@@ -118,7 +118,7 @@
       "type": "decision",
       "author": "person:oh-taemin",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "외화 결제 정산 환율은 매일 09:00 KST 한국은행 고시환율로 스냅샷을 고정하고, 하루 중 환율 변동은 반영하지 않는 방향으로 제안한다. (검토중, 아직 확정 아님)",
         "rationale": "지금은 정산 배치가 돌 때마다 그 시점 환율 API를 그대로 호출해서 같은 날 재실행되면 환율이 미세하게 달라지는 문제가 있었음. 09:00 스냅샷을 고정값으로 캐싱해두고 그날 정산은 그 값만 쓰면 재실행해도 값이 안 바뀌니까 이게 낫다고 봄. 근데 09:00 이전에 발생하는 03:00 마감 배치와 시점이 안 맞는 케이스가 있어서 이 부분은 settlement-cutoff-adr 쪽이랑 다시 맞춰봐야 함. 초안 상태라 팀 리뷰 전.",
@@ -144,9 +144,9 @@
       "type": "decision",
       "author": "person:oh-taemin",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
-        "conclusion": "카드 BIN 라우팅을 발급사 고정 테이블 방식에서 PG사 실시간 응답 지연 기반 동적 라우팅으로 전환한다. (07-14 장애 이후 제안, 아직 draft)",
+        "conclusion": "카드 BIN 라우팅을 발급사 고정 테이블 방식에서 PG사 실시간 응답 지연 기반 동적 라우팅으로 전환한다. (07-14 장애 이후 제안)",
         "rationale": "정적 테이블은 특정 PG사에 지연이 생겨도 그 사실을 라우팅에 반영하지 못해 자동 대응이 늦다. 동적 라우팅은 최근 1분 p99 latency를 보고 임계치 초과 PG로는 신규 트래픽을 줄인다.",
         "rejected_alternatives": [
           "정적 테이블 유지하되 임계치만 낮춤 — 지연 자체를 감지하지 못하는 구조적 한계는 그대로임"
@@ -217,7 +217,7 @@
       "type": "fact",
       "author": "person:oh-taemin",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "웹훅 순서 보장 이슈 (조사중)",
         "statement": "PG사 웹훅이 발생 순서대로 도착한다는 보장이 없다는 걸 07-14 장애 이후 다시 확인함. 재시도 성공 웹훅이 원거래 실패 웹훅보다 먼저 오면 상태 머신이 꼬일 수 있음. 아직 실제 장애로 이어진 적은 없고, 시퀀스 번호 기반 큐(PLAT-482) 도입을 검토중. 결론 안 남."
@@ -228,7 +228,7 @@
       "type": "fact",
       "author": "person:jung-arim",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "카드사 승인 거절 코드 매핑표 (초안)",
         "statement": "PG A/B사가 내려주는 승인 거절 코드가 서로 다른 체계라 우리 쪽 공통 에러 코드로 매핑하는 표를 만드는 중. 잔액부족/한도초과/도난카드 등 주요 코드는 매핑 끝났고, 나머지 롱테일 코드 30여개는 아직 매핑 미완료라 일단 '기타 거절'로 뭉쳐 처리중."

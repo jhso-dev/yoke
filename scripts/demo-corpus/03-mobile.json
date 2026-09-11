@@ -67,7 +67,7 @@
       "type": "decision",
       "author": "person:song-arim",
       "size": "para",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "conclusion": "최소 지원 버전은 Android 7.0(API 24), iOS 13을 유지해야 한다. 신규 유입이 걸린 문제라 개발팀 제안(Android 8/iOS 15)에 동의할 수 없다.",
         "rationale": "마케팅에서 진행 중인 중저가 단말 프로모션(2026 하반기 예정) 타겟 유저층이 Android 7~8 단말 비중이 높다는 리서치 결과가 있다. 개발팀이 제시한 크래시 비율은 이해하지만, 지금 지원을 끊으면 신규 유입 채널 하나를 통째로 닫는 셈이다. 최소한 이번 프로모션이 끝나는 2027-01까지는 현행 유지를 요청한다. 크래시가 문제라면 구형 OS 전용 경량 모드(애니메이션 축소, 이미지 캐시 축소)를 별도로 만드는 절충안을 검토해달라. 아직 개발팀과 합의 안 됐고 다음 주 정책 리뷰에서 다시 논의하기로 함 — 이 문서는 그 전까지의 잠정 입장 메모."
@@ -180,7 +180,7 @@
       "type": "fact",
       "author": "person:choi-yeonwoo",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "카카오톡 공유 딥링크 진입 실패 (2026-07-22)",
         "statement": "카카오톡에서 공유 링크를 탭하면 인앱 브라우저가 먼저 뜨고, 거기서 앱으로 넘어올 때 Universal Link 검증이 실패해 사파리로 튕기는 사례가 다수 접수됐다. 인앱 브라우저의 User-Agent 처리 방식과 apple-app-site-association 캐싱 문제로 추정되나 아직 재현율이 낮아(약 12%) 원인 확정은 못 했다. 계속 조사 중이라 초안 상태로 남겨둔다."
@@ -279,7 +279,7 @@
       "type": "fact",
       "author": "person:choi-yeonwoo",
       "size": "line",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "접근성 체크 필수 항목",
         "statement": "신규 화면은 배포 전 VoiceOver/TalkBack으로 주요 액션 버튼에 라벨이 읽히는지 QA가 수동 확인해야 한다. 아직 체크리스트 공식화 전."

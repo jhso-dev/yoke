@@ -181,7 +181,7 @@
       "type": "term",
       "author": "person:bae-jiho",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "콜드케이스",
         "statement": "접수 후 30일 이상 상태 변화 없이 방치된 티켓을 가리키는 말로 CS운영팀 내부에서만 쓰고 있음. 아직 공식 정의는 아니고, 자동 이관 대상으로 삼자는 논의만 있는 상태라 초안 수준으로 남겨둠. 확정되면 문의 이관 기준 문서에 정식으로 편입할 예정. 담당자 없이 방치된 건과 답변 대기 중인 건을 구분할지도 아직 미정."
@@ -204,7 +204,7 @@
       "type": "resource",
       "author": "person:bae-sua",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "VOC Weekly 대시보드",
         "statement": "새 VOC 5대 분류 기준으로 주간 접수량과 추이를 보여주는 Redash 대시보드. 이번에 새로 만든 거라 분류별 집계 쿼리가 아직 다 검증되진 않았음. 매주 화요일 제품팀 공유 전에 CS 오퍼레이션 리드가 확인.",
@@ -216,7 +216,7 @@
       "type": "fact",
       "author": "person:oh-jungmin",
       "size": "short",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "어드민 응답속도 회의 결론",
         "statement": "고객상세 조회 화면 p95 응답이 1.4초까지 늘어져 CS 컴플레인이 늘었다는 안건. 원인 추정은 고객-주문-결제 3개 테이블을 조인하며 생기는 N+1 쿼리. 목표를 p95 800ms로 재설정하고 Redis 캐시 레이어 도입을 다음 스프린트에 검토하기로 했음 — 아직 원인 확정은 아니라 러프한 메모."
@@ -304,7 +304,7 @@
       "type": "fact",
       "author": "person:oh-jungmin",
       "size": "line",
-      "state": "draft",
+      "state": "unconfirmed",
       "attributes": {
         "title": "대량작업 건수 상한",
         "statement": "어드민 대량작업은 1회 최대 500건으로 제한하는 안, 아직 확정 전."

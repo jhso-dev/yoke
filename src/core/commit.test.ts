@@ -1,5 +1,5 @@
 // commit gate tests — exercise the gate pipeline against the real SqliteStorage(:memory:).
-// PLAN 1.6 cases: ontology rejection / provenance rejection / draft·version=1·last_confirmed /
+// PLAN 1.6 cases: ontology rejection / provenance rejection / verified·version=1·last_confirmed /
 // re-commit version bump + history preservation / relation commit.
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -240,7 +240,7 @@ describe("commit gate", () => {
     expect(entity.provenance.reason).toBeUndefined();
   });
 
-  it("assigns draft, version=1, last_confirmed=now, empty duplicates", async () => {
+  it("assigns verified, version=1, last_confirmed=now, empty duplicates", async () => {
     const { entity, duplicates } = await commit(
       port,
       ont,
@@ -248,7 +248,7 @@ describe("commit gate", () => {
       prov,
       now,
     );
-    expect(entity.status).toBe("draft");
+    expect(entity.status).toBe("verified");
     expect(entity.version).toBe(1);
     expect(entity.last_confirmed).toBe(new Date(now).toISOString());
     expect(entity.id).toBeTruthy();
@@ -294,7 +294,7 @@ describe("commit gate", () => {
       now,
     );
     expect("from" in entity && entity.from).toBe("a");
-    expect(entity.status).toBe("draft");
+    expect(entity.status).toBe("verified");
     const found = await port.neighbors("a", "relates_to", "out");
     expect(found).toEqual([entity]);
   });

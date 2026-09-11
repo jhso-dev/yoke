@@ -30,14 +30,14 @@ const ANY = "__any";
 /**
  * Enumerate what is stored, and search it.
  *
- * Enumeration shows the shape of the corpus — what types exist, what is still draft, what has gone
- * stale — so a human can govern it. The text box narrows that to matching records, and stays on the
+ * Enumeration shows the shape of the corpus — what types exist, what has gone stale, what was
+ * retired — so a human can govern it. The text box narrows that to matching records, and stays on the
  * governing side of WEB-UI.md's line by construction:
  *
  * - it calls the storage port's own `search()`, the one `inject` falls back to, so there is no
  *   second ranker in the product;
- * - results come back through the same `KnowledgeTable` as the listing, so a draft hit reads as a
- *   draft rather than as an answer;
+ * - results come back through the same `KnowledgeTable` as the listing, so a stale hit reads as
+ *   stale rather than as an answer;
  * - it is a bounded top-N with no cursor, and says so when the cap bites.
  *
  * Asking questions *of* the knowledge is still the AI's job over MCP. This finds records.
@@ -136,7 +136,6 @@ function BrowseBody() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ANY}>{t.browse.anyStatus}</SelectItem>
-            <SelectItem value="draft">draft</SelectItem>
             <SelectItem value="verified">verified</SelectItem>
             <SelectItem value="deprecated">deprecated</SelectItem>
           </SelectContent>

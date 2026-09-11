@@ -166,7 +166,7 @@ describe("makeRawConnector", () => {
     ]);
   });
 
-  it("ingests as drafts, with the quote filed beside each record", async () => {
+  it("ingests via the gate, with the quote filed beside each record", async () => {
     const res = await ingest(
       port,
       ont,
@@ -177,7 +177,7 @@ describe("makeRawConnector", () => {
     expect(res).toEqual({ added: 2, updated: 0, skipped: 0 });
 
     const [e] = await port.search({ text: "Redis" });
-    expect(e.status).toBe("draft");
+    expect(e.status).toBe("verified");
     expect(e.attributes.external_id).toBe("raw:b-postmortem.md#0");
     expect(e.attributes.sources).toBe(
       'raw:b-postmortem.md — "the cache purge order is Redis first, CDN second"',

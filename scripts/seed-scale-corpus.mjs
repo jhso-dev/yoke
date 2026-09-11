@@ -66,11 +66,13 @@ const prov = JSON.stringify({
 });
 const AT = "2026-07-01T00:00:00Z";
 
-// A status mix rather than all-verified: injection filters on effective status, so a corpus of
-// nothing but verified records cannot show what the filter costs (SCALE.md's "asked for 50, received
-// 29" was found this way). Roughly 70/15/15 verified/draft/deprecated.
-const statusOf = (i) =>
-  i % 20 < 14 ? "verified" : i % 20 < 17 ? "draft" : "deprecated";
+// A status mix rather than all-current: injection filters on effective status, so a corpus of
+// nothing but fresh records cannot show what the filter costs (SCALE.md's "asked for 50, received
+// 29" was found this way). Roughly 70/15/15 fresh/stale-aged/deprecated — stale is computed at read
+// time, so the aged share is verified rows whose last_confirmed sits past every seeded TTL.
+const statusOf = (i) => (i % 20 < 17 ? "verified" : "deprecated");
+const confirmedAt = (i) =>
+  i % 20 >= 14 && i % 20 < 17 ? "2020-01-01T00:00:00Z" : AT;
 
 const insE = db.prepare(
   `INSERT OR IGNORE INTO entities
@@ -90,7 +92,7 @@ db.transaction(() => {
       (i % 10000 === 0 ? " quorum" : "");
     const attrs = JSON.stringify({ note });
     const id = id26(i);
-    insE.run(id, "fact", statusOf(i), attrs, prov, AT);
+    insE.run(id, "fact", statusOf(i), attrs, prov, confirmedAt(i));
     // The FTS row is written by the adapter on every putEntity, so a corpus without it would make
     // `search` return nothing and every retrieval measurement meaningless.
     insF.run(id, `fact ${attrs}`);

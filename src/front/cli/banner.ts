@@ -70,9 +70,9 @@ export function getStartedBlock(): string {
     `${CYAN}│${RESET} ${cmd.padEnd(24)}${DIM}${desc}${RESET}`;
   return [
     `${CYAN}┌ get started ${bar.slice(13)}${RESET}`,
-    row("yoke add fact --attr …", "stage knowledge as a draft"),
-    row("yoke review [--stale]", "the draft queue, or what aged out"),
-    row("yoke verify <id>", "promote to verified"),
+    row("yoke add fact --attr …", "record knowledge (live at once)"),
+    row("yoke review", "what aged out and needs a look"),
+    row("yoke verify <id>", "re-confirm: still true"),
     row('yoke inject "<query>"', "retrieve with citations"),
     `${CYAN}│${RESET} ${DIM}attach to your agent via .mcp.json — see the README${RESET}`,
     `${CYAN}└${bar}${RESET}`,

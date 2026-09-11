@@ -6,7 +6,7 @@ import type { Status } from "./types";
 
 describe("statusStyle", () => {
   it("gives every status a text label, not colour alone", () => {
-    for (const s of ["draft", "verified", "stale", "deprecated"] as Status[]) {
+    for (const s of ["verified", "stale", "deprecated"] as Status[]) {
       const style = statusStyle(s);
       expect(style.label).toBeTruthy();
       expect(style.glyph).toBeTruthy();

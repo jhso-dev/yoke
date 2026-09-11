@@ -39,10 +39,9 @@ export const DEFAULT_SEARCH_LIMIT = 1000;
 export interface TextQuery {
   text: string;
   type?: string;
-  /** Stored status. An array means "any of these", which is what injection needs: it wants
-   * verified, or verified-and-draft, and could not say so with a single value. Over-fetching instead
-   * does not work — `verify` rewrites the row, so on tied relevance the injectable records sort LAST
-   * and a 4x window can miss all of them. */
+  /** Stored status. An array means "any of these". Injection pushes `verified` down here;
+   * over-fetching instead does not work — a transition rewrites the row, so on tied relevance the
+   * injectable records sort LAST and a 4x window can miss all of them. */
   status?: string | string[];
   limit?: number;
   /** Tenant namespace filter (PLAN-V2 10.1). Omitted/undefined = the default shared

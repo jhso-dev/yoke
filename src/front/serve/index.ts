@@ -23,7 +23,6 @@ import Database from "better-sqlite3";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
-import { verify } from "../../core/lifecycle.js";
 import { resolveNs } from "../../core/namespace.js";
 import { createYokeMcpServer } from "../mcp/index.js";
 import { openStore, type YokeStore } from "../store.js";
@@ -62,7 +61,7 @@ export interface ServeDeps {
   /** OIDC config (from env). Omitted = only API tokens can authenticate. */
   oidc?: OidcConfig;
   embedder?: Embedder;
-  /** Read-only replica mode (PLAN-V2 11.2): deny every write/verify regardless of scopes. Mutating
+  /** Read-only replica mode (PLAN-V2 11.2): deny every mutation regardless of scopes. Mutating
    * API endpoints answer 409; MCP write tools get a tool error via the authorize hook. */
   readOnly?: boolean;
   /** Interval-pull snapshot config (11.2). When set, the store is re-copied from the primary via
@@ -71,9 +70,9 @@ export interface ServeDeps {
   /** Built web bundle directory, passed through to the UI handler (injectable for tests). */
   webRoot?: string | null;
   /** GitHub credential exchange (SPEC "GitHub exchange"). Absent = the login route does not exist.
-   * `org` membership IS the access decision; `verifiers` are the logins whose minted token carries
-   * the verify scope; `api` points at GHE or a test double. */
-  github?: { org: string; verifiers: string[]; api: string };
+   * `org` membership IS the access decision — a member's minted token carries read,write, the whole
+   * knowledge permission; `api` points at GHE or a test double. */
+  github?: { org: string; api: string };
 }
 
 /** Server augmented with refreshNow() when running as a replica (11.2). */
@@ -154,8 +153,8 @@ export function createServeServer(deps: ServeDeps): ServeServer {
     await store.init();
   }
 
-  // Auto-provision a person for an OIDC subject on first sight — through the commit gate + verify,
-  // exactly like `yoke init` seeds yoke:system. The id is a stable opaque string we own (`oidc:<sub>`).
+  // Auto-provision a person for an OIDC subject on first sight — through the commit gate, exactly
+  // like `yoke init` seeds yoke:system. The id is a stable opaque string we own (`oidc:<sub>`).
   async function provisionPerson(id: string, name: string): Promise<void> {
     if (await store.getEntity(id)) return;
     const ts = now();
@@ -167,7 +166,6 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       ts,
       { existingId: id, ns },
     );
-    await verify(store, [id], id, ts, ns);
   }
 
   async function authenticate(cred: string): Promise<Principal | null> {
@@ -179,11 +177,10 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       if (sub) {
         const id = `oidc:${sub.subject}`;
         await provisionPerson(id, sub.subject);
-        // A verified identity is a VIEWER by default. write and verify are the governance
-        // permissions — ENTERPRISE.md: "the verify permission IS the knowledge-governance
-        // permission" — so they come only from an explicit grant, never from the mere fact of
-        // holding an SSO account. Otherwise turning on --auth so the team can browse would hand
-        // every new hire the power to promote drafts into every agent's context.
+        // A verified identity is a VIEWER by default. write is the knowledge permission — what
+        // enters under it is live to every agent on the scope — so it comes only from an explicit
+        // grant (an IdP claim, or the GitHub exchange, where org membership is that grant), never
+        // from the mere fact of holding an SSO account.
         // The IdP already owns identity, so it owns role too: a `scope`/`scopes` claim carrying
         // yoke scopes is honoured (validated and confined to the ns claim, see claimedScopes).
         const scopes = sub.scopes.length
@@ -249,8 +246,8 @@ export function createServeServer(deps: ServeDeps): ServeServer {
     // when an org is named, and membership in that org IS the access decision. The presented GitHub
     // token is spent on two lookups and discarded — never stored, never logged, never echoed; what
     // this server keeps is a token of its own minting. Re-exchange replaces the previous token for
-    // that login, so "revoke" as a durable act means removing the person from the org or the
-    // verifier list — the levers GitHub already owns.
+    // that login, so "revoke" as a durable act means removing the person from the org — the lever
+    // GitHub already owns.
     if (req.method === "POST" && path === "/api/login/github") {
       const gh = deps.github;
       if (!auth || !gh) {
@@ -310,11 +307,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
           : null;
         if (state !== "active")
           return deny(403, `not an active member of ${gh.org}`);
-        const scopes = [
-          "read",
-          "write",
-          ...(gh.verifiers.includes(login) ? ["verify"] : []),
-        ];
+        const scopes = ["read", "write"];
         const name = `github:${login}`;
         store.revokeToken(name);
         const { token } = store.createToken({
@@ -457,14 +450,10 @@ export async function runServe(
     ns: opts.ns ?? resolveNs(undefined, env),
     auth,
     oidc: oidcFromEnv(env) ?? undefined,
-    // YOKE_GITHUB_ORG turns the exchange on; verifiers and a GHE api base ride along.
+    // YOKE_GITHUB_ORG turns the exchange on; a GHE api base rides along.
     github: env.YOKE_GITHUB_ORG
       ? {
           org: env.YOKE_GITHUB_ORG,
-          verifiers: (env.YOKE_GITHUB_VERIFIERS ?? "")
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean),
           api: env.YOKE_GITHUB_API ?? "https://api.github.com",
         }
       : undefined,

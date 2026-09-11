@@ -48,9 +48,9 @@
   --ring: #0f766e;
 
   /* Lifecycle tones. Deliberately NOT derived from the accent: they encode a record's real state,
-     and a palette change must never be able to make "verified" and "draft" look alike. */
-  --tone-draft: #b45309;
-  --tone-draft-bg: #fef3c7;
+     and a palette change must never be able to make "verified" and "stale" look alike. */
+  --tone-warn: #b45309;
+  --tone-warn-bg: #fef3c7;
   --tone-verified: #15803d;
   --tone-verified-bg: #dcfce7;
   --tone-stale: #52525b;
@@ -86,8 +86,8 @@
     --input: #606873;
     --ring: #2dd4bf;
 
-    --tone-draft: #fbbf24;
-    --tone-draft-bg: #3a2c07;
+    --tone-warn: #fbbf24;
+    --tone-warn-bg: #3a2c07;
     --tone-verified: #4ade80;
     --tone-verified-bg: #0d2f1a;
     --tone-stale: #a1a1aa;
@@ -121,8 +121,8 @@
   --input: #606873;
   --ring: #2dd4bf;
 
-  --tone-draft: #fbbf24;
-  --tone-draft-bg: #3a2c07;
+  --tone-warn: #fbbf24;
+  --tone-warn-bg: #3a2c07;
   --tone-verified: #4ade80;
   --tone-verified-bg: #0d2f1a;
   --tone-stale: #a1a1aa;
@@ -153,8 +153,6 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --color-draft: var(--tone-draft);
-  --color-draft-bg: var(--tone-draft-bg);
   --color-verified: var(--tone-verified);
   --color-verified-bg: var(--tone-verified-bg);
   --color-stale: var(--tone-stale);

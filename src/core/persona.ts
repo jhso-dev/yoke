@@ -124,9 +124,8 @@ export async function personaQuery(
   // current", because the check reads the sources and the anchor is not one of them. Refused here rather
   // than marked per surface, so the lever works on every document-producing path (CLI export, MCP, web).
   //
-  // Only `deprecated`. A person record has no TTL and is not knowledge awaiting review — refusing a
-  // draft or stale anchor would disable the persona of anyone whose person record arrived from a
-  // connector and has not been through review, which is not what retiring someone means.
+  // Only `deprecated`. A person record has no TTL — refusing a stale anchor would disable the
+  // persona of anyone whose person record simply aged, which is not what retiring someone means.
   if (effectiveStatus(anchor, ontology, now) === "deprecated")
     throw new NotAPerson(
       `${personId} is retired (deprecated), so a persona is no longer generated for them — re-verify the person record to resume`,
@@ -145,7 +144,6 @@ export async function personaQuery(
   // ceiling: a duplicate needs two `authored_by` edges to reach that, and the number is read as "there
   // is more of this person's knowledge you are not seeing", which stays true either way.
   const held: WithheldStats = {
-    draft: 0,
     stale: 0,
     deprecated: 0,
     // Never counted. On this anchor the structural set is the work the person STARTED and the person
@@ -163,7 +161,6 @@ export async function personaQuery(
       ns: opts?.ns,
     });
     if (one.withheld) {
-      held.draft += one.withheld.draft;
       held.stale += one.withheld.stale;
       held.deprecated += one.withheld.deprecated;
       held.superseded += one.withheld.superseded;
@@ -191,9 +188,7 @@ export async function personaQuery(
           .toLowerCase()
           .includes(q),
     ),
-    held.draft + held.stale + held.deprecated + held.superseded > 0
-      ? held
-      : undefined,
+    held.stale + held.deprecated + held.superseded > 0 ? held : undefined,
     // Named, not listed as ids: `same_as` is the one claim in this document that ADDS a second
     // person's judgment under the anchor's name, and "Identity union (2): 01K9…, 01KB…" is not
     // something a reader can check. Resolved in one batch read, and only when there is a union to
@@ -216,7 +211,7 @@ async function namesOf(
 }
 
 /** Splits injected knowledge into the persona shape. type==='decision' → decisions, rest → facts.
- * The verified/stale/draft filtering already happened in inject — no second filter lives here. */
+ * The verified/stale filtering already happened in inject — no second filter lives here. */
 function classifyPersona(
   items: InjectItem[],
   withheld?: WithheldStats,
@@ -394,7 +389,6 @@ function disputed(i: InjectItem): string {
  */
 function heldBack(w: WithheldStats): string {
   const parts: string[] = [];
-  if (w.draft > 0) parts.push(`${w.draft} awaiting review`);
   if (w.stale > 0) parts.push(`${w.stale} past its freshness window`);
   if (w.deprecated > 0) parts.push(`${w.deprecated} retired`);
   if (w.superseded > 0)
@@ -466,9 +460,8 @@ export function renderPersonaSkill(
   //
   // NAMES, with the ids kept beside them: a reader asked to sanity-check a merge cannot do it from two
   // ULIDs. And the trust rule stated in the same breath, because `same_as` is the one input here that
-  // adds a SECOND person's judgment under this name while sitting permanently outside governance —
-  // every relation is committed `draft` and no path promotes one (see inject's `meaningEdges` ceiling),
-  // so nobody reviewed this claim and the document must not imply otherwise.
+  // adds a SECOND person's judgment under this name on the strength of one signed edge — the gate is
+  // the only check it passed, so the document must let a reader see the merge to challenge it.
   if (result.identities)
     out.push(
       `Identity union (${result.identities.length}): ${result.identities
@@ -515,7 +508,7 @@ export function renderPersonaSkill(
       if (Array.isArray(rejected) && rejected.length > 0)
         out.push(`- Rejected: ${inertBody(rejected.map(String).join(", "))}`);
       if (i.conflictsWith) out.push(`- Disputed:${disputed(i)}`);
-      // `pointer`, not `citation`: a citation carries `provenance.actor`, and on a promoted record that
+      // `pointer`, not `citation`: a citation carries `provenance.actor`, and on a re-confirmed record that
       // is whoever VERIFIED it — printing "yoke:system" on a Source line in a document titled "Ada
       // persona", the one name it must not put there. The author comes off `i.author` (the authored_by
       // edge), not the anchor: a union spans identities, so the record's real author is not always who
@@ -647,17 +640,13 @@ export function parsePersonaSources(md: string): PersonaHeader {
 
 /**
  * Why a snapshot's source is no longer what it was. One verdict per source, most actionable first —
- * `deprecated` > `superseded` > `stale`/`draft` > `outdated` > `ok` — because the remedy for every
+ * `deprecated` > `superseded` > `stale` > `outdated` > `ok` — because the remedy for every
  * non-`ok` verdict is the same (re-export), so a second reason changes nothing a reader would do.
- *
- * `draft` is unreachable from an export today (`inject` returns only verified records), and is here
- * because reporting the status found beats mapping an unexpected one onto a neighbouring label.
  */
 export type SourceVerdict =
   | "ok"
   | "outdated"
   | "stale"
-  | "draft"
   | "deprecated"
   | "superseded"
   | "missing";

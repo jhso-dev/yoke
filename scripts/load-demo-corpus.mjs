@@ -106,7 +106,7 @@ const c = {
   aged: 0,
   conflictPairs: 0,
   relations: 0,
-  draft: 0,
+  unconfirmed: 0,
   stale: 0,
   deprecated: 0,
 };
@@ -163,14 +163,14 @@ for (const d of domains.filter((x) => x.records)) {
     );
     byKey.set(`${d.file}#${r.key}`, id);
     c.records++;
-    // Confirmed by the AUTHOR, not by a steward. `verify` replaces provenance, so confirming
+    // Re-confirmed by the AUTHOR, not by a steward. `verify` replaces provenance, so confirming
     // everything as one reviewer would erase every author and point the stale queue's owner routing
     // (it reads provenance.actor) at that one person. Learned by doing it wrong on a live corpus.
     if (r.state === "verified") await verify(store, [id], r.author, NOW);
     else if (r.state === "stale") {
       await verify(store, [id], r.author, iso(330));
       c.stale++;
-    } else c.draft++;
+    } else c.unconfirmed++; // entered, never re-confirmed — ages toward the review queue
     await rel("relates_to", id, d.collaboration.id, r.author, at);
     c.relations++;
   }
@@ -259,25 +259,9 @@ for (let i = 0; i < withRecords.length; i++) {
 }
 c.relations += cross;
 
-// The roster and the anchors are not knowledge under review — leaving them draft would put 41 rows in
-// the review queue that nobody is meant to act on.
-for (const type of ["person", "collaboration"]) {
-  const { items } = await store.listEntities({
-    type,
-    status: "draft",
-    limit: 500,
-  });
-  await verify(
-    store,
-    items.map((e) => e.id),
-    "person:steward",
-    NOW,
-  );
-}
-
 const token = store.createToken({
   name: "admin",
-  scopes: ["read", "write", "verify"],
+  scopes: ["read", "write", "admin"],
   created_at: NOW,
 }).token;
 store.close();

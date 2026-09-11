@@ -99,7 +99,7 @@ describe("github-pr connector", () => {
 });
 
 describe("ingest", () => {
-  it("commits each comment as a draft decision via the gate", async () => {
+  it("commits each comment as a decision via the gate", async () => {
     const connector = makeGithubPrConnector({
       repo: "o/r",
       fetchImpl: stubFetch(),
@@ -116,7 +116,7 @@ describe("ingest", () => {
         "https://github.com/o/r/pull/7#discussion_r1",
     );
     expect(hit?.type).toBe("decision");
-    expect(hit?.status).toBe("draft");
+    expect(hit?.status).toBe("verified");
     expect(hit?.provenance.origin).toBe("connector:github-pr");
   });
 

@@ -5,7 +5,7 @@
 // record's source and version"; the rendering half is not expressible in the type system and is
 // enforced by `citation-render.test.ts`.
 
-export type Status = "draft" | "verified" | "stale" | "deprecated";
+export type Status = "verified" | "stale" | "deprecated";
 
 /** One knowledge row, as every list endpoint returns it. */
 export interface Knowledge {
@@ -66,7 +66,6 @@ export interface Page<T> {
  * one shape the server sends.
  */
 export interface Withheld {
-  draft: number;
   stale: number;
   deprecated: number;
   structural: number;
@@ -187,20 +186,19 @@ export interface InjectPreview {
    * clock produced the rows — a historical read that looked like a current one would be worse than
    * no feature at all. */
   asOf: string | null;
-  includeDraft: boolean;
   /** How many records the limit dropped. >0 means this is a page, not the whole context. */
   omitted: number;
   /** What a multi-hop walk did — non-null only when depth > 1 was requested and walked. */
   walk: { depth: number; nodes: number; truncated: boolean } | null;
   /** What matched but was held back, and why — non-null whenever something matched and at least one
-   * match was withheld, whether or not anything came through (measured: `items:1, withheld:{draft:1}`).
+   * match was withheld, whether or not anything came through (measured: `items:1, withheld:{stale:1}`).
    * Null means nothing was held back — either the query matched nothing, or everything it matched was
    * injected. So a full table can still carry this: it names the records the page is NOT everything of. */
   withheld: Withheld | null;
   items: InjectedKnowledge[];
 }
 
-/** GET /api/review?stale=1. Verified records past their type's TTL.
+/** GET /api/review. Verified records past their type's TTL.
  *
  * `scanned` is not decoration: freshness is computed at read time from the ontology's TTL, so finding
  * these is a bounded walk over verified rows rather than an indexed query. The screen has to say what

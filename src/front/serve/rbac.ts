@@ -1,7 +1,9 @@
 // RBAC (PLAN-V2 10.4, ENTERPRISE.md) — pure authorization over the three axes:
-// namespace × entity-type × action(read|write|verify). Deny by default. `write` does NOT imply
-// `verify` (verify is the governance permission — the whole point of separating them). Broader
-// scopes match narrower requests (a wildcard ns/type covers any specific ns/type).
+// namespace × entity-type × action(read|write|admin). Deny by default. `write` is the one knowledge
+// permission: committing, re-confirming and retiring are the same trust level, because every entry
+// is signed and every retirement is broadcast — the checks live downstream of the act, not in a
+// second permission. Broader scopes match narrower requests (a wildcard ns/type covers any specific
+// ns/type).
 //
 // Scope grammar (comma list, one entry per string here): `action` | `ns:action` | `ns:type:action`.
 // The last segment is always the action; a missing or `*` ns/type segment is a wildcard.
@@ -9,21 +11,18 @@
 import { normalizeNs } from "../../core/namespace.js";
 
 /**
- * The four axes. `admin` grants the credential routes and NOTHING else.
- *
- * Issuing credentials is not governance — it is the thing governance is granted BY — so it must never
- * gate on `verify`, the governance permission every reviewer holds (`docs/ENTERPRISE.md`: "we separate
- * admin / write / verify").
+ * The three actions. `admin` grants the OPERATING routes — credentials, ontology migration,
+ * type rename (the writes that bypass or rewrite what the commit gate enforces) — and nothing else.
  *
  * `admin` is deliberately not a superset: an admin who needs to read knowledge asks for `read` too.
- * The point of the separation is that the person who hands out credentials is not automatically the
- * person who can read every tenant's knowledge.
+ * The point of the separation is that the person who operates the deployment is not automatically
+ * the person who can read every tenant's knowledge.
  *
  * Bootstrap is the local path, per invariant 4: `yoke token create` is ungated and single-user, so the
  * first credential — including the first admin one — is minted by whoever owns the machine.
  */
-export type Action = "read" | "write" | "verify" | "admin";
-const ACTIONS: readonly string[] = ["read", "write", "verify", "admin"];
+export type Action = "read" | "write" | "admin";
+const ACTIONS: readonly string[] = ["read", "write", "admin"];
 
 interface Scope {
   ns: string | null; // null = wildcard (matches any namespace, incl. the default)
@@ -53,7 +52,7 @@ export function parseScope(raw: string): Scope | null {
 
 /**
  * Deny-by-default check: does any scope grant (ns, type, action)?
- * - action must match exactly (no read⊇write, no write⊇verify).
+ * - action must match exactly (no read⊇write, no write⊇admin).
  * - a scope's explicit ns must equal the request ns; a wildcard ns matches anything.
  *   ceiling: the default (null) namespace is matched only by a wildcard-ns scope (a bare
  *   `action` or `*:...`). Named-ns scopes target that exact ns string. Upgrade to a `default`
@@ -85,8 +84,8 @@ export function allowed(
  * the rest of this file enforces — the escalation just takes two steps instead of one.
  *
  * The rule is reach: a namespace-scoped admin may grant only within that namespace, and only a
- * wildcard-ns admin may grant a wildcard-ns scope. Nothing here is a claim about `action` — an admin may
- * hand out `verify` without holding it, which is what delegating governance means.
+ * wildcard-ns admin may grant a wildcard-ns scope. Nothing here is a claim about `action` — an admin
+ * may hand out `write` without holding it, which is what delegating access means.
  *
  * Returns the scopes that are out of reach, so the caller can name them. Empty means "all grantable".
  */

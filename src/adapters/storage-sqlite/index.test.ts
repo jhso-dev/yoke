@@ -50,9 +50,9 @@ describe("the hot reads use an index, not a scan", () => {
         "idx_entities_ns_type_id",
       ],
       [
-        "listEntities({status}) — the review queue",
+        "listEntities({status}) — the status filter",
         `SELECT e.* FROM entities e WHERE ${LATEST("entities", "e")}
-           AND e.ns IS NULL AND e.status = 'draft' ORDER BY e.id LIMIT 51`,
+           AND e.ns IS NULL AND e.status = 'verified' ORDER BY e.id LIMIT 51`,
         "idx_entities_ns_status_id",
       ],
       [
@@ -184,7 +184,7 @@ describe("sqlite-vec similar", () => {
   const emb = (arr: number[]) => Float32Array.from(arr);
   const base = {
     type: "fact",
-    status: "draft" as const,
+    status: "verified" as const,
     version: 1,
     last_confirmed: "2026-01-01T00:00:00Z",
     provenance: {
@@ -340,7 +340,7 @@ describe("sqlite-vec similar", () => {
 describe("audit extensions (PLAN 8.4)", () => {
   const base = {
     type: "fact",
-    status: "draft" as const,
+    status: "verified" as const,
     version: 1,
     last_confirmed: "2026-01-01T00:00:00Z",
     provenance: {
@@ -358,12 +358,12 @@ describe("audit extensions (PLAN 8.4)", () => {
       ...base,
       id: "e",
       version: 2,
-      status: "verified",
+      status: "deprecated",
       attributes: { n: "v2" },
     });
     const history = store.listHistory("e");
     expect(history.map((e) => e.version)).toEqual([1, 2]);
-    expect(history.map((e) => e.status)).toEqual(["draft", "verified"]);
+    expect(history.map((e) => e.status)).toEqual(["verified", "deprecated"]);
     expect(store.listHistory("nope")).toEqual([]);
     store.close();
   });
@@ -545,12 +545,12 @@ describe("durability (PLAN-V2 11.1)", () => {
     const store = new SqliteStorage(srcPath);
     await store.init();
     await store.saveOntology(seedOntology());
-    // v1 draft, v2 verified — same id, append-only.
+    // v1 verified, v2 deprecated (retired) — same id, append-only.
     await store.putEntity({
       id: "e",
       version: 1,
       type: "fact",
-      status: "draft",
+      status: "verified",
       attributes: { title: "v1" },
       provenance: prov,
       last_confirmed: "2026-01-01T00:00:00Z",
@@ -559,7 +559,7 @@ describe("durability (PLAN-V2 11.1)", () => {
       id: "e",
       version: 2,
       type: "fact",
-      status: "verified",
+      status: "deprecated",
       attributes: { title: "v2" },
       provenance: prov,
       last_confirmed: "2026-01-02T00:00:00Z",
@@ -583,10 +583,10 @@ describe("durability (PLAN-V2 11.1)", () => {
 
     const ex = new SqliteStorage(outPath);
     await ex.init();
-    // Only v1 (the draft) survived the cut.
+    // Only v1 survived the cut — the later retirement had not happened yet.
     expect(ex.listHistory("e").map((e) => e.version)).toEqual([1]);
     const latest = await ex.getEntity("e");
-    expect(latest?.status).toBe("draft");
+    expect(latest?.status).toBe("verified");
     expect(latest?.attributes).toEqual({ title: "v1" });
     // Ontology carried over (a reconstructed DB must be usable) and FTS was rebuilt from v1.
     expect(ex.loadOntology().length).toBeGreaterThan(0);

@@ -2,8 +2,9 @@
 // No logic here. This file exists to enforce, at the type level, that id/status/version/
 // last_confirmed are assigned only by the commit gate (Input and stored shapes are split).
 
-/** Knowledge status. Enters as draft, promoted by verify, ages to stale or is retired to deprecated. */
-export type Status = "draft" | "verified" | "stale" | "deprecated";
+/** Knowledge status. Born verified — filing under a signed actor IS the entry bar — then ages to
+ * stale past its TTL or is retired to deprecated. verify() re-confirms: it refreshes the lease. */
+export type Status = "verified" | "stale" | "deprecated";
 
 /** Provenance of a piece of knowledge. The smallest unit of the audit trail. Dates are ISO 8601 strings (never store Date objects). */
 export interface Provenance {

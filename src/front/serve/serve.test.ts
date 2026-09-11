@@ -1,6 +1,6 @@
 // serve mode (PLAN-V2 10.2–10.4) — all in-process, port 0. Covers: API-token round-trip
 // (incl. hash-not-plaintext), Bearer auth (401), RBAC over the HTTP surface (read-only GET ok /
-// POST verify 403; verify token 200), the remote MCP endpoint (write-only token commits but
+// POST verify 403; write token 200), the remote MCP endpoint (write-only token commits but
 // yoke_inject is forbidden; unauthenticated 401), OIDC (local JWKS fixture: valid JWT passes +
 // person auto-provisioned; expired / wrong-audience rejected), and a UI+MCP smoke.
 
@@ -22,7 +22,6 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
-import { verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import { runCli } from "../cli/index.js";
 import { isLoopback } from "../ui/server.js";
@@ -102,31 +101,31 @@ describe("SqliteStorage tokens (PLAN-V2 10.3)", () => {
 describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
   let store: SqliteStorage;
   let run: Running;
-  let draftId: string;
+  let factId: string;
   let readToken: string;
-  let verifyToken: string;
+  let writeToken: string;
 
   beforeAll(async () => {
     const db = await freshDb("auth");
     store = new SqliteStorage(db);
     await store.init();
     const ont = store.loadOntology();
-    const draft = await commit(
+    const fact = await commit(
       store,
       ont,
       { type: "fact", attributes: { statement: "sky is blue" } },
       { actor: "yoke:system", origin: "cli", occurred_at: now() },
       now(),
     );
-    draftId = draft.entity.id;
+    factId = fact.entity.id;
     readToken = store.createToken({
       name: "reader",
       scopes: ["read"],
       created_at: now(),
     }).token;
-    verifyToken = store.createToken({
-      name: "gov",
-      scopes: ["read", "verify"],
+    writeToken = store.createToken({
+      name: "writer",
+      scopes: ["read", "write"],
       created_at: now(),
     }).token;
     run = await listen(
@@ -166,7 +165,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     expect((await authGet("/api/review", readToken)).status).toBe(200);
     const verifyRes = await authPost(
       "/api/verify",
-      { ids: [draftId] },
+      { ids: [factId] },
       readToken,
     );
     expect(verifyRes.status).toBe(403);
@@ -176,8 +175,8 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
       error: string;
       required?: string;
     };
-    expect(body.error).toContain("'verify' scope");
-    expect(body.required).toBe("verify");
+    expect(body.error).toContain("'write' scope");
+    expect(body.required).toBe("write");
   });
 
   it("read-only token: POST /api/entity and /api/link → 403", async () => {
@@ -190,19 +189,26 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
       (
         await authPost(
           "/api/link",
-          { from: draftId, type: "relates_to", to: draftId },
+          { from: factId, type: "relates_to", to: factId },
           readToken,
         )
       ).status,
     ).toBe(403);
   });
 
-  it("verify-scoped token: POST /api/verify → 200 and promotes", async () => {
-    const res = await authPost("/api/verify", { ids: [draftId] }, verifyToken);
+  it("write-scoped token: POST /api/verify → 200 and re-confirms (a new version)", async () => {
+    const res = await authPost("/api/verify", { ids: [factId] }, writeToken);
     expect(res.status).toBe(200);
-    const done = (await res.json()) as Array<{ id: string; status: string }>;
-    expect(done[0].id).toBe(draftId);
+    const done = (await res.json()) as Array<{
+      id: string;
+      status: string;
+      version: number;
+    }>;
+    expect(done[0].id).toBe(factId);
+    // Born verified (v1); the re-confirmation is its own version, so the freshness refresh is on
+    // the record's timeline rather than an in-place overwrite.
     expect(done[0].status).toBe("verified");
+    expect(done[0].version).toBe(2);
   });
 
   it("GET /api/inject?unseen=1 is one ledger per token: what FE was handed is not what PO was", async () => {
@@ -231,7 +237,6 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
         },
       )
     ).entity.id;
-    await verify(store, [scope, d1], "po", now());
     const feToken = store.createToken({
       name: "fe",
       scopes: ["read"],
@@ -250,14 +255,17 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     // FE again: nothing new → 204, no body.
     expect((await unseen(feToken)).status).toBe(204);
     // PO's hook, same server, same scope: PO was handed nothing yet, so PO still gets the briefing.
-    const po = await unseen(verifyToken);
+    const po = await unseen(writeToken);
     expect(po.status).toBe(200);
     expect(await po.text()).toContain(d1);
     // The rows are `inject` (a model received knowledge), one per delivery, under each token's actor.
     const rows = store
       .listAudit()
       .filter((r) => r.action === "inject" && r.detail.startsWith(scope));
-    expect(rows.map((r) => r.actor).sort()).toEqual(["token:fe", "token:gov"]);
+    expect(rows.map((r) => r.actor).sort()).toEqual([
+      "token:fe",
+      "token:writer",
+    ]);
     // Guards: a briefing of one context.
     expect((await authGet(`/api/inject?q=x&unseen=1`, feToken)).status).toBe(
       400,
@@ -395,13 +403,13 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
   it("valid JWT passes and auto-provisions a verified person", async () => {
     const jwt = await sign({ sub: "user-1", email: "alice@test" }, "2h");
     expect((await get(jwt)).status).toBe(200);
-    // person auto-provisioned via the commit gate + verify, id derived from the subject (email).
+    // person auto-provisioned via the commit gate (born verified), id derived from the subject (email).
     const person = await store.getEntity("oidc:alice@test");
     expect(person?.type).toBe("person");
     expect(person?.status).toBe("verified");
   });
 
-  it("a bare login can read but cannot verify — an SSO account is not a governance grant", async () => {
+  it("a bare login can read but cannot write — an SSO account is not a knowledge grant", async () => {
     const jwt = await sign({ sub: "user-viewer", email: "viewer@test" }, "2h");
     expect((await get(jwt)).status).toBe(200);
     const res = await fetch(`${run.base}/api/verify`, {
@@ -415,9 +423,9 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
     expect(res.status).toBe(403);
   });
 
-  it("honours a verify grant carried by the token's scope claim", async () => {
+  it("honours a write grant carried by the token's scope claim", async () => {
     const jwt = await sign(
-      { sub: "user-gov", email: "gov@test", scope: "read verify" },
+      { sub: "user-gov", email: "gov@test", scope: "read write" },
       "2h",
     );
     expect((await get(jwt)).status).toBe(200);
@@ -438,22 +446,22 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
   it("confines granted scopes to the ns claim and ignores non-yoke scopes", async () => {
     const verify = makeOidcVerifier(oidc);
     // A real IdP sends openid/profile/email — none of it is a grant. `read` is unqualified so it is
-    // narrowed to the token's tenant. `globex:verify` names another tenant and is dropped outright.
+    // narrowed to the token's tenant. `globex:write` names another tenant and is dropped outright.
     const scoped = await sign(
       {
         sub: "cross",
         ns: "acme",
-        scope: "openid profile email read acme:decision:verify globex:verify",
+        scope: "openid profile email read acme:decision:write globex:write",
       },
       "2h",
     );
     expect((await verify(scoped))?.scopes).toEqual([
       "acme:read",
-      "acme:decision:verify",
+      "acme:decision:write",
     ]);
     // No ns claim = an all-namespace identity (pre-existing design), so grants pass through as-is.
-    const global = await sign({ sub: "glob", scope: "read verify" }, "2h");
-    expect((await verify(global))?.scopes).toEqual(["read", "verify"]);
+    const global = await sign({ sub: "glob", scope: "read write" }, "2h");
+    expect((await verify(global))?.scopes).toEqual(["read", "write"]);
     // A `scopes` array works too, and a token carrying nothing grants nothing.
     const arr = await sign({ sub: "arr", scopes: ["write"] }, "2h");
     expect((await verify(arr))?.scopes).toEqual(["write"]);
@@ -481,7 +489,7 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
 describe("read replica (PLAN-V2 11.2)", () => {
   it("serves reads; writes rejected (409 API / MCP tool error); refreshNow pulls new data", async () => {
     const primary = await freshDb("replica-primary");
-    // Seed a verified fact on the primary.
+    // Seed a fact on the primary — born verified, so it is injectable as committed.
     const p = new SqliteStorage(primary);
     await p.init();
     const d = await commit(
@@ -491,7 +499,6 @@ describe("read replica (PLAN-V2 11.2)", () => {
       { actor: "yoke:system", origin: "cli", occurred_at: now() },
       now(),
     );
-    await verify(p, [d.entity.id], "yoke:system", now());
     p.close();
 
     // Build the replica snapshot + read-only server directly (mirrors runServe's replica branch).
@@ -551,14 +558,13 @@ describe("read replica (PLAN-V2 11.2)", () => {
     // refreshNow: new verified data on the primary becomes visible after a manual pull.
     const p2 = new SqliteStorage(primary);
     await p2.init();
-    const d2 = await commit(
+    await commit(
       p2,
       p2.loadOntology(),
       { type: "fact", attributes: { statement: "afterrefresh" } },
       { actor: "yoke:system", origin: "cli", occurred_at: now() },
       now(),
     );
-    await verify(p2, [d2.entity.id], "yoke:system", now());
     p2.close();
 
     // biome-ignore lint/style/noNonNullAssertion: refreshNow is present in replica mode.
@@ -700,7 +706,6 @@ describe("GitHub exchange (POST /api/login/github)", () => {
   /** A stand-in for api.github.com: the token IS the fixture key. */
   const people: Record<string, { login: string; member: boolean }> = {
     gh_alice: { login: "alice", member: true },
-    gh_lead: { login: "po-lead", member: true },
     gh_stranger: { login: "stranger", member: false },
   };
 
@@ -732,7 +737,7 @@ describe("GitHub exchange (POST /api/login/github)", () => {
         auth: true,
         now,
         webRoot: fixtureBundle(),
-        github: { org: "acme", verifiers: ["po-lead"], api: gh.base },
+        github: { org: "acme", api: gh.base },
       }),
     );
   });
@@ -748,7 +753,7 @@ describe("GitHub exchange (POST /api/login/github)", () => {
       headers: tok ? { authorization: `Bearer ${tok}` } : {},
     });
 
-  it("an org member gets read+write; a verifier additionally gets verify", async () => {
+  it("an org member gets read+write — the whole knowledge permission", async () => {
     const alice = await login("gh_alice");
     expect(alice.status).toBe(200);
     const a = (await alice.json()) as {
@@ -767,10 +772,6 @@ describe("GitHub exchange (POST /api/login/github)", () => {
       headers: { authorization: `Bearer ${a.token}` },
     });
     expect(read.status).toBe(200);
-    const lead = (await (await login("gh_lead")).json()) as {
-      scopes: string[];
-    };
-    expect(lead.scopes).toEqual(["read", "write", "verify"]);
   });
 
   it("re-exchange replaces the previous token for that login", async () => {
@@ -842,7 +843,7 @@ describe("GitHub exchange (POST /api/login/github)", () => {
         auth: true,
         now,
         webRoot: fixtureBundle(),
-        github: { org: "acme", verifiers: [], api: "http://127.0.0.1:1" },
+        github: { org: "acme", api: "http://127.0.0.1:1" },
       }),
     );
     try {
@@ -907,7 +908,7 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
           auth: true,
           now,
           webRoot: fixtureBundle(),
-          github: { org: "acme", verifiers: [], api: gh.base },
+          github: { org: "acme", api: gh.base },
         }),
       );
       try {

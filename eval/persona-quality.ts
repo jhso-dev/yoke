@@ -15,8 +15,9 @@
 //      `relates_to` (an association is not authorship), plus facts A's own decisions cite via
 //      `derived_from` but which someone else wrote — the depth-2 vector the graph's shape is
 //      supposed to make unreachable.
-//   2) Draft-leak rate — A's own unverified records returned (target 0%). A draft judgment presented
-//      as someone's judgment is the gate's whole promise broken at its most personal surface.
+//   2) Retired-leak rate — A's own retired records returned (target 0%). A withdrawn judgment
+//      presented as someone's judgment is the filter's whole promise broken at its most personal
+//      surface.
 //   3) Stale-leak rate — A's verified-but-aged records returned (target 0%). Freshness is computed
 //      at read time; a persona quoting an expired position misrepresents the person today.
 //   4) Recall — A's verified, fresh records that persona(A) actually returns (target 100%), whole
@@ -28,7 +29,7 @@
 
 import { SqliteStorage } from "../src/adapters/storage-sqlite/index.js";
 import { commit } from "../src/core/commit.js";
-import { verify } from "../src/core/lifecycle.js";
+import { deprecate, verify } from "../src/core/lifecycle.js";
 import { seedOntology } from "../src/core/ontology.js";
 import { personaQuery } from "../src/core/persona.js";
 import type { Provenance } from "../src/core/types.js";
@@ -86,7 +87,7 @@ async function run() {
     actor: string,
     topic: string,
     kind: "decision" | "fact",
-    opts?: { at?: string; verified?: boolean },
+    opts?: { at?: string; retired?: boolean },
   ) => {
     const at = opts?.at ?? NOW;
     const { entity } = await commit(
@@ -107,7 +108,10 @@ async function run() {
       prov(actor, at),
       at,
     );
-    if (opts?.verified !== false) await verify(store, [entity.id], actor, at);
+    // Born verified; re-confirm at `at` keeps provenance on the author, and a bait record is
+    // retired instead — the one stored status a persona must never quote.
+    if (opts?.retired) await deprecate(store, [entity.id], actor, at);
+    else await verify(store, [entity.id], actor, at);
     return entity.id;
   };
   const link = (type: string, from: string, to: string) =>
@@ -128,7 +132,7 @@ async function run() {
     otherAuthor: [] as string[], // Bob's verified records, same topics
     related: [] as string[], // Bob's records linked to ALICE via relates_to — association, not authorship
     derivedSource: [] as string[], // Bob's facts that Alice's decisions REST ON (derived_from, depth 2)
-    aliceDraft: [] as string[], // Alice's own drafts
+    aliceRetired: [] as string[], // Alice's own retired records
     aliceStale: [] as string[], // Alice's own verified-but-aged facts
     aliceStructural: [] as string[], // things Alice CREATED that are not knowledge
   };
@@ -141,8 +145,8 @@ async function run() {
     const src = await record(bob, t, "fact");
     await link("derived_from", gold[i], src);
     bait.derivedSource.push(src);
-    bait.aliceDraft.push(
-      await record(alice, t, "decision", { verified: false }),
+    bait.aliceRetired.push(
+      await record(alice, t, "decision", { retired: true }),
     );
     bait.aliceStale.push(await record(alice, t, "fact", { at: LONG_AGO }));
   }
@@ -188,7 +192,7 @@ async function run() {
     ...leaked(bait.derivedSource),
   ];
   const structuralLeaks = leaked(bait.aliceStructural);
-  const draftLeaks = leaked(bait.aliceDraft);
+  const retiredLeaks = leaked(bait.aliceRetired);
   const staleLeaks = leaked(bait.aliceStale);
   const recalled = gold.filter((id) => wholeIds.has(id));
 
@@ -214,7 +218,7 @@ async function run() {
         bait.otherAuthor.length +
         bait.related.length +
         bait.derivedSource.length +
-        bait.aliceDraft.length +
+        bait.aliceRetired.length +
         bait.aliceStale.length +
         bait.aliceStructural.length,
     },
@@ -223,9 +227,9 @@ async function run() {
       foreign: impersonation.length,
       rate: returned === 0 ? 0 : impersonation.length / returned,
     },
-    draftLeak: {
-      leaked: draftLeaks.length,
-      rate: draftLeaks.length / gold.length,
+    retiredLeak: {
+      leaked: retiredLeaks.length,
+      rate: retiredLeaks.length / gold.length,
     },
     staleLeak: {
       leaked: staleLeaks.length,
@@ -257,7 +261,7 @@ console.log(`  authored by someone else            ${r.impersonation.foreign}`);
 console.log(
   `impersonation rate (target 0%)        ${pct(r.impersonation.rate)}`,
 );
-console.log(`draft leak rate (target 0%)           ${pct(r.draftLeak.rate)}`);
+console.log(`retired leak rate (target 0%)         ${pct(r.retiredLeak.rate)}`);
 console.log(`stale leak rate (target 0%)           ${pct(r.staleLeak.rate)}`);
 console.log(
   `structural leak rate (target 0%)      ${pct(r.structuralLeak.rate)}`,
@@ -269,7 +273,7 @@ console.log(JSON.stringify(r, null, 2));
 
 process.exit(
   r.impersonation.rate === 0 &&
-    r.draftLeak.rate === 0 &&
+    r.retiredLeak.rate === 0 &&
     r.staleLeak.rate === 0 &&
     r.structuralLeak.rate === 0 &&
     r.recall.whole === 1 &&

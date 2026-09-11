@@ -167,9 +167,9 @@ describe("slack connector", () => {
     expect(first).toEqual({ added: 3, updated: 0, skipped: 0 });
     const second = await ingest(port, ont, make(), "alice", now);
     expect(second).toEqual({ added: 0, updated: 0, skipped: 3 });
-    const drafts = (await port.listEntities({ status: "draft" })).items;
-    expect(drafts).toHaveLength(3);
-    expect(drafts.every((e) => e.type === "fact")).toBe(true);
+    const stored = (await port.listEntities({ status: "verified" })).items;
+    expect(stored).toHaveLength(3);
+    expect(stored.every((e) => e.type === "fact")).toBe(true);
   });
 });
 

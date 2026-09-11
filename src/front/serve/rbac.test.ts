@@ -1,5 +1,6 @@
 // RBAC unit table (PLAN-V2 10.4). Scope grammar × requests. Key invariants: deny-by-default,
-// write does NOT imply verify, ns mismatch denies, wildcards match narrower requests.
+// read/write/admin are disjoint (no action implies another), ns mismatch denies, wildcards match
+// narrower requests.
 
 import { describe, expect, it } from "vitest";
 import { allowed, parseScope, ungrantable } from "./rbac.js";
@@ -14,9 +15,9 @@ describe("rbac allowed()", () => {
     expect(allowed(["read"], "tenantA", "fact", "read")).toBe(true);
   });
 
-  it("write does NOT imply verify (verify is the governance permission)", () => {
+  it("no action implies another", () => {
     expect(allowed(["write"], null, "fact", "write")).toBe(true);
-    expect(allowed(["write"], null, "fact", "verify")).toBe(false);
+    expect(allowed(["write"], null, "fact", "admin")).toBe(false);
     expect(allowed(["read"], null, "fact", "write")).toBe(false);
   });
 
@@ -28,26 +29,20 @@ describe("rbac allowed()", () => {
   });
 
   it("ns:type:action scopes are type-specific; untyped requests need a type wildcard", () => {
-    expect(allowed(["tenantA:fact:verify"], "tenantA", "fact", "verify")).toBe(
+    expect(allowed(["tenantA:fact:write"], "tenantA", "fact", "write")).toBe(
       true,
     );
-    expect(allowed(["tenantA:fact:verify"], "tenantA", "term", "verify")).toBe(
+    expect(allowed(["tenantA:fact:write"], "tenantA", "term", "write")).toBe(
       false,
     );
     // an untyped request (type === undefined) is not granted by a type-specific scope
-    expect(
-      allowed(["tenantA:fact:verify"], "tenantA", undefined, "verify"),
-    ).toBe(false);
+    expect(allowed(["tenantA:fact:write"], "tenantA", undefined, "write")).toBe(
+      false,
+    );
     // ...but a type-wildcard scope grants it
-    expect(allowed(["tenantA:verify"], "tenantA", undefined, "verify")).toBe(
+    expect(allowed(["tenantA:write"], "tenantA", undefined, "write")).toBe(
       true,
     );
-  });
-
-  it("agent default (write-only) can stage but cannot verify", () => {
-    const agent = ["write"];
-    expect(allowed(agent, null, "fact", "write")).toBe(true);
-    expect(allowed(agent, null, "fact", "verify")).toBe(false);
   });
 
   it("malformed scopes are ignored (unknown action → parse null)", () => {
@@ -56,18 +51,27 @@ describe("rbac allowed()", () => {
     expect(allowed(["bogus", "read"], null, undefined, "read")).toBe(true);
     expect(allowed(["bogus"], null, undefined, "read")).toBe(false);
   });
+
+  it("the legacy verify scope is not an action and grants nothing", () => {
+    // Tokens minted before read/write/admin may still carry it; it must parse to null rather than
+    // silently alias onto write.
+    expect(parseScope("verify")).toBeNull();
+    expect(parseScope("teamA:verify")).toBeNull();
+    expect(allowed(["verify"], null, "fact", "write")).toBe(false);
+    expect(allowed(["teamA:verify"], "teamA", undefined, "read")).toBe(false);
+  });
 });
 
-// `admin` was missing, and `verify` stood in for it: every reviewer could mint, list and revoke
-// credentials for every tenant. ENTERPRISE.md claimed the separation the code did not have.
+// `admin` gates the operating routes (credentials, ontology migration, type rename) and nothing
+// else — and nothing else grants it.
 describe("admin is its own axis", () => {
-  it("verify does not grant admin, and admin does not grant verify", () => {
-    expect(allowed(["teamA:verify"], "teamA", undefined, "admin")).toBe(false);
-    expect(allowed(["teamA:admin"], "teamA", undefined, "verify")).toBe(false);
+  it("write does not grant admin, and admin does not grant write", () => {
+    expect(allowed(["teamA:write"], "teamA", undefined, "admin")).toBe(false);
+    expect(allowed(["teamA:admin"], "teamA", undefined, "write")).toBe(false);
   });
 
   it("admin does not imply reading knowledge", () => {
-    // The point of the separation: whoever hands out credentials is not automatically able to read
+    // The point of the separation: whoever operates the deployment is not automatically able to read
     // every tenant's knowledge.
     expect(allowed(["teamA:admin"], "teamA", undefined, "read")).toBe(false);
   });
@@ -87,7 +91,7 @@ describe("admin is its own axis", () => {
 describe("ungrantable()", () => {
   it("lets a namespace admin grant inside its own namespace", () => {
     expect(
-      ungrantable(["teamA:admin"], ["teamA:read", "teamA:fact:verify"]),
+      ungrantable(["teamA:admin"], ["teamA:read", "teamA:fact:write"]),
     ).toEqual([]);
   });
 
@@ -103,7 +107,7 @@ describe("ungrantable()", () => {
   });
 
   it("lets a wildcard admin grant anything", () => {
-    expect(ungrantable(["admin"], ["read", "teamB:verify", "*:write"])).toEqual(
+    expect(ungrantable(["admin"], ["read", "teamB:write", "*:write"])).toEqual(
       [],
     );
   });
@@ -120,7 +124,7 @@ describe("ungrantable()", () => {
   });
 
   it("grants nothing without an admin scope at all", () => {
-    expect(ungrantable(["teamA:verify"], ["teamA:read"])).toEqual([
+    expect(ungrantable(["teamA:write"], ["teamA:read"])).toEqual([
       "teamA:read",
     ]);
   });

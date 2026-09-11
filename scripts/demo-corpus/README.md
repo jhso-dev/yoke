@@ -9,9 +9,9 @@ It exists because the two things yoke is judged on cannot be judged on synthetic
   generator that varies words inside one sentence skeleton produces a corpus where every query matches
   everything, and the measurement that came out of one (`scripts/seed-dummy-it-company.mjs`) was
   **0 of 676** semantic pairs — a hybrid retriever built on it would have shown no gain (docs/RESEARCH.md).
-- **The governance screens.** A review queue needs drafts, a stale queue needs records confirmed long
-  enough ago that the *ontology's own TTL* expires them, and the conflicts screen needs pairs that
-  genuinely disagree about the same question. All three are properties of a corpus, not of a fixture.
+- **The governance screens.** The review queue needs records confirmed long enough ago that the
+  *ontology's own TTL* expires them, and the conflicts screen needs pairs that genuinely disagree
+  about the same question. Both are properties of a corpus, not of a fixture.
 
 ## Files
 
@@ -33,7 +33,7 @@ Departments:
     "type": "fact" | "decision" | "term" | "resource",
     "author": "person:<slug>",
     "size": "line" | "short" | "para" | "half" | "a4",
-    "state": "verified" | "draft" | "stale",
+    "state": "verified" | "unconfirmed" | "stale",
     "attributes": { }
   }],
   "links": [{ "type": "relates_to" | "supersedes" | "conflicts_with", "from": "<key>", "to": "<key>" }]

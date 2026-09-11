@@ -27,7 +27,7 @@ export function makeEntity(over: Partial<Entity> = {}): Entity {
     id: over.id ?? nextId(),
     type: over.type ?? "note",
     attributes: over.attributes ?? { title: "hello world" },
-    status: over.status ?? "draft",
+    status: over.status ?? "verified",
     version: over.version ?? 1,
     last_confirmed: over.last_confirmed ?? "2026-01-01T00:00:00Z",
     provenance: over.provenance ?? {
@@ -51,7 +51,7 @@ function makeRelation(
     attributes: over.attributes ?? {},
     from,
     to,
-    status: over.status ?? "draft",
+    status: over.status ?? "verified",
     version: over.version ?? 1,
     last_confirmed: over.last_confirmed ?? "2026-01-01T00:00:00Z",
     provenance: over.provenance ?? {
@@ -504,10 +504,10 @@ export const conformanceCases: ConformanceCase[] = [
     // (9a) latest version only, and the type/status filters compose.
     name: "listEntities returns latest versions only, filtered by type and status",
     async run(port) {
-      const a = makeEntity({ type: "listE1", status: "draft" });
+      const a = makeEntity({ type: "listE1", status: "stale" });
       await port.putEntity(a);
       await port.putEntity({ ...a, version: 2, status: "verified" });
-      const b = makeEntity({ type: "listE1", status: "draft" });
+      const b = makeEntity({ type: "listE1", status: "stale" });
       await port.putEntity(b);
       await port.putEntity(makeEntity({ type: "listE1-other" }));
 

@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../src/adapters/storage-sqlite/index.js";
 import { commit } from "../src/core/commit.js";
-import { deprecate, verify } from "../src/core/lifecycle.js";
+import { deprecate } from "../src/core/lifecycle.js";
 import { seedOntology } from "../src/core/ontology.js";
 // @ts-expect-error — plain .mjs, typed by its JSDoc only; imported so the scope fallback is unit-tested.
 import { resolveScope } from "./hooks/lib.mjs";
@@ -128,7 +128,6 @@ describe.skipIf(process.platform === "win32")("end to end against the real CLI",
     const d1 = (
       await commit(store, ont, { type: "fact", attributes: { statement: "PG is Toss" } }, prov, now, { attachTo: scope })
     ).entity.id;
-    await verify(store, [scope, d1], "po", now);
     store.close();
     writeFileSync(join(cwd, ".claude/settings.json"), JSON.stringify({ env: { YOKE_SCOPE: scope } }));
 
@@ -173,7 +172,6 @@ describe.skipIf(process.platform === "win32")("end to end against the real CLI",
         { attachTo: scope },
       )
     ).entity.id;
-    await verify(store3, [d2], "po", new Date().toISOString());
     store3.close();
     const prompt = await runHook("unseen.mjs", { cwd, hook_event_name: "UserPromptSubmit" }, env);
     expect(prompt.out).toContain("-- new in");
@@ -223,14 +221,13 @@ describe.skipIf(process.platform === "win32")("zero-action credential against a 
     const d1 = (
       await commit(store, ont, { type: "fact", attributes: { statement: "PG is Toss" } }, prov, now, { attachTo: scope })
     ).entity.id;
-    await verify(store, [scope, d1], "po", now);
-    const po = store.createToken({ name: "po", scopes: ["read", "write", "verify"], created_at: now }).token;
+    const po = store.createToken({ name: "po", scopes: ["read", "write"], created_at: now }).token;
     const run = await listen(
       createServeServer({
         store,
         defaultActor: "yoke:system",
         auth: true,
-        github: { org: "acme", verifiers: [], api: gh.base },
+        github: { org: "acme", api: gh.base },
       }),
     );
 
@@ -275,7 +272,6 @@ describe.skipIf(process.platform === "win32")("zero-action credential against a 
       const d2 = (
         await commit(store, store.loadOntology(), { type: "fact", attributes: { statement: "PG is Nice" } }, { ...prov, occurred_at: ts2 }, ts2, { attachTo: scope })
       ).entity.id;
-      await verify(store, [d2], "po", new Date().toISOString());
       const healed = await runHook("unseen.mjs", { cwd, hook_event_name: "UserPromptSubmit" }, env);
       expect(healed.out).toContain("authenticated as alice via GitHub");
       expect(healed.out).toContain("PG is Nice");

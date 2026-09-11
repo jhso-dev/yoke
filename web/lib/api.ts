@@ -92,11 +92,10 @@ const qs = (params: Record<string, string | number | boolean | undefined>) => {
 
 export const api = {
   meta: () => request<Meta>("/api/meta"),
-  review: () => request<Knowledge[]>("/api/review"),
-  /** The stale queue — verified records past their TTL. A different return shape from `review()` on
-   * purpose: this one carries how much of the corpus the walk examined. */
-  stale: (p: { type?: string; limit?: number; after?: string } = {}) =>
-    request<StaleQueue>(`/api/review${qs({ ...p, stale: 1 })}`),
+  /** The re-confirmation queue — verified records past their TTL, most-consumed first. `scanned`
+   * rides along because the walk is bounded: the screen must say what the count covered. */
+  review: (p: { type?: string; limit?: number; after?: string } = {}) =>
+    request<StaleQueue>(`/api/review${qs(p)}`),
   conflicts: () => request<ConflictPair[]>("/api/conflicts"),
   ontology: () => request<TypeDef[]>("/api/ontology"),
   persona: (id: string) =>
@@ -114,7 +113,6 @@ export const api = {
   inject: (p: {
     q?: string;
     scope?: string;
-    includeDraft?: boolean;
     limit?: number;
     /** An ISO instant: what this query would have injected then. */
     asOf?: string;
@@ -155,7 +153,7 @@ export const api = {
         body: JSON.stringify({ ids, ...(reason?.trim() ? { reason } : {}) }),
       },
     ),
-  /** Create a record. It enters as a draft like any other — the gate does not care which adapter
+  /** Create a record. It enters live like any other — the gate does not care which adapter
    * called it — and comes back with whatever duplicates the gate found, so a form can show them. */
   create: (p: {
     type: string;

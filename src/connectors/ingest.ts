@@ -155,11 +155,9 @@ export async function ingestItem(
       //
       // A changed source item becomes a new VERSION of the record it changed — append-only: the wrong
       // number stays readable at v1 and the correction is v2, rather than a second record contradicting
-      // the first. That version enters as `draft` like every commit, so a record someone had VERIFIED
-      // drops out of injection until reviewed again: the content a reviewer vouched for is not the
-      // content now stored, and carrying the promotion across would make "verified" mean "verified at
-      // some earlier text". A sync can therefore quietly shrink what injection answers with — `updated`
-      // in the result is the number to watch, and what `yoke review` is for.
+      // the first. The new version is live immediately, like every commit, so a sync can change what
+      // injection answers with under agents' feet — `updated` in the result is the number to watch,
+      // and the unseen ledger is what tells a running session its record changed.
       {
         ns,
         embedder: opts?.embedder,
@@ -175,7 +173,7 @@ export async function ingestItem(
 }
 
 /**
- * Route a connector's pull through the commit gate. Commit as draft if absent, skip if present.
+ * Route a connector's pull through the commit gate. Commit if absent, skip if present.
  * @param now ISO 8601 (core does not create time — the front tier injects it).
  */
 export async function ingest(

@@ -129,7 +129,7 @@ describe("identitySet", () => {
       from: "here",
       to: "01NOSUCHRECORD",
       attributes: {},
-      status: "draft",
+      status: "verified",
       version: 1,
       last_confirmed: now,
       provenance: prov,

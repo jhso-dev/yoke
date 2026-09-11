@@ -36,10 +36,10 @@ import { useAsync } from "../../lib/useAsync";
  * empty value it means — it carries this token and the handler maps it back. */
 const ANY = "__any";
 
-/** The four actions RBAC actually knows (src/front/serve/rbac.ts). The form offers exactly these —
- * a free-text scope field would make the caller memorise the grammar to grant "read". `admin` is its
- * own action, not `verify`'s second job: it grants the credential routes and nothing else. */
-const ACTIONS = ["read", "write", "verify", "admin"] as const;
+/** The three actions RBAC actually knows (src/front/serve/rbac.ts). The form offers exactly these —
+ * a free-text scope field would make the caller memorise the grammar to grant "read". `admin` is the
+ * operating permission: credentials and ontology changes, and nothing else. */
+const ACTIONS = ["read", "write", "admin"] as const;
 type Action = (typeof ACTIONS)[number];
 
 /**
@@ -166,7 +166,6 @@ function CreateTokenButton({
   const hints: Record<Action, string> = {
     read: t.tokens.readHint,
     write: t.tokens.writeHint,
-    verify: t.tokens.verifyHint,
     admin: t.tokens.adminHint,
   };
 

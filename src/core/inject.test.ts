@@ -1,5 +1,5 @@
 // inject tests — data is prepared through the real SqliteStorage(:memory:) + commit gate.
-// draft exclusion / inclusion after verify / includeDraft label / TTL-expired verified exclusion / citation format.
+// born-verified inclusion / retirement exclusion / TTL-expired exclusion / citation format.
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
@@ -61,33 +61,16 @@ async function link(from: string, to: string) {
 }
 
 describe("inject", () => {
-  it("excludes drafts by default", async () => {
-    await addFact("draft knowledge");
-    const { items } = await inject(port, ont, "draft", now);
-    expect(items).toEqual([]);
-  });
-
-  it("includes an entity after it is verified", async () => {
-    const id = await addFact("verified knowledge");
-    await verify(port, [id], "alice", now);
-    const { items } = await inject(port, ont, "verified", now);
+  it("includes a record from the moment it is committed", async () => {
+    const id = await addFact("standing knowledge");
+    const { items } = await inject(port, ont, "standing", now);
     expect(items).toHaveLength(1);
     expect(items[0].entity.id).toBe(id);
     expect(items[0].effectiveStatus).toBe("verified");
   });
 
-  it("includes drafts with their status label when includeDraft is set", async () => {
-    await addFact("draft knowledge");
-    const { items } = await inject(port, ont, "draft", now, {
-      includeDraft: true,
-    });
-    expect(items).toHaveLength(1);
-    expect(items[0].effectiveStatus).toBe("draft");
-  });
-
-  it("excludes verified entities that have gone stale (TTL exceeded)", async () => {
-    const id = await addFact("aging knowledge");
-    await verify(port, [id], "alice", now); // fact TTL = 180 days
+  it("excludes entities that have gone stale (TTL exceeded)", async () => {
+    await addFact("aging knowledge"); // fact TTL = 180 days, window opens at entry
     const { items } = await inject(port, ont, "aging", "2027-01-10T00:00:00Z");
     expect(items).toEqual([]);
   });
@@ -139,7 +122,7 @@ describe("inject", () => {
 });
 
 describe("inject scoped (v4.0)", () => {
-  // A collaboration scope with linked/unlinked, verified/draft facts around it.
+  // A collaboration scope with linked/unlinked, standing/retired facts around it.
   async function scene() {
     const { entity: ws } = await commit(
       port,
@@ -149,22 +132,17 @@ describe("inject scoped (v4.0)", () => {
       now,
     );
     const linkedVerified = await addFact("alpha linked verified");
-    const linkedDraft = await addFact("beta linked draft");
+    const linkedRetired = await addFact("beta linked retired");
     const linkedOther = await addFact("gamma linked verified");
     const unlinked = await addFact("alpha unlinked verified");
     await link(linkedVerified, ws.id);
-    await link(linkedDraft, ws.id);
+    await link(linkedRetired, ws.id);
     await link(linkedOther, ws.id);
-    await verify(
-      port,
-      [ws.id, linkedVerified, linkedOther, unlinked],
-      "alice",
-      now,
-    );
-    return { ws: ws.id, linkedVerified, linkedDraft, linkedOther, unlinked };
+    await deprecate(port, [linkedRetired], "alice", now);
+    return { ws: ws.id, linkedVerified, linkedRetired, linkedOther, unlinked };
   }
 
-  it("returns only linked verified knowledge (draft and unlinked excluded)", async () => {
+  it("returns only linked standing knowledge (retired and unlinked excluded)", async () => {
     const s = await scene();
     const { items } = await inject(port, ont, "", now, { scope: s.ws });
     expect(items.map((i) => i.entity.id).sort()).toEqual(
@@ -192,7 +170,6 @@ describe("inject scoped (v4.0)", () => {
     );
     const fact = await addFact("delta linked verified");
     await link(fact, ws.id);
-    await verify(port, [ws.id, fact, "alice"], "alice", now);
 
     const { items } = await inject(port, ont, "", now, { scope: ws.id });
     expect(items.map((i) => i.entity.id)).toEqual([fact]);
@@ -207,15 +184,6 @@ describe("inject scoped (v4.0)", () => {
       s.linkedVerified,
       s.unlinked,
     ]);
-  });
-
-  it("includes a linked draft only with includeDraft", async () => {
-    const s = await scene();
-    const { items } = await inject(port, ont, "", now, {
-      scope: s.ws,
-      includeDraft: true,
-    });
-    expect(items.map((i) => i.entity.id)).toContain(s.linkedDraft);
   });
 
   it("never returns the scope entity itself (self-loop is skipped)", async () => {
@@ -619,26 +587,13 @@ describe("limit means injectable records, not candidates", () => {
   // injectable ones sat unreturned (docs/SCALE.md). Nothing failed; the agent was simply told less
   // than it asked for, with no symptom.
   it("returns the full limit even when most matches are not injectable", async () => {
-    // 20 verified, 60 draft, 20 deprecated: 20% injectable, so capping before filtering would
-    // return about a fifth of any limit.
-    const verified: string[] = [];
-    for (let i = 0; i < 20; i++)
-      verified.push(await addFact(`quorum drift ${i}`));
-    await verify(port, verified, "reviewer", now);
-    for (let i = 0; i < 60; i++) await addFact(`quorum drift draft ${i}`);
+    // 20 standing, 80 retired: 20% injectable, so capping before filtering would return about a
+    // fifth of any limit.
+    for (let i = 0; i < 20; i++) await addFact(`quorum drift ${i}`);
     const retired: string[] = [];
-    for (let i = 0; i < 20; i++)
+    for (let i = 0; i < 80; i++)
       retired.push(await addFact(`quorum drift old ${i}`));
-    await verify(port, retired, "reviewer", now);
-    for (const id of retired) {
-      const e = await port.getEntity(id);
-      if (e)
-        await port.putEntity({
-          ...e,
-          version: e.version + 1,
-          status: "deprecated",
-        });
-    }
+    await deprecate(port, retired, "reviewer", now);
 
     const out = await inject(port, ont, "quorum", now, { limit: 10 });
     expect(out.items).toHaveLength(10);
@@ -807,17 +762,18 @@ describe("as-of injection", () => {
     expect(then.items.map((it) => it.entity.id)).toEqual([id]);
   });
 
-  it("a record still draft at that instant stays excluded", async () => {
-    const id = await addFact("zqdraftthen");
+  it("a record retired at that instant stays excluded, even after a revival", async () => {
+    const id = await addFact("zqretiredthen");
+    await deprecate(port, [id], "alice", verifiedAt);
+    // Revived on the 20th; as of the 15th it stood retired, so an as-of read must not hand it over
+    // merely because it stands today.
     await verify(port, [id], "alice", retiredAt);
-    // Verified on the 20th; as of the 15th it was a draft, so an as-of read must not hand it over
-    // merely because it is verified today.
-    const then = await inject(port, ont, "zqdraftthen", after, {
+    const then = await inject(port, ont, "zqretiredthen", after, {
       asOf: between,
     });
     expect(then.items).toEqual([]);
-    // ...and it IS returned once the clock passes the promotion.
-    const later = await inject(port, ont, "zqdraftthen", after, {
+    // ...and it IS returned once the clock passes the revival.
+    const later = await inject(port, ont, "zqretiredthen", after, {
       asOf: "2026-07-21T00:00:00Z",
     });
     expect(later.items.map((it) => it.entity.id)).toEqual([id]);
@@ -1035,57 +991,43 @@ describe("hybrid retrieval: the vector half of the Embedder contract", () => {
   });
 });
 
-// An empty answer used to be one word for four situations. The three surfaces then each guessed:
-// the CLI explained drafts only, the MCP tool said "no verified knowledge found", the web said
-// nothing. Core now says which, so all three say the same thing.
+// An empty answer is one word for several situations, and the reader cannot tell them apart. Core
+// says which, so the CLI, the MCP tool and the web all say the same thing.
 describe("an empty injection says why it is empty", () => {
-  it("names drafts awaiting review", async () => {
-    await addFact("the pool drains at midnight");
-    const res = await inject(port, ont, "pool", now);
+  it("names a retired record rather than implying it was never recorded", async () => {
+    const f = await addFact("we deploy on fridays");
+    await deprecate(port, [f], "admin", now);
+    const res = await inject(port, ont, "fridays", now);
     expect(res.items).toEqual([]);
     expect(res.withheld).toEqual({
-      draft: 1,
       stale: 0,
-      deprecated: 0,
+      deprecated: 1,
       structural: 0,
       superseded: 0,
     });
   });
 
-  it("names a retired record, which the draft-only version could not", async () => {
-    const f = await addFact("we deploy on fridays");
-    await verify(port, [f], "admin", now);
-    await deprecate(port, [f], "admin", now);
-    const res = await inject(port, ont, "fridays", now);
-    expect(res.items).toEqual([]);
-    expect(res.withheld?.deprecated).toBe(1);
-    expect(res.withheld?.draft).toBe(0);
-  });
-
   it("names a stale record rather than implying it was never recorded", async () => {
-    const f = await addFact("the gateway retries twice");
-    await verify(port, [f], "admin", now);
+    await addFact("the gateway retries twice");
     // fact TTL = 180 days.
     const res = await inject(port, ont, "gateway", "2027-06-01T00:00:00Z");
     expect(res.items).toEqual([]);
     expect(res.withheld?.stale).toBe(1);
   });
 
-  // The reason that misdirects worst: a verified person matching the query is withheld by TYPE, so a
-  // reader told "draft withheld" verifies it and the answer does not improve.
-  it("distinguishes a structural match from one awaiting review", async () => {
-    const { entity } = await commit(
+  // The reason that misdirects worst: a person record matching the query is withheld by TYPE, so a
+  // reader told "stale withheld" re-confirms it and the answer does not improve.
+  it("distinguishes a structural match from a lifecycle one", async () => {
+    await commit(
       port,
       ont,
       { type: "person", attributes: { name: "Mina" } },
       prov,
       now,
     );
-    await verify(port, [entity.id], "admin", now);
     const res = await inject(port, ont, "Mina", now);
     expect(res.items).toEqual([]);
     expect(res.withheld).toEqual({
-      draft: 0,
       stale: 0,
       deprecated: 0,
       structural: 1,
@@ -1094,16 +1036,14 @@ describe("an empty injection says why it is empty", () => {
   });
 
   it("is absent when the query matched nothing at all — a different answer", async () => {
-    const f = await addFact("the pool drains at midnight");
-    await verify(port, [f], "admin", now);
+    await addFact("the pool drains at midnight");
     const res = await inject(port, ont, "kubernetes", now);
     expect(res.items).toEqual([]);
     expect(res.withheld).toBeUndefined();
   });
 
   it("is absent when everything that matched was handed over", async () => {
-    const f = await addFact("the pool drains at midnight");
-    await verify(port, [f], "admin", now);
+    await addFact("the pool drains at midnight");
     const res = await inject(port, ont, "pool", now);
     expect(res.items).toHaveLength(1);
     expect(res.withheld).toBeUndefined();
@@ -1117,31 +1057,29 @@ describe("a partial injection says what it held back", () => {
   it("reports a stale record alongside the records it did return", async () => {
     const fresh = await addFact("the pool drains at midnight");
     const stale = await addFact("the pool drains at noon");
-    await verify(port, [fresh], "admin", now);
-    // Verified long before the read, so only this one is past the 180-day fact TTL.
+    // Last confirmed long before the read, so only this one is past the 180-day fact TTL.
     await verify(port, [stale], "admin", "2026-01-01T00:00:00Z");
-    const res = await inject(port, ont, "pool", now);
+    const res = await inject(port, ont, "pool", "2026-07-12T00:00:00Z");
     expect(res.items).toHaveLength(1);
     expect(res.items[0].entity.id).toBe(fresh);
     expect(res.withheld?.stale).toBe(1);
   });
 
   it("does not count the records it injected as withheld", async () => {
-    const a = await addFact("the gateway retries twice");
-    const b = await addFact("the gateway retries three times");
-    await verify(port, [a, b], "admin", now);
+    await addFact("the gateway retries twice");
+    await addFact("the gateway retries three times");
     const res = await inject(port, ont, "gateway", now);
     expect(res.items).toHaveLength(2);
     expect(res.withheld).toBeUndefined();
   });
 
-  it("reports drafts held back from an answer that was not empty", async () => {
-    const v = await addFact("the gateway retries twice");
-    await addFact("the gateway retries three times");
-    await verify(port, [v], "admin", now);
+  it("reports a retirement held back from an answer that was not empty", async () => {
+    await addFact("the gateway retries twice");
+    const pulled = await addFact("the gateway retries three times");
+    await deprecate(port, [pulled], "admin", now);
     const res = await inject(port, ont, "gateway", now);
     expect(res.items).toHaveLength(1);
-    expect(res.withheld?.draft).toBe(1);
+    expect(res.withheld?.deprecated).toBe(1);
   });
 });
 
@@ -1151,7 +1089,6 @@ describe("a partial injection says what it held back", () => {
 describe("as-of withheld reasons are about the version that existed then", () => {
   it("says nothing was withheld for an instant before the record existed", async () => {
     const f = await addFact("we deploy on fridays");
-    await verify(port, [f], "admin", now);
     await deprecate(port, [f], "admin", now);
     const res = await inject(port, ont, "fridays", now, {
       asOf: "2020-01-01T00:00:00Z",
@@ -1162,14 +1099,16 @@ describe("as-of withheld reasons are about the version that existed then", () =>
 
   it("names the status the record actually had then, not the one it has now", async () => {
     const f = await addFact("we deploy on fridays");
-    // Still a draft at this instant; verified and retired afterwards.
-    const whileDraft = "2026-07-12T00:00:01Z";
-    await verify(port, [f], "admin", "2026-07-13T00:00:00Z");
-    await deprecate(port, [f], "admin", "2026-07-14T00:00:00Z");
-    const res = await inject(port, ont, "fridays", now, { asOf: whileDraft });
+    // Retired at this instant; revived and retired again afterwards, so today's row is also
+    // deprecated — the point is the reason comes off the version current THEN.
+    await deprecate(port, [f], "admin", "2026-07-13T00:00:00Z");
+    const whileRetired = "2026-07-13T00:00:01Z";
+    await verify(port, [f], "admin", "2026-07-14T00:00:00Z");
+    await deprecate(port, [f], "admin", "2026-07-15T00:00:00Z");
+    const res = await inject(port, ont, "fridays", now, { asOf: whileRetired });
     expect(res.items).toEqual([]);
-    expect(res.withheld?.draft).toBe(1);
-    expect(res.withheld?.deprecated).toBe(0);
+    expect(res.withheld?.deprecated).toBe(1);
+    expect(res.withheld?.stale).toBe(0);
   });
 });
 

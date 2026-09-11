@@ -44,7 +44,7 @@ src/
     storage-sqlite/  storage-opensearch/
     storage-sharded/    # composes member ports behind one port
     storage-composite/  # a remote port + a local sqlite for the synchronous extensions
-  connectors/    # external source → draft knowledge (github-pr, slack, notes, rdb)
+  connectors/    # external source → signed knowledge (github-pr, slack, notes, rdb)
   front/
     mcp/         # MCP server (stdio; also mounted at POST /mcp by serve)
     cli/         # thin CLI

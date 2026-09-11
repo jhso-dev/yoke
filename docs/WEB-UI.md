@@ -12,23 +12,22 @@ to satisfy a human's question; that is the AI's job, and yoke feeds the AI over 
 
 Three tests a screen must pass, argued in this document before the code exists:
 
-1. **Governance purpose.** It supports a governance act — promote, reject, deprecate,
+1. **Governance purpose.** It supports a governance act — re-confirm, retire,
    trust, audit — or makes one auditable. Not "look something up".
 2. **No synthesis.** No model call, no relevance ranking outside the injection ranker,
    no generated text. A screen that needs a model to produce its output belongs in MCP.
 3. **No editing, and no bypass.** A screen may create records and relations through
-   `commit()`, which means: enters as `draft`, validated against the ontology, provenance
-   stamped with the real actor and `origin: "web"`, audit row written. A screen may NOT
-   modify an existing record's attributes, may not write a record in any state but
-   `draft`, and may not reach the store except through a core function. Attribute
-   correction is a new version through the gate, from the adapter that owns the source.
+   `commit()`, which means: validated against the ontology, born verified with provenance
+   stamped with the real actor and `origin: "web"`. A screen may NOT modify an existing
+   record's attributes and may not reach the store except through a core function.
+   Attribute correction is a new version through the gate, from the adapter that owns
+   the source.
 
 **Hand-typed knowledge is allowed, and is labelled as such.** The gate — not the adapter
 — is what enforces entry: `commit()` validates and stamps provenance whichever front tier
-calls it, and every record enters as `draft` needing a human `verify`. So a form is not a
-hole; what a form would otherwise cost is traceability, and `provenance.origin = "web"`
-(distinct from `cli`, `mcp` and every connector name) pays it. A reviewer can see which
-drafts a person typed at a screen, and `yoke list` / the review queue can filter on it.
+calls it. So a form is not a hole; what a form would otherwise cost is traceability, and
+`provenance.origin = "web"` (distinct from `cli`, `mcp` and every connector name) pays it.
+Anyone can see which records a person typed at a screen, and `yoke list` can filter on it.
 The claim is "you can always tell", not "this cannot happen" — the same claim the audit
 trail makes about everything else.
 
@@ -48,9 +47,9 @@ the product.
 checkable rather than aspirational:
 
 1. **Records, not answers.** It returns the row shape `browse` already returns — type,
-   summary, effective status, actor, citation — through the same `KnowledgeTable`. A draft
-   hit reads as a draft. No prose, no "best match" framing, no result the reader cannot
-   trace to a stored row.
+   summary, effective status, actor, citation — through the same `KnowledgeTable`. A
+   retired hit reads as retired. No prose, no "best match" framing, no result the reader
+   cannot trace to a stored row.
 2. **The port's retrieval, not ours.** It calls the `search(TextQuery)` the storage port
    has had since v1 and that `inject` itself falls back to. No re-ranking in the web tier
    and no scoring invented for the screen — test 2 survives because there is no second
@@ -70,21 +69,15 @@ fix is the filter the audit screen already has, not a quieter rule.
 
 The governance set:
 
-1. **Review queue** — the draft list and the stale queue beside it, each row with its
-   source, and bulk verify/deprecate. The stale queue arrives most-consumed first with the count on
-   each row — the number of inject/persona audit rows naming it — so the reviewer meets the records
-   agents are still being fed before the ones nothing reads. Reason for being: drive promotion friction close to
-   zero (addressing MARKET risk 1). The core screen. Duplicate candidates surface on
-   **create** (the gate returns them to the form), not here — the review payload does not
-   carry them. There is no `reject`: the lifecycle has no such transition, and the negative
-   action is `deprecate`.
-
-   **Constraint, for whenever this screen serves more than one reviewer: it must not show a
-   peer's pending approval.** Seeing early approvals makes later reviewers converge on them
-   without the group getting more accurate (`docs/RESEARCH.md` §2), and the anonymity that
-   prevents it is the whole mechanism of a Delphi (§3). No such state exists yet — verify is
-   immediate and per-actor — so this constrains a future design rather than describing a
-   present protection.
+1. **Review queue** — the re-confirmation queue: records past their type's TTL, each row
+   with its source and owner, and bulk verify/deprecate. Rows arrive most-consumed first
+   with the count on each — the number of inject/persona audit rows naming the record — so
+   the person meets the records agents are still being fed before the ones nothing reads.
+   Reason for being: this is where a person's attention goes in a policy with no entry
+   queue — keep what is still true, retire what is not (with the reason the broadcast will
+   carry). The core screen. Duplicate candidates surface on **create** (the gate returns
+   them to the form), not here. There is no `reject`: the lifecycle has no such
+   transition, and the negative action is `deprecate`.
 2. **Conflicts view** — conflicts_with pairs compared side by side; deprecate one side
    or keep them coexisting.
 3. **Ontology browser** — types and relations, with the add-type / rename-type / backfill
@@ -132,10 +125,10 @@ The viewing set — reading what is already stored, never adding to it:
 10. **Browse** — the whole namespace as rows, with type/status filters, keyset paging, and
     the query box argued above. A `search` audit row per query.
 11. **Tokens** — mint/list/revoke API tokens for `serve`. It governs ACCESS to knowledge
-    (who can read, who can verify), which is a governance act even though no knowledge
+    (who can read, who can write), which is a governance act even though no knowledge
     renders; it composes the three token routes and synthesises nothing; it creates no
-    knowledge. Gated on `admin` under `--auth` — the credential axis, distinct from `verify`, so a
-    reviewer does not also get the power to mint credentials (see `Action` in serve/rbac.ts); under
+    knowledge. Gated on `admin` under `--auth` — the operating axis, distinct from `write`, so a
+    writer does not also get the power to mint credentials (see `Action` in serve/rbac.ts); under
     plain `yoke ui` it is as open as the terminal running it (invariant 4, same trust boundary).
 12. **Login** — not a screen about knowledge: the credential prompt `serve --auth` needs so
     a browser can present a token or OIDC identity. Exists because 401 has to land

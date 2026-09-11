@@ -78,7 +78,7 @@ suite("opensearch policies that are contract, not implementation", () => {
 
   const base = {
     type: "note",
-    status: "draft" as const,
+    status: "verified" as const,
     last_confirmed: "2026-01-01T00:00:00Z",
     provenance: {
       actor: "t",

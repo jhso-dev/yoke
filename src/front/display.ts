@@ -485,7 +485,6 @@ export function rankByConsumption<T extends { id: string }>(
  */
 export function describeWithheld(w: WithheldStats): string {
   const parts: string[] = [];
-  if (w.draft > 0) parts.push(`${w.draft} awaiting review`);
   if (w.stale > 0) parts.push(`${w.stale} past its freshness window`);
   if (w.deprecated > 0) parts.push(`${w.deprecated} retired`);
   // Names the remedy, because unlike the others there is nothing to do: the replacement is already in
@@ -498,7 +497,7 @@ export function describeWithheld(w: WithheldStats): string {
     parts.push(
       `${w.structural} naming something knowledge is attached to (never injectable as knowledge)`,
     );
-  const total = w.draft + w.stale + w.deprecated + w.structural + w.superseded;
+  const total = w.stale + w.deprecated + w.structural + w.superseded;
   return `${total} match(es) withheld: ${parts.join(", ")}`;
 }
 
