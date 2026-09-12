@@ -1,0 +1,27 @@
+scripts/load-demo-corpus.mjs
+  s_03673cb32bfdc1::t_65fb4f474807d7 50
+  s_03673cb32bfdc1::t_ab7b524bdc03bd 25,30,45-47,51-55
+scripts/gen-kraftonway-corpus.mjs
+  s_03673cb32bfdc1::t_31ac3a16211da0 27,41-42,153-155,160-165
+  s_03673cb32bfdc1::t_65fb4f474807d7 159
+scripts/corpus-lib.mjs
+  s_03673cb32bfdc1::t_59059c1d9d5e41 1-3,11-12,15-22,26,39,41-43
+  s_03673cb32bfdc1::t_a853e95ddeb88c 4-10,13-14,23-25,27-38,40,44-74,76
+  s_03673cb32bfdc1::t_65fb4f474807d7 75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "787596bfbd7435d6fdd8370bcb04531076a85bad",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
