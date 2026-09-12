@@ -1,7 +1,7 @@
 node_modules/
 dist/
 
-# Local configuration. `.env.example` IS committed and lists every variable yoke reads;
+# Local configuration. `.env.example` IS committed and lists the variables a person sets;
 # a real .env holds backend passwords and the embedder key.
 .env
 .env.local
