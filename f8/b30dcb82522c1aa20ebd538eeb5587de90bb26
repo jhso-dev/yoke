@@ -1,0 +1,37 @@
+CLAUDE.md
+  s_03673cb32bfdc1::t_575b1404e65826 61
+docs/ARCHITECTURE.md
+  s_03673cb32bfdc1::t_575b1404e65826 22,44,47,54-58
+docs/BACKENDS.md
+  s_03673cb32bfdc1::t_575b1404e65826 159
+README.ko.md
+  s_03673cb32bfdc1::t_bd6b7736bae755 86-87,382-384
+  s_03673cb32bfdc1::t_284d29a17d66bb 340-350
+  s_03673cb32bfdc1::t_bb6d2d005a758d 97-99,101-106,108-110,112-118
+  s_03673cb32bfdc1::t_395ffd93c9de4c 430-433
+  s_03673cb32bfdc1::t_5789af4b2756a4 296
+docs/MARKET.md
+  s_03673cb32bfdc1::t_2f7ffcf6606b97 30,39
+README.md
+  s_03673cb32bfdc1::t_bd6b7736bae755 402-404,446-449
+  s_03673cb32bfdc1::t_27a901cf937dcf 101-103,105-114,116-121,123
+  s_03673cb32bfdc1::t_b84ec3d0b20d5b 308
+docs/SCALE.md
+  s_03673cb32bfdc1::t_575b1404e65826 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f8b30dcb82522c1aa20ebd538eeb5587de90bb26",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
