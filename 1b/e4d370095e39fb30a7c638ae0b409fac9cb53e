@@ -1,0 +1,23 @@
+docs/MARKET.md
+  s_03673cb32bfdc1::t_d74a98e58b22a2 6
+docs/ARCHITECTURE.md
+  s_03673cb32bfdc1::t_d74a98e58b22a2 30
+web/tsconfig.json
+  s_03673cb32bfdc1::t_b6e98883407113 4-8,19-23,29-30,38-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1be4d370095e39fb30a7c638ae0b409fac9cb53e",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
