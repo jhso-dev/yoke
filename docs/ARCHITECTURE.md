@@ -19,7 +19,7 @@ Ports and adapters (hexagonal). The core is pure TypeScript, with no I/O.
    │      └────────┬─────────┘       │
    │               ▼ storage port    │
    │  ┌────────┐ ┌────────┐ ┌─────┐  │
-   │  │ sqlite │ │ vector │ │ ... │  │  ← v1 is sqlite only
+   │  │ sqlite │ │ vector │ │ ... │  │  ← sqlite, opensearch, postgres
    │  └────────┘ └────────┘ └─────┘  │
    └─────────────────────────────────┘
 ```
@@ -41,17 +41,21 @@ src/
   core/          # knowledge model, ontology, query, context injection. imports: none (pure)
   ports/         # storage port interface + shared conformance cases
   adapters/
-    storage-sqlite/  storage-opensearch/
+    storage-sqlite/  storage-opensearch/  storage-postgres/
     storage-sharded/    # composes member ports behind one port
     storage-composite/  # a remote port + a local sqlite for the synchronous extensions
-  connectors/    # external source → signed knowledge (github-pr, slack, notes, rdb)
+  connectors/    # external source → signed knowledge (github-pr, slack, notes, raw, relate, rdb)
   front/
     mcp/         # MCP server (stdio; also mounted at POST /mcp by serve)
     cli/         # thin CLI
     store.ts     # shared store resolution (--db vs --shards)
     ui/          # HTTP transport: node:http server + JSON API + static serving (yoke ui)
     serve/       # the same handler plus auth/RBAC and remote MCP, on one port
-web/             # v5.0: Next.js `output: 'export'` source → one static bundle
+  front/
+    ui/          # HTTP transport: node:http server + JSON API + static serving (yoke ui)
+    serve/       # the same handler plus auth/RBAC and remote MCP, on one port
+plugin/          # the Claude Code harness, shipped from this repo
+web/             # Next.js `output: 'export'` source → one static bundle
 ```
 
 `web/` sits outside `src/` because `next build` rewrites whichever `tsconfig.json` it

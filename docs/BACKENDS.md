@@ -156,7 +156,7 @@ no-extension path is never only skipped).
 Expose an existing RDB as an ontology, with no migration. It's a **connector**, not
 an adapter (a read-only entity source, not a storage port implementation).
 
-- A mapping declaration file (yaml): tables/views → entity types, columns →
+- A mapping declaration file (JSON — there is no yaml dependency): tables/views → entity types, columns →
   attributes, FKs → relations. e.g. `employees` → `person`, `employees.manager_id`
   → `reports_to`.
 - Mapped entities land `status: verified` like everything else, distinguished by
