@@ -11,7 +11,7 @@ import { SqliteStorage } from "../storage-sqlite/index.js";
 
 export type ShardKind = "sqlite";
 
-export interface ShardSpec {
+interface ShardSpec {
   name: string;
   kind: ShardKind;
   /** On-disk path, or ":memory:". */
@@ -22,7 +22,7 @@ export interface ShardSpec {
   default?: boolean;
 }
 
-export interface ShardConfig {
+interface ShardConfig {
   shards: ShardSpec[];
 }
 

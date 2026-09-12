@@ -60,7 +60,7 @@ const ORIGIN = "mcp";
  * noise but cannot corrupt the corpus — and noise is answered downstream: what it files is signed,
  * broadcast on retraction, and expires without re-confirmation.
  */
-export const INSTRUCTIONS =
+const INSTRUCTIONS =
   "yoke is the governed knowledge base: yoke_inject returns only standing records — signed, cited, " +
   "within their freshness window, with retirements and disputes surfaced. The knowledge loop:\n" +
   "1. Before non-trivial work, call yoke_inject with your question (set scope when you know the " +
@@ -81,7 +81,7 @@ export const INSTRUCTIONS =
   "record is never deleted: a person retires it with a reason, and the retraction reaches " +
   "everyone who was handed it.";
 
-export interface YokeMcpDeps {
+interface YokeMcpDeps {
   /** logAudit (PLAN 8.4) is optional: adapters without it simply skip injection auditing.
    * Everything else the tools need is the plain port — persona included, since authorship is a
    * graph edge rather than a provenance lookup outside the contract. */

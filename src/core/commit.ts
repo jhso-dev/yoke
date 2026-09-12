@@ -172,7 +172,7 @@ function provenanceOk(p: Provenance): boolean {
  */
 const ISO_8601 =
   /^(\d{4})-(\d{2})-(\d{2})(T(\d{2}):\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2}))?$/;
-export function isInstant(v: unknown): v is string {
+function isInstant(v: unknown): v is string {
   if (typeof v !== "string") return false;
   const m = ISO_8601.exec(v.trim());
   if (!m || Number.isNaN(Date.parse(v))) return false;

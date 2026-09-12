@@ -81,7 +81,7 @@ function byId(a: { id: string }, b: { id: string }): number {
   return a.id.localeCompare(b.id);
 }
 
-export interface ConformanceCase {
+interface ConformanceCase {
   name: string;
   run(port: StoragePort): Promise<void>;
 }

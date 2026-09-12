@@ -98,7 +98,7 @@ const CSP = [
   "frame-ancestors 'none'",
 ].join("; ");
 
-export interface StaticHandler {
+interface StaticHandler {
   (
     req: IncomingMessage,
     res: ServerResponse,

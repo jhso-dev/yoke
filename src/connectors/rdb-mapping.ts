@@ -47,7 +47,7 @@ export interface RdbMappingConnector {
   mapping: MappingSpec[];
 }
 
-export interface MappedResult {
+interface MappedResult {
   added: number;
   updated: number;
   skipped: number;

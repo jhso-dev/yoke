@@ -51,7 +51,7 @@ type Env = Record<string, string | undefined>;
  */
 const REFRESH_MS = 30_000;
 
-export interface ServeDeps {
+interface ServeDeps {
   store: YokeStore;
   /** Actor used when auth is off, and audit fallback. */
   defaultActor: string;
@@ -77,7 +77,7 @@ export interface ServeDeps {
 }
 
 /** Server augmented with refreshNow() when running as a replica (11.2). */
-export interface ServeServer extends Server {
+interface ServeServer extends Server {
   refreshNow?(): Promise<void>;
 }
 

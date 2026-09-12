@@ -132,7 +132,7 @@ function fromVectorLiteral(s: string): Float32Array {
   );
 }
 
-export interface PostgresOptions {
+interface PostgresOptions {
   /** Standard DSN: `postgres://user:pass@host:port/db`. */
   url: string;
   /** Schema holding every table. Created by `init()`. Default `yoke` — see decision 1. */

@@ -133,7 +133,7 @@ interface RelationDoc extends Omit<EntityDoc, "txt"> {
   to_id: string;
 }
 
-export interface OpenSearchOptions {
+interface OpenSearchOptions {
   url: string;
   /** Basic-auth credentials. A security-enabled cluster wants them; a demo container does not. */
   username?: string;

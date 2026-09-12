@@ -59,7 +59,7 @@ import { createStaticHandler } from "./static.js";
 
 type Env = Record<string, string | undefined>;
 
-export interface UiDeps {
+interface UiDeps {
   store: YokeStore;
   /** Resolved once from env (verify/deprecate provenance + audit actor). */
   actor: string;

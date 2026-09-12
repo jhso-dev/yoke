@@ -132,7 +132,7 @@ const AUTO_MODELS = [
   "all-minilm",
 ];
 
-export interface EmbedConfig {
+interface EmbedConfig {
   url: string;
   model: string;
   key?: string;

@@ -50,7 +50,7 @@ export interface InjectItem {
 
 /** What a multi-hop anchor walk actually did (SPEC "Multi-hop"). Numbers only — front adapters turn
  * them into words, the same division of labour `omitted` already has. */
-export interface WalkStats {
+interface WalkStats {
   /** Deepest distance actually reached. Below the requested depth means the graph ran out, or the
    * budget did — `truncated` is which. */
   depth: number;

@@ -50,7 +50,7 @@ export function sameContent(
 }
 
 /** What one ingest run did. `rejected` names the items that could not be recorded, and why. */
-export interface IngestResult {
+interface IngestResult {
   added: number;
   /** Source items whose content had changed: committed as a new version (append-only), not overwritten. */
   updated: number;
@@ -88,7 +88,7 @@ export function unusableKey(externalId: unknown): string | null {
 }
 
 /** What the gate did with one source item, and the id of the head record it left behind. */
-export interface ItemOutcome {
+interface ItemOutcome {
   outcome: "added" | "updated" | "skipped";
   id: string;
 }
