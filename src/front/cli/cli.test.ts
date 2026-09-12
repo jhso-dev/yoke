@@ -1336,6 +1336,101 @@ describe("runCli", () => {
     expect(logs.join("\n")).toContain("skipped");
   });
 
+  it("audit --roi keeps measured and assumed apart, and an old delivery earns nothing", async () => {
+    const db = newDb();
+    expect(await runCli(["init", "--db", db])).toBe(0);
+    const add = async (type: string, attrs: string[]) => {
+      expect(
+        await runCli([
+          "add",
+          type,
+          "--db",
+          db,
+          "--actor",
+          "po",
+          ...attrs,
+          "--json",
+        ]),
+      ).toBe(0);
+      return JSON.parse(logs.at(-1) as string).id as string;
+    };
+    const scope = await add("collaboration", ["--attr", "title=PROJ-R"]);
+    // Two decisions: one just made, one whose event time is a week old (an import of history).
+    await add("decision", [
+      "--scope",
+      scope,
+      "--attr",
+      "conclusion=retry 5x",
+      "--attr",
+      "rationale=measured",
+    ]);
+    const old = await add("decision", [
+      "--scope",
+      scope,
+      "--attr",
+      "conclusion=an old call",
+      "--attr",
+      "rationale=imported",
+    ]);
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    {
+      // Time travel is the harness's, not the product's: there is no path that back-dates a record.
+      const raw = new Database(db);
+      raw
+        .prepare(
+          "UPDATE entities SET provenance = json_set(provenance, '$.occurred_at', ?) WHERE id = ?",
+        )
+        .run(weekAgo, old);
+      raw.close();
+    }
+    // One delivery hands both over.
+    expect(
+      await runCli([
+        "inject",
+        "--db",
+        db,
+        "--scope",
+        scope,
+        "--unseen",
+        "--actor",
+        "fe",
+      ]),
+    ).toBe(0);
+
+    logs = [];
+    expect(await runCli(["audit", "--db", db, "--roi", "--json"])).toBe(0);
+    const roi = JSON.parse(logs.at(-1) as string);
+    // Both decisions were delivered; only the fresh one is inside the assumed window, so the
+    // week-old import earns no propagation credit — the correction that keeps a backfill from
+    // reading as a fast-moving team.
+    expect(roi.measured.deliveriesTimed).toBe(2);
+    expect(roi.measured.deliveriesInWindow).toBe(1);
+    // Measured and assumed are separate objects: an efficiency figure whose inputs cannot be told
+    // apart is a vanity number.
+    expect(Object.keys(roi.assumed)).toContain("baseline_hours");
+    expect(roi.measured.filedByHand).toBeGreaterThan(0);
+    // An assumption the caller raises moves the answer, and only that answer.
+    logs = [];
+    expect(
+      await runCli([
+        "audit",
+        "--db",
+        db,
+        "--roi",
+        "--assume",
+        "stale_minutes_per_hour=10",
+        "--json",
+      ]),
+    ).toBe(0);
+    const louder = JSON.parse(logs.at(-1) as string);
+    expect(louder.saved.propagation).toBeGreaterThan(roi.saved.propagation);
+    expect(louder.spent.total).toBe(roi.spent.total);
+    // A knob that does not exist is refused rather than ignored.
+    expect(
+      await runCli(["audit", "--db", db, "--roi", "--assume", "vibes=9"]),
+    ).toBe(1);
+  });
+
   it("connect notes ingests transcript chunks, idempotently (PLAN 8.5)", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);

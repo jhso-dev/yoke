@@ -345,6 +345,54 @@ interrupt rate — needs four weeks of live traffic (the plan's soak window), no
 
 ---
 
+## 7. The efficiency formula, and why it ends on a break-even
+
+`yoke audit --roi` answers "is this worth running" in human-minutes over the window the audit query
+bounds. Both sides are deliberately small, and the report never mixes what the trail measured with
+what the caller assumed.
+
+```
+saved  = propagation + rework
+         propagation = Σ over decision-deliveries max(0, baseline_hours − lag_i)
+                       × act_rate × stale_minutes_per_hour
+         rework      = recall/reversal deliveries × build_rate × unwind_minutes
+spent  = by-hand records × file_minutes
+       + re-confirmations and retirements × weed_minutes
+       + injected tokens ÷ 1000 × read_minutes_per_1k
+E      = saved ÷ spent
+```
+
+**Measured** (audit trail + records): decision deliveries and each one's lag from the record's own
+event time, recall/reversal count (the `changed=` token), records filed by a person versus by an
+agent or connector, weeding actions, injected volume. **Assumed** (`--assume k=v`, defaults listed
+by the command): the six behavioural constants no trail can see.
+
+Three modelling decisions, each made after the naive version produced a number that flattered the
+product:
+
+1. **Per delivery, not off a median.** A record handed over later than the team would have learned it
+   anyway earns nothing. Averaging let a backfill of historical PRs — most of what a first import
+   delivers — collect propagation credit for reaching people "quickly": 59x on the rig, against 8x
+   once each delivery was clamped on its own lag.
+2. **Decisions only.** Crediting every delivered record with "someone would have needed this a day
+   later" is the assumption doing the work rather than the loop. The product's claim is the decision
+   flow; the formula claims no more than that.
+3. **Pessimistic defaults.** Every constant sits at the low end of what a team would plausibly claim,
+   so the answer errs toward "not worth it". A measurement that flatters what it measures is not
+   worth running.
+
+The headline is the **break-even**, not the ratio: the ratio is only as good as six numbers nobody
+measured, while the break-even is one sentence a team can check against its own week — *"we would
+have learned that decision within N hours anyway"*. When the recall term alone already exceeds the
+cost, the report says that instead, because then the propagation constants do not matter at all.
+
+Rig reading, 2026-09-12 (day 0, and mostly backfill — not a verdict): 65 decision deliveries of
+which 21 inside the 24h window, 5 recalls; 164.7 minutes saved against 19.6 spent at the default
+constants, with the recalls alone (45 min) already covering the cost. What this says today is that
+the formula runs and that the cheap half pays; what it will say in four weeks is the point.
+
+---
+
 ## How to use this file
 
 Cite it from the design document that owns the decision, rather than copying the argument. Current
@@ -352,5 +400,5 @@ hook: the scope note above, which binds any future multi-person confirmation des
 "unverified" marker with the page reference — the marker is a debt, not a disclaimer.
 
 §1–4 are unimplemented; §5 is **partly implemented** and names the two SPEC clauses it produced; §6
-is a dated measurement that `audit --pulse` re-takes. Where a section drives code, it says which
+is a dated measurement that `audit --pulse` re-takes, and §7 the formula `audit --roi` computes. Where a section drives code, it says which
 code — so the next reader can tell the argument from the artifact.

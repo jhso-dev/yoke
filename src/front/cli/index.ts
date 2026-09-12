@@ -147,6 +147,8 @@ type Values = {
   "dry-run"?: boolean;
   shape?: boolean;
   pulse?: boolean;
+  roi?: boolean;
+  assume?: string[];
   depth?: string;
   check?: string;
 };
@@ -192,6 +194,8 @@ const OPTIONS = {
   "dry-run": { type: "boolean" },
   shape: { type: "boolean" },
   pulse: { type: "boolean" },
+  roi: { type: "boolean" },
+  assume: { type: "string", multiple: true },
   depth: { type: "string" },
   check: { type: "string" },
 } as const;
@@ -493,6 +497,7 @@ serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is g
 data:       backup, restore, export, audit, backfill, rename-type
   audit --shape             workload composition: anchored / briefing / plain injections
   audit --pulse             collaboration health: capture, interrupts, recall reach, relitigation
+  audit --roi               efficiency: minutes saved over minutes spent, assumptions in the open
 
 common options: --db <path> --ns <namespace> --actor <id> --json
 run 'yoke <command>' with missing args to see its usage`;
@@ -1466,6 +1471,7 @@ async function cmdAudit(v: Values, env: Env): Promise<number> {
     });
     if (v.shape) return emitShapes(v, events);
     if (v.pulse) return emitPulse(v, store, ns, events, now());
+    if (v.roi) return emitRoi(v, store, ns, events);
     const lines = events.map(
       (e) => `${e.at}  ${e.actor}  ${e.action}  ${e.detail}`,
     );
@@ -1511,6 +1517,219 @@ function emitShapes(v: Values, events: AuditEvent[]): number {
  * inside this window means the decision did not hold long enough to have been settled — the failure
  * yoke exists to prevent. Chosen, not measured; --pulse reports the raw ages so a corpus can argue. */
 const RELITIGATION_WINDOW_DAYS = 14;
+
+/**
+ * What a team's own numbers must be for the loop to pay for itself.
+ *
+ * Every term is either MEASURED off the trail or ASSUMED by the caller, and the two are never mixed
+ * in the output: an efficiency figure whose inputs cannot be told apart is a vanity number. The
+ * defaults below are starting points, not findings — `--assume k=v` replaces any of them, and the
+ * report ends on the break-even value of whichever assumption the answer actually rests on, because
+ * that is the sentence a team can check against itself.
+ *
+ * Savings and costs are both human-minutes over the window the audit query already bounds
+ * (`--since`/`--until`), so the ratio is dimensionless and the window is the caller's to choose.
+ */
+const ROI_DEFAULTS: Record<string, number> = {
+  // Deliberately pessimistic. A measurement that flatters the thing it measures is not worth
+  // running: every default below sits at the low end of what a team would plausibly claim, so the
+  // answer errs toward "not worth it" and a team that disagrees raises its own number on purpose.
+  // How long until a teammate would have learned a decision WITHOUT this loop — the standup, the
+  // thread they eventually read, the moment they ask. The dominant assumption, by design: it is what
+  // yoke claims to collapse, so the report break-evens on it.
+  baseline_hours: 24,
+  // Of the people handed a decision, the share who would act inside that window (and so could act on
+  // the old answer).
+  act_rate: 0.3,
+  // Minutes lost per hour of working from knowledge that has already changed.
+  stale_minutes_per_hour: 1,
+  // Of the recalls and reversals delivered mid-session, the share landing on work already underway.
+  build_rate: 0.3,
+  // Minutes to unwind work built on a decision that had already been reversed.
+  unwind_minutes: 30,
+  // Minutes of a person's attention per 1k tokens injected into their session.
+  read_minutes_per_1k: 0.2,
+  // Minutes to file one record by hand (what a connector or an agent files costs none).
+  file_minutes: 1,
+  // Minutes to re-confirm or retire one record from the queue.
+  weed_minutes: 0.5,
+};
+
+/** `--assume k=v` — refuse anything not in the table, and anything that is not a number. */
+function roiAssumptions(raw: string[] | undefined): Record<string, number> {
+  const out = { ...ROI_DEFAULTS };
+  for (const pair of raw ?? []) {
+    const eq = pair.indexOf("=");
+    const key = eq === -1 ? pair : pair.slice(0, eq);
+    if (!(key in ROI_DEFAULTS))
+      throw new UsageError(
+        `unknown assumption: ${key} — one of ${Object.keys(ROI_DEFAULTS).join(", ")}`,
+      );
+    const value = Number(pair.slice(eq + 1));
+    if (!Number.isFinite(value) || value < 0)
+      throw new UsageError(
+        `${key} must be a number 0 or more (got "${pair.slice(eq + 1)}")`,
+      );
+    out[key] = value;
+  }
+  return out;
+}
+
+/** `yoke audit --roi` — the efficiency question, with its assumptions in the open. */
+async function emitRoi(
+  v: Values,
+  store: YokeStore,
+  ns: string | null,
+  events: AuditEvent[],
+): Promise<number> {
+  const a = roiAssumptions(v.assume);
+
+  // ---- measured: what the trail says happened ----
+  // Delivery latency per record: from the version's own time to the instant an actor was handed it.
+  // Only unseen deliveries count — a plain query is someone going to look, not the loop reaching them.
+  const born = new Map<string, number>();
+  const typeOf = new Map<string, string>();
+  let after: string | undefined;
+  const hand = { filed: 0, total: 0 };
+  do {
+    const page = await store.listEntities({ ns, after, limit: 1000 });
+    for (const e of page.items) {
+      const t = Date.parse(e.provenance.occurred_at);
+      const prev = born.get(e.id);
+      if (prev === undefined || t < prev) born.set(e.id, t);
+      typeOf.set(e.id, e.type);
+      if (e.version === 1) {
+        hand.total++;
+        const org = e.provenance.origin;
+        if (org !== "lifecycle" && org !== "mcp" && !org.includes(":"))
+          hand.filed++;
+      }
+    }
+    after = page.next ?? undefined;
+  } while (after);
+
+  let delivered = 0;
+  let interrupts = 0;
+  let tokens = 0;
+  const lags: number[] = [];
+  let weeded = 0;
+  for (const e of events) {
+    if (e.action === "verify" || e.action === "deprecate") {
+      weeded += e.detail.split(" ").filter(Boolean).length;
+      continue;
+    }
+    if (e.action !== "inject") continue;
+    const changed = changedOf(e.detail);
+    const arrow = e.detail.lastIndexOf(" -> ");
+    if (arrow === -1) continue;
+    const ids = e.detail
+      .slice(arrow + 4)
+      .split(" ")
+      .filter(Boolean);
+    // Injected volume, as the tokens a session pays attention to. Summaries are what a delivery
+    // carries, so the record's own text is the right unit; ~4 bytes per token, the same rough
+    // conversion the briefing-cost measurements in docs/ADOPTION use.
+    for (const id of ids) {
+      const at = Date.parse(e.at);
+      const b = born.get(id);
+      // Decisions only. Propagation is the claim this product actually makes — the team's decision
+      // flow reaching running sessions — and crediting every delivered record with "someone would
+      // have needed this a day later" is the assumption doing all the work rather than the loop.
+      // A fact delivered fast saves nobody anything unless they needed it in that window, and
+      // nothing in the trail says they did.
+      if (b !== undefined && at >= b && typeOf.get(id) === "decision")
+        lags.push((at - b) / 3_600_000);
+    }
+    if (changed === undefined) continue; // an un-instrumented row says nothing about interrupts
+    delivered += ids.length;
+    interrupts += changed;
+    tokens += ids.length * 60; // ceiling: a flat per-record estimate, not the rendered bytes
+  }
+  const median = (xs: number[]) =>
+    xs.length === 0
+      ? 0
+      : [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)];
+  const lag = median(lags);
+
+  // ---- the two sides, in minutes ----
+  // Per delivery, never off the median: a record handed over LATER than the team would have learned
+  // it anyway carries no propagation value, and averaging lets a backfill of old records — which is
+  // most of what a first import delivers — collect credit for reaching people quickly. Clamped at
+  // zero each, so the excluded ones stay visible as a count rather than sinking into an average.
+  const gapsFor = (baselineHours: number) =>
+    lags.reduce((sum, l) => sum + Math.max(0, baselineHours - l), 0);
+  const inWindow = lags.filter((l) => l < a.baseline_hours).length;
+  const propagation =
+    gapsFor(a.baseline_hours) * a.act_rate * a.stale_minutes_per_hour;
+  const rework = interrupts * a.build_rate * a.unwind_minutes;
+  const saved = propagation + rework;
+  const capture = hand.filed * a.file_minutes;
+  const weeding = weeded * a.weed_minutes;
+  const attention = (tokens / 1000) * a.read_minutes_per_1k;
+  const cost = capture + weeding + attention;
+  const ratio = cost === 0 ? null : saved / cost;
+  // What baseline_hours would have to be for the loop to break even, holding everything else. The
+  // one number a team can check against its own week: "would we really have known within N hours?"
+  // Piecewise-linear in baseline_hours (each delivery joins as the window passes its own lag), so
+  // solved numerically rather than algebraically. Null when no baseline inside a week can pay for it.
+  const savedAt = (h: number) =>
+    gapsFor(h) * a.act_rate * a.stale_minutes_per_hour + rework;
+  let breakEven: number | null = null;
+  if (savedAt(24 * 7) >= cost) {
+    let lo = 0;
+    let hi = 24 * 7;
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2;
+      if (savedAt(mid) >= cost) hi = mid;
+      else lo = mid;
+    }
+    breakEven = hi;
+  }
+
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  const human = [
+    `measured (${events.length} audit rows, ${hand.total} records)`,
+    `  delivered            ${delivered} record-deliveries, ${interrupts} of them a recall/reversal`,
+    `  decision deliveries  ${lags.length}; ${inWindow} arrived inside the assumed ${a.baseline_hours}h window, median lag ${r1(lag)}h (older ones earn nothing here)`,
+    `  filed by hand        ${hand.filed} of ${hand.total} (the rest cost no one a keystroke)`,
+    `  weeding actions      ${weeded} re-confirmations/retirements`,
+    `assumed (--assume k=v)`,
+    ...Object.entries(a).map(([k, n]) => `  ${k.padEnd(21)}${n}`),
+    `minutes saved          ${r1(saved)}  (propagation ${r1(propagation)} + rework ${r1(rework)})`,
+    `minutes spent          ${r1(cost)}  (capture ${r1(capture)} + weeding ${r1(weeding)} + attention ${r1(attention)})`,
+    `  per decision reached ${inWindow === 0 ? "—" : `${r1(propagation / inWindow)} min`} — the number to sanity-check: is learning this that much sooner worth that?`,
+    ratio === null
+      ? "efficiency             — nothing was spent yet"
+      : `efficiency             ${r1(ratio)}x at the assumptions above (>1 = returns more than it takes)`,
+    rework >= cost
+      ? `break-even             already covered by the recalls alone: ${r1(rework)} min of avoided ` +
+        `rework against ${r1(cost)} min spent, before any propagation credit`
+      : breakEven === null
+        ? `break-even             does not pay for itself at any baseline under a week — the delivered ` +
+          `decisions are too few or arrived too late`
+        : `break-even             pays for itself once a teammate would otherwise have learned a ` +
+          `decision later than ${r1(breakEven)}h (assumed ${a.baseline_hours}h)`,
+  ].join("\n");
+  emit(v, human, {
+    measured: {
+      delivered,
+      interrupts,
+      lagHours: lag,
+      deliveriesTimed: lags.length,
+      deliveriesInWindow: inWindow,
+      filedByHand: hand.filed,
+      records: hand.total,
+      weeded,
+      rows: events.length,
+    },
+    assumed: a,
+    saved: { propagation, rework, total: saved },
+    spent: { capture, weeding, attention, total: cost },
+    efficiency: ratio,
+    breakEvenHours: breakEven,
+  });
+  return 0;
+}
 
 /** `yoke audit --pulse` — is the collaboration loop actually working, from the trail and the corpus.
  *
@@ -2821,7 +3040,7 @@ const COMMAND_USAGE: Record<string, string> = {
     "usage: yoke review [--type t] [--limit n] [--after cursor]\n" +
     "  the re-confirmation queue: verified records past their type's TTL, most-injected first",
   audit:
-    "usage: yoke audit [--since ts] [--until ts] [--limit n] [--shape|--pulse]\n" +
+    "usage: yoke audit [--since ts] [--until ts] [--limit n] [--shape|--pulse|--roi]\n" +
     "  --shape    workload composition: anchored / briefing / plain injections\n" +
     "  --pulse    collaboration health: capture density, delivery interrupts, recall reach,\n" +
     "             relitigation (--scope adds briefing composition; --since bounds capture)",
