@@ -1,4 +1,4 @@
-// storage-sharded config (PLAN-V2 12.1/12.2) — parse + validate a shard map and instantiate members.
+// storage-sharded config (ENTERPRISE "sharding"/12.2) — parse + validate a shard map and instantiate members.
 // JSON shape: { shards: [{ name, kind: "sqlite", path, namespaces?, default? }] }.
 //
 // `kind` is a one-value union. The field stays because the router supports heterogeneous mixes and

@@ -1,4 +1,4 @@
-// persona — the person-anchored reading of an injection, rendered as a SKILL.md (PLAN 6.1–6.2).
+// persona — the person-anchored reading of an injection, rendered as a SKILL.md.
 // A persona is not stored but derived (VISION): regenerated each time from the current verified knowledge.
 // Citation, not impersonation — the output must be citation-based to be auditable.
 //

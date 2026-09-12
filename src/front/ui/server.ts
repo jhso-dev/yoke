@@ -1,4 +1,4 @@
-// yoke ui — embedded governance-workbench server (PLAN 9.1). node:http only, NO express (NON-GOALS).
+// yoke ui — embedded governance-workbench server. node:http only, NO express (NON-GOALS).
 // The API is only the HTTP exposure of existing core/adapter functions — no UI-only business logic,
 // so every action stays CLI-achievable (WEB-UI.md rule). Time is obtained in this front tier and
 // passed into core; mutations are audit-logged via logAudit (same pattern as the CLI inject path).
@@ -63,10 +63,10 @@ interface UiDeps {
   store: YokeStore;
   /** Resolved once from env (verify/deprecate provenance + audit actor). */
   actor: string;
-  /** Tenant namespace scope (PLAN-V2 10.1). Omitted/null = the default shared namespace. */
+  /** Tenant namespace scope (ENTERPRISE "namespaces"). Omitted/null = the default shared namespace. */
   ns?: string | null;
   now?: () => string;
-  /** RBAC hook (PLAN-V2 10.4) — checked per API endpoint. Default allow-all (local single-user
+  /** RBAC hook (ENTERPRISE "RBAC") — checked per API endpoint. Default allow-all (local single-user
    * `yoke ui` stays ungated); serve mode injects a per-request scope check. */
   authorize?: (action: "read" | "write" | "admin", type?: string) => boolean;
   /**
@@ -364,7 +364,7 @@ function readAttributes(v: unknown): Record<string, unknown> {
 }
 
 /** The bare request handler (no Server wrapper) so serve mode can reuse the exact same routes
- * behind its auth/MCP combined server (PLAN-V2 10.2). createUiServer wraps this in node:http. */
+ * behind its auth/MCP combined server (ENTERPRISE "server mode"). createUiServer wraps this in node:http. */
 export function createUiHandler(
   deps: UiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {

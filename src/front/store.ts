@@ -1,4 +1,4 @@
-// Shared store resolution (PLAN-V2 12.2). Four shapes, in precedence order:
+// Shared store resolution (ENTERPRISE "sharding"). Four shapes, in precedence order:
 //
 //   --shards <config.json> / YOKE_SHARDS   ShardedStorage over member sqlite backends
 //   YOKE_OPENSEARCH_URL                    knowledge in OpenSearch, this client's audit + tokens local

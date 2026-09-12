@@ -1,4 +1,4 @@
-// Embedding provider client (SPEC Embedder contract, PLAN 4.1).
+// Embedding provider client (SPEC Embedder contract).
 // core receives an Embedder function by injection — the fetch implementation lives here, while tests use a deterministic stub.
 // An embedding failure never blocks a commit (returns null → warning only; RETRIEVAL falls back to
 // FTS, duplicate detection is skipped — SPEC "Stage 3 has no FTS fallback").

@@ -111,7 +111,7 @@ interface CommitOpts {
   /** Injected embedder. Without it, duplicate/conflict detection is SKIPPED — deliberately not an
    * FTS approximation (SPEC "Stage 3 has no FTS fallback"); only retrieval falls back to keywords. */
   embedder?: Embedder;
-  /** Tenant namespace (PLAN-V2 10.1). The gate assigns it to the stored row; default = shared ns. */
+  /** Tenant namespace (ENTERPRISE "namespaces"). The gate assigns it to the stored row; default = shared ns. */
   ns?: string | null;
   /**
    * This relation is the gate's own bookkeeping, not a claim a caller made — skip endpoint validation.

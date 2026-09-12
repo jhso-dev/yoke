@@ -1,4 +1,4 @@
-// namespace tests (PLAN-V2 10.1) — normalizeNs/resolveNs semantics, the gate assigning ns to the
+// namespace tests (ENTERPRISE "namespaces") — normalizeNs/resolveNs semantics, the gate assigning ns to the
 // stored row, and inject isolation across namespaces (data prepared via real SqliteStorage + gate).
 
 import { describe, expect, it } from "vitest";

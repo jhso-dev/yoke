@@ -44,7 +44,7 @@ export interface TextQuery {
    * injectable records sort LAST and a 4x window can miss all of them. */
   status?: string | string[];
   limit?: number;
-  /** Tenant namespace filter (PLAN-V2 10.1). Omitted/undefined = the default shared
+  /** Tenant namespace filter (ENTERPRISE "namespaces"). Omitted/undefined = the default shared
    * namespace; a value scopes results to that namespace only. Point reads (getEntity)
    * stay id-based — ids are globally unique ULIDs, so no ns check is needed there. */
   ns?: string | null;

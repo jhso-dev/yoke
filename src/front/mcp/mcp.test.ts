@@ -1,4 +1,4 @@
-// MCP E2E (PLAN 3.3) — two independent client connections see the same DB (cross-session persistence).
+// MCP E2E — two independent client connections see the same DB (cross-session persistence).
 // Uses InMemoryTransport instead of spawn (allowed): server and client are connected as a linked pair,
 // but each connection opens and closes the DB file afresh, preserving the "Client A commits → close → Client B reads" scenario.
 

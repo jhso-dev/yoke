@@ -1,4 +1,4 @@
-// RDB read-mapping tests (PLAN 8.3). Source RDB = an in-memory better-sqlite3 (CREATE/INSERT), target =
+// RDB read-mapping tests. Source RDB = an in-memory better-sqlite3 (CREATE/INSERT), target =
 // an in-memory SqliteStorage. No Postgres. Covers: verified mapping + provenance, idempotent skip,
 // change → new version, ontology-invalid row rejected (run continues), FK relation emitted, CLI smoke.
 

@@ -418,7 +418,7 @@ export const conformanceCases: ConformanceCase[] = [
     },
   },
   {
-    // (7b) namespace isolation (PLAN-V2 10.1).
+    // (7b) namespace isolation (ENTERPRISE "namespaces").
     name: "search isolates by namespace",
     async run(port) {
       const a = makeEntity({ ns: "tenant-a", attributes: { title: "alpha" } });

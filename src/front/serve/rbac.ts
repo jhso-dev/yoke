@@ -1,4 +1,4 @@
-// RBAC (PLAN-V2 10.4, ENTERPRISE.md) — pure authorization over the three axes:
+// RBAC (ENTERPRISE "RBAC", ENTERPRISE.md) — pure authorization over the three axes:
 // namespace × entity-type × action(read|write|admin). Deny by default. `write` is the one knowledge
 // permission: committing, re-confirming and retiring are the same trust level, because every entry
 // is signed and every retirement is broadcast — the checks live downstream of the act, not in a

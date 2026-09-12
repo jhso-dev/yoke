@@ -1,6 +1,6 @@
-// storage-sqlite — the better-sqlite3 implementation of StoragePort (SPEC.md / PLAN 1.5).
+// storage-sqlite — the better-sqlite3 implementation of StoragePort (SPEC.md).
 // append-only: only (id, version) rows are added. FTS5 keeps just the latest version (delete+insert).
-// sqlite-vec (vec0) provides embeddings/similar (PLAN 4.2) — latest version only (same policy as FTS).
+// sqlite-vec (vec0) provides embeddings/similar — latest version only (same policy as FTS).
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import Database from "better-sqlite3";
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS entities (
   attributes TEXT NOT NULL,          -- JSON
   provenance TEXT NOT NULL,          -- JSON
   last_confirmed TEXT NOT NULL,
-  ns TEXT,                           -- tenant namespace (PLAN-V2 10.1); NULL = default shared ns
+  ns TEXT,                           -- tenant namespace (ENTERPRISE "namespaces"); NULL = default shared ns
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
   PRIMARY KEY (id, version)
 ) WITHOUT ROWID;
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS relations (
   attributes TEXT NOT NULL,          -- JSON
   provenance TEXT NOT NULL,          -- JSON
   last_confirmed TEXT NOT NULL,
-  ns TEXT,                           -- tenant namespace (PLAN-V2 10.1); NULL = default shared ns
+  ns TEXT,                           -- tenant namespace (ENTERPRISE "namespaces"); NULL = default shared ns
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
   from_id TEXT NOT NULL,
   to_id TEXT NOT NULL,
@@ -79,11 +79,11 @@ CREATE TABLE IF NOT EXISTS ontology_types (
   name TEXT NOT NULL,
   version INTEGER NOT NULL,
   def TEXT NOT NULL,                 -- JSON (full TypeDef)
-  ns TEXT,                           -- tenant namespace (PLAN-V2 10.1); NULL = shared base ontology
+  ns TEXT,                           -- tenant namespace (ENTERPRISE "namespaces"); NULL = shared base ontology
   PRIMARY KEY (name, version)
 );
 
--- Injection audit (PLAN 8.4). Append-only, written by front tiers only (core stays pure).
+-- Injection audit. Append-only, written by front tiers only (core stays pure).
 -- Entity mutations need no row here — the append-only version history already records them.
 CREATE TABLE IF NOT EXISTS audit_log (
   actor TEXT NOT NULL,
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
   ns TEXT                            -- tenant namespace; NULL = default shared ns
 );
 
--- API tokens (PLAN-V2 10.3). Only a salted sha256 of the secret is stored — never the plaintext.
+-- API tokens (ENTERPRISE "auth"). Only a salted sha256 of the secret is stored — never the plaintext.
 CREATE TABLE IF NOT EXISTS tokens (
   name TEXT PRIMARY KEY,
   salt TEXT NOT NULL,                -- hex, per-token
@@ -152,7 +152,7 @@ export interface AuditQuery {
   limit?: number;
 }
 
-/** A stored API token, sans secret (PLAN-V2 10.3) — for `yoke token list`. */
+/** A stored API token, sans secret (ENTERPRISE "auth") — for `yoke token list`. */
 export interface TokenInfo {
   name: string;
   scopes: string[];
@@ -207,7 +207,7 @@ export class SqliteStorage implements StoragePort {
     this.db.pragma("journal_mode = WAL");
     sqliteVec.load(this.db);
     // Columns FIRST, then the schema — a required ordering. SCHEMA declares indexes over `ns`
-    // (`idx_entities_ns_type_id` and four more); on a database created before PLAN-V2 10.1 that column
+    // (`idx_entities_ns_type_id` and four more); on a database created before namespaces existed that column
     // does not exist yet, so `exec(SCHEMA)` throws "no such column: ns" before the ALTER TABLE loop
     // that adds it can run. Running the ALTERs first keeps SCHEMA's index DDL valid on every vintage.
     //
@@ -299,7 +299,7 @@ export class SqliteStorage implements StoragePort {
 
   /** Additive column migrations, each conditional so it runs on any vintage of database. */
   private migrateColumns(): void {
-    // Migration for DBs created before PLAN-V2 10.1: add the nullable ns column. Fresh DBs already
+    // Migration for DBs created before namespaces existed: add the nullable ns column. Fresh DBs already
     // have it (in SCHEMA), so ADD COLUMN throws "duplicate column" — caught and ignored. NULL default
     // means every pre-existing row belongs to the default shared namespace (backward compatible).
     for (const table of [
@@ -579,7 +579,7 @@ export class SqliteStorage implements StoragePort {
     // The filters sit in this WHERE, so they apply BEFORE the limit: capping first and filtering
     // afterward in JS returns fewer rows than the caller asked for.
     const limitClause = " LIMIT @limit";
-    // Namespace isolation (PLAN-V2 10.1): `IS @ns` handles NULL (default ns sees only default rows).
+    // Namespace isolation (ENTERPRISE "namespaces"): `IS @ns` handles NULL (default ns sees only default rows).
     const rows = this.db
       .prepare(
         `SELECT e.* FROM entities_fts f
@@ -724,7 +724,7 @@ export class SqliteStorage implements StoragePort {
   // --- Adapter extensions outside StoragePort: ontology seed save/load (for CLI init) ---
 
   /** Append-only save of ontology definitions. Accumulates as the next version per name.
-   * ns targets a tenant ontology (PLAN-V2 10.1); omitted = the shared base ontology.
+   * ns targets a tenant ontology (ENTERPRISE "namespaces"); omitted = the shared base ontology.
    * Version numbering stays global per name (across namespaces) so the (name, version) primary
    * key never collides between a shared def and a tenant def of the same name. */
   // `async` only to satisfy the interface — better-sqlite3 is synchronous, so the body is too.
@@ -836,7 +836,7 @@ export class SqliteStorage implements StoragePort {
     return tx.immediate();
   }
 
-  /** All versions of an id, ascending (outside StoragePort — for CLI history, PLAN 8.4).
+  /** All versions of an id, ascending (outside StoragePort — for CLI history).
    * getEntity returns one version; the append-only rows ARE the change audit, this just exposes them. */
   listHistory(id: string): Entity[] {
     const rows = this.db
@@ -845,7 +845,7 @@ export class SqliteStorage implements StoragePort {
     return rows.map(rowToEntity);
   }
 
-  /** Append one injection-audit event (outside StoragePort — written by front tiers, PLAN 8.4). */
+  /** Append one injection-audit event (outside StoragePort — written by front tiers). */
   logAudit(event: AuditEvent): void {
     this.db
       .prepare(
@@ -899,7 +899,7 @@ export class SqliteStorage implements StoragePort {
     return q.limit === undefined ? rows : rows.reverse();
   }
 
-  // --- API tokens (PLAN-V2 10.3) — Bearer auth for serve mode. Plaintext is never stored. ---
+  // --- API tokens (ENTERPRISE "auth") — Bearer auth for serve mode. Plaintext is never stored. ---
 
   /** Mint a token: random 32-byte secret, store salted sha256 hash + scopes. Returns the plaintext once. */
   createToken(spec: { name: string; scopes: string[]; created_at: string }): {
@@ -959,7 +959,7 @@ export class SqliteStorage implements StoragePort {
     }));
   }
 
-  // --- Durability (PLAN-V2 11.1): backup + PITR-lite export. ---
+  // --- Durability (ENTERPRISE "backup"): backup + PITR-lite export. ---
 
   /** Online backup to a fresh file (11.1). better-sqlite3's `.backup()` is WAL-safe and produces a
    * single consistent DB file — no need to checkpoint or stop writes first. */
@@ -990,7 +990,7 @@ export class SqliteStorage implements StoragePort {
    * Columns are listed explicitly so a pre-10.1 source (ns appended last by migration) copies cleanly
    * into a fresh dest (ns mid-row). */
   async exportUntil(ts: string, destPath: string): Promise<void> {
-    // Fresh dest with the full schema, then attach and row-copy with SQL (simplest — PLAN-V2 11.1).
+    // Fresh dest with the full schema, then attach and row-copy with SQL (simplest — ENTERPRISE "backup").
     const dst = new SqliteStorage(destPath);
     await dst.init();
     dst.close();

@@ -1,4 +1,4 @@
-// Postgres query fn for the RDB read-mapping connector (PLAN 8.3). Trivial pg.Pool wrapper.
+// Postgres query fn for the RDB read-mapping connector. Trivial pg.Pool wrapper.
 // Imported dynamically by the CLI only on the --dsn path, so the sqlite/test path never needs `pg`.
 
 import pg from "pg";

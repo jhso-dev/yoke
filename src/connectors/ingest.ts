@@ -1,4 +1,4 @@
-// Shared connector ingest (PLAN 5.1). Not core but a front-tier consumer — it iterates a connector's
+// Shared connector ingest. Not core but a front-tier consumer — it iterates a connector's
 // pull and routes each item through the commit gate (no bypass). Idempotency: externalId is stored as
 // attributes.external_id, and on re-run it is looked up via FTS and skipped if already present.
 

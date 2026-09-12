@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// yoke MCP server (PLAN 3.1–3.3) — stdio transport. Started with `yoke mcp [--db path]`.
+// yoke MCP server — stdio transport. Started with `yoke mcp [--db path]`.
 // Six tools: yoke_inject / yoke_commit / yoke_record_decision / yoke_overview / yoke_persona / yoke_use_scope.
 // Governance: every commit enters verified under a signed actor — filing is the entry bar, and the
 // quality controls are downstream (TTL re-confirmation, retirement with reason, conflicts_with).
@@ -82,14 +82,14 @@ const INSTRUCTIONS =
   "everyone who was handed it.";
 
 interface YokeMcpDeps {
-  /** logAudit (PLAN 8.4) is optional: adapters without it simply skip injection auditing.
+  /** logAudit is optional: adapters without it simply skip injection auditing.
    * Everything else the tools need is the plain port — persona included, since authorship is a
    * graph edge rather than a provenance lookup outside the contract. */
   store: StoragePort & { logAudit?(event: AuditEvent): void };
   ontology: TypeDef[];
   /** Default actor when a tool call omits one (resolved from env at server startup). */
   defaultActor: string;
-  /** Tenant namespace scope (PLAN-V2 10.1), read from YOKE_NS at startup. null = default shared ns. */
+  /** Tenant namespace scope (ENTERPRISE "namespaces"), read from YOKE_NS at startup. null = default shared ns. */
   ns?: string | null;
   /** Current time as ISO 8601. Defaults to new Date().toISOString() — tests inject a fixed value. */
   now?: () => string;
@@ -97,7 +97,7 @@ interface YokeMcpDeps {
   embedder?: Embedder;
   /** Per-deployment hybrid fusion weight (YOKE_KEYWORD_WEIGHT) — see core KEYWORD_WEIGHT's ceiling. */
   keywordWeight?: number;
-  /** Per-request RBAC hook (PLAN-V2 10.4). Default allow-all — stdio `yoke mcp` is single-user
+  /** Per-request RBAC hook (ENTERPRISE "RBAC"). Default allow-all — stdio `yoke mcp` is single-user
    * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */
   authorize?: (action: "read" | "write", type?: string) => boolean;
   /** Default injection/capture scope (a collaboration/entity id) resolved at startup from YOKE_SCOPE
@@ -394,7 +394,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           keywordWeight,
         },
       );
-      // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
+      // Injection audit: who got what knowledge injected. Front-tier I/O — core stays pure.
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
       // unscoped one, and which of the two agents actually do is the measurement that decides whether
       // graph expansion is worth investing in at all (docs/RESEARCH.md).
@@ -727,7 +727,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         );
       }
       const { decisions, facts } = persona;
-      // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.
+      // Persona reads are injections too — same audit trail as yoke_inject.
       const injected = [...decisions, ...facts].map((i) => i.entity);
       bestEffortAudit(store, {
         actor: defaultActor,

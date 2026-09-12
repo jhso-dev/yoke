@@ -1,4 +1,4 @@
-// UI API tests (PLAN 9.2 DoD) — in-process: start createUiServer on port 0, hit the JSON API with
+// UI API tests — in-process: start createUiServer on port 0, hit the JSON API with
 // fetch. No browser automation. Exercises the re-confirmation queue (stale→verify→queue-empty),
 // conflicts/ontology/persona shapes, the verify audit row, and GET / serving the four-tab HTML.
 

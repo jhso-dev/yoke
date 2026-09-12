@@ -1,5 +1,5 @@
 // commit gate tests — exercise the gate pipeline against the real SqliteStorage(:memory:).
-// PLAN 1.6 cases: ontology rejection / provenance rejection / verified·version=1·last_confirmed /
+// Gate cases: ontology rejection / provenance rejection / verified·version=1·last_confirmed /
 // re-commit version bump + history preservation / relation commit.
 
 import { beforeEach, describe, expect, it } from "vitest";

@@ -1,4 +1,4 @@
-// github-pr connector (PLAN 5.2; merged-PR capture v7.4). Calls GitHub REST v3 directly with fetch
+// github-pr connector. Calls GitHub REST v3 directly with fetch
 // (no octokit — only 2 endpoints). Two kinds of source item:
 //   - a MERGED pull request → one decision. The merge is the team's acceptance of the change, and
 //     the PR body is text a human wrote and reviewers read — the one capture point that costs the

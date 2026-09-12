@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// yoke CLI skeleton (PLAN 1.7) — uses only node:util parseArgs (no commander etc.).
+// yoke CLI skeleton — uses only node:util parseArgs (no commander etc.).
 // Command handlers are split out as runCli(argv, env) — testable without spawning a process; exit code is the return value.
 // Time is obtained only in this front tier (core receives `now` by injection).
 
@@ -1314,7 +1314,7 @@ async function cmdInject(
       });
       return 0;
     }
-    // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core
+    // Injection audit: who got what knowledge injected. Logged at the front tier — core
     // stays pure. Built here, but written AFTER emit (C7) so a locked trail cannot discard an
     // injection the agent already received.
     const injectEvent: AuditEvent = {
@@ -1387,7 +1387,7 @@ async function cmdInject(
   });
 }
 
-// history (PLAN 8.4): the append-only version rows ARE the change audit — this just exposes them.
+// history: the append-only version rows ARE the change audit — this just exposes them.
 const HISTORY_USAGE = "usage: yoke history <id>";
 
 async function cmdHistory(
@@ -2471,7 +2471,7 @@ async function cmdConnect(
   );
 }
 
-// connect rdb (PLAN 8.3): read-map an existing RDB into entities. See rdb-mapping.ts for the
+// connect rdb: read-map an existing RDB into entities. See rdb-mapping.ts for the
 // design exception (bulk bypasses the per-record gate, still validates against the ontology).
 async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
   if (!v.mapping) {
@@ -2711,7 +2711,7 @@ async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
   });
 }
 
-// ui (PLAN 9.x): the governance workbench. Server keeps the process alive until SIGINT.
+// ui: the governance workbench. Server keeps the process alive until SIGINT.
 async function cmdUi(v: Values, env: Env): Promise<number> {
   const port = intFlag(v.port, "port", 0) ?? 4800;
   const server = await runUi(
@@ -2728,7 +2728,7 @@ async function cmdUi(v: Values, env: Env): Promise<number> {
   return 0;
 }
 
-// serve (PLAN-V2 10.2): UI + JSON API + remote MCP on one port. Auth (10.3/10.4) is opt-in.
+// serve (ENTERPRISE "server mode"): UI + JSON API + remote MCP on one port. Auth (10.3/10.4) is opt-in.
 async function cmdServe(v: Values, env: Env): Promise<number> {
   const port = intFlag(v.port, "port", 0) ?? 4800;
   const server = await runServe(resolveDb(v, env), port, env, {
@@ -2744,7 +2744,7 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
   return 0;
 }
 
-// token (PLAN-V2 10.3): API tokens for serve-mode Bearer auth. Secret is shown once on create.
+// token (ENTERPRISE "auth"): API tokens for serve-mode Bearer auth. Secret is shown once on create.
 // A PERSON on a GitHub org does not need this — the exchange mints their token from the identity
 // they already have (SPEC "GitHub exchange"). This command is for what the exchange cannot cover:
 // machine actors (CI, scheduled connectors), the bootstrap admin credential (the exchange never
@@ -2840,7 +2840,7 @@ async function cmdToken(
   return 1;
 }
 
-// backup (PLAN-V2 11.1): online WAL-safe snapshot to a fresh file.
+// backup (ENTERPRISE "backup"): online WAL-safe snapshot to a fresh file.
 const BACKUP_USAGE =
   "usage: yoke backup <dest.db>\n" +
   "  --out belongs to 'yoke export'; backup takes the destination as its argument";
@@ -2884,7 +2884,7 @@ async function cmdBackup(
   });
 }
 
-// restore (PLAN-V2 11.1): safety-checked copy of a backup back over the working DB. Refuses to clobber
+// restore (ENTERPRISE "backup"): safety-checked copy of a backup back over the working DB. Refuses to clobber
 // an existing DB without --force, and validates the source is a real yoke DB first. Uses .backup() to
 // write a clean consistent file (WAL-safe on both ends) rather than a raw file copy.
 async function cmdRestore(
@@ -2969,7 +2969,7 @@ async function cmdRestore(
   return 0;
 }
 
-// export (PLAN-V2 11.1 PITR-lite): reconstruct DB state as of --until into a new file. See
+// export (ENTERPRISE "backup" PITR-lite): reconstruct DB state as of --until into a new file. See
 // exportUntil in storage-sqlite for the precision caveat (created_at = server-clock ingestion time).
 async function cmdExport(v: Values, env: Env): Promise<number> {
   if (!v.until || !v.out) {

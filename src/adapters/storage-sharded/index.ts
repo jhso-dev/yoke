@@ -1,4 +1,4 @@
-// storage-sharded (PLAN-V2 12.1) — ShardedStorage composes member StoragePorts behind ONE port.
+// storage-sharded (ENTERPRISE "sharding") — ShardedStorage composes member StoragePorts behind ONE port.
 // Core is untouched: sharding lives entirely behind the storage port (the ARCHITECTURE bet paying off).
 //
 // Routing:

@@ -1,10 +1,10 @@
-// yoke serve (PLAN-V2 10.2) — ONE node:http server (NO express) combining, on a single port:
+// yoke serve (ENTERPRISE "server mode") — ONE node:http server (NO express) combining, on a single port:
 //   (a) the UI + JSON API — reuses createUiHandler verbatim (no route duplication);
 //   (b) a remote MCP endpoint at POST /mcp — the SDK's StreamableHTTPServerTransport in stateless
 //       mode, reusing createYokeMcpServer.
 // stdio `yoke mcp` and local `yoke ui` are untouched and stay ungated (single-user mode).
 //
-// Auth (PLAN-V2 10.3) + RBAC (PLAN-V2 10.4) apply ONLY here, and only when enabled (YOKE_AUTH=on
+// Auth (ENTERPRISE "auth") + RBAC (ENTERPRISE "RBAC") apply ONLY here, and only when enabled (YOKE_AUTH=on
 // or --auth). Then every /api/* and /mcp request needs a Bearer credential: an API token or an
 // OIDC RS256 JWT. Deny-by-default authorization is threaded into both the UI handler and the MCP
 // server via their `authorize` hooks.
@@ -62,7 +62,7 @@ interface ServeDeps {
   /** OIDC config (from env). Omitted = only API tokens can authenticate. */
   oidc?: OidcConfig;
   embedder?: Embedder;
-  /** Read-only replica mode (PLAN-V2 11.2): deny every mutation regardless of scopes. Mutating
+  /** Read-only replica mode (BACKENDS "read replicas"): deny every mutation regardless of scopes. Mutating
    * API endpoints answer 409; MCP write tools get a tool error via the authorize hook. */
   readOnly?: boolean;
   /** Interval-pull snapshot config (11.2). When set, the store is re-copied from the primary via
@@ -404,7 +404,7 @@ export async function runServe(
     auth?: boolean;
     ns?: string | null;
     replicaOf?: string;
-    /** Sharded composite storage (PLAN-V2 12.2). Ignored in replica mode (per-file snapshot). */
+    /** Sharded composite storage (ENTERPRISE "sharding"). Ignored in replica mode (per-file snapshot). */
     shards?: string;
     /** Bind address. Defaults to loopback — widening is explicit, and requires auth. */
     host?: string;

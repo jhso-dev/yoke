@@ -1,4 +1,4 @@
-// Injection-quality eval (PLAN 7.2, MARKET strategy 6 "prove it with measurement").
+// Injection-quality eval (MARKET strategy 6 "prove it with measurement").
 // This is a runnable script, not a vitest suite — the numbers are the deliverable (evidence data for marketing).
 // Run: npm run eval  (tsx eval/inject-quality.ts)
 //

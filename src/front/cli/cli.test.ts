@@ -977,7 +977,7 @@ describe("runCli", () => {
     expect(act).not.toHaveProperty("note");
   });
 
-  it("history lists all versions; audit records inject events (PLAN 8.4)", async () => {
+  it("history lists all versions; audit records inject events", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
     expect(
@@ -1431,7 +1431,7 @@ describe("runCli", () => {
     ).toBe(1);
   });
 
-  it("connect notes ingests transcript chunks, idempotently (PLAN 8.5)", async () => {
+  it("connect notes ingests transcript chunks, idempotently", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
     const notesDir = join(dir, "notes-fixture");
@@ -1476,7 +1476,7 @@ describe("runCli", () => {
     expect(errs.at(-1)).toContain("SLACK_TOKEN");
   });
 
-  it("backup → restore round-trip keeps data; safety refusals (PLAN-V2 11.1)", async () => {
+  it("backup → restore round-trip keeps data; safety refusals", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
     expect(
@@ -1516,7 +1516,7 @@ describe("runCli", () => {
     expect(errs.at(-1)).toContain("not a valid yoke DB");
   });
 
-  it("export --until reconstructs a point-in-time DB (PLAN-V2 11.1)", async () => {
+  it("export --until reconstructs a point-in-time DB", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
     expect(

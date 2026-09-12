@@ -1,4 +1,4 @@
-// serve mode (PLAN-V2 10.2–10.4) — all in-process, port 0. Covers: API-token round-trip
+// serve mode (ENTERPRISE "server mode"–10.4) — all in-process, port 0. Covers: API-token round-trip
 // (incl. hash-not-plaintext), Bearer auth (401), RBAC over the HTTP surface (read-only GET ok /
 // POST verify 403; write token 200), the remote MCP endpoint (write-only token commits but
 // yoke_inject is forbidden; unauthenticated 401), OIDC (local JWKS fixture: valid JWT passes +
@@ -60,7 +60,7 @@ async function freshDb(name: string): Promise<string> {
   return db;
 }
 
-describe("SqliteStorage tokens (PLAN-V2 10.3)", () => {
+describe("SqliteStorage tokens", () => {
   it("create → verify → revoke round-trip; the plaintext is never stored", async () => {
     const db = await freshDb("tokens");
     const store = new SqliteStorage(db);
@@ -98,7 +98,7 @@ describe("SqliteStorage tokens (PLAN-V2 10.3)", () => {
   });
 });
 
-describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
+describe("serve auth + RBAC", () => {
   let store: SqliteStorage;
   let run: Running;
   let factId: string;
@@ -408,7 +408,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
   });
 });
 
-describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
+describe("OIDC (local JWKS fixture)", () => {
   let store: SqliteStorage;
   let run: Running;
   let sign: (claims: Record<string, unknown>, exp: string) => Promise<string>;
@@ -540,7 +540,7 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
   });
 });
 
-describe("read replica (PLAN-V2 11.2)", () => {
+describe("read replica", () => {
   it("serves reads; writes rejected (409 API / MCP tool error); refreshNow pulls new data", async () => {
     const primary = await freshDb("replica-primary");
     // Seed a fact on the primary — born verified, so it is injectable as committed.

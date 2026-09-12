@@ -1,4 +1,4 @@
-// RDB read-mapping connector (PLAN 8.3, BACKENDS "Traditional-DB read-mapping") — the enterprise wedge.
+// RDB read-mapping connector (BACKENDS "Traditional-DB read-mapping") — the enterprise wedge.
 // Exposes an existing RDB as ontology entities with no migration and no bidirectional sync (read-only).
 //
 // The second pass below is the WHOLE difference from `ingest`: every row goes through `ingestItem`,

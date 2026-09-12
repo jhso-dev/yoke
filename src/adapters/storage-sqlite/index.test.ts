@@ -337,7 +337,7 @@ describe("sqlite-vec similar", () => {
   });
 });
 
-describe("audit extensions (PLAN 8.4)", () => {
+describe("audit extensions", () => {
   const base = {
     type: "fact",
     status: "verified" as const,
@@ -533,7 +533,7 @@ describe("renameType", () => {
   });
 });
 
-describe("durability (PLAN-V2 11.1)", () => {
+describe("durability", () => {
   const prov = {
     actor: "yoke:system",
     origin: "cli",

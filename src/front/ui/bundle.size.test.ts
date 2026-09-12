@@ -1,4 +1,4 @@
-// The budget test PLAN-V2 said existed.
+// The bundle budget WEB-UI declares, asserted.
 //
 // The document has recorded a shipped-bundle budget since v5.0 was planned, "asserted by a test that
 // stats the build output" — and no such test was ever written. The line-count budget beside it drifted

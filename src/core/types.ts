@@ -40,7 +40,7 @@ interface Governed {
   /** ISO 8601. Refreshed on verify. */
   last_confirmed: string;
   provenance: Provenance;
-  /** Tenant namespace (PLAN-V2 10.1). Absent/undefined = the default shared namespace.
+  /** Tenant namespace (ENTERPRISE "namespaces"). Absent/undefined = the default shared namespace.
    * Assigned by the gate; parsed/composed only by core/namespace.ts. */
   ns?: string;
 }

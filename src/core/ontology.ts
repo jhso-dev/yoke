@@ -236,7 +236,7 @@ export function validateTypeDef(def: unknown): string | null {
 }
 
 /**
- * The effective ontology for a namespace (PLAN-V2 10.1): tenant defs overlaid on the shared (null-ns)
+ * The effective ontology for a namespace (ENTERPRISE "namespaces"): tenant defs overlaid on the shared (null-ns)
  * base by name. Shared order is preserved and a tenant def replaces its same-name entry IN PLACE (a Map
  * keeps insertion order and a re-set keeps the original slot); tenant-only types append.
  *

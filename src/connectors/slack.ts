@@ -1,4 +1,4 @@
-// slack connector (PLAN 8.5). Calls the Slack Web API directly with fetch (no SDK — 2 endpoints).
+// slack connector. Calls the Slack Web API directly with fetch (no SDK — 2 endpoints).
 // One channel message (thread replies included) → one fact record. Mapping is deliberately dumb:
 // no decision-marker NLP — what matters is retrieval's problem, and a wrong capture is retired with
 // a reason (the governance model).

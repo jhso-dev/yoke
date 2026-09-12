@@ -82,7 +82,7 @@ function makeFake(): StoragePort {
       let out = [...latestById().values()].filter((e) =>
         matchesTokens(queryTokens, textOf(e), q.terms),
       );
-      // Namespace isolation (PLAN-V2 10.1): default ns sees only default-ns rows.
+      // Namespace isolation (ENTERPRISE "namespaces"): default ns sees only default-ns rows.
       out = out.filter((e) => (e.ns ?? null) === wantNs);
       if (q.type) out = out.filter((e) => e.type === q.type);
       if (q.status) {

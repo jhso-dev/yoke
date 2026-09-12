@@ -1,4 +1,4 @@
-// namespace — logical multi-tenancy (PLAN-V2 10.1, ENTERPRISE.md multi-tenancy).
+// namespace — logical multi-tenancy (ENTERPRISE "namespaces", ENTERPRISE.md multi-tenancy).
 // A namespace is a nullable string; null/undefined/"" all mean the default (shared)
 // namespace that holds every v0.1 row. This is the ONLY module that owns namespace
 // semantics: everywhere else a namespace travels as an explicit parameter and entity
