@@ -1,0 +1,21 @@
+.env.example
+  s_03673cb32bfdc1::t_1213fbf04a4500 91-114,116
+.gitignore
+  s_03673cb32bfdc1::t_d994de06802509 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1437729af06e01f3d123aa5081c4c095eef35ba4",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
