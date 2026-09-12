@@ -1,4 +1,4 @@
-// persona — the person-anchored reading of an injection, rendered as a SKILL.md (PLAN 6.1–6.2).
+// persona — the person-anchored reading of an injection, rendered as a SKILL.md.
 // A persona is not stored but derived (VISION): regenerated each time from the current verified knowledge.
 // Citation, not impersonation — the output must be citation-based to be auditable.
 //
@@ -24,7 +24,7 @@ import type { TypeDef } from "./ontology.js";
 import type { Entity } from "./types.js";
 
 /** One record a persona unions, named. Bare ids in a document a person reads name nobody. */
-export interface PersonaIdentity {
+interface PersonaIdentity {
   id: string;
   /** The record's `name` attribute, one-lined by `readableName`; the id when it has none. */
   name: string;
@@ -548,7 +548,7 @@ export function renderPersonaSkill(
 // which is what this section is for.
 
 /** One `id@vN` entry from an exported SKILL.md header. */
-export interface PersonaSource {
+interface PersonaSource {
   id: string;
   version: number;
 }
@@ -643,7 +643,7 @@ export function parsePersonaSources(md: string): PersonaHeader {
  * `deprecated` > `superseded` > `stale` > `outdated` > `ok` — because the remedy for every
  * non-`ok` verdict is the same (re-export), so a second reason changes nothing a reader would do.
  */
-export type SourceVerdict =
+type SourceVerdict =
   | "ok"
   | "outdated"
   | "stale"
@@ -651,7 +651,7 @@ export type SourceVerdict =
   | "superseded"
   | "missing";
 
-export interface SourceCheck extends PersonaSource {
+interface SourceCheck extends PersonaSource {
   verdict: SourceVerdict;
   /** The version in the store now. Absent when `missing`. */
   current?: number;
@@ -726,7 +726,7 @@ export async function checkPersonaSources(
 /** Where an exported persona's ANCHOR stands now. `retired` mirrors the one lever an org has over a
  * persona (`personaQuery` refuses to regenerate on it); `missing` covers a deleted or wrong-namespace
  * anchor and `not-a-person` an anchor that is no longer a person record. */
-export type AnchorVerdict = "ok" | "missing" | "retired" | "not-a-person";
+type AnchorVerdict = "ok" | "missing" | "retired" | "not-a-person";
 
 /**
  * The anchor of an exported snapshot against the store now — the check `parsePersonaSources` gives

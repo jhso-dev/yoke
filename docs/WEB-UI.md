@@ -143,7 +143,7 @@ A further screen requires the three tests to be argued here first.
 - Stack: Next.js with `output: 'export'`, React, `d3-force`, and the shadcn-style primitive
   layer in `web/components/ui/` with its prerequisites (`radix-ui`, Tailwind v4 + PostCSS,
   `lucide-react`, `class-variance-authority`, `tailwind-merge`, `tw-animate-css`) — the
-  dependency budget is in PLAN-V2's non-goals. A build step is allowed; a *server* framework
+  dependency budget is below. A build step is allowed; a *server* framework
   is not, and `output: 'export'` is what keeps that honest — the build emits static files,
   the existing `node:http` server serves them, and there is no second process, port, or
   deployable. Two conditions bind: **one static bundle** (embedded distribution), and an API
@@ -189,6 +189,42 @@ Every button maps to a command that already exists — `yoke add`, `yoke link`, 
 `yoke deprecate`, `yoke backfill`, `yoke rename-type`, `yoke search`. A button with no
 command is a bug.
 
+## Budgets
+
+Every one of these is asserted by a test or it is not a budget.
+
+- **Shipped bundle ≤ 400 KB gzipped** (JS + CSS, the whole static export), asserted by
+  `src/front/ui/bundle.size.test.ts`, which stats the build output and skips when there is none.
+  Measured costs on the record: shadcn + Tailwind + Radix is +117 KB (+52%) over the hand-written
+  CSS it replaced, measured both ways before the number moved; the date-time picker swap left the
+  bundle at 362 KB. A rise must leave more than a kilobyte of headroom and must name what it bought.
+- **Shipped images ≤ 500 KB gzipped**, same test. The bundle figure filters on `.js|.css`, so the two
+  home-page heroes — 460 KB gzipped between them, both preloaded, one always hidden by the active
+  theme — count toward nothing there. Set above what they cost on purpose: it is a tripwire for a new
+  unmeasured asset, not a verdict on the artwork. Lower it in the same commit that optimises them.
+- **Dependency budget**: `next`, `react`, `react-dom`, `d3-force`, plus the shadcn/ui prerequisites —
+  `tailwindcss`, `@tailwindcss/postcss`, `postcss`, `radix-ui`, `class-variance-authority`, `clsx`,
+  `tailwind-merge`, `lucide-react`, `tw-animate-css`, `react-day-picker`, and the type-only
+  `typescript`/`@types/*`. Everything but `radix-ui`, `lucide-react` and `react-day-picker` is
+  build-time. **Anything further requires a note here first, naming what it buys.**
+- **No line-count budget.** There was one, twice; both numbers were invented rather than measured,
+  both were blown, and nothing ever counted them — the ceiling only moved to wherever the code
+  already was, which is a record of growth wearing a budget's clothes. What it reached for is covered
+  by two things that bite: the bundle budget above, which measures what a user downloads, and the
+  three tests in "The line", which is what stops screens multiplying. A line count would not have
+  refused a single screen either of those admits.
+- **Zero new runtime deps in `src/front/ui/` and `src/front/serve/`** (`node:http` only), and **zero
+  new listening ports**.
+- **Zero web toolchain in the CLI install path** — a failed web build still leaves a working CLI.
+- **A check that executes the shipped client bundle**, never one that greps the HTML for markers.
+
+What shadcn bought and cost: the hand-written CSS layer shrinks and the accessibility work in
+dialogs, selects and focus management stops being ours to get right; the bundle pays for it.
+`theme.css` maps this product's own tokens onto shadcn's names rather than taking the generated
+defaults — the terminal-adjacent look is deliberate. One real loss: a native `<dialog>` gives focus
+trapping, Esc, inert background and `::backdrop` for free, and Radix reimplements those in JS. That
+cost is paid only for components whose accessibility is genuinely hard to hand-roll.
+
 ## What we don't do
 
 - **A chat interface.** No conversational surface, no model call from the web tier, ever.
@@ -200,6 +236,12 @@ command is a bug.
   records and relations is allowed; correcting one is a new version through the gate.
 - **Dashboard-style statistics.** Counts and charts nobody acts on. The eval report and
   CLI output cover measurement.
-- **Server-side rendering, an API framework, or a second deployable.**
+- **Server-side rendering, an API framework, or a second deployable.** The HTTP server is
+  `node:http`; Next is a build tool here, never a server, and `output: 'export'` is the mechanism
+  that keeps that true. No Express, no Fastify, no GraphQL — the JSON API stays route-per-question.
+- **ORMs, yaml parsers, docker-compose test harnesses, WebSockets.** The graph loads over `fetch`;
+  there is no live push.
+- **Password auth, and per-field encryption.** Browser login reuses a credential yoke already mints
+  (`yoke token create`) or an OIDC id_token; yoke never stores a password.
 - **UI-only business logic.** If a screen wants something the CLI cannot do, the answer is
   a core function and a CLI command, not a route.

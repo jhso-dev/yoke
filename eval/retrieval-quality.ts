@@ -4,10 +4,9 @@
 //   npx tsx eval/retrieval-quality.ts ./demo-yoke.db     # any backend openStore understands
 //
 // Why this exists: `eval/inject-quality.ts` measures SAFETY only — contamination and missed
-// contradictions — so until now nothing in the repo could say whether a retrieval change helped. v5.3
-// shipped hybrid retrieval on the strength of eight hand-run queries, and named its own ceiling: when
-// one half returns nothing, RRF degenerates to the other half's order. Eight queries cannot say how
-// often that happens. This can.
+// contradictions — so nothing else in the repo can say whether a retrieval change helped. Hybrid
+// retrieval names its own ceiling: when one half returns nothing, RRF degenerates to the other half's
+// order. A handful of hand-run queries cannot say how often that happens. This can.
 //
 // It measures `inject()`, not `search()`: what an agent actually receives, gate and all. Consequence
 // worth stating — a gold target that is stale or deprecated is UNREACHABLE by design, so the

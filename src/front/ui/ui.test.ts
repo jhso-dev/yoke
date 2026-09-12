@@ -1,4 +1,4 @@
-// UI API tests (PLAN 9.2 DoD) — in-process: start createUiServer on port 0, hit the JSON API with
+// UI API tests — in-process: start createUiServer on port 0, hit the JSON API with
 // fetch. No browser automation. Exercises the re-confirmation queue (stale→verify→queue-empty),
 // conflicts/ontology/persona shapes, the verify audit row, and GET / serving the four-tab HTML.
 
@@ -426,7 +426,7 @@ describe("ui API", () => {
 
   it("persona returns decisions/facts with citations", async () => {
     // Anchored on a person RECORD, not on the bare actor string `tester`: a persona is about a person,
-    // and core refuses an anchor that is not one — a fact id used to produce a document about nobody.
+    // and core refuses an anchor that is not one, because a fact id produces a document about nobody.
     const result = await get(
       `/api/persona/${encodeURIComponent(personaAnchorId)}`,
     );
@@ -451,6 +451,42 @@ describe("ui API", () => {
       (e: { summary: string }) => e.summary === "Bora",
     );
     expect(bora?.role).toBe("engineer");
+  });
+
+  // A value nobody can ask for is refused, never answered with an empty list. `[]` reads as "none
+  // exist", which for `status=stale` is the opposite of the truth — stale is computed at read time,
+  // so no stored filter can ever match it. The CLI has always refused these; the web tier answering
+  // them with emptiness made one product with two contracts.
+  it("refuses a status no row can carry, rather than answering with none", async () => {
+    const res = await fetch(`${base}/api/entities?status=stale`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/computed at read time/);
+    const bogus = await fetch(`${base}/api/entities?status=DRAFT`);
+    expect(bogus.status).toBe(400);
+  });
+
+  it("refuses an undeclared type, and names the ones that exist", async () => {
+    const res = await fetch(`${base}/api/search?q=x&type=nonsense`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/unknown type: nonsense/);
+  });
+
+  it("reads a limit the way the CLI does — digits, not whatever Number() accepts", async () => {
+    // `Number("0x10")` is 16 and the CLI's `/^\d+$/` refuses it, so this param meant two different
+    // things depending on which surface asked.
+    const res = await fetch(`${base}/api/entities?limit=0x10`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/whole number/);
+    expect((await get("/api/entities?limit=10")).items).toBeDefined();
+  });
+
+  it("still answers the values that do exist", async () => {
+    expect(
+      (await get("/api/entities?status=verified")).items.length,
+    ).toBeGreaterThan(0);
+    expect(
+      (await get("/api/entities?type=person")).items.length,
+    ).toBeGreaterThan(0);
   });
 
   it("GET / says the bundle is missing, with the command that fixes it", async () => {
@@ -661,10 +697,10 @@ describe("ui API", () => {
     expect(bad.status).toBe(400);
   });
 
-  // C7: a read whose answer is computed must not be discarded because the trail INSERT lost the
-  // write lock. WAL guarantees readers never block; before the fix, a `database is locked` on the
-  // `inject_preview` row (written BEFORE sendJson) surfaced as a 500 and threw away a preview the
-  // human already needed. The audit write is now best-effort and happens after the response.
+  // C7: a read whose answer is computed must not be discarded because the trail INSERT lost the write
+  // lock. WAL guarantees readers never block, so a `database is locked` on the `inject_preview` row
+  // must not surface as a 500 and throw away a preview the human already needed. The audit write is
+  // best-effort and happens after the response.
   it("C7: /api/inject returns its answer even when the audit write fails (locked trail)", async () => {
     const s = new SqliteStorage(join(dir, "c7-inject.sqlite"));
     await s.init();
@@ -824,8 +860,8 @@ describe("ui API", () => {
   });
 
   // A person id is whatever created it, so a colon does not mean "machine actor":
-  // `scripts/seed-dummy-it-company.mjs`, this repo's own corpus generator, mints exactly
-  // `person:platform-manager`. Skipping those ids renders every author in every seeded database as a
+  // `scripts/load-demo-corpus.mjs`, this repo's own corpus loader, mints exactly
+  // `person:han-seoyeon`. Skipping those ids renders every author in every seeded database as a
   // slug, on the screens that exist to keep ids away from readers.
   it("resolves a person whose id is namespaced, not just a bare ULID", async () => {
     const ont = store.loadOntology(null);
@@ -1640,10 +1676,10 @@ describe("creating from the browser says whether anything was compared", () => {
     expect(created.duplicates).toEqual([]);
   });
 
-  // The route used to accept only strings and string arrays, which made it NARROWER than the gate it
-  // fronts: a `decision`'s `rejected_alternatives` is declared string[] in the seed, so the web form
-  // (which sent every field as a string) could not fill the field the entity screen calls the
-  // most-read in the model. All four declared shapes now travel.
+  // The route must not be NARROWER than the gate it fronts. A `decision`'s `rejected_alternatives` is
+  // declared string[] in the seed, so a route taking only strings and string arrays leaves the web
+  // form unable to fill the field the entity screen calls the most-read in the model. All four
+  // declared shapes travel.
   it("carries every attribute shape the ontology can declare", async () => {
     const created = await post("/api/entity", {
       type: "decision",
@@ -1823,9 +1859,9 @@ describe("POST /api/backfill --embeddings", () => {
 
 // `yoke ui --host 0.0.0.0` warns and binds anyway, deliberately: a container cannot port-forward to a
 // loopback-bound process. What the operator did not choose is that anonymous LAN callers may mint
-// credentials — measured before the fix, `POST /api/tokens` from another machine returned a working
-// all-scopes token, and that token authenticated against a hardened `serve --auth`
-// process on the same database. The exposure escaped the server that was exposed.
+// credentials. Measured: unguarded, `POST /api/tokens` from another machine returns a working
+// all-scopes token, and that token authenticates against a hardened `serve --auth` process on the
+// same database — the exposure escapes the server that was exposed.
 //
 // The route wiring was verified against a real LAN peer (403 on all three credential routes, 200 on
 // instantParam now defers to the gate's own parseInstant (CLAUDE.md: the second place that parses
@@ -2008,7 +2044,7 @@ describe("W-PERSONA-ENVELOPE: the persona carries withheld and identities", () =
     ).then((r) => r.json());
     expect(p.decisions).toHaveLength(0);
     expect(p.facts).toHaveLength(0);
-    // The difference that used to be invisible: something IS on record, past its window.
+    // Empty is not the same answer as withheld: something IS on record, past its window.
     expect(p.withheld).toMatchObject({ stale: 1 });
     expect(p.identities).toBeUndefined();
   });

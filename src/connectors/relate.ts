@@ -35,14 +35,14 @@ export interface Ref {
 }
 
 /** A proposed edge, in the model's own vocabulary: local refs, not ids. */
-export interface Proposed {
+interface Proposed {
   from: string;
   to: string;
   type: string;
   because: string;
 }
 
-export type Relater = (records: Ref[]) => Promise<Proposed[] | null>;
+type Relater = (records: Ref[]) => Promise<Proposed[] | null>;
 
 /**
  * Which relation types a model may propose.
@@ -59,7 +59,7 @@ export function linkableTypes(ontology: TypeDef[]): TypeDef[] {
   return ontology.filter((t) => t.kind === "relation" && !t.membership);
 }
 
-export function relationMenu(ontology: TypeDef[]): string {
+function relationMenu(ontology: TypeDef[]): string {
   return linkableTypes(ontology)
     .map((t) => `- ${t.name}${t.symmetric ? " (symmetric)" : ""}`)
     .join("\n");
@@ -246,7 +246,7 @@ export function neighbourCount(env: Env): number {
 }
 
 /** One record, and the earlier records worth asking about it. `anchor` is always `refs[0]`. */
-export interface Group {
+interface Group {
   anchor: Entity;
   refs: Ref[];
   byRef: Map<string, Entity>;

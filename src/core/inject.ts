@@ -50,7 +50,7 @@ export interface InjectItem {
 
 /** What a multi-hop anchor walk actually did (SPEC "Multi-hop"). Numbers only — front adapters turn
  * them into words, the same division of labour `omitted` already has. */
-export interface WalkStats {
+interface WalkStats {
   /** Deepest distance actually reached. Below the requested depth means the graph ran out, or the
    * budget did — `truncated` is which. */
   depth: number;
@@ -131,6 +131,25 @@ export const WALK_BUDGET = 128;
 export const BRIEFING_LIMIT = 50;
 
 /**
+ * The limit a front adapter passes to `inject`. An anchored briefing with no query is capped —
+ * uncapped, a collaboration with 300 records attached returns all 300 in full (~15k tokens) — and a
+ * query is not, because its own terms already narrow it. An explicit limit always wins (SPEC: the
+ * three front adapters "apply the default to a briefing … and never to a query").
+ *
+ * All three call this rather than restating it: the CLI, the MCP tool and the preview route must
+ * agree byte for byte, and a preview showing 50 where the agent gets everything is exactly the drift
+ * that claim forbids.
+ */
+export function injectLimit(
+  scope: string | undefined,
+  query: string,
+  explicit: number | undefined,
+): number | undefined {
+  const briefing = scope !== undefined && !query;
+  return explicit ?? (briefing ? BRIEFING_LIMIT : undefined);
+}
+
+/**
  * What injection asks the store for, so the cap lands after the filter rather than before it.
  *
  * Two parts, and the first is the one that matters:
@@ -170,12 +189,9 @@ const STALE_HEADROOM = 3;
  * which is `versionAsOf`'s comparison and has to be: comparing the two clocks differently makes one
  * as-of read answer itself two ways.
  *
- * An edge's `status` is not consulted: an edge is born verified like everything else and
- * `lifecycle.transition` refuses relation ids, so status could only ever say what being stored
- * already says. Withholding — the one thing here that REMOVES standing knowledge from an answer —
- * rests on the edge's signature and the gate it passed, and on the retraction path: a wrong
- * supersession is answered by retiring the edge's author record or filing the counter-claim, both of
- * which the unseen ledger broadcasts.
+ * An edge's `status` is not consulted: `lifecycle.transition` refuses relation ids, so it could only
+ * ever repeat what being stored already says. A wrong supersession is answered by retiring the edge's
+ * author record or filing the counter-claim, both of which the unseen ledger broadcasts.
  *
  * ceiling: one relation read per record handed over — the cap, not the retrieval window, so a page of
  * ten costs ten and a fifty-record briefing costs fifty. Not benchmarked: the sqlite read is a single
@@ -477,8 +493,8 @@ export async function inject(
   const retrieve = async (): Promise<Entity[]> => {
     const fts = await port.search({ text: query, ...candidateQuery(opts) });
     const vec = await vectorHits(port, query, ns, opts);
-    // Returning `fts` itself (not a fused list of one) is what makes an unconfigured embedder
-    // byte-identical to v5.2: fusion would re-sort ties by id, which is a change nobody asked for.
+    // Returning `fts` itself rather than fusing a list of one: fusion re-sorts ties by id, so an
+    // unconfigured embedder would silently reorder results that the keyword half already ranked.
     return vec.length === 0
       ? fts
       : fuse([
@@ -678,10 +694,9 @@ export async function inject(
       ...(supersedes.length > 0 ? { supersedes } : {}),
     });
   }
-  // Say what was held back, whether or not anything came through. A partial answer is the worse case: a
-  // full page of unrelated records reads as "nothing was ever recorded" even when the record that
-  // answers the query — rationale, rejected alternatives and all — sits one TTL past its window. An
-  // absence a reader can see beats a filter they cannot, and that argument does not stop at zero.
+  // Say what was held back, whether or not anything came through — a full page of unrelated records
+  // reads as "nothing was ever recorded" even when the record that answers the query sits one TTL past
+  // its window. An absence a reader can see beats a filter they cannot.
   //
   // The query path has to re-ask because `candidateQuery` pushes `status` DOWN: a withheld retirement
   // never reached this function to be counted, and over-fetching instead of pushing does not work (see

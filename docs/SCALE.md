@@ -2,7 +2,7 @@
 
 Measured 2026-08-02 on one machine (darwin, node 22, better-sqlite3, WAL). Synthetic corpora of
 10k / 100k / 1M / 10M `fact` entities and, separately, 3M relations over the 1M corpus. Status mix
-70% verified / 20% draft / 10% deprecated; `last_confirmed` spread over Jan–Aug 2026 against a
+85% verified / 15% deprecated (`scripts/seed-scale-corpus.mjs`); `last_confirmed` spread over Jan–Aug 2026 against a
 `fact` TTL of 180 days, so roughly a sixth of the corpus is `stale`. Numbers are medians of 3–5
 runs. Every measurement drove the **shipped** `SqliteStorage` and the **shipped** `inject()` —
 nothing was reimplemented for the benchmark, so a bad number here was a bad number in production.

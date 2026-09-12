@@ -1,4 +1,4 @@
-// RDB read-mapping tests (PLAN 8.3). Source RDB = an in-memory better-sqlite3 (CREATE/INSERT), target =
+// RDB read-mapping tests. Source RDB = an in-memory better-sqlite3 (CREATE/INSERT), target =
 // an in-memory SqliteStorage. No Postgres. Covers: verified mapping + provenance, idempotent skip,
 // change → new version, ontology-invalid row rejected (run continues), FK relation emitted, CLI smoke.
 
@@ -7,11 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { seedOntology } from "../core/ontology.js";
 import { runCli } from "../front/cli/index.js";
-import {
-  ingestMapped,
-  type MappingSpec,
-  makeRdbMappingConnector,
-} from "./rdb-mapping.js";
+import { ingestMapped, type MappingSpec } from "./rdb-mapping.js";
 
 const now = "2026-07-12T00:00:00Z";
 
@@ -60,10 +56,10 @@ describe("ingestMapped", () => {
   ];
 
   it("maps rows to verified entities with rdb provenance", async () => {
-    const connector = makeRdbMappingConnector({
+    const connector = {
       query: query(src),
       mapping: EMPLOYEE_MAPPING,
-    });
+    };
     const res = await ingestMapped(port, ont, connector, now);
     expect(res).toMatchObject({ added: 3, updated: 0, skipped: 0, errors: 0 });
 
@@ -82,10 +78,10 @@ describe("ingestMapped", () => {
   });
 
   it("is idempotent — an unchanged re-run skips every row", async () => {
-    const connector = makeRdbMappingConnector({
+    const connector = {
       query: query(src),
       mapping: EMPLOYEE_MAPPING,
-    });
+    };
     expect(await ingestMapped(port, ont, connector, now)).toMatchObject({
       added: 3,
       skipped: 0,
@@ -98,10 +94,10 @@ describe("ingestMapped", () => {
   });
 
   it("re-versions a changed row (head advances, still verified)", async () => {
-    const connector = makeRdbMappingConnector({
+    const connector = {
       query: query(src),
       mapping: EMPLOYEE_MAPPING,
-    });
+    };
     await ingestMapped(port, ont, connector, now);
     const before = (await port.search({ text: "rdb:employees:2" })).find(
       (e) => e.attributes.external_id === "rdb:employees:2",
@@ -132,7 +128,7 @@ describe("ingestMapped", () => {
       },
     ];
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const connector = makeRdbMappingConnector({ query: query(src), mapping });
+    const connector = { query: query(src), mapping };
     const res = await ingestMapped(port, ont, connector, now);
     errSpy.mockRestore();
     expect(res).toMatchObject({ added: 0, errors: 3 });
@@ -152,7 +148,7 @@ describe("ingestMapped", () => {
     await ingestMapped(
       port,
       ont,
-      makeRdbMappingConnector({ query: query(src), mapping: withNote }),
+      { query: query(src), mapping: withNote },
       now,
     );
 
@@ -166,7 +162,7 @@ describe("ingestMapped", () => {
     const res = await ingestMapped(
       port,
       ont,
-      makeRdbMappingConnector({ query: query(src), mapping: narrowed }),
+      { query: query(src), mapping: narrowed },
       now,
     );
     expect(res).toMatchObject({ updated: 1, errors: 0 });
@@ -206,7 +202,7 @@ describe("ingestMapped", () => {
     await ingestMapped(
       port,
       ont,
-      makeRdbMappingConnector({ query: query(src), mapping: EMPLOYEE_MAPPING }),
+      { query: query(src), mapping: EMPLOYEE_MAPPING },
       now,
     );
     vi.restoreAllMocks();
@@ -229,7 +225,7 @@ describe("ingestMapped", () => {
     await ingestMapped(
       port,
       ont,
-      makeRdbMappingConnector({ query: query(src), mapping: EMPLOYEE_MAPPING }),
+      { query: query(src), mapping: EMPLOYEE_MAPPING },
       now,
     );
     vi.restoreAllMocks();
@@ -238,10 +234,10 @@ describe("ingestMapped", () => {
   });
 
   it("emits FK relations to the mapped target entity", async () => {
-    const connector = makeRdbMappingConnector({
+    const connector = {
       query: query(src),
       mapping: EMPLOYEE_MAPPING,
-    });
+    };
     await ingestMapped(port, ont, connector, now);
 
     const bob = (await port.search({ text: "rdb:employees:2" })).find(

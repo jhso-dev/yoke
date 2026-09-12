@@ -1,10 +1,10 @@
-// yoke serve (PLAN-V2 10.2) — ONE node:http server (NO express) combining, on a single port:
+// yoke serve (ENTERPRISE "server mode") — ONE node:http server (NO express) combining, on a single port:
 //   (a) the UI + JSON API — reuses createUiHandler verbatim (no route duplication);
 //   (b) a remote MCP endpoint at POST /mcp — the SDK's StreamableHTTPServerTransport in stateless
 //       mode, reusing createYokeMcpServer.
 // stdio `yoke mcp` and local `yoke ui` are untouched and stay ungated (single-user mode).
 //
-// Auth (PLAN-V2 10.3) + RBAC (PLAN-V2 10.4) apply ONLY here, and only when enabled (YOKE_AUTH=on
+// Auth (ENTERPRISE "auth") + RBAC (ENTERPRISE "RBAC") apply ONLY here, and only when enabled (YOKE_AUTH=on
 // or --auth). Then every /api/* and /mcp request needs a Bearer credential: an API token or an
 // OIDC RS256 JWT. Deny-by-default authorization is threaded into both the UI handler and the MCP
 // server via their `authorize` hooks.
@@ -31,6 +31,7 @@ import {
   DEFAULT_HOST,
   isLoopback,
   listen,
+  readJsonBody,
 } from "../ui/server.js";
 import {
   makeOidcVerifier,
@@ -50,7 +51,7 @@ type Env = Record<string, string | undefined>;
  */
 const REFRESH_MS = 30_000;
 
-export interface ServeDeps {
+interface ServeDeps {
   store: YokeStore;
   /** Actor used when auth is off, and audit fallback. */
   defaultActor: string;
@@ -61,7 +62,7 @@ export interface ServeDeps {
   /** OIDC config (from env). Omitted = only API tokens can authenticate. */
   oidc?: OidcConfig;
   embedder?: Embedder;
-  /** Read-only replica mode (PLAN-V2 11.2): deny every mutation regardless of scopes. Mutating
+  /** Read-only replica mode (BACKENDS "read replicas"): deny every mutation regardless of scopes. Mutating
    * API endpoints answer 409; MCP write tools get a tool error via the authorize hook. */
   readOnly?: boolean;
   /** Interval-pull snapshot config (11.2). When set, the store is re-copied from the primary via
@@ -76,7 +77,7 @@ export interface ServeDeps {
 }
 
 /** Server augmented with refreshNow() when running as a replica (11.2). */
-export interface ServeServer extends Server {
+interface ServeServer extends Server {
   refreshNow?(): Promise<void>;
 }
 
@@ -95,29 +96,6 @@ function bearer(req: IncomingMessage): string | null {
   if (!h) return null;
   const m = /^Bearer\s+(.+)$/i.exec(h);
   return m ? m[1].trim() : null;
-}
-
-/** Same cap as the UI handler's `readBody` (SPEC "Bounded input" — a rule for EVERY route on this
- * server). `/mcp` never reaches the UI handler, so it needs its own cap: an unbounded stream on an
- * auth-fronted, possibly non-loopback surface is the hazard. Kept as a second const rather than an
- * export from ui/server.ts because serve must not depend on the UI tier for a number. */
-const MAX_MCP_BODY = 256 * 1024;
-
-/** Read and JSON-parse the request body (undefined when empty) — MCP handleRequest wants it pre-parsed.
- * Bounded and content-type-checked like every other route (SPEC "Bounded input"). */
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const ct = req.headers["content-type"] ?? "";
-  if (!ct.includes("application/json"))
-    throw new Error("content-type must be application/json");
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const c of req) {
-    size += (c as Buffer).length;
-    if (size > MAX_MCP_BODY) throw new Error("request body too large");
-    chunks.push(c as Buffer);
-  }
-  const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : undefined;
 }
 
 export function createServeServer(deps: ServeDeps): ServeServer {
@@ -426,7 +404,7 @@ export async function runServe(
     auth?: boolean;
     ns?: string | null;
     replicaOf?: string;
-    /** Sharded composite storage (PLAN-V2 12.2). Ignored in replica mode (per-file snapshot). */
+    /** Sharded composite storage (ENTERPRISE "sharding"). Ignored in replica mode (per-file snapshot). */
     shards?: string;
     /** Bind address. Defaults to loopback — widening is explicit, and requires auth. */
     host?: string;

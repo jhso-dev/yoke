@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// yoke MCP server (PLAN 3.1–3.3) — stdio transport. Started with `yoke mcp [--db path]`.
+// yoke MCP server — stdio transport. Started with `yoke mcp [--db path]`.
 // Six tools: yoke_inject / yoke_commit / yoke_record_decision / yoke_overview / yoke_persona / yoke_use_scope.
 // Governance: every commit enters verified under a signed actor — filing is the entry bar, and the
 // quality controls are downstream (TTL re-confirmation, retirement with reason, conflicts_with).
@@ -24,6 +24,7 @@ import {
   entityIdCandidates,
   envKeywordWeight,
   inject,
+  injectLimit,
   WALK_BUDGET,
 } from "../../core/inject.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
@@ -38,6 +39,7 @@ import {
 import type { Entity, EntityInput, RelationInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
 import {
+  bestEffortAudit,
   citeActors,
   describeWithheld,
   injectDetail,
@@ -58,7 +60,7 @@ const ORIGIN = "mcp";
  * noise but cannot corrupt the corpus — and noise is answered downstream: what it files is signed,
  * broadcast on retraction, and expires without re-confirmation.
  */
-export const INSTRUCTIONS =
+const INSTRUCTIONS =
   "yoke is the governed knowledge base: yoke_inject returns only standing records — signed, cited, " +
   "within their freshness window, with retirements and disputes surfaced. The knowledge loop:\n" +
   "1. Before non-trivial work, call yoke_inject with your question (set scope when you know the " +
@@ -79,15 +81,15 @@ export const INSTRUCTIONS =
   "record is never deleted: a person retires it with a reason, and the retraction reaches " +
   "everyone who was handed it.";
 
-export interface YokeMcpDeps {
-  /** logAudit (PLAN 8.4) is optional: adapters without it simply skip injection auditing.
+interface YokeMcpDeps {
+  /** logAudit is optional: adapters without it simply skip injection auditing.
    * Everything else the tools need is the plain port — persona included, since authorship is a
    * graph edge rather than a provenance lookup outside the contract. */
   store: StoragePort & { logAudit?(event: AuditEvent): void };
   ontology: TypeDef[];
   /** Default actor when a tool call omits one (resolved from env at server startup). */
   defaultActor: string;
-  /** Tenant namespace scope (PLAN-V2 10.1), read from YOKE_NS at startup. null = default shared ns. */
+  /** Tenant namespace scope (ENTERPRISE "namespaces"), read from YOKE_NS at startup. null = default shared ns. */
   ns?: string | null;
   /** Current time as ISO 8601. Defaults to new Date().toISOString() — tests inject a fixed value. */
   now?: () => string;
@@ -95,7 +97,7 @@ export interface YokeMcpDeps {
   embedder?: Embedder;
   /** Per-deployment hybrid fusion weight (YOKE_KEYWORD_WEIGHT) — see core KEYWORD_WEIGHT's ceiling. */
   keywordWeight?: number;
-  /** Per-request RBAC hook (PLAN-V2 10.4). Default allow-all — stdio `yoke mcp` is single-user
+  /** Per-request RBAC hook (ENTERPRISE "RBAC"). Default allow-all — stdio `yoke mcp` is single-user
    * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */
   authorize?: (action: "read" | "write", type?: string) => boolean;
   /** Default injection/capture scope (a collaboration/entity id) resolved at startup from YOKE_SCOPE
@@ -171,19 +173,6 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
 
   // Input actor > server startup env (defaultActor) > 'yoke:system' (already folded into defaultActor).
   const resolveActor = (actor?: string) => actor ?? defaultActor;
-
-  // A read's audit row is best-effort: on a locked DB logAudit throws, and a dropped trail row must
-  // not turn an already-computed read into a failed query. stderr, not stdout: stdout is the protocol
-  // channel. WRITE tools keep the audit inline; only reads are best-effort.
-  const bestEffortAudit = (event: AuditEvent): void => {
-    try {
-      store.logAudit?.(event);
-    } catch (e) {
-      process.stderr.write(
-        `warning: audit row not written (read succeeded): ${(e as Error).message}\n`,
-      );
-    }
-  };
 
   async function doCommit(
     input: EntityInput | RelationInput,
@@ -389,17 +378,13 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       if (!authorize("read")) return forbidden();
       const ts = now();
       const anchor = effectiveScope(scope);
-      // A briefing (anchored, no query) is capped: uncapped, a collaboration with 300 records attached
-      // returns all 300 in full (~15k tokens). An explicit limit overrides; a query is already
-      // narrowed by its own terms.
-      const briefing = anchor !== undefined && !query;
       const { items, omitted, walk, withheld } = await inject(
         store,
         ontology,
         query,
         ts,
         {
-          limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
+          limit: injectLimit(anchor, query, limit),
           ns,
           scope: anchor,
           depth,
@@ -409,11 +394,11 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           keywordWeight,
         },
       );
-      // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
+      // Injection audit: who got what knowledge injected. Front-tier I/O — core stays pure.
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
       // unscoped one, and which of the two agents actually do is the measurement that decides whether
       // graph expansion is worth investing in at all (docs/RESEARCH.md).
-      bestEffortAudit({
+      bestEffortAudit(store, {
         actor: defaultActor,
         action: "inject",
         detail: injectDetail(
@@ -653,7 +638,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const o = await overview(store, ontology, ts, { ns, top });
       // Audited like every other read that returns knowledge attributes — a hub row carries a record's
       // own text (SPEC "Any route that returns knowledge attributes writes an audit row").
-      bestEffortAudit({
+      bestEffortAudit(store, {
         actor: defaultActor,
         action: "overview",
         detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
@@ -742,9 +727,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         );
       }
       const { decisions, facts } = persona;
-      // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.
+      // Persona reads are injections too — same audit trail as yoke_inject.
       const injected = [...decisions, ...facts].map((i) => i.entity);
-      bestEffortAudit({
+      bestEffortAudit(store, {
         actor: defaultActor,
         action: "persona",
         detail: `${person}${query ? ` ${query}` : ""} -> ${injected.map((e) => e.id).join(" ")}`,

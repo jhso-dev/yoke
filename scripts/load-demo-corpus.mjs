@@ -21,26 +21,13 @@
 
 import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { commit } from "../dist/core/commit.js";
-import { makeFetchEmbedder } from "../dist/core/embedding.js";
 import { deprecate, verify } from "../dist/core/lifecycle.js";
-import { seedOntology } from "../dist/core/ontology.js";
-import { openStore } from "../dist/front/store.js";
+import { dateSpread, openSeededStore, probeEmbedder } from "./corpus-lib.mjs";
 
 const DIR = fileURLToPath(new URL("demo-corpus", import.meta.url));
 const LOCAL = process.argv[2] ?? "./demo-yoke.db";
 const NOW = "2026-08-04T09:00:00.000Z";
-const DAY = 86400000;
-const iso = (daysAgo) =>
-  new Date(Date.parse(NOW) - daysAgo * DAY).toISOString();
-
-/** Deterministic spread of occurred_at. No Math.random: a reload must produce the same corpus, or
- * "it changed" stops being evidence of anything. */
-const dateFor = (key) => {
-  let h = 0;
-  for (const c of key) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return iso(h % 400);
-};
+const { iso, dateFor } = dateSpread(NOW, 400);
 
 // The local sqlite is bookkeeping (audit + tokens) and is rebuilt from scratch. A remote knowledge
 // store is NOT cleared here — erasing someone's database as a side effect of a demo load is not this
@@ -55,47 +42,17 @@ const domains = files.map((f) => ({
   ...JSON.parse(readFileSync(`${DIR}/${f}`, "utf8")),
 }));
 
-const embedder = makeFetchEmbedder(process.env);
-const vectors = (await embedder("probe")) !== null;
-console.log(
-  vectors
-    ? `embedder: ${process.env.YOKE_EMBED_MODEL} — vectors on`
-    : "embedder: none — loading WITHOUT vectors (set YOKE_EMBED_URL for hybrid retrieval)",
+const { embedder, vectors } = await probeEmbedder(
+  process.env,
+  "loading WITHOUT vectors (set YOKE_EMBED_URL for hybrid retrieval)",
 );
 
-const store = await openStore({ db: LOCAL }, process.env);
-await store.init();
-const ontology = seedOntology();
-await store.saveOntology(ontology);
-
-// The bootstrap actor, which `yoke init` normally seeds. Without it `yoke mcp` refuses the database
-// outright ("not initialized") — so the corpus loaded here was readable by the CLI and the web UI and
-// unusable over the one interface the product exists to serve. Found by pointing a real MCP client at
-// it. Idempotent: skipped when the row is already there, so re-running the loader is still safe.
-if (!(await store.getEntity("yoke:system"))) {
-  const at = "2025-01-01T00:00:00.000Z";
-  const { entity } = await commit(
-    store,
-    ontology,
-    { type: "person", attributes: { name: "yoke" } },
-    { actor: "yoke:system", origin: "seed", occurred_at: at },
-    at,
-    { existingId: "yoke:system" },
-  );
-  await verify(store, [entity.id], "yoke:system", at);
-}
-
-const add = async (input, actor, at, existingId) => {
-  const { entity } = await commit(
-    store,
-    ontology,
-    input,
-    { actor, origin: "seed", occurred_at: at },
-    at,
-    { embedder, existingId },
-  );
-  return entity.id;
-};
+const { store, add } = await openSeededStore({
+  db: LOCAL,
+  env: process.env,
+  embedder,
+  origin: "seed",
+});
 const rel = (type, from, to, actor, at) =>
   add({ type, attributes: {}, from, to }, actor, at);
 

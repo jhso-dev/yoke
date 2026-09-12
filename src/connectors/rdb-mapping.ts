@@ -1,4 +1,4 @@
-// RDB read-mapping connector (PLAN 8.3, BACKENDS "Traditional-DB read-mapping") — the enterprise wedge.
+// RDB read-mapping connector (BACKENDS "Traditional-DB read-mapping") — the enterprise wedge.
 // Exposes an existing RDB as ontology entities with no migration and no bidirectional sync (read-only).
 //
 // The second pass below is the WHOLE difference from `ingest`: every row goes through `ingestItem`,
@@ -47,17 +47,11 @@ export interface RdbMappingConnector {
   mapping: MappingSpec[];
 }
 
-export interface MappedResult {
+interface MappedResult {
   added: number;
   updated: number;
   skipped: number;
   errors: number;
-}
-
-export function makeRdbMappingConnector(
-  opts: RdbMappingConnector,
-): RdbMappingConnector {
-  return opts;
 }
 
 const externalId = (table: string, pk: unknown): string =>
@@ -188,11 +182,9 @@ export async function ingestMapped(
           );
           continue;
         }
-        // Idempotent: skip if this exact edge already exists (commit has no dedup for relations).
-        const existingEdges = await port.neighbors(fromId, rel.relType, "out");
-        if (existingEdges.some((r) => r.to === toId)) continue;
-        // Relations pass the same gate; no read filters on an edge's status (see lifecycle.ts), so
-        // an edge is just stored — the mapped entities are the read-mapping's knowledge surface.
+        // Idempotent through the gate: a relation's identity is (type, from, to) in a namespace, so
+        // committing an edge that is already there stores nothing and reports it (commit.ts). Asking
+        // `neighbors` first would be the same question, one read per FK per row per sync.
         try {
           await commit(
             port,

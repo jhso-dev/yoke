@@ -12,7 +12,7 @@
 
 ontology-based knowledge database · governed context injection for AI agents · MCP-native
 
-MIT · feature-complete through v6.1 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
+MIT · feature-complete through v7.6 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
 
 **English** | [한국어](README.ko.md)
 
@@ -98,24 +98,29 @@ Memory layers retrieve passages and paste them in. yoke injects **records** — 
 decision with its rationale, a preference, a fact — already distilled, so every
 token you spend is a claim rather than the prose around one.
 
-Measured against two retrieval baselines in one harness — same corpus, same
-questions, same answering model, 42 questions over two people:
+Measured 2026-08-15 through [agent-memory-benchmark][amb], which owns the dataset (PersonaMem), the
+answering model and the judge — so yoke is only the memory arm and the comparison is like for like.
+Same corpus, same 42 questions, same answerer (`gemma-4-e4b`), one variable:
 
-| | injected context | accuracy |
-|---|---|---|
-| no memory | 0 | 59.5% |
-| **yoke** | **1.2k tokens** | 73.8% |
-| keyword chunks | 5.1k tokens | 61.9% |
-| dense + sparse hybrid, top-50 chunks | 22.8k tokens | 71.4% |
+| | injected context | correct | correct per 1k tokens |
+|---|---|---|---|
+| no memory | 0 | 20/42 (47.6%) | — |
+| **yoke** | **1.2k tokens** | 28/42 (66.7%) | **23.5** |
+| keyword chunks (bm25) | 5.1k tokens | 26/42 (61.9%) | 5.1 |
+| dense + sparse hybrid, top-50 | 22.8k tokens | **30/42 (71.4%)** | 1.3 |
 
-**5.2× the answers per token of chunk retrieval, 20× that of the hybrid
-retriever** — and higher accuracy than both, on a fifth to a twentieth of the
-context. The hybrid buys its 71.4% with a 22.8k-token injection, most of a
-small model's context window spent on one question.
+State both halves. The hybrid is the most accurate thing measured here — 4.7 points above yoke — and
+it spends 19× the context to get there, which on this dataset is most of a small model's window for
+one question. **Efficiency differs by multiples; accuracy differs by points.**
 
-Translated to the benchmark's official evaluation conditions, yoke lands at
-~87% — the range of the top published systems, on a twentieth of the injected
-context.
+Two things this does not say. An absolute score is mostly a statement about the answering model, so
+these levels do not transfer to a frontier answerer or compare against a published leaderboard. And
+the run predates born-verified: the provider opened the gate to ingest, so what is measured is
+extraction and retrieval, never governance. The harness and its result files are in git at
+`archive/personamem-loop`; they are not on `main`, so treat the table as a dated run rather than a
+number this repository can currently reproduce.
+
+[amb]: https://github.com/vectorize-io/agent-memory-benchmark
 
 Every record also arrives with its citation, which a pasted passage cannot do.
 
@@ -300,7 +305,7 @@ vector — measured at 1 of 3 entities in this repo's own database before it was
 | Knowledge is stored | yes | **yes** — a provider being down never rejects a record |
 | Duplicate candidates on commit | yes | **no, and `yoke add` says so** — there is no keyword fallback for this, because treating every FTS hit as a duplicate is mostly false positives |
 | `conflicts_with` auto-detection | yes | no |
-| Search / injection | yes | keyword only — a question-shaped query drops from recall@10 82.4% to 52.0% on the demo gold set |
+| Search / injection | yes | keyword only — a question-shaped query drops from recall@10 82.4% to 52.0% on the demo gold set (measured 2026-08-17, `bge-m3` vs none) |
 
 Coverage is repairable at any time — the vector is a derived index, not knowledge, so this writes no
 new version and changes no citation:
@@ -394,8 +399,9 @@ yoke inject <query> [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--limit n]             # the corpus at a glance / as edges
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
-yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
-yoke connect github-pr|slack|notes|raw|rdb ...
+yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape|--pulse|--roi]
+yoke connect github-pr|slack|notes|raw|rdb ... [--scope id]
+yoke relate <id...>                           # propose edges between records
 yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
 yoke backup <dest.db> [--force] | restore <src.db> [--force]
 yoke export --until <ts> --out <new.db>       # --shards <file> federates backends
@@ -437,10 +443,10 @@ wired up:
 | Contamination rate | Share of stale or retired entries among inject results | 0% | **0.0%** (only the 20 standing of 40 candidates were injected) |
 | Missed-contradiction rate | Share of opposing-conclusion decision pairs with no conflicts_with edge | 0% | **80.0%** (1/5 detected, bge-m3) — the stub embedder's 0% is true by construction; the eval prints which one ran |
 
-Read those two numbers for what they cover: a 50-record synthetic corpus and a stub
-embedder whose vectors are built from the planted topic word, so the contradiction
-figure measures that stage 4 runs and files the edge — not that a real embedding model
-would notice. Precision is not measured on either axis.
+Read those numbers for what they cover: a ~134-record synthetic corpus, and whichever embedder was
+configured — the report names it, because a stub that emits one vector per topic makes detection true
+by construction. A third metric, gold-in-brief, checks that three planted decisions survive 80 noise
+records into the opening page. Precision is not measured on any axis.
 
 **Persona quality** (`npm run eval:persona`) — does a persona return that person's
 standing judgment and nothing else. Planted failure modes (a colleague's records on
@@ -466,7 +472,7 @@ totals.
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
 | [WEB-UI](docs/WEB-UI.md) | The governance workbench — the twelve screens and the line we don't cross |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v6.1 built, in order, each section a record |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v7.6 built, in order, and which doc owns each rule |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
 | [MARKET](docs/MARKET.md) | Competitive landscape and positioning |

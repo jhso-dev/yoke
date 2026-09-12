@@ -1,4 +1,4 @@
-// yoke ui — embedded governance-workbench server (PLAN 9.1). node:http only, NO express (NON-GOALS).
+// yoke ui — embedded governance-workbench server. node:http only, NO express (NON-GOALS).
 // The API is only the HTTP exposure of existing core/adapter functions — no UI-only business logic,
 // so every action stays CLI-achievable (WEB-UI.md rule). Time is obtained in this front tier and
 // passed into core; mutations are audit-logged via logAudit (same pattern as the CLI inject path).
@@ -14,7 +14,12 @@ import { fileURLToPath } from "node:url";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
-import { BRIEFING_LIMIT, citation, inject } from "../../core/inject.js";
+import {
+  BRIEFING_LIMIT,
+  citation,
+  inject,
+  injectLimit,
+} from "../../core/inject.js";
 import {
   deprecate,
   downstreamOf,
@@ -34,6 +39,7 @@ import {
 import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
 import {
+  bestEffortAudit,
   CONSUMPTION_WINDOW,
   consumptionCounts,
   DELIVERY_WINDOW,
@@ -47,20 +53,21 @@ import {
   ULID,
   unseenReport,
 } from "../display.js";
-import { parseScope } from "../serve/rbac.js";
+import { declaredType, storedStatus, wholeNumber } from "../params.js";
+import { validateScopes } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
 
 type Env = Record<string, string | undefined>;
 
-export interface UiDeps {
+interface UiDeps {
   store: YokeStore;
   /** Resolved once from env (verify/deprecate provenance + audit actor). */
   actor: string;
-  /** Tenant namespace scope (PLAN-V2 10.1). Omitted/null = the default shared namespace. */
+  /** Tenant namespace scope (ENTERPRISE "namespaces"). Omitted/null = the default shared namespace. */
   ns?: string | null;
   now?: () => string;
-  /** RBAC hook (PLAN-V2 10.4) — checked per API endpoint. Default allow-all (local single-user
+  /** RBAC hook (ENTERPRISE "RBAC") — checked per API endpoint. Default allow-all (local single-user
    * `yoke ui` stays ungated); serve mode injects a per-request scope check. */
   authorize?: (action: "read" | "write" | "admin", type?: string) => boolean;
   /**
@@ -161,15 +168,33 @@ function relRow(
 }
 
 /** A bounded positive-int query param. Throws (→400) on garbage or over max — never a silent cap,
- * so a client asking for more than we serve learns it rather than quietly getting less. */
+ * so a client asking for more than we serve learns it rather than quietly getting less. The whole-number
+ * rule is the CLI's, so `?limit=0x10` cannot mean 16 here and nothing there. */
 function intParam(url: URL, name: string, def: number, max: number): number {
   const raw = url.searchParams.get(name);
   if (raw === null) return def;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1)
-    throw new Error(`${name} must be a positive integer`);
-  if (n > max) throw new Error(`${name} must be <= ${max}`);
-  return n;
+  const r = wholeNumber(raw, name);
+  if (!r.ok) throw new Error(r.error);
+  if (r.value > max) throw new Error(`${name} must be <= ${max}`);
+  return r.value;
+}
+
+/** A `status` / `type` query param, judged by the same rules the CLI applies — an unaskable value is
+ *  refused, never answered with an empty list that reads as "none exist". */
+function statusParam(url: URL): string | undefined {
+  const raw = url.searchParams.get("status");
+  if (raw === null) return undefined;
+  const r = storedStatus(raw);
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
+}
+
+function typeParam(url: URL, ontology: TypeDef[]): string | undefined {
+  const raw = url.searchParams.get("type");
+  if (raw === null) return undefined;
+  const r = declaredType(raw, ontology);
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
 }
 
 /**
@@ -294,9 +319,10 @@ const MAX_BODY = 256 * 1024;
  * ceiling: a flat per-event cap. Make it a budget across the page if audit pages ever feel slow. */
 const AUDIT_REFS = 20;
 
-async function readBody(
-  req: IncomingMessage,
-): Promise<Record<string, unknown>> {
+/** The bounded, content-type-checked body read every route on this server performs (SPEC "Bounded
+ * input"). `undefined` on an empty body, which is what MCP's handleRequest wants; `readBody` is the
+ * same read for the routes that want an object. */
+export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const ct = req.headers["content-type"] ?? "";
   if (!ct.includes("application/json"))
     throw new Error("content-type must be application/json");
@@ -308,7 +334,13 @@ async function readBody(
     chunks.push(c as Buffer);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
+  return raw ? JSON.parse(raw) : undefined;
+}
+
+async function readBody(
+  req: IncomingMessage,
+): Promise<Record<string, unknown>> {
+  return ((await readJsonBody(req)) ?? {}) as Record<string, unknown>;
 }
 
 async function readIds(
@@ -327,15 +359,9 @@ async function readIds(
   return { ids: ids as string[], reason: reason as string | undefined };
 }
 
-/** Attribute values a form can send. Anything else (nested objects, numbers that should have been
- * strings) is refused here rather than reaching the gate as a shape the ontology cannot describe. */
 /**
  * The four value shapes an attribute may take — the same four the ontology declares (`string`,
- * `number`, `boolean`, `string[]`, see core/ontology.ts AttrSpec).
- *
- * It used to accept only strings and string arrays, which made the route narrower than the gate it
- * fronts: a type declaring a `number` attribute could be committed from the CLI and not from HTTP,
- * so the web form had no honest way to offer the field at all. Validation still belongs to the gate;
+ * `number`, `boolean`, `string[]`, see core/ontology.ts AttrSpec). Validation belongs to the gate;
  * this only refuses shapes no attribute can ever hold (objects, nested arrays, null).
  */
 function readAttributes(v: unknown): Record<string, unknown> {
@@ -357,7 +383,7 @@ function readAttributes(v: unknown): Record<string, unknown> {
 }
 
 /** The bare request handler (no Server wrapper) so serve mode can reuse the exact same routes
- * behind its auth/MCP combined server (PLAN-V2 10.2). createUiServer wraps this in node:http. */
+ * behind its auth/MCP combined server (ENTERPRISE "server mode"). createUiServer wraps this in node:http. */
 export function createUiHandler(
   deps: UiDeps,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
@@ -431,24 +457,6 @@ export function createUiHandler(
     });
     return true;
   };
-  /**
-   * A read's audit row, written best-effort (C7).
-   *
-   * A search/entity/inject read whose answer is already computed must not be discarded because the
-   * trail INSERT lost the write lock to a concurrent writer — WAL's guarantee is that readers never
-   * block, so a `database is locked` on a secondary trail row must not become a failed query. A failed
-   * write is logged and dropped (the read succeeded — the trail is a secondary record), never
-   * propagated to the response. Write routes keep their audit inline; only reads use this.
-   */
-  const bestEffortAudit = (event: AuditEvent): void => {
-    try {
-      store.logAudit(event);
-    } catch (err) {
-      console.error(
-        `audit row not written (read succeeded): ${(err as Error).message}`,
-      );
-    }
-  };
   /** One audit row for a knowledge read, in the `<subject> -> <id> …` shape every other action
    * uses so the trail is comparable across adapters (SPEC "HTTP API"). Called with what is about
    * to be sent, never with what was asked for, so a row cannot claim ids the response withheld. */
@@ -457,7 +465,7 @@ export function createUiHandler(
     ids: string[],
     subject?: string,
   ) =>
-    bestEffortAudit({
+    bestEffortAudit(store, {
       actor,
       action,
       detail: subject ? `${subject} -> ${ids.join(" ")}` : ids.join(" "),
@@ -467,12 +475,11 @@ export function createUiHandler(
   const serveStatic = createStaticHandler(
     deps.webRoot === undefined ? defaultWebRoot() : deps.webRoot,
   );
-  /** A row serializer bound to this request's ontology and clock — so effectiveStatus is computed
-   * once per request rather than per row, and every route reports freshness the same way.
-   * Async because it also resolves actor ids to display names; the name memo is created here, per
-   * call, so it cannot outlive one response and serve a renamed person their old name. */
-  /** Entity rows, relation rows, and the actor-name prefetch — ONE memo behind all three, so a route
-   * serializing both entities and relations (the graph route) does not read every author twice. */
+  /** Entity rows, relation rows and the actor-name prefetch, bound to this request's ontology and
+   * clock: effectiveStatus is computed once per request rather than per row, so every route reports
+   * freshness the same way, and ONE name memo sits behind all three so the graph route does not read
+   * every author twice. The memo is created per call, so it cannot outlive one response and serve a
+   * renamed person their old name. */
   const serializers = () => {
     const ontology = store.loadOntology(ns);
     const ts = now();
@@ -600,12 +607,12 @@ export function createUiHandler(
     // Browse: enumerate knowledge. `type` doubles as the RBAC key, so a token scoped to one
     // ontology type can use this endpoint by naming that type — and only that type.
     if (method === "GET" && path === "/api/entities") {
-      const type = url.searchParams.get("type") ?? undefined;
-      if (denied(res, "read", type)) return;
+      const rawType = url.searchParams.get("type") ?? undefined;
+      if (denied(res, "read", rawType)) return;
       const q = {
         ns,
-        type,
-        status: url.searchParams.get("status") ?? undefined,
+        type: typeParam(url, store.loadOntology(ns)),
+        status: statusParam(url),
         after: url.searchParams.get("after") ?? undefined,
         limit: intParam(url, "limit", 100, 1000),
       };
@@ -625,8 +632,9 @@ export function createUiHandler(
     // and `truncated` says when the cap bit, which is the honest way to cap something (the graph
     // and briefing screens already do it this way). Getting everything is `inject`, or the CLI.
     if (method === "GET" && path === "/api/search") {
-      const type = url.searchParams.get("type") ?? undefined;
-      if (denied(res, "read", type)) return;
+      const rawType = url.searchParams.get("type") ?? undefined;
+      if (denied(res, "read", rawType)) return;
+      const type = typeParam(url, store.loadOntology(ns));
       const text = (url.searchParams.get("q") ?? "").trim();
       if (!text) {
         sendJson(res, 400, { error: "q is required" });
@@ -638,7 +646,7 @@ export function createUiHandler(
       const found = await store.search({
         text,
         type,
-        status: url.searchParams.get("status") ?? undefined,
+        status: statusParam(url),
         limit: limit + 1,
         ns,
       });
@@ -785,15 +793,9 @@ export function createUiHandler(
       // a typo produces a 400 instead of Date.parse's NaN quietly excluding every record — a screen
       // showing "0 records" for a bad date reads as "we knew nothing then", which is a lie.
       const asOfParam = instantParam(url, "asOf");
-      // Same default rule as the MCP tool and the CLI, verbatim: an anchored briefing is capped at
-      // BRIEFING_LIMIT, a query is not (SPEC "the three front adapters apply the default to a
-      // briefing … and never to a query"). Defaulting every call would show 50 where the agent gets
-      // everything — the drift the byte-for-byte claim below forbids, on the one screen whose job is
-      // to rule it out.
       const explicitLimit = url.searchParams.has("limit")
         ? intParam(url, "limit", BRIEFING_LIMIT, 500)
         : undefined;
-      const briefing = scope !== undefined && !query;
       const injectOntology = store.loadOntology(ns);
       const { items, omitted, walk, withheld } = await inject(
         store,
@@ -801,7 +803,7 @@ export function createUiHandler(
         query,
         ts,
         {
-          limit: explicitLimit ?? (briefing ? BRIEFING_LIMIT : undefined),
+          limit: injectLimit(scope, query, explicitLimit),
           ns,
           scope,
           since: handed?.anchored.last,
@@ -841,7 +843,7 @@ export function createUiHandler(
         res.end(body);
         // A model received knowledge: `inject`, not `inject_preview` — this is the row the next unseen
         // read is bounded by, and a preview row would not count (see `deliveries`).
-        bestEffortAudit({
+        bestEffortAudit(store, {
           actor,
           action: "inject",
           detail: injectDetail(delivered, { scope, changed }),
@@ -904,7 +906,7 @@ export function createUiHandler(
           );
         })(),
       });
-      bestEffortAudit(previewEvent);
+      bestEffortAudit(store, previewEvent);
       return;
     }
 
@@ -1104,21 +1106,15 @@ export function createUiHandler(
         });
         return;
       }
-      const cleanScopes = scopes.map((s) => s.trim());
-      // Shape is not enough: `["reed"]` would produce a credential that authenticates and then 403s on
-      // everything, indistinguishable from a working one until used. The parser that decides what a
-      // scope MEANS is the right thing to ask what one IS, and the CLI asks it too (`yoke token create`).
-      const unparsed = cleanScopes.filter((raw) => parseScope(raw) === null);
-      if (unparsed.length > 0 || cleanScopes.length === 0) {
+      const checked = validateScopes(scopes);
+      if (!checked.ok) {
         sendJson(res, 400, {
-          error:
-            cleanScopes.length === 0
-              ? "scopes is empty: a credential with no scope can do nothing"
-              : `not a scope: ${unparsed.join(", ")} — scope is action | namespace:action | namespace:type:action`,
-          ...(unparsed.length > 0 ? { scopes: unparsed } : {}),
+          error: checked.error,
+          ...(checked.bad.length > 0 ? { scopes: checked.bad } : {}),
         });
         return;
       }
+      const cleanScopes = checked.scopes;
       // Every scope has to be one this caller could grant. Without it, `admin` on one namespace mints a
       // wildcard credential and the boundary the rest of this server enforces is gone in two steps
       // instead of one.
@@ -1198,7 +1194,7 @@ export function createUiHandler(
       // Best-effort (C7): the persona is already computed, so a locked trail drops the row to stderr
       // rather than 400 an answer — inline `logAudit` would let a held write lock turn a read into a
       // failure.
-      bestEffortAudit({
+      bestEffortAudit(store, {
         actor,
         action: "persona",
         detail: `${id} -> ${injected.map((e) => e.id).join(" ")}`,

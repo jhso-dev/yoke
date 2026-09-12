@@ -8,9 +8,9 @@
 //
 //   1) Impersonation rate — records returned by persona(A) that A did not author (target 0%), and
 //      records A DID author that are not knowledge at all: the collaboration they started, the person
-//      record filed for a colleague. This axis was missing and the gap was real — the bait below was
-//      all about AUTHORSHIP, so a corpus where the subject creates their own collaboration passed
-//      while the persona listed a project name among the things that person knows.
+//      record filed for a colleague. Baiting on AUTHORSHIP alone is not enough: a corpus where the
+//      subject creates their own collaboration passes it while the persona lists a project name among
+//      the things that person knows.
 //      Bait: B's verified records on the SAME topics as A's, plus records linked to A by
 //      `relates_to` (an association is not authorship), plus facts A's own decisions cite via
 //      `derived_from` but which someone else wrote — the depth-2 vector the graph's shape is

@@ -1,4 +1,4 @@
-// meeting-notes connector (PLAN 8.5). Scans local .txt/.md transcripts and yields one fact per
+// meeting-notes connector. Scans local .txt/.md transcripts and yields one fact per
 // chunk. Chunking is a dumb heuristic (headings / blank-line paragraphs) by design — no NLP; a
 // wrong capture is retired with a reason. fs access is fine here: connectors are front-tier producers.
 // external_id = file:<relpath>#<index> (index is the chunk position within the file).

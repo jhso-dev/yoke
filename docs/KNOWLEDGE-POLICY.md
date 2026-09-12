@@ -65,6 +65,18 @@ was handed it. Entry is cheap; **persistence is what a human grants.**
 
 <!-- ceiling: stale is computed at read time. If tens of thousands of entries plus query latency become a problem, switch to batch demotion -->
 
+## Why the gate was removed
+
+Decided 2026-09-11, after surveying how OpenClaw, Hermes Agent, mem0, Zep and AiKA capture
+knowledge: every capture system in production is opt-out — post-hoc correction, not pre-use
+approval. The approval queue was this product's adoption cliff. A corpus stuck in draft is a product
+that looks dead, and a confirmation prompt is friction at exactly the moment capture must be free.
+
+What made the flip safe here is machinery those systems do not have: signed provenance bound to the
+credential, TTL expiry that composts what nobody re-confirms, disputes served marked, and the
+`--unseen` ledger turning a retirement into a recall notice that chases every delivery. **Approval on
+entry was protecting readers with the weakest of the five mechanisms.**
+
 ## The trade this policy makes
 
 Live-at-birth accepts that a wrong record can be served before a person sees it. The mechanisms

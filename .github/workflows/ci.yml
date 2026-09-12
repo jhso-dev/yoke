@@ -21,10 +21,12 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-      # AFTER the build, on purpose: this is the check that executes the shipped client bundle, and
-      # it skips when there is no build. Running it in `npm test` (before build) would skip forever —
-      # which is exactly how v2.5 shipped a UI whose script never parsed.
+      # AFTER the build, on purpose: this is the check that executes the shipped client bundle, and it
+      # skips when there is no build. In `npm test` it would skip forever, and an inert UI would ship
+      # green.
       - run: npm run test:bundle
+      # The weekly rig's tripwire rule, asserted here — otherwise it can only rot in place.
+      - run: node scripts/self-check.mjs --selftest
 
   # storage-opensearch against a REAL OpenSearch, so the adapter is never only skipped: the test
   # file skips itself when YOKE_TEST_OPENSEARCH_URL is unset, which keeps `npm test` green on a laptop
@@ -59,17 +61,13 @@ jobs:
       - run: npm ci
       # The serve file rides along for its one OpenSearch-gated case: the company-DB deployment —
       # knowledge remote, credentials in the serve host's local sqlite.
-      - run: npx vitest run src/adapters/storage-opensearch src/front/serve/serve.test.ts
+      - run: npx vitest run src/adapters/storage-opensearch src/front/serve/serve.test.ts --reporter=json --outputFile=/tmp/os.json
         env:
           YOKE_TEST_OPENSEARCH_URL: http://localhost:9200
-      # Non-vacuity: the suite above must not have been skipped. Without this the job is green either
-      # way — the same failure mode the windows job taught us, where a silent skip reads as a pass.
+      # Non-vacuity: the suite above skips itself when the env var is unset, so a green job proves
+      # nothing until the run is shown to have executed cases.
       - name: the opensearch suite actually ran
-        run: |
-          npx vitest run src/adapters/storage-opensearch --reporter=json --outputFile=/tmp/os.json
-          node -e "const r=require('/tmp/os.json');if(!r.numPassedTests)throw new Error('opensearch suite ran 0 tests — it skipped');console.log(r.numPassedTests+' opensearch tests ran')"
-        env:
-          YOKE_TEST_OPENSEARCH_URL: http://localhost:9200
+        run: node -e "const r=require('/tmp/os.json');if(!r.numPassedTests)throw new Error('opensearch suite ran 0 tests — it skipped');console.log(r.numPassedTests+' opensearch tests ran')"
 
   # storage-postgres against a REAL Postgres, twice: the pgvector image for the full suite, and a
   # plain postgres for the no-pgvector path (similar/putEmbedding must be genuinely absent, not
@@ -106,18 +104,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx vitest run src/adapters/storage-postgres
+      - run: npx vitest run src/adapters/storage-postgres --reporter=json --outputFile=/tmp/pg.json
         env:
           YOKE_TEST_POSTGRES_URL: postgres://postgres:test@localhost:5432/postgres
           YOKE_TEST_POSTGRES_NOVEC_URL: postgres://postgres:test@localhost:5433/postgres
-      # Non-vacuity: the suite must not have been skipped — a silent skip reads as a pass.
+      # Non-vacuity: the suite skips itself when the env vars are unset, so a green job proves
+      # nothing until the run is shown to have executed cases.
       - name: the postgres suite actually ran
-        run: |
-          npx vitest run src/adapters/storage-postgres --reporter=json --outputFile=/tmp/pg.json
-          node -e "const r=require('/tmp/pg.json');if(!r.numPassedTests)throw new Error('postgres suite ran 0 tests — it skipped');console.log(r.numPassedTests+' postgres tests ran')"
-        env:
-          YOKE_TEST_POSTGRES_URL: postgres://postgres:test@localhost:5432/postgres
-          YOKE_TEST_POSTGRES_NOVEC_URL: postgres://postgres:test@localhost:5433/postgres
+        run: node -e "const r=require('/tmp/pg.json');if(!r.numPassedTests)throw new Error('postgres suite ran 0 tests — it skipped');console.log(r.numPassedTests+' postgres tests ran')"
 
   # Windows native-binary check: better-sqlite3 / sqlite-vec prebuilds must
   # install and pass the main suite (the most common cross-platform trap).

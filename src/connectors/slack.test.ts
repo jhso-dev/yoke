@@ -1,4 +1,4 @@
-// slack connector tests (PLAN 8.5). No live Slack calls — a fetchImpl stub serves fixtures.
+// slack connector tests. No live Slack calls — a fetchImpl stub serves fixtures.
 // Verifies message→fact mapping (thread replies included), error surfacing, and ingest idempotency.
 
 import { beforeEach, describe, expect, it } from "vitest";

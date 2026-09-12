@@ -41,6 +41,14 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
 - **Bootstrap**: `yoke init` seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself). All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
 
+`collaboration`, not `workstream`: neutral is not the same as recognizable. `workstream` is
+vendor-free, which is why it was chosen first, but a first-time reader does not know it and the
+definition has always read "a unit of **collaborative** work" — a type name that is a different word
+from its own definition is a name nobody can guess. `shared context` and `shared memory` were
+rejected because `context` and `memory` are yoke's two most loaded words (context injection; "we sell
+knowledge, competitors sell memory"), and both imply containment, which this entity does not do —
+knowledge and people point AT it.
+
 ## Storage Port
 
 ```ts
@@ -1150,6 +1158,10 @@ ours. Three clauses:
 because five of those variables are secrets.
 
 Requires Node **>= 20.12** (`process.loadEnvFile`), which is the package's `engines` floor.
+
+`--env-file` is rejected, not overlooked: Node 20 hard-errors on a missing file while
+`--env-file-if-exists` needs 22.9. `node:process.loadEnvFile` costs neither, and `engines >=20.12`
+is what that API costs.
 
 ## persona
 

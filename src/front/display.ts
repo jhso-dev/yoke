@@ -107,8 +107,8 @@ export function makeActorNames(
     if (!seen.has(actorId)) {
       // EVERY actor is looked up, including ids containing a colon. A colon looks like a machine
       // actor ('yoke:system', 'connector:github-pr'), but a person's id is whatever created it and
-      // `scripts/seed-dummy-it-company.mjs` — this repo's own corpus generator — mints
-      // `person:platform-manager`, so skipping those would render every seeded author as a slug on
+      // `scripts/load-demo-corpus.mjs` — this repo's own corpus loader — mints
+      // `person:han-seoyeon`, so skipping those would render every seeded author as a slug on
       // the exact surface that exists to keep ids away from readers. The real guard is the type check
       // in `remember`. Cost: one memoized point read per distinct machine actor per request.
       const e = await store.getEntity(actorId);
@@ -209,6 +209,27 @@ export function summarize(
 /** A ULID exactly, anchored — the shape a token has to be to name a record. Shared with the audit
  * route, which resolves these for reading, so the two cannot disagree about what looks like an id. */
 export const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+
+/**
+ * A read's audit row, written best-effort. The answer is already out and WAL guarantees readers never
+ * block, so a `database is locked` from a concurrent writer costs the trail row, never the query. The
+ * failure goes to stderr — the only safe channel under MCP, where stdout is the protocol. Write paths
+ * keep their audit inline; only reads come through here.
+ *
+ * Generic over the event so this file keeps importing only core, never an adapter's AuditEvent.
+ */
+export function bestEffortAudit<E>(
+  store: { logAudit?: (event: E) => void },
+  event: E,
+): void {
+  try {
+    store.logAudit?.(event);
+  } catch (err) {
+    console.error(
+      `warning: audit row not written (read succeeded): ${(err as Error).message}`,
+    );
+  }
+}
 
 /**
  * The `detail` string for an injection audit row: `<subject tokens> -> <ids>` (SPEC "HTTP API").
@@ -478,7 +499,7 @@ export async function unseenReport(
   }
   const lines: string[] = [];
   if (changed.size > 0) {
-    // Measured (ROADMAP v6.2): this exact wording is what makes an agent with work already on disk
+    // Measured (docs/RESEARCH.md §9b): this exact wording is what makes an agent with work already on disk
     // stop and ask instead of quietly rewriting, and what lets one with nothing sunk go on with the
     // new decision. Do not harden it into "always stop" — that is the clause splitting the two.
     lines.push(

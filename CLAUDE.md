@@ -31,6 +31,11 @@ When in doubt, cut. A smaller diff that removes is worth more than a larger one 
 4. **Local-first by default, and the local path never asks for a credential.** `yoke`, `yoke mcp` and `yoke ui` are single-user and ungated. Multi-tenancy, auth and RBAC exist (v3.0) but activate only under `yoke serve --auth`. Servers bind loopback by default: exposing a non-loopback interface is an explicit `--host`, and `serve` refuses it without auth.
 5. **Knowledge enters only through the core's single commit path, and context injection serves only standing (`verified`) knowledge.** A record is born verified under a signed actor; what holds it accountable is downstream — freshness expiry, dispute marking, retirement broadcast. For the detailed rules see docs/KNOWLEDGE-POLICY.md — free to enter, signed to stay, loud to leave.
 
+**Standing non-goals**: monorepo split, DI container, event bus, a logging framework (console +
+stderr are enough). Reversed and shipped since they were written, so don't re-propose them as
+non-goals: a plugin system (`plugin/`), internationalization (`web/lib/i18n/`), and config files
+(`.env`, `--shards`, `--mapping`).
+
 ## Terminology
 
 - **entity**: the smallest unit of knowledge. A node with a type and attributes.
@@ -47,15 +52,13 @@ When in doubt, cut. A smaller diff that removes is worth more than a larger one 
 - `docs/ARCHITECTURE.md` — the port/adapter boundary definitions
 - `docs/KNOWLEDGE-POLICY.md` — the knowledge entry gate, lifecycle, and injection filter rules
 - `docs/SPEC.md` — the v1 implementation contract (schema, port, gate, MCP tools, CLI)
-- `docs/ROADMAP.md` — per-version tasks, in the order they were built
-- `docs/PLAN.md` — the detailed v1 implementation plan (task = one commit, with files, signatures, tests, and DoD)
-- `docs/PLAN-V2.md` — the v2.0 → v3.6 plan, plus the dated record of which non-goals were later reversed and why
+- `docs/ROADMAP.md` — the index of what shipped in which version, and which doc owns each rule it produced
 - `docs/MARKET.md` — the competitive landscape and strategy (surveyed 2026-07)
 - `docs/ENTERPRISE.md` — multi-tenancy, auth, RBAC, and distribution design, plus the backward-compatibility constraints that hold from v0.1
 - `docs/BACKENDS.md` — backend adapter extension and the RDB read-mapping design
 - `docs/WEB-UI.md` — the governance workbench UI design
 - `docs/SCALE.md` — what breaks at 10M records, measured, and the ceiling that remains
-- `docs/RESEARCH.md` — outside findings that bear on decisions not yet made (dissent preservation, and where GraphRAG's measured wins do and do not apply to us), plus §6's dated `audit --pulse` baseline. §1–4 are unimplemented; §5 names the SPEC clauses it produced
+- `docs/RESEARCH.md` — outside findings that bear on decisions not yet made (dissent preservation, and where GraphRAG's measured wins do and do not apply to us), plus §6's dated `audit --pulse` baseline. §1–4 are unimplemented; §5 names the SPEC clauses it produced; §8 is the measured limit on what `conflicts_with` can be claimed to do
 - `docs/ADOPTION.md` — the maker-org rollout playbook: the shared capture→inject loop and its weeding rituals, per-role capture/consumption, and the scale rehearsal (`scripts/gen-kraftonway-corpus.mjs`)
 
 ## Commands
@@ -85,5 +88,8 @@ When in doubt, cut. A smaller diff that removes is worth more than a larger one 
 - **The second place that compares, parses or normalises the same thing calls the first.** Two as-of
   comparisons (`Date.parse` in one file, `<=` on strings in another) made one read answer itself two
   ways. A shared operator looks too small to extract, which is how the two end up disagreeing.
+- **Counts in prose rot fastest.** "10 of 12", "three tools", "eight screens", "all five backends" —
+  every one of those was wrong at some point, and nothing failed. A count is only as durable as the
+  test that pins it; write the rule instead, or pin the number.
 - **A comment may only claim what a test or a transcript backs.** Everything else is a `ceiling:` or is
   deleted. Prose is the largest untested surface in a diff, and it is where the wrong claims live.

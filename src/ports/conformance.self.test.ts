@@ -1,7 +1,7 @@
 // conformance suite self-check — verify the contract with an in-memory fake adapter.
 // The fake exists only as a test helper (inside a .test.ts, not production code under src).
 
-import { matchesTokens, rankByRelevance, tokenize } from "../core/rank.js";
+import { requireEveryTerm, tokenize } from "../core/rank.js";
 import type { Entity, Relation } from "../core/types.js";
 import { describeStoragePort } from "./conformance.js";
 import {
@@ -12,6 +12,82 @@ import {
   type StoragePort,
   type TextQuery,
 } from "./storage.js";
+
+// The fake's own ranker. Every shipping adapter ranks with a native index, so this is the only thing
+// in the tree that has to satisfy SPEC search clauses 6 and 8 in JavaScript — it lives beside the fake
+// that needs it rather than in core, which ships nothing that calls it.
+
+/**
+ * Does `docText` satisfy `qTokens` under clause 8? A query token matches any document token it
+ * PREFIXES, which is case 6b (Hangul stay attached to their stem, so `parseArgs` must reach
+ * `parseArgs로`).
+ *
+ * One copy, because two copies of a matching rule is two search semantics.
+ */
+export function matchesTokens(
+  qTokens: string[],
+  docText: string,
+  terms: "auto" | "all" = "auto",
+): boolean {
+  if (qTokens.length === 0) return false;
+  const docTokens = tokenize(docText);
+  const hit = (qt: string) => docTokens.some((dt) => dt.startsWith(qt));
+  return requireEveryTerm(qTokens.length, terms)
+    ? qTokens.every(hit)
+    : qTokens.some(hit);
+}
+
+/** BM25's usual constants: k1 bounds how much repetition helps, b how much length is penalised. */
+const K1 = 1.2;
+const B = 0.75;
+
+/**
+ * Sort `rows` best-match first for `query`, by BM25 over the text `textOf` returns.
+ *
+ * Stable within a score, and the tiebreak is the row's own order — so two equally relevant records
+ * keep whatever order the caller had, which for these adapters is id order and therefore
+ * deterministic across backends.
+ *
+ * A query token scores against any document token it PREFIXES, matching how these adapters decide
+ * what matched in the first place; a ranker that scored only exact tokens would rank a Korean hit
+ * at zero and sort the one relevant record last.
+ */
+export function rankByRelevance<T>(
+  rows: T[],
+  query: string,
+  textOf: (row: T) => string,
+): T[] {
+  const qTokens = tokenize(query);
+  if (qTokens.length === 0 || rows.length === 0) return rows;
+
+  const docs = rows.map((row) => tokenize(textOf(row)));
+  const avgLen = docs.reduce((n, d) => n + d.length, 0) / docs.length;
+
+  // Document frequency per query token, over this candidate set. It is the set the caller is
+  // ranking, so "how rare is this token here" is the only idf available and the right one.
+  const df = qTokens.map(
+    (qt) => docs.filter((d) => d.some((t) => t.startsWith(qt))).length,
+  );
+
+  const scored = rows.map((row, i) => {
+    const d = docs[i];
+    let score = 0;
+    for (let k = 0; k < qTokens.length; k++) {
+      const tf = d.filter((t) => t.startsWith(qTokens[k])).length;
+      if (tf === 0) continue;
+      // Standard idf with the +0.5 smoothing, so a token present in every candidate contributes
+      // almost nothing rather than a negative weight.
+      const idf = Math.log(1 + (rows.length - df[k] + 0.5) / (df[k] + 0.5));
+      score +=
+        (idf * (tf * (K1 + 1))) /
+        (tf + K1 * (1 - B + (B * d.length) / (avgLen || 1)));
+    }
+    return { row, score, i };
+  });
+
+  scored.sort((a, b) => b.score - a.score || a.i - b.i);
+  return scored.map((s) => s.row);
+}
 
 function makeFake(): StoragePort {
   const entities: Entity[] = []; // append-only rows
@@ -82,7 +158,7 @@ function makeFake(): StoragePort {
       let out = [...latestById().values()].filter((e) =>
         matchesTokens(queryTokens, textOf(e), q.terms),
       );
-      // Namespace isolation (PLAN-V2 10.1): default ns sees only default-ns rows.
+      // Namespace isolation (ENTERPRISE "namespaces"): default ns sees only default-ns rows.
       out = out.filter((e) => (e.ns ?? null) === wantNs);
       if (q.type) out = out.filter((e) => e.type === q.type);
       if (q.status) {

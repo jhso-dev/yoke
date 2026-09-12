@@ -1,15 +1,13 @@
 // storage-postgres — the PostgreSQL implementation of StoragePort (+ the composite's `RemoteStore`).
 //
-// The third remote backend, and the one people already run. Where neo4j needed a graph and opensearch
-// needed a cluster, this asks for the database every company already has a DBA for — which is the
-// entire argument for it. It costs one dependency (`pg`, ~1 MB) and no new operational surface.
+// The backend most companies already run: one dependency (`pg`, ~1 MB) and no new operational
+// surface.
 //
 // Native BM25-ish ranking via `ts_rank`, native k-NN via pgvector, no native traversal: `neighbors` is
 // an index lookup on from_id/to_id, the same shape as sqlite and opensearch (docs/BACKENDS.md
 // capability matrix).
 //
-// Six decisions here are contract rather than implementation. Each was checked against a real 17
-// server before it was written:
+// Six decisions here are contract rather than implementation, each checked against a real server:
 //
 //  1. **Everything lives in ONE schema, named by the caller.** `new PostgresStorage({ url, schema })`
 //     defaults to `yoke` and `init()` creates it. Postgres has no "database per directory" the way
@@ -132,13 +130,11 @@ function fromVectorLiteral(s: string): Float32Array {
   );
 }
 
-export interface PostgresOptions {
+interface PostgresOptions {
   /** Standard DSN: `postgres://user:pass@host:port/db`. */
   url: string;
   /** Schema holding every table. Created by `init()`. Default `yoke` — see decision 1. */
   schema?: string;
-  /** Pool size. The CLI opens and closes per command, so the default is deliberately small. */
-  poolSize?: number;
 }
 
 export class PostgresStorage implements StoragePort {
@@ -183,10 +179,8 @@ export class PostgresStorage implements StoragePort {
     }
     this.schemaName = name;
     this.schema = `"${name}"`;
-    this.pool = new Pool({
-      connectionString: opts.url,
-      max: opts.poolSize ?? 4,
-    });
+    // Small on purpose: the CLI opens and closes a store per command, and `serve` is one process.
+    this.pool = new Pool({ connectionString: opts.url, max: 4 });
   }
 
   /** Schema-qualified table reference. */
@@ -792,7 +786,7 @@ export class PostgresStorage implements StoragePort {
       // write path uses. The key is prose — the type, the values in ontology order, the `sources`
       // span, then the identifiers — and no SQL expression reproduces that. A transliteration here
       // would be a second copy of the rule that only the rename path exercises, so it reverts every
-      // renamed row to whatever the key used to be, silently.
+      // renamed row to a stale key, silently.
       const ents = await c.query<{
         id: string;
         version: number;

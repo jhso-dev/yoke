@@ -1,4 +1,4 @@
-// storage-sharded tests (PLAN-V2 12.1/12.2).
+// storage-sharded tests (ENTERPRISE "sharding"/12.2).
 //   (a) full StoragePort conformance against a single-sqlite-member ShardedStorage;
 //   (b) routing across TWO sqlite members (ns isolation, fan-out, merge, per-shard ontology, audit);
 //   (c) config validation rejections;

@@ -156,7 +156,7 @@ no-extension path is never only skipped).
 Expose an existing RDB as an ontology, with no migration. It's a **connector**, not
 an adapter (a read-only entity source, not a storage port implementation).
 
-- A mapping declaration file (yaml): tables/views → entity types, columns →
+- A mapping declaration file (JSON — there is no yaml dependency): tables/views → entity types, columns →
   attributes, FKs → relations. e.g. `employees` → `person`, `employees.manager_id`
   → `reports_to`.
 - Mapped entities land `status: verified` like everything else, distinguished by
@@ -197,3 +197,15 @@ came out of it: 429 rate-limit retry honoring Retry-After (a busy channel trips
 the replies limit fast) and skipping `subtype` system events (join notices were
 landing in the corpus as noise). Note: a full-history first sync of a
 large channel is rate-limit-bound and slow by nature — scope with `--since`.
+
+## Why there is no graph-DB adapter
+
+storage-neo4j was built and removed. The pitch was native FTS + vectors + graph in one engine, and
+the adapter never traversed natively — it stored relations as nodes, so the graph half was an indexed
+lookup structurally identical to sqlite's. What remained (native scored FTS + native vectors)
+OpenSearch already provides with no dependency, where neo4j cost a 3.8 MB Bolt driver.
+
+**A graph-DB adapter that is not graph-native is a promise the codebase cannot keep.** Keeping it
+honest would mean a storage-format migration — real Cypher relationships plus a `walk` port
+capability — and no deployment has asked for one. That migration, not a fresh adapter, is what a
+re-proposal has to cost out.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// yoke CLI skeleton (PLAN 1.7) — uses only node:util parseArgs (no commander etc.).
+// yoke CLI skeleton — uses only node:util parseArgs (no commander etc.).
 // Command handlers are split out as runCli(argv, env) — testable without spawning a process; exit code is the return value.
 // Time is obtained only in this front tier (core receives `now` by injection).
 
@@ -24,7 +24,7 @@ import { type ExtractStats, makeRawConnector } from "../../connectors/raw.js";
 import {
   ingestMapped,
   type MappingSpec,
-  makeRdbMappingConnector,
+  type RdbMappingConnector,
 } from "../../connectors/rdb-mapping.js";
 import {
   candidates,
@@ -51,6 +51,7 @@ import {
   BRIEFING_LIMIT,
   envKeywordWeight,
   inject,
+  injectLimit,
   WALK_BUDGET,
 } from "../../core/inject.js";
 import {
@@ -81,6 +82,7 @@ import {
 import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
 import {
+  bestEffortAudit,
   CONSUMPTION_WINDOW,
   changedOf,
   citeActors,
@@ -100,8 +102,9 @@ import {
   unseenReport,
 } from "../display.js";
 import { runMcp } from "../mcp/index.js";
+import { declaredType, storedStatus, wholeNumber } from "../params.js";
 import { runServe } from "../serve/index.js";
-import { parseScope } from "../serve/rbac.js";
+import { parseScope, SCOPE_GRAMMAR, validateScopes } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
 import { runUi } from "../ui/server.js";
 import { banner, decorated, getStartedBlock, log, version } from "./banner.js";
@@ -239,12 +242,9 @@ function intFlag(
   min = 1,
 ): number | undefined {
   if (raw === undefined) return undefined;
-  if (!/^\d+$/.test(raw.trim()) || raw.trim() === "")
-    throw new UsageError(`--${name} must be a whole number (got "${raw}")`);
-  const n = Number(raw);
-  if (n < min)
-    throw new UsageError(`--${name} must be at least ${min} (got ${n})`);
-  return n;
+  const r = wholeNumber(raw, `--${name}`, min);
+  if (!r.ok) throw new UsageError(r.error);
+  return r.value;
 }
 
 /**
@@ -295,29 +295,11 @@ function noExtra(positionals: string[], keep: number, usage: string): void {
     );
 }
 
-/** The stored values of `status`. `stale` is NOT among them — see `statusFilter`. */
-const STORED_STATUSES = ["verified", "deprecated"] as const;
-
-/**
- * A `--status` filter, or a refusal that names why the value cannot match.
- *
- * `stale` is computed at read time and never stored, so pushing it to SQL matches no row and reads as
- * "none are stale" — the opposite of the truth. An unregistered value (`bogus`, `DRAFT`) is equally
- * silent and indistinguishable from an empty corpus, so both are refused rather than answered with
- * emptiness. The stale case gets the command that does answer it; the others get the values that exist.
- */
 function statusFilter(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
-  if (raw === "stale")
-    throw new UsageError(
-      "stale is computed at read time, not stored, so no filter can match it — " +
-        "'yoke review' is the queue of verified records past their TTL",
-    );
-  if (!STORED_STATUSES.includes(raw as (typeof STORED_STATUSES)[number]))
-    throw new UsageError(
-      `--status must be one of ${STORED_STATUSES.join(", ")} (got "${raw}")`,
-    );
-  return raw;
+  const r = storedStatus(raw);
+  if (!r.ok) throw new UsageError(r.error);
+  return r.value;
 }
 
 /**
@@ -331,13 +313,9 @@ function typeFilter(
   ontology: TypeDef[],
 ): string | undefined {
   if (raw === undefined) return undefined;
-  if (!ontology.some((t) => t.name === raw))
-    throw new UsageError(
-      `unknown type: ${raw}\ndeclared types: ${ontology
-        .map((t) => t.name)
-        .join(", ")}`,
-    );
-  return raw;
+  const r = declaredType(raw, ontology);
+  if (!r.ok) throw new UsageError(r.error);
+  return r.value;
 }
 
 /** --attr k=v list → attributes. A repeated key becomes a string[]. */
@@ -362,25 +340,6 @@ function parseAttrs(attrs: string[]): Record<string, unknown> {
 /** Machine JSON with --json, human text otherwise. */
 function emit(v: Values, human: string, data: unknown): void {
   console.log(v.json ? JSON.stringify(data) : human);
-}
-
-/**
- * Write a READ command's audit row AFTER its answer is already out, best-effort.
- *
- * C7: `search`, `inject`, `get` and `overview` compute their answer, then record a trail row. WAL
- * guarantees readers never block, so a secondary trail row must not take that away: a `database is
- * locked` from a concurrent writer is noted on stderr (a dropped trail row is the right thing to lose
- * under contention) but never turned into a failed query. Write commands (add/verify/deprecate/link/
- * rename) do NOT use this: there the audit row is part of the mutation's record and stays inline.
- */
-function auditRead(store: YokeStore, event: AuditEvent): void {
-  try {
-    store.logAudit(event);
-  } catch (err) {
-    console.error(
-      `warning: audit row not written (read succeeded): ${(err as Error).message}`,
-    );
-  }
 }
 
 function formatEntity(
@@ -428,7 +387,6 @@ function storeLabel(v: Values, env: Env): string {
   return db;
 }
 
-/** Compact grouped usage — one source for --help, no-args, and unknown-command. */
 /** Every dispatchable command name, for the did-you-mean below. */
 const COMMANDS = [
   "init",
@@ -448,6 +406,7 @@ const COMMANDS = [
   "ontology",
   "persona",
   "connect",
+  "relate",
   "backfill",
   "rename-type",
   "audit",
@@ -824,7 +783,7 @@ async function cmdGet(
           rel,
         );
         // Audited AFTER the answer is out (C7): a read must not be discarded by a locked trail row.
-        auditRead(store, {
+        bestEffortAudit(store, {
           actor,
           action: "read",
           detail: rel.id,
@@ -871,7 +830,7 @@ async function cmdGet(
         : formatEntity(e, ontology, readAt);
     if (!v.relations) {
       emit(v, head, retired ? { ...e, retired } : e);
-      auditRead(store, readEvent);
+      bestEffortAudit(store, readEvent);
       return 0;
     }
     // Relations are reachable from no other command — the entity-detail screen needs them, so the
@@ -914,7 +873,7 @@ async function cmdGet(
       [head, lines.length ? lines.join("\n") : "  (no relations)"].join("\n"),
       { ...e, relations: edges, ...(retired ? { retired } : {}) },
     );
-    auditRead(store, readEvent);
+    bestEffortAudit(store, readEvent);
     return 0;
   });
 }
@@ -1061,7 +1020,7 @@ async function cmdSearch(
     );
     // Audited AFTER the answer is out (C7). The query is the subject, not just the ids: `search`
     // records what someone was looking for, which is the fact an enumeration row does not carry.
-    auditRead(store, {
+    bestEffortAudit(store, {
       actor,
       action: "search",
       detail: `${query} -> ${results.map((e) => e.id).join(" ")}`,
@@ -1289,16 +1248,13 @@ async function cmdInject(
         ? deliveries(store.listAudit({ ns, limit: DELIVERY_WINDOW }), v.scope)
         : null;
     const since = handed ? handed.anchored.last : instantFlag(v.since, "since");
-    // Same default as the MCP tool and the web route: an anchored briefing is capped, a query is not.
-    // Without it, `yoke inject --scope <collaboration>` dumps every record ever attached to that work.
-    const briefing = v.scope !== undefined && !query;
     const { items, omitted, walk, withheld } = await inject(
       store,
       ontology,
       query,
       ts,
       {
-        limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
+        limit: injectLimit(v.scope, query, limit),
         ns,
         // The scope the MCP tool passes, so the two front ends reproduce each other's results
         // (WEB-UI's CLI-achievable rule).
@@ -1326,7 +1282,7 @@ async function cmdInject(
       );
       if (delivered.length === 0) return 0;
       console.log(lines.join("\n"));
-      auditRead(store, {
+      bestEffortAudit(store, {
         actor: resolveActor(v, env),
         action: "inject",
         detail: injectDetail(delivered, { scope: v.scope, changed }),
@@ -1335,7 +1291,7 @@ async function cmdInject(
       });
       return 0;
     }
-    // Injection audit (PLAN 8.4): who got what knowledge injected. Logged at the front tier — core
+    // Injection audit: who got what knowledge injected. Logged at the front tier — core
     // stays pure. Built here, but written AFTER emit (C7) so a locked trail cannot discard an
     // injection the agent already received.
     const injectEvent: AuditEvent = {
@@ -1403,12 +1359,12 @@ async function cmdInject(
     // ignores it and the person debugging the script reads it.
     if (v.json && withheld) console.error(reasonLine);
     emit(v, human, items);
-    auditRead(store, injectEvent);
+    bestEffortAudit(store, injectEvent);
     return 0;
   });
 }
 
-// history (PLAN 8.4): the append-only version rows ARE the change audit — this just exposes them.
+// history: the append-only version rows ARE the change audit — this just exposes them.
 const HISTORY_USAGE = "usage: yoke history <id>";
 
 async function cmdHistory(
@@ -1948,7 +1904,7 @@ async function cmdOverview(v: Values, env: Env): Promise<number> {
       ...(authorRows.length ? authorRows : ["  (none)"]),
     ].join("\n");
     emit(v, human, o);
-    auditRead(store, overviewEvent);
+    bestEffortAudit(store, overviewEvent);
     return 0;
   });
 }
@@ -2219,7 +2175,7 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
       emit(v, lines.join("\n"), { scanned, embedded, skipped, next });
       return 0;
     }
-    // The third repair: the event time verify used to overwrite. Per-record old → new, because this
+    // The third repair: an event time a lifecycle row overwrote. Per-record old → new, because this
     // one edits the audit trail and "restored 412 records" is not something anyone can check.
     if (v["occurred-at"]) {
       const dryRun = v["dry-run"] === true;
@@ -2492,7 +2448,7 @@ async function cmdConnect(
   );
 }
 
-// connect rdb (PLAN 8.3): read-map an existing RDB into entities. See rdb-mapping.ts for the
+// connect rdb: read-map an existing RDB into entities. See rdb-mapping.ts for the
 // design exception (bulk bypasses the per-record gate, still validates against the ontology).
 async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
   if (!v.mapping) {
@@ -2529,7 +2485,7 @@ async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
     return 1;
   }
 
-  const connector = makeRdbMappingConnector({ query, mapping });
+  const connector: RdbMappingConnector = { query, mapping };
   try {
     const ns = resolveNs(v.ns, env);
     return await withStore(v, env, async (store) => {
@@ -2732,7 +2688,7 @@ async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
   });
 }
 
-// ui (PLAN 9.x): the governance workbench. Server keeps the process alive until SIGINT.
+// ui: the governance workbench. Server keeps the process alive until SIGINT.
 async function cmdUi(v: Values, env: Env): Promise<number> {
   const port = intFlag(v.port, "port", 0) ?? 4800;
   const server = await runUi(
@@ -2749,7 +2705,7 @@ async function cmdUi(v: Values, env: Env): Promise<number> {
   return 0;
 }
 
-// serve (PLAN-V2 10.2): UI + JSON API + remote MCP on one port. Auth (10.3/10.4) is opt-in.
+// serve (ENTERPRISE "server mode"): UI + JSON API + remote MCP on one port. Auth (10.3/10.4) is opt-in.
 async function cmdServe(v: Values, env: Env): Promise<number> {
   const port = intFlag(v.port, "port", 0) ?? 4800;
   const server = await runServe(resolveDb(v, env), port, env, {
@@ -2765,14 +2721,14 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
   return 0;
 }
 
-// token (PLAN-V2 10.3): API tokens for serve-mode Bearer auth. Secret is shown once on create.
+// token (ENTERPRISE "auth"): API tokens for serve-mode Bearer auth. Secret is shown once on create.
 // A PERSON on a GitHub org does not need this — the exchange mints their token from the identity
 // they already have (SPEC "GitHub exchange"). This command is for what the exchange cannot cover:
 // machine actors (CI, scheduled connectors), the bootstrap admin credential (the exchange never
 // grants admin), and a deployment with no GitHub.
 const TOKEN_CREATE_USAGE =
   'usage: yoke token create --name <n> --scopes "<ns>:read,<ns>:write[,<ns>:admin]"\n' +
-  "  scope = action | namespace:action | namespace:type:action\n" +
+  `  scope = ${SCOPE_GRAMMAR}\n` +
   "  actions: read, write (commit/re-confirm/retire), admin (credentials, ontology migration)\n" +
   "  an action with NO namespace grants every tenant — name the namespace unless you mean that\n" +
   "  people on a GitHub org need no token: the server exchanges their gh login (YOKE_GITHUB_ORG) —\n" +
@@ -2789,22 +2745,12 @@ async function cmdToken(
       console.error(TOKEN_CREATE_USAGE);
       return 1;
     }
-    const scopes = v.scopes
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    // Validated at issue time, because a token whose scopes are nonsense is indistinguishable from a
-    // working one until someone tries to use it — it authenticates, then 403s on everything. The
-    // parser that decides what a scope MEANS is the right thing to ask what one IS.
-    const bad = scopes.filter((raw) => parseScope(raw) === null);
-    if (bad.length > 0 || scopes.length === 0) {
-      const why =
-        scopes.length === 0
-          ? "--scopes is empty: a credential with no scope can do nothing"
-          : `not a scope: ${bad.join(", ")}`;
-      console.error(`${why}\n${TOKEN_CREATE_USAGE}`);
+    const checked = validateScopes(v.scopes.split(","));
+    if (!checked.ok) {
+      console.error(`${checked.error}\n${TOKEN_CREATE_USAGE}`);
       return 1;
     }
+    const scopes = checked.scopes;
     return withStore(v, env, async (store) => {
       const { token } = store.createToken({
         name: v.name as string,
@@ -2871,7 +2817,7 @@ async function cmdToken(
   return 1;
 }
 
-// backup (PLAN-V2 11.1): online WAL-safe snapshot to a fresh file.
+// backup (ENTERPRISE "backup"): online WAL-safe snapshot to a fresh file.
 const BACKUP_USAGE =
   "usage: yoke backup <dest.db>\n" +
   "  --out belongs to 'yoke export'; backup takes the destination as its argument";
@@ -2915,7 +2861,7 @@ async function cmdBackup(
   });
 }
 
-// restore (PLAN-V2 11.1): safety-checked copy of a backup back over the working DB. Refuses to clobber
+// restore (ENTERPRISE "backup"): safety-checked copy of a backup back over the working DB. Refuses to clobber
 // an existing DB without --force, and validates the source is a real yoke DB first. Uses .backup() to
 // write a clean consistent file (WAL-safe on both ends) rather than a raw file copy.
 async function cmdRestore(
@@ -3000,7 +2946,7 @@ async function cmdRestore(
   return 0;
 }
 
-// export (PLAN-V2 11.1 PITR-lite): reconstruct DB state as of --until into a new file. See
+// export (ENTERPRISE "backup" PITR-lite): reconstruct DB state as of --until into a new file. See
 // exportUntil in storage-sqlite for the precision caveat (created_at = server-clock ingestion time).
 async function cmdExport(v: Values, env: Env): Promise<number> {
   if (!v.until || !v.out) {

@@ -4,9 +4,9 @@
 // those, and the production shape is separate processes anyway. Each child ingests the same
 // external_id; the parent seeds and then counts.
 //
-// Before the fix: findByExternalId (an FTS read) then commit ran unserialized, so both children read
-// "absent" and both committed — the corpus held the item TWICE (measured: 6 notes -> 7 records), no
-// supersedes, exit 0. The withCriticalSection serialization makes the second child see the first's row.
+// Unserialized, findByExternalId (an FTS read) then commit lets both children read "absent" and both
+// commit, so the corpus holds the item twice with no supersedes and exit 0 — measured, 6 notes for 7
+// records. withCriticalSection is what makes the second child see the first's row.
 
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
