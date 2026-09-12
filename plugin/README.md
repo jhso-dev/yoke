@@ -13,7 +13,7 @@ Working-context knowledge for coding agents, wired into the client so nobody has
 - **`/yoke:setup`** — binds a repository to its working context (writes `YOKE_SCOPE` into the repo's
   `.claude/settings.json` env) and proves the wiring end to end.
 
-Measured behaviour of the delta line is recorded in the repo's `docs/ROADMAP.md` (v6.2): an agent
+Measured behaviour of the delta line is recorded in the repo's `docs/RESEARCH.md` (§9b): an agent
 with work already on disk stops and asks; one with nothing sunk carries on with the new decision.
 The wording of that line is what splits the two — do not "tidy" it.
 

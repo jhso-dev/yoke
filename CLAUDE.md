@@ -52,7 +52,7 @@ non-goals: a plugin system (`plugin/`), internationalization (`web/lib/i18n/`), 
 - `docs/ARCHITECTURE.md` — the port/adapter boundary definitions
 - `docs/KNOWLEDGE-POLICY.md` — the knowledge entry gate, lifecycle, and injection filter rules
 - `docs/SPEC.md` — the v1 implementation contract (schema, port, gate, MCP tools, CLI)
-- `docs/ROADMAP.md` — per-version tasks, in the order they were built
+- `docs/ROADMAP.md` — the index of what shipped in which version, and which doc owns each rule it produced
 - `docs/MARKET.md` — the competitive landscape and strategy (surveyed 2026-07)
 - `docs/ENTERPRISE.md` — multi-tenancy, auth, RBAC, and distribution design, plus the backward-compatibility constraints that hold from v0.1
 - `docs/BACKENDS.md` — backend adapter extension and the RDB read-mapping design
@@ -88,5 +88,8 @@ non-goals: a plugin system (`plugin/`), internationalization (`web/lib/i18n/`), 
 - **The second place that compares, parses or normalises the same thing calls the first.** Two as-of
   comparisons (`Date.parse` in one file, `<=` on strings in another) made one read answer itself two
   ways. A shared operator looks too small to extract, which is how the two end up disagreeing.
+- **Counts in prose rot fastest.** "10 of 12", "three tools", "eight screens", "all five backends" —
+  every one of those was wrong at some point, and nothing failed. A count is only as durable as the
+  test that pins it; write the rule instead, or pin the number.
 - **A comment may only claim what a test or a transcript backs.** Everything else is a `ceiling:` or is
   deleted. Prose is the largest untested surface in a diff, and it is where the wrong claims live.

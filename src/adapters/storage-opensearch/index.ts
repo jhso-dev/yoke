@@ -726,7 +726,7 @@ export class OpenSearchStorage implements StoragePort {
    * Rename an entity/relation type across the declaration and every stored row.
    *
    * Rewrites rather than appends, which is the only shape that answers the question — appending would
-   * leave the old name in every historical row (ROADMAP v4.0 note). `txt` embeds the type name, so it
+   * leave the old name in every historical row. `txt` embeds the type name, so it
    * is rebuilt — see `renameEntityDocs` for why that half cannot be a script.
    */
   async renameType(

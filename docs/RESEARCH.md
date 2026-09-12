@@ -339,6 +339,13 @@ verdicts:
 | relitigation | 1/1 superseded decisions reversed within 14d | the one data point is the verifiers-scope decision, reversed a day after birth by the born-verified redesign — a true positive, and a reminder that n=1 |
 | briefing share (the collaboration scope) | 7/11 decisions+terms | pre-v7.2; the number the briefing-ordering change must not regress |
 
+A second BEFORE, taken the day the soak rig was stood up (2026-09-12, `~/.yoke-team/team.db`, a
+real repository's merged-PR history): **72 records — 18 by hand, 53 connector, 1 agent, so 75%
+hands-free. 11 instrumented deliveries, 3 carrying a recall or reversal — a 27% interrupt rate,
+the first real reading of the v7.0 ceiling. Recall reach 1/3** (the other two sessions had not
+polled again yet), relitigation 1/1, briefing 50/50 decisions+terms. The four-week judgment reads
+against this row, not the one above: that corpus is this repo's own history, this one is a team's.
+
 The tool is ready; the answer is pending. The judgment this baseline exists for — did v7.3/v7.4
 raise hands-free capture, did v7.2 hold the briefing's decision share under noise, what is the real
 interrupt rate — needs four weeks of live traffic (the plan's soak window), not this table.
@@ -472,6 +479,43 @@ on. Re-run against a real corpus once one has accumulated enough `derived_from` 
 which needs new ground-truth labelling either way. The corpora and harness this used are in git at
 `eval/derivation-closure/`, removed after the finding was recorded here.
 
+## 9b. The recall line's wording is what makes an agent stop
+
+Measured 2026-09-10, real `claude -p` sessions with the hooks installed, Opus 5, N=1 per case.
+
+Delivery reaches the model: briefed with "PG는 토스페이먼츠", the agent implemented Toss. Reversed
+**before** it wrote anything, it named both ids and the supersession and went on with the new
+decision — right, since nothing was sunk. Reversed **after** the Toss implementation was on disk, it
+stopped, left the file untouched, reported the change and asked, giving its reason as the line
+itself: *"훅이 're-check with the user before building on them'이라 명시해서, 나이스페이로 갈아엎지
+않고 멈췄습니다."*
+
+So **do not harden that line into "always stop"**: the current wording is what splits the two cases
+correctly, and a stronger instruction would stall the case with nothing to lose. Not measured —
+interactive mode (print mode has nobody to answer), other models, repetition.
+
+## 10. The session-end flush recovers nothing, and invents
+
+Measured 2026-09-11: 12 runs (claude -p, sonnet, CC 2.1.268; two scenarios × 3 control + 3
+Stop-hook runs), a fresh store per run, the MCP instructions as the only in-band pressure, judged by
+which of 3 planted learnings landed as records. Scenario 1 states the learnings outright; scenario 2
+buries them in a config-repair task where filing competes with real work.
+
+**Control captured 18/18 with zero noise in both.** The in-band knowledge loop is not the weak link
+a recovery hook is designed for — not on this model, at this session length.
+
+**The Stop-hook flush recovered nothing and manufactured records.** Recall delta 0/18. In one run of
+six, the flush prompt produced a meta-fact about the working repo and a second, contradicting
+decision filed with a `conflicts_with` edge — an invented dispute, delivered to the scope like any
+other record. Plus one extra model turn per session, every session. A nudge aimed at an agent that
+already filed everything has nothing left to elicit except invention.
+
+So nothing ships, and the rule that hooks never break a session stays untested against blocking
+because nothing earned the block. ceiling: single-turn `-p` sessions. A days-long session that
+compacts repeatedly is the case this harness cannot reach — the PreCompact candidate is untestable
+in it outright — so if `audit --pulse` ever shows live hands-free capture density LOW while session
+counts are high, re-run this against long transcripts before concluding the same.
+
 ---
 
 ## How to use this file
@@ -482,6 +526,6 @@ hook: the scope note above, which binds any future multi-person confirmation des
 
 §1–4 are unimplemented; §5 is **partly implemented** and names the two SPEC clauses it produced; §6
 is a dated measurement that `audit --pulse` re-takes, §7 the formula `audit --roi` computes, §8 a
-measured limit that bounds what `conflicts_with` can be claimed to do, and §9 the null result that
-holds `downstreamOf` to one hop. Where a section drives code, it says which
+measured limit that bounds what `conflicts_with` can be claimed to do, §9 the null result that
+holds `downstreamOf` to one hop, and §10 the capture hook that measured worse than nothing. Where a section drives code, it says which
 code — so the next reader can tell the argument from the artifact.

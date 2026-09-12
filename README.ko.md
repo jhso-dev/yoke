@@ -12,7 +12,7 @@
 
 온톨로지 기반 지식 데이터베이스 · AI 에이전트를 위한 거버넌스 컨텍스트 주입 · MCP 네이티브
 
-MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/artifact/09d92d76-5eee-453d-ae79-ec40616f6396)
+MIT · v7.6까지 기능 완성 · [비주얼 소개](https://claude.ai/code/artifact/09d92d76-5eee-453d-ae79-ec40616f6396)
 
 [English](README.md) | **한국어**
 
@@ -436,7 +436,7 @@ recall@10 82.4%, 한두 단어짜리는 100%입니다. 리포트는 합계만이
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | 게이트, 라이프사이클, 주입 필터 규칙 |
 | [SPEC](docs/SPEC.md) | 구현 계약 — 스키마, port, 게이트, MCP 도구, CLI |
 | [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 12개 화면과 넘지 않는 선 |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v6.1 구현 완료 — 버전 순서대로, 각 절이 기록 |
+| [ROADMAP](docs/ROADMAP.md) | v0.1 → v7.6 구현 완료 — 버전 순서대로, 각 규칙이 어느 문서에 있는지 |
 | [BACKENDS](docs/BACKENDS.md) | 어댑터 확장 + RDB read-mapping (실사용 검증 노트 포함) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 복제, 샤딩 |
 | [MARKET](docs/MARKET.md) | 경쟁 지형과 포지셔닝 |
