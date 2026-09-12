@@ -1,0 +1,35 @@
+plugin/skills/setup/SKILL.md
+  s_03673cb32bfdc1::t_110f65e4d34b19 57-73
+docs/SPEC.md
+  s_03673cb32bfdc1::t_abeb131fe3e438 1104-1106
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_110f65e4d34b19 811-838
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_f3ec2081317819 2152-2156,2211,2265
+src/connectors/ingest.ts
+  s_03673cb32bfdc1::t_cd783f4a0b3775 113,165-169,193
+  s_03673cb32bfdc1::t_d0ad78c5df757c 210
+src/connectors/github-pr.test.ts
+  s_03673cb32bfdc1::t_daa1d8905646e9 6-7,142-170
+  s_03673cb32bfdc1::t_9d645cda64ae34 171-172
+docs/ADOPTION.md
+  s_03673cb32bfdc1::t_5b2aaf78266536 60
+.github/workflows/yoke-capture.yml
+  s_03673cb32bfdc1::t_dfca1d836ad2a1 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b54ce01c829606467bd7a8817bcc3adeba98afe3",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
