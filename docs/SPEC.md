@@ -1088,12 +1088,15 @@ yoke inject --scope <id> --unseen   # what this context has that this client was
 yoke overview [--limit n]  # the shape of the whole corpus: type/status counts, hubs, authors
 yoke conflicts             # list conflicts_with
 yoke history <id>          # every version of one id (the append-only rows)
-yoke audit [--since ts] [--until ts] [--limit n] [--shape|--pulse]   # the audit trail; both bounds inclusive
+yoke audit [--since ts] [--until ts] [--limit n] [--shape|--pulse|--roi]   # the audit trail; both bounds inclusive
                            # --shape: workload composition · --pulse: loop health — capture density
                            # (human/agent/connector), delivery interrupt rate, recall reach,
                            # relitigation (superseded decisions younger than 14d), and with --scope
                            # the opening briefing's decision share. Every ratio names its denominator
                            # and its skipped rows
+                           # --roi: minutes saved over minutes spent (docs/RESEARCH.md §7). Measured
+                           # and assumed terms are separate in the output; --assume k=v overrides a
+                           # constant; the headline is the break-even, not the ratio
 yoke ontology <subcmd>     # inspect types / migrate
 yoke persona <person>      # generate/export a persona skill (SKILL.md)
 yoke persona --check <file> # audit an exported SKILL.md against the store now; exit 1 if any source moved
