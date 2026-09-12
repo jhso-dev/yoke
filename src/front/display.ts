@@ -107,8 +107,8 @@ export function makeActorNames(
     if (!seen.has(actorId)) {
       // EVERY actor is looked up, including ids containing a colon. A colon looks like a machine
       // actor ('yoke:system', 'connector:github-pr'), but a person's id is whatever created it and
-      // `scripts/seed-dummy-it-company.mjs` — this repo's own corpus generator — mints
-      // `person:platform-manager`, so skipping those would render every seeded author as a slug on
+      // `scripts/load-demo-corpus.mjs` — this repo's own corpus loader — mints
+      // `person:han-seoyeon`, so skipping those would render every seeded author as a slug on
       // the exact surface that exists to keep ids away from readers. The real guard is the type check
       // in `remember`. Cost: one memoized point read per distinct machine actor per request.
       const e = await store.getEntity(actorId);

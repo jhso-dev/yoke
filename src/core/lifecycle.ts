@@ -227,12 +227,12 @@ export function carried(p: Provenance): Provenance {
  * Namespace-filtered on the relation, for the reason `identitySet` is: `neighbors` takes no `ns`, so
  * without it an edge filed by one tenant reports a dependent in another.
  *
- * ceiling: one hop, not the transitive closure — measured, not provisional
- * (eval/derivation-closure): across three simulated team corpora with chains to depth 4, not one
- * truly-invalidated record sat at graph distance >= 2, so the closure's entire target population was
- * empty while it added the only noise in the experiment. What limits this report is citation
- * coverage (over half the genuinely-affected records had no edge at all), which no walk depth fixes.
- * A dependent's own dependents still surface when THAT record is retired in turn.
+ * ceiling: one hop, not the transitive closure — measured, not provisional (docs/RESEARCH.md §9):
+ * across three simulated team corpora with chains to depth 4, not one truly-invalidated record sat
+ * at graph distance >= 2, so the closure's entire target population was empty while it added the
+ * only noise in the experiment. What limits this report is citation coverage (over half the
+ * genuinely-affected records had no edge at all), which no walk depth fixes. A dependent's own
+ * dependents still surface when THAT record is retired in turn.
  */
 export async function downstreamOf(
   port: StoragePort,

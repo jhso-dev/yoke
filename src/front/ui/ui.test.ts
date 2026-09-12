@@ -824,8 +824,8 @@ describe("ui API", () => {
   });
 
   // A person id is whatever created it, so a colon does not mean "machine actor":
-  // `scripts/seed-dummy-it-company.mjs`, this repo's own corpus generator, mints exactly
-  // `person:platform-manager`. Skipping those ids renders every author in every seeded database as a
+  // `scripts/load-demo-corpus.mjs`, this repo's own corpus loader, mints exactly
+  // `person:han-seoyeon`. Skipping those ids renders every author in every seeded database as a
   // slug, on the screens that exist to keep ids away from readers.
   it("resolves a person whose id is namespaced, not just a bare ULID", async () => {
     const ont = store.loadOntology(null);

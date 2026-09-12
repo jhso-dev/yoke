@@ -516,7 +516,7 @@ Checked by killing it: that is the failure message.
       its own finding: the untested route was the one performing the destructive half of the lifecycle
 
 Left standing deliberately: **one hop, not the transitive closure — and that is now measured, not
-provisional** (`eval/derivation-closure`, 2026-08-07). Three blind-generated team corpora, 15
+provisional** (docs/RESEARCH.md §9, 2026-08-07). Three blind-generated team corpora, 15
 deprecation events, semantic ground truth: zero truly-invalidated records at graph distance ≥ 2, so
 the closure would have raised invalidated-recall by exactly nothing while adding the only noise in
 the experiment. The binding constraint is **citation coverage** — 52% of genuinely-affected records

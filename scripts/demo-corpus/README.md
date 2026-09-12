@@ -7,7 +7,7 @@ It exists because the two things yoke is judged on cannot be judged on synthetic
 
 - **Retrieval quality.** Every record here is a different incident with a different conclusion. A
   generator that varies words inside one sentence skeleton produces a corpus where every query matches
-  everything, and the measurement that came out of one (`scripts/seed-dummy-it-company.mjs`) was
+  everything, and the measurement that came out of one such generator was
   **0 of 676** semantic pairs — a hybrid retriever built on it would have shown no gain (docs/RESEARCH.md).
 - **The governance screens.** The review queue needs records confirmed long enough ago that the
   *ontology's own TTL* expires them, and the conflicts screen needs pairs that genuinely disagree
