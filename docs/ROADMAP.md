@@ -590,7 +590,7 @@ Two more, found by following the audit's own leads rather than reported by it:
       (null-ns) ontology onto the default shard, and `ShardedStorage.loadOntology(ns)` read the OWNER
       shard alone, so every namespaced command died with "not initialized: … — run 'yoke init' first"
       while the identical commands worked on plain sqlite. That divergence is the tell: sqlite has
-      always overlaid tenant defs on the shared base (PLAN-V2 10.1), so one backend answering
+      always overlaid tenant defs on the shared base (ENTERPRISE "namespaces"), so one backend answering
       `loadOntology(ns)` differently was backend behaviour leaking through the store surface. The
       router overlays. Worth noting how it survived: a test asserted the owner shard alone, and the
       CLI test hand-seeded a tenant ontology instead of running `init` — so the flow every real user
