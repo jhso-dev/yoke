@@ -528,8 +528,8 @@ describe("runCli", () => {
   });
 
   // Retiring the person is the only lever an org has here: the document is a derivative, regenerated
-  // on every call, so there is nothing else to withdraw. It used to do nothing — the export kept
-  // writing the file and `--check` on it reported "all current", since the check reads the SOURCES.
+  // on every call, so there is nothing else to withdraw. The export has to refuse at the anchor —
+  // `--check` reads the SOURCES, so it reports "all current" about a retired person's document.
   it("persona: refuses to export for a retired person", async () => {
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
@@ -1558,7 +1558,7 @@ describe("runCli", () => {
     // The cut ran as a SQL string comparison against stored `...Z` stamps, and `instantFlag` passed
     // the caller's spelling through — so `--until <future as -09:00>` sorted below every stored row
     // and wrote a disaster-recovery copy with ZERO records, exit 0, "exported state as of …".
-    // Reproduced through this CLI before the fix: the same moment spelled Z / -09:00 gave 2 / 0.
+    // Reproduced through this CLI: the same moment spelled Z / -09:00 gives 2 records / 0.
     const db = newDb();
     expect(await runCli(["init", "--db", db])).toBe(0);
     expect(
@@ -2185,8 +2185,8 @@ describe("loadDotEnv", () => {
   });
 });
 
-// A mistyped command used to answer with the whole help screen — every miss in a usability pass was
-// one edit away, and 25 lines of overview buries the correction in the noise it caused.
+// A mistyped command answers with the correction, not the whole help screen: every miss is one edit
+// away, and 25 lines of overview buries the correction in the noise it caused.
 // One record, four commands, two answers. `inject` withheld it, `review` listed it and
 // `overview` counted it stale, while `get` and `list` — the two commands a person actually uses to
 // check whether their knowledge is live — printed "verified".
@@ -2579,7 +2579,7 @@ describe("--help never runs the command", () => {
 describe("rename-type sees both tables it is about to rewrite", () => {
   // `renameType` runs one UPDATE over `entities` and one over `relations`. The merge refusal counted
   // with `listEntities` alone, so it fired for entity→entity and never once for relation→relation —
-  // the half wired into injection. Both cases below were reproduced through this CLI before the fix:
+  // the half wired into injection. Both cases below were reproduced through this CLI, which answered
   // "renamed type … — 2 rows rewritten", exit 0, no refusal.
   async function twoFacts(db: string): Promise<[string, string]> {
     const ids: string[] = [];
@@ -2649,7 +2649,7 @@ describe("rename-type sees both tables it is about to rewrite", () => {
 describe("a kind flip sees the table its records are actually in", () => {
   // `kindChangeRefusal`'s two callers both counted with `listEntities`. A type being flipped from
   // `relation` to `entity` has its records in the RELATIONS table by definition, so the count was zero
-  // exactly when it mattered. Reproduced before the fix: with an edge filed under `cites`, redeclaring
+  // exactly when it mattered. Reproduced through this CLI: with an edge filed under `cites`, redeclaring
   // `cites` as an entity type printed "saved type: cites", after which the stored edge contradicts the
   // declaration and `yoke link … cites …` is refused as "an entity type".
   it("refuses turning a populated relation type into an entity type", async () => {

@@ -18,13 +18,11 @@
 //
 // The remaining extension surface (listHistory/ontology/audit/tokens) is the sqlite-shaped surface
 // used by CLI/UI/serve. Audit + tokens live on the default shard (a single audit/token stream).
-// ceiling: that surface assumes the default shard (and any ns owner it targets) is a sqlite
-// backend. `ShardKind` is `"sqlite"` only, so the assumption cannot currently be violated — the note
-// stays because it is the constraint a second shard kind would have to meet: a
-// non-sqlite member participates in the core port, which since v5.0 includes enumeration, so the
-// review queue and conflicts view work there too — but not in the sqlite-only extensions (no
-// tokens, and its ontology methods are async). Give a tenant on a non-sqlite backend
-// its own serve process if it needs audit/token features.
+// ceiling: that surface assumes the default shard (and any ns owner it targets) is a sqlite backend.
+// `ShardKind` is `"sqlite"` only, so this is what a second kind must meet: a non-sqlite member
+// participates in the core port, enumeration included, so the review queue and conflicts view work
+// there — but not in the sqlite-only extensions (no tokens, async ontology methods). A tenant on a
+// non-sqlite backend needs its own serve process for audit/token features.
 //
 // Duplicate/contradiction detection stays intra-shard automatically: commit() calls this.similar,
 // which here fans out across ALL capable shards — so a duplicate WARNING can cross shard boundaries

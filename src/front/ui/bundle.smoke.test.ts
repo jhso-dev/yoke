@@ -1,12 +1,7 @@
-// The check whose absence let v2.5 ship an inert UI.
-//
-// The old tests asserted that GET / contained `data-tab="review"`. That string was present, CI was
-// green, and the client script was a SyntaxError from an unterminated string literal — so no tab
-// switched and no row loaded in a browser. A substring assertion is not evidence that a UI works.
-//
-// This boots the real server against the real built bundle, follows the script tags the shell
-// actually references, and PARSES them. It costs no browser and no new dependency. It skips when
-// there is no build, because CI runs tests before build and no test may require one.
+// Boots the real server against the real built bundle, follows the script tags the shell references,
+// and PARSES them — a substring assertion on the HTML is not evidence that a UI works. Costs no
+// browser and no new dependency. Skips when there is no build, because CI runs tests before build and
+// no test may require one.
 
 import { existsSync } from "node:fs";
 import { createServer, type Server } from "node:http";

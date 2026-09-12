@@ -20,18 +20,12 @@ const bundle = join(
 const built = existsSync(join(bundle, "index.html"));
 
 /**
- * Gzipped, because that is what the browser downloads — an uncompressed figure would be a number
- * nobody experiences. HTML is excluded: static export emits one file per route, so counting them
- * would make the budget grow with the number of screens rather than with what is shipped to run them.
+ * Gzipped, because that is what the browser downloads. HTML is excluded: static export emits one file
+ * per route, so counting them would make the budget grow with the number of screens rather than with
+ * what is shipped to run them.
  *
- * 400, raised from 380 when the accessibility and consistency pass landed and measured 379 — one
- * kilobyte of headroom is not a budget, it is a tripwire that fires on the next honest change. What
- * the eight kilobytes bought, since a budget rise has to name its purchase: Radix Select on the
- * token form (a free-text scope field became a picker, so a typo can no longer mint a token that
- * grants nothing), Radix Dialog on two more screens (a revoke now asks first, and a secret is shown
- * in something a reader must dismiss), Checkbox on the create form (a boolean attribute became a
- * control instead of the string "true"), and Separator. The routes that grew are the ones that
- * stopped being wrong.
+ * A budget rise has to name its purchase, and has to leave more than a kilobyte of headroom — less
+ * than that is a tripwire that fires on the next honest change, not a budget.
  */
 const BUDGET_KB = 400;
 
@@ -46,17 +40,15 @@ function transferBytes(dir: string, pattern: RegExp): number {
 }
 
 /**
- * Images have their own budget, because for a while they had none and the largest thing this app
- * shipped was the one thing not measured: the JS+CSS figure above filtered on `.js|.css`, so the
- * home page's two hero PNGs — 460 KB gzipped between them, both preloaded at high priority, one of
- * the two always hidden by the active theme — were invisible to every check. A single number
- * covering both kinds would let a script regression hide inside an image, and the reverse.
+ * Images have their own budget: the JS+CSS figure above filters on `.js|.css`, so the home page's two
+ * hero PNGs — 460 KB gzipped between them, both preloaded at high priority, one always hidden by the
+ * active theme — count toward nothing there. One number covering both kinds would let a script
+ * regression hide inside an image, and the reverse.
  *
- * The ceiling is set ABOVE what those two currently cost, deliberately. They are the artwork as
- * authored, and recompressing someone's art to buy back bandwidth is their call, not this test's —
- * so the number here is a tripwire for a NEW unmeasured asset, not a verdict on these two. If they
- * are ever optimised, lower it in the same commit; a budget that stays loose after the thing it was
- * loose for is gone is just an unenforced comment.
+ * Set ABOVE what those two cost, deliberately: they are the artwork as authored, and recompressing
+ * someone's art to buy back bandwidth is their call, not this test's. So this is a tripwire for a NEW
+ * unmeasured asset, not a verdict on these two — if they are ever optimised, lower it in the same
+ * commit. A budget left loose after the thing it was loose for is gone is an unenforced comment.
  */
 const IMAGE_BUDGET_KB = 500;
 

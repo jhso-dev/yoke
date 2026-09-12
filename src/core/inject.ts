@@ -496,8 +496,8 @@ export async function inject(
   const retrieve = async (): Promise<Entity[]> => {
     const fts = await port.search({ text: query, ...candidateQuery(opts) });
     const vec = await vectorHits(port, query, ns, opts);
-    // Returning `fts` itself (not a fused list of one) is what makes an unconfigured embedder
-    // byte-identical to v5.2: fusion would re-sort ties by id, which is a change nobody asked for.
+    // Returning `fts` itself rather than fusing a list of one: fusion re-sorts ties by id, so an
+    // unconfigured embedder would silently reorder results that the keyword half already ranked.
     return vec.length === 0
       ? fts
       : fuse([

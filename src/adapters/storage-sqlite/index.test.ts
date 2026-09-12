@@ -328,7 +328,7 @@ describe("sqlite-vec similar", () => {
       // row rather than only the ones it thinks are missing) and the new width is queryable.
       const hits = await store.similar(emb([1, 0, 0, 0]), 3);
       expect(hits.map((h) => h.id)).toEqual(["a"]);
-      // ...and the 3-wide query that used to work is now the one that is refused.
+      // ...and the 3-wide query the old index answered is the one now refused.
       await expect(store.similar(emb([1, 0, 0]), 3)).rejects.toThrow(
         /dimension changed/,
       );
@@ -809,8 +809,8 @@ describe("FTS deletes by an indexed rowid, not a full scan (C6/F2)", () => {
     ]);
     expect(await store.search({ text: "one" })).toEqual([]);
 
-    // The delete the adapter now issues is a rowid equality lookup (constraint passed to fts5),
-    // whereas delete-by-id passes none — the plan the O(N) scan used to take.
+    // The delete has to be a rowid equality lookup (constraint passed to fts5). Delete-by-id passes
+    // no constraint, which is the plan an O(N) scan takes.
     const byRowid = db
       .prepare("EXPLAIN QUERY PLAN DELETE FROM entities_fts WHERE rowid = ?")
       .all(first?.docid)

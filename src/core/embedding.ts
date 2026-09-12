@@ -59,10 +59,9 @@ function contentValues(
  * the same representation. It lives in core and the adapter imports it (only adapter→core is
  * allowed — core importing the adapter would violate the dependency-direction invariant).
  *
- * It used to be `type + the attributes JSON`: `fact {"statement":"...","external_id":"raw:7-a.md#3"}`
- * — every attribute NAME a token, so are the punctuation and the ids, and a three-word record
- * indexed as mostly bookkeeping. That dilutes both halves of retrieval: BM25 pays for the length,
- * and the embedding is of a JSON literal rather than of a claim.
+ * Not the attributes JSON: indexing that makes every attribute NAME a token, along with the
+ * punctuation and the ids, so a three-word record is indexed as mostly bookkeeping — BM25 pays for
+ * the length and the embedding is of a JSON literal rather than of a claim.
  *
  * `sources` stays, verbatim and last: the measured gain came from the prose expansion *plus* the
  * original value, not from the expansion alone, and this is the only attribute holding words the

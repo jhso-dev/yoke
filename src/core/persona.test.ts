@@ -320,7 +320,7 @@ describe("renderPersonaSkill", () => {
       attributes: {
         conclusion: "use SQLite",
         rationale: "zero-config single file keeps the CLI simple",
-        // What lost is half the judgment, and the export used to drop it.
+        // What lost is half the judgment, so the export has to carry it.
         rejected_alternatives: ["postgres", "duckdb"],
       },
       last_confirmed: "2026-07-12T00:00:00Z",
@@ -442,8 +442,8 @@ describe("parsePersonaSources", () => {
       // No `name: persona-` frontmatter in this bare fragment.
       anchor: null,
     });
-    // A header that declares more than it lists: three sources, one token. `--check` used to report
-    // "1 of 1 sources moved" about it, which is the summary measuring itself.
+    // A header that declares more than it lists: three sources, one token. Counting the listed ones
+    // gives "1 of 1 sources moved", which is the summary measuring itself rather than the document.
     const trimmed = parsePersonaSources("Source knowledge (3): 01AAA@v1");
     expect(trimmed.declared).toBe(3);
     expect(trimmed.sources).toHaveLength(1);
@@ -632,10 +632,9 @@ describe("checkPersonaSources", () => {
   });
 });
 
-// `persona <fact-id>` used to succeed: zero sources, a SKILL.md headed "Persona grounded in
-// 01KZWW1T…'s recorded judgments", and `--check` on it reporting "0 sources, all current". A green
-// light on a document about nobody. The CLI checked the id existed, which a fact id does; MCP and the
-// web checked nothing.
+// `persona <fact-id>` must not succeed. Checking only that the id exists — which a fact id does —
+// yields zero sources, a SKILL.md headed "Persona grounded in 01KZWW1T…'s recorded judgments", and a
+// `--check` reporting "0 sources, all current": a green light on a document about nobody.
 describe("the anchor has to be a person", () => {
   it("refuses an id that is knowledge rather than someone", async () => {
     const f = await add("fact", { statement: "not a person" }, "admin");
@@ -856,9 +855,9 @@ describe("an exported record says what it actually says", () => {
   });
 
   it("attributes each source line to its real author across an identity union", async () => {
-    // The persona walks records from OTHER identities (`same_as`), and every source line used to read
-    // "recorded by <anchor>" — so a fact authored by the unioned identity was mis-credited to the
-    // anchor. Authorship comes off the `authored_by` edge (`i.author`), which the union names resolve.
+    // The persona walks records from OTHER identities (`same_as`), so a source line that reads
+    // "recorded by <anchor>" mis-credits a fact the unioned identity authored. Authorship comes off
+    // the `authored_by` edge (`i.author`), which the union names resolve.
     const person = await anchored(); // aisha
     await commit(
       port,

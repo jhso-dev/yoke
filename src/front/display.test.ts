@@ -51,9 +51,9 @@ describe("summarize", () => {
     ).toBe("Bora");
   });
 
-  // The regression that made this rule declaration-order rather than required-ness: `fact` declares
-  // `{title, statement}` and only `statement` is required, because the connectors have no title to
-  // give — so under the old rule every hand-filed fact read as the first 60 characters of its body.
+  // The rule is declaration order, not required-ness: `fact` declares `{title, statement}` and only
+  // `statement` is required, because the connectors have no title to give. Keying on required-ness
+  // makes every hand-filed fact read as the first 60 characters of its body.
   it("reads a fact as its title when it has one, and as its statement when it does not", () => {
     expect(
       summarize(

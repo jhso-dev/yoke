@@ -1,9 +1,8 @@
 // storage-opensearch — the OpenSearch implementation of StoragePort (v5.4).
 //
-// The remote backend, and a cheap one to own: OpenSearch speaks REST, so this takes a `fetchImpl` and
-// adds **no dependency at all** — a backend speaking a binary protocol would have to ship a driver
-// with it. Injectable fetch is also what makes it fakeable, so a company without a spare cluster is
-// not locked out of the tests.
+// OpenSearch speaks REST, so this takes a `fetchImpl` and adds no dependency — a binary protocol
+// would have to ship a driver. Injectable fetch is also what makes it fakeable, so a company without
+// a spare cluster is not locked out of the tests.
 //
 // Native BM25 and native k-NN, no native traversal: `neighbors` is a term query on from_id/to_id,
 // which is what sqlite does too (docs/BACKENDS.md capability matrix). The k-NN plugin ships inside
@@ -777,7 +776,7 @@ export class OpenSearchStorage implements StoragePort {
    * Read-then-write instead of `_update_by_query`, because the key is prose — the type, the values in
    * ontology order, the `sources` span, then the identifiers — and Painless cannot build it. The
    * script that tried was a second copy of the rule that only the rename path ran, so it reverted
-   * every renamed row to whatever the key used to be, silently. One rule, one implementation.
+   * every renamed row to a stale key, silently. One rule, one implementation.
    */
   private async renameEntityDocs(
     from: string,

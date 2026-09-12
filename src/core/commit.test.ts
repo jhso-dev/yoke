@@ -60,9 +60,9 @@ async function nodes(...ids: string[]): Promise<void> {
 
 describe("attachTo", () => {
   it("writes nothing when the attachment target is not a record", async () => {
-    // The regression this exists for: the edge used to be a second commit at the front tier, so the
-    // entity was already durable when the endpoint check threw. The caller heard "rejected" about a
-    // record that existed, and an agent that retries on a rejection doubles the corpus.
+    // The endpoint check has to happen before the entity is durable. If the edge were a second commit
+    // at the front tier, the caller would hear "rejected" about a record that exists — and an agent
+    // that retries on a rejection doubles the corpus.
     await expect(
       commit(
         port,
@@ -299,10 +299,10 @@ describe("commit gate", () => {
     expect(found).toEqual([entity]);
   });
 
-  // A relation's identity is (type, from, to) in a namespace. Pressing Link twice used to store two
-  // rows with different ids, the same actor and the same instant — the entity screen listed the link
-  // three times, the graph drew three arrows over each other, and a collaboration counted one
-  // attached record as three.
+  // A relation's identity is (type, from, to) in a namespace. Without that, pressing Link twice
+  // stores two rows with different ids, the same actor and the same instant: the entity screen lists
+  // the link twice, the graph draws arrows over each other, and a collaboration counts one attached
+  // record as several.
   it("commits the same edge once, and says it was already there", async () => {
     await nodes("x", "y");
     const input = {
@@ -731,11 +731,11 @@ describe("a record that is durable is never reported as rejected", () => {
   }
 
   it("reports the authorship edge it could not write, and keeps the record", async () => {
-    // Stages 4/4b/4c write AFTER the entity is stored, and a storage failure in any of them used to
-    // propagate: the caller heard "commit failed" about a record that exists — the exact state
-    // `attachTo` was introduced to abolish, where a retrying agent doubles the corpus. Worse, a
-    // missing `authored_by` edge is invisible afterwards: the record never appears in a persona
-    // anchor, the overview's author ranking, or `identitySet`.
+    // Stages 4/4b/4c write AFTER the entity is stored, so a storage failure in any of them must not
+    // propagate: "commit failed" about a record that exists is the state a retrying agent turns into
+    // a doubled corpus. It must not be swallowed either — a missing `authored_by` edge is invisible
+    // afterwards, and the record never appears in a persona anchor, the overview's author ranking, or
+    // `identitySet`.
     const port = new LosesEdges("authored_by");
     await port.init();
     const { entity, unrecorded } = await commit(

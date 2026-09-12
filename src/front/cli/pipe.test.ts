@@ -5,7 +5,7 @@
 // process there is no pipe, and a pipe is the only place it happens.
 //
 // `process.exit()` in the entry point discarded whatever node had buffered for a piped stdout.
-// Measured on a 518-record corpus before the fix: `yoke list --json > file` wrote 444,706 bytes of
+// Measured on a 518-record corpus: `yoke list --json > file` wrote 444,706 bytes of
 // valid JSON, and the same command through `| jq` received exactly 65,536 — one pipe buffer — with
 // exit 0 and no error. Every script reading `--json`, and every agent shelling out to one, silently
 // received a prefix of the corpus.

@@ -298,9 +298,9 @@ describe("renameRefusal", () => {
   });
 
   it("refuses merging into a type that has records", () => {
-    // `rename-type fact decision` merged four facts into the decision type and DELETED the fact
-    // declaration — after which `add fact` was an unknown type and `init` refused to re-seed. Nothing
-    // records which ids were rewritten, so the audit row cannot reverse it.
+    // `rename-type fact decision` would merge every fact into the decision type and delete the fact
+    // declaration, leaving `add fact` an unknown type and `init` refusing to re-seed. Nothing records
+    // which ids were rewritten, so the audit row cannot reverse it.
     expect(
       renameRefusal("fact", "decision", { ...ok, toDeclared: true, toRows: 1 }),
     ).toMatch(/merge two types/);

@@ -411,7 +411,6 @@ function storeLabel(v: Values, env: Env): string {
   return db;
 }
 
-/** Compact grouped usage — one source for --help, no-args, and unknown-command. */
 /** Every dispatchable command name, for the did-you-mean below. */
 const COMMANDS = [
   "init",
@@ -2199,7 +2198,7 @@ async function cmdBackfill(v: Values, env: Env): Promise<number> {
       emit(v, lines.join("\n"), { scanned, embedded, skipped, next });
       return 0;
     }
-    // The third repair: the event time verify used to overwrite. Per-record old → new, because this
+    // The third repair: an event time a lifecycle row overwrote. Per-record old → new, because this
     // one edits the audit trail and "restored 412 records" is not something anyone can check.
     if (v["occurred-at"]) {
       const dryRun = v["dry-run"] === true;

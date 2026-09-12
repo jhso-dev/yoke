@@ -14,7 +14,6 @@
 
 set -e
 
-# Colors
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -22,7 +21,6 @@ RED='\033[0;31m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# Configuration
 REPO_URL="https://github.com/jhso-dev/yoke"
 INSTALL_DIR="${YOKE_INSTALL_DIR:-$HOME/.yoke/app}"
 SKIP_LINK=false
@@ -36,9 +34,6 @@ else
     INTERACTIVE=false
 fi
 
-# ----------------------------------------------------------------------------
-# Log helpers
-# ----------------------------------------------------------------------------
 log_info()    { printf "${CYAN}→${NC} %s\n" "$1"; }
 log_success() { printf "${GREEN}✓${NC} %s\n" "$1"; }
 log_warn()    { printf "${YELLOW}⚠${NC} %s\n" "$1"; }
@@ -62,9 +57,6 @@ print_banner() {
     printf "${CYAN}${BOLD}└%s┘${NC}\n\n" "$bar"
 }
 
-# ----------------------------------------------------------------------------
-# Argument parsing
-# ----------------------------------------------------------------------------
 while [ $# -gt 0 ]; do
     case "$1" in
         --skip-link)
@@ -90,9 +82,6 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# ----------------------------------------------------------------------------
-# Prerequisite checks
-# ----------------------------------------------------------------------------
 check_git() {
     CURRENT_STEP="checking git"
     if command -v git >/dev/null 2>&1 && git --version >/dev/null 2>&1; then
@@ -116,9 +105,6 @@ check_node() {
     log_success "Node.js $(node --version)"
 }
 
-# ----------------------------------------------------------------------------
-# Install steps
-# ----------------------------------------------------------------------------
 install_repo() {
     if [ -d "$INSTALL_DIR/.git" ]; then
         CURRENT_STEP="updating yoke"
@@ -186,9 +172,6 @@ print_next_steps() {
     printf "${CYAN}        \"yoke\": { \"command\": \"yoke\", \"args\": [\"mcp\"] } } }${NC}\n\n"
 }
 
-# ----------------------------------------------------------------------------
-# Main
-# ----------------------------------------------------------------------------
 main() {
     print_banner
     check_git

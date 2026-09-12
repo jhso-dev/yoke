@@ -21,9 +21,9 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-      # AFTER the build, on purpose: this is the check that executes the shipped client bundle, and
-      # it skips when there is no build. Running it in `npm test` (before build) would skip forever —
-      # which is exactly how v2.5 shipped a UI whose script never parsed.
+      # AFTER the build, on purpose: this is the check that executes the shipped client bundle, and it
+      # skips when there is no build. In `npm test` it would skip forever, and an inert UI would ship
+      # green.
       - run: npm run test:bundle
       # The weekly rig's tripwire rule, asserted here — otherwise it can only rot in place.
       - run: node scripts/self-check.mjs --selftest

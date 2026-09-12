@@ -81,16 +81,15 @@ export async function backfillAuthorship(
 }
 
 /**
- * Restore the event time that `transition` used to overwrite.
+ * Restore the event time on records whose current version is a lifecycle row.
  *
- * Until the two times were separated, verify/deprecate restamped `provenance.occurred_at` to the
- * transition instant, so a store that was ever bulk-verified has one event time across everything
- * transitioned in that run. The knowledge's real time is not lost — it is in the version history, on the
- * rows the commit gate wrote — so this walks each record back to its most recent commit-written
- * version and puts that `occurred_at` back on the current one.
+ * Some stores carry one `provenance.occurred_at` across everything a single bulk verify touched: the
+ * transition instant rather than when the knowledge happened. The real time is not lost — it is in the
+ * version history, on the rows the commit gate wrote — so this walks each record back to its most
+ * recent commit-written version and puts that `occurred_at` back on the current one.
  *
  * Only records whose CURRENT version is a lifecycle row are touched. A later edit stamps its own
- * event time through the gate, and rewinding that to the first version's would be this same bug in
+ * event time through the gate, and rewinding that to the first version's would be the same error in
  * the other direction.
  *
  * Appends a version rather than rewriting one, because there is no in-place write in the port and

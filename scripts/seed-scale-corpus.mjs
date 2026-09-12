@@ -4,11 +4,9 @@
 //   npm run build
 //   node scripts/seed-scale-corpus.mjs ./big1m.db 1000000 3000000
 //
-// Why this is in the repo. docs/SCALE.md's numbers — 10k / 100k / 1M / 10M entities, 3M relations,
-// the five defects they exposed — were produced by a generator that lived only in a scratch directory.
-// The measurements were therefore documented and unreproducible, which is the same gap the demo corpus
-// had until v5.5 promoted it here, and the same reasoning: a benchmark nobody can re-run is a claim,
-// not a measurement.
+// Why this is in the repo: docs/SCALE.md's numbers — 10k / 100k / 1M / 10M entities, 3M relations,
+// the five defects they exposed — are only measurements while the generator that produced them is
+// here. A benchmark nobody can re-run is a claim.
 //
 // It is NOT the demo corpus and cannot replace it. Every record is built from one sentence skeleton, so
 // 0 of 676 pairs are semantically related while lexically different (docs/RESEARCH.md) and retrieval
@@ -34,10 +32,9 @@ if (!path || !nStr) {
 const N = Number(nStr);
 const E = Number(eStr ?? 0);
 
-// The schema comes from the ADAPTER, not from a copy pasted in here. The scratch version of this script
-// carried its own CREATE TABLE block and it had already drifted: no indexes (so every measurement it
-// fed was of an unindexed database) and no tokens table. Anything the adapter adds later arrives here
-// for free.
+// The schema comes from the ADAPTER, never a CREATE TABLE block pasted in here: a copy drifts, and a
+// copy missing the indexes measures an unindexed database while claiming to measure this one. Whatever
+// the adapter adds later arrives here for free.
 const store = new SqliteStorage(path);
 await store.init();
 await store.saveOntology(seedOntology());
