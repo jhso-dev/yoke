@@ -1,0 +1,79 @@
+src/core/backfill.test.ts
+  s_03673cb32bfdc1::t_540bea45836a02 232-235
+src/adapters/storage-opensearch/index.ts
+  s_03673cb32bfdc1::t_a0982da6d638f9 3-5
+  s_03673cb32bfdc1::t_a5c4cf993c2244 779
+.github/workflows/ci.yml
+  s_03673cb32bfdc1::t_75b5f728597634 24-26
+src/front/display.test.ts
+  s_03673cb32bfdc1::t_27461847f791a4 54-56
+src/front/ui/bundle.size.test.ts
+  s_03673cb32bfdc1::t_af9f9e94759456 23-25,27-28,43-46,48-51
+src/front/ui/ui.test.ts
+  s_03673cb32bfdc1::t_a5c4cf993c2244 2011
+  s_03673cb32bfdc1::t_960ba7db0a3004 429,664-667,1643-1646,1826-1828
+src/connectors/ingest.race.test.ts
+  s_03673cb32bfdc1::t_540bea45836a02 7-9
+eval/retrieval-quality.ts
+  s_03673cb32bfdc1::t_e48c75ee6dbfda 7-9
+src/core/commit.test.ts
+  s_03673cb32bfdc1::t_497426d7fd9d85 63-65,302-305,734-738
+src/adapters/storage-sharded/index.ts
+  s_03673cb32bfdc1::t_af9f9e94759456 21-25
+src/core/embedding.ts
+  s_03673cb32bfdc1::t_c2c28353907196 62-64
+src/front/cli/cli.test.ts
+  s_03673cb32bfdc1::t_27461847f791a4 531-532,2188-2189
+  s_03673cb32bfdc1::t_a5c4cf993c2244 1561,2582,2652
+src/front/cli/pipe.test.ts
+  s_03673cb32bfdc1::t_a5c4cf993c2244 8
+src/core/persona.test.ts
+  s_03673cb32bfdc1::t_ceb0721f265597 323,445-446,635-637,858-860
+src/adapters/storage-sqlite/index.test.ts
+  s_03673cb32bfdc1::t_27461847f791a4 331,812-813
+src/core/lifecycle.test.ts
+  s_03673cb32bfdc1::t_3dcca9d5cdf75e 55-56
+src/core/inject.ts
+  s_03673cb32bfdc1::t_46e8dc0aa52fa1 499-500
+vitest.config.ts
+  s_03673cb32bfdc1::t_5782c757fae930 3-8,10-11
+scripts/self-check.mjs
+  s_03673cb32bfdc1::t_7d13de5f79448f 5-9,187-190
+src/front/ui/bundle.smoke.test.ts
+  s_03673cb32bfdc1::t_c2c28353907196 1-4
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_46e8dc0aa52fa1 2201
+vitest.setup.ts
+  s_03673cb32bfdc1::t_5782c757fae930 1-4,6-7
+scripts/seed-scale-corpus.mjs
+  s_03673cb32bfdc1::t_e48c75ee6dbfda 7-9,35-37
+src/core/ontology.test.ts
+  s_03673cb32bfdc1::t_540bea45836a02 301-303
+src/core/inject.test.ts
+  s_03673cb32bfdc1::t_3dcca9d5cdf75e 333-334,505-506
+eval/persona-quality.ts
+  s_03673cb32bfdc1::t_e48c75ee6dbfda 11-13
+src/core/concurrency.test.ts
+  s_03673cb32bfdc1::t_540bea45836a02 52-54
+src/adapters/storage-postgres/index.ts
+  s_03673cb32bfdc1::t_a0982da6d638f9 3-4,10
+  s_03673cb32bfdc1::t_a5c4cf993c2244 789
+src/core/backfill.ts
+  s_03673cb32bfdc1::t_a511d1dab8500b 84,86-89,92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9ea79c087f579e2695205fb36bd539904c0ffc43",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
