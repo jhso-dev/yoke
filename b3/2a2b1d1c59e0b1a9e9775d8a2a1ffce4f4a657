@@ -1,0 +1,28 @@
+README.md
+  s_03673cb32bfdc1::t_047f2ca98a09f1 86-91,438
+README.ko.md
+  s_03673cb32bfdc1::t_21c111166e8333 411
+  s_03673cb32bfdc1::t_047f2ca98a09f1 84-86
+eval/inject-quality.ts
+  s_03673cb32bfdc1::t_23f14644b215e7 17,103-104,164-177,289,323
+docs/RESEARCH.md
+  s_03673cb32bfdc1::t_21c111166e8333 396-430,438-439
+src/core/commit.ts
+  s_03673cb32bfdc1::t_a0cf101953f16a 459-468
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b32a2b1d1c59e0b1a9e9775d8a2a1ffce4f4a657",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
