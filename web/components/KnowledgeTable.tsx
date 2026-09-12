@@ -14,7 +14,7 @@ import {
 import { recordLabel } from "../lib/citation";
 import { useT } from "../lib/i18n";
 import { headerCheckState } from "../lib/selection";
-import type { InjectedKnowledge, Knowledge } from "../lib/types";
+import type { Knowledge } from "../lib/types";
 import { Actor } from "./Actor";
 import { Citation } from "./Citation";
 import { Pagination, usePage } from "./Pagination";
@@ -134,14 +134,7 @@ export function KnowledgeTable({
                 <StatusBadge status={r.effectiveStatus} />
               </TableCell>
               <TableCell>
-                {/* An injected/persona row carries the writer off the authored_by edge; plain rows
-                    do not, so `author` is undefined and <Actor> shows the recorded actor as before. */}
-                <Actor
-                  actor={r.actor}
-                  actorName={r.actorName}
-                  author={(r as InjectedKnowledge).author}
-                  authorName={(r as InjectedKnowledge).authorName}
-                />
+                <Actor actor={r.actor} actorName={r.actorName} />
               </TableCell>
               <TableCell>
                 <Citation row={r} />

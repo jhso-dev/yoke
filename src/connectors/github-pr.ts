@@ -3,7 +3,8 @@
 // policy (GitHub login ↔ person) exists in the SPEC, so inventing one violates the no-invention rule.
 // provenance.actor is left to the ingest caller (--actor), and the comment author's login is preserved in attributes.author.
 
-import type { Connector, SourceItem } from "./types.js";
+import type { EntityInput } from "../core/types.js";
+import type { Connector } from "./types.js";
 
 interface PullRequest {
   number: number;
@@ -17,8 +18,6 @@ interface ReviewComment {
   path: string;
   line: number | null;
   user: { login: string } | null;
-  /** When the comment was written. Optional in the type because a fixture may omit it. */
-  created_at?: string;
 }
 
 /** GitHub PR review comment → decision connector. Omits Authorization when there's no token (public repos). */
@@ -60,7 +59,7 @@ export function makeGithubPrConnector(opts: {
           `${base}/repos/${opts.repo}/pulls/${pr.number}/comments`,
         );
         for (const c of comments) {
-          const item: SourceItem = {
+          const item: EntityInput & { externalId: string } = {
             type: "decision",
             attributes: {
               conclusion: c.body,
@@ -69,10 +68,6 @@ export function makeGithubPrConnector(opts: {
               author: c.user?.login ?? "unknown",
             },
             externalId: c.html_url,
-            // The review comment's own timestamp, so an imported PR archive ages from when the review
-            // happened rather than from when the import ran. `created_at` and not `updated_at`: the
-            // judgment was made when it was written, and an edit to wording does not renew it.
-            occurredAt: c.created_at,
           };
           yield item;
         }

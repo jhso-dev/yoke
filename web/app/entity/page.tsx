@@ -133,13 +133,7 @@ function EntityBody() {
           retirement it is currently in. */}
       {d.retirement && (
         <Alert variant="warn">
-          {/* The retiree through <Actor>, resolved to a name with the id on hover — a bare ULID used
-              to sit in this human sentence. */}
-          <Actor
-            actor={d.retirement.actor}
-            actorName={d.retirement.actorName}
-          />
-          {t.retire.retiredBy(localTime(d.retirement.at))}
+          {t.retire.retiredBy(d.retirement.actor, localTime(d.retirement.at))}
           {" — "}
           {d.retirement.reason ?? t.retire.noReason}
         </Alert>
@@ -359,9 +353,8 @@ function EntityBody() {
 }
 
 export default function EntityPage() {
-  const t = useT();
   return (
-    <Suspense fallback={<p className="muted">{t.common.loading}</p>}>
+    <Suspense fallback={<p className="muted">loading…</p>}>
       <EntityBody />
     </Suspense>
   );
