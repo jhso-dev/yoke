@@ -839,6 +839,29 @@ workstream. Two findings came out of the wiring itself:
   again yet), relitigation 1/1, briefing 50/50 decisions+terms. The 4-week judgment reads against
   this row.
 
+## v7.6 — the self-check: measured terms only, and it proposes rather than decides
+
+`audit --roi` ends in a ratio, and a loop that maximized it would find three shortcuts before it
+found an improvement — deliver more (propagation scales with deliveries), route filing through a
+connector (drops the cost term, touches nothing real), stop weeding (re-confirmations ARE the cost,
+so letting the corpus rot reads as efficiency). So the weekly check never optimizes the ratio.
+
+- [x] **`scripts/self-check.mjs`** — five tripwires on terms no assumption enters and no volume
+      improves: hands-free capture, decision delivery lag, the share arriving while still news,
+      attention paid per decision delivered, and whether the queue is being worked. Each fires on a
+      WORSENING against the team's own previous week, never against an invented number. `--selftest`
+      asserts the rule, including that each optimizer shortcut still trips something.
+- [x] **The quality gate closes the one vector the trail cannot see**: junk routed in through a
+      connector costs nobody a keystroke and leaves every measured term looking fine, so `--eval`
+      runs the injection eval and a contamination or gold-in-brief regression is itself a tripwire.
+- [x] **It files a finding and stops** — one standing issue per marker (a weekly job that opens a
+      new issue every week is a job nobody reads), no branch, no merge. The ratio rides along in the
+      report labelled assumption-bound, so nobody mistakes it for a target.
+- Scheduled weekly on the soak rig (a launchd agent, Mondays). ceiling: week-over-week comparison
+  against a single stored reading — a corpus with a seasonal shape (a release week, a holiday) will
+  trip on the shape rather than on a regression. Widen to a rolling median when a year of readings
+  exists to take one.
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.
