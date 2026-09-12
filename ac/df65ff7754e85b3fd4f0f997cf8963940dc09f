@@ -1,0 +1,49 @@
+src/adapters/storage-opensearch/index.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 136
+src/core/inject.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 53
+src/adapters/storage-sharded/config.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 14,25
+src/front/ui/static.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 101
+src/front/serve/index.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 54,80
+src/core/commit.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 175
+src/connectors/rdb-mapping.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 50
+src/front/mcp/index.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 63,84
+src/connectors/relate.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 38,45,62,249
+src/core/aggregate.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 24,26,34
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 62
+src/core/embedding.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 135
+src/core/persona.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 27,551,646,654,729
+src/adapters/storage-postgres/index.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 135
+src/connectors/ingest.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 53,91
+src/ports/conformance-cases.ts
+  s_03673cb32bfdc1::t_2d84904e133d77 84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "acdf65ff7754e85b3fd4f0f997cf8963940dc09f",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
