@@ -1,0 +1,22 @@
+.github/workflows/ci.yml
+  s_03673cb32bfdc1::t_c684eeebce2f8d 64,67-68,70
+  s_03673cb32bfdc1::t_851286c24ccf24 28-29,107,111-112,114
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_ffe3e2addd4799 332
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d5e04ec22ef49a898a79ff1fe836632651578058",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
