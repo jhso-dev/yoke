@@ -2,9 +2,11 @@ node_modules/
 dist/
 
 # Local configuration. `.env.example` IS committed and lists the variables a person sets;
-# a real .env holds backend passwords and the embedder key.
+# a real .env holds backend passwords and the embedder key. `.mcp.json` is the same shape: the
+# example is committed, the real one names a database and an embedder endpoint only this machine has.
 .env
 .env.local
+.mcp.json
 
 *.db
 *.db-wal
