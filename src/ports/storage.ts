@@ -243,8 +243,9 @@ export interface StoragePort {
    * the FIRST row of a backfill and never after, or each row would wipe the previous one.
    *
    * Optional, so a backend with no vector support is still conformant and callers feature-detect —
-   * the same shape as `similar` and the `listHistory` extension. Every backend shipping today
-   * implements it; the optionality is the extension point, not a description of the current set.
+   * the same shape as `similar` and the `listHistory` extension. Not hypothetical: the Postgres
+   * adapter assigns it in `init()` only when pgvector is present, so a managed instance without the
+   * extension is a working yoke store whose vectors are genuinely absent.
    */
   putEmbedding?(e: Entity, opts?: { rebuild?: boolean }): Promise<void>;
 

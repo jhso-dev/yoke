@@ -193,18 +193,14 @@ export class OpenSearchStorage implements StoragePort {
 
   /** Create an index if absent. `init()` is the upgrade path for an existing cluster, so this is
    * idempotent the way sqlite's CREATE TABLE IF NOT EXISTS is. */
-  private async ensureIndex(
-    name: string,
-    mappings: unknown,
-    extraSettings?: Record<string, unknown>,
-  ): Promise<void> {
+  private async ensureIndex(name: string, mappings: unknown): Promise<void> {
     const res = await this.fetchImpl(`${this.url}/${name}`, {
       method: "HEAD",
       headers: this.headers,
     });
     if (res.ok) return;
     await this.req("PUT", `/${name}`, {
-      settings: { ...BASE_SETTINGS, ...extraSettings },
+      settings: BASE_SETTINGS,
       mappings,
     });
   }

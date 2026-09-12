@@ -19,8 +19,8 @@ export interface Provenance {
   /** ISO 8601. When THIS VERSION came into being, if a lifecycle transition wrote it — governance
    * time, which is not the knowledge's event time. Written only by lifecycle.transition; the commit
    * gate STRIPS a caller-supplied one (`normalizeProvenance`), because this is what the as-of rewind
-   * reads. Absent on every commit-written row, and on lifecycle rows written before the two times
-   * were separated (those carry the transition instant in `occurred_at`, the defect this fixes). */
+   * reads. Absent on every commit-written row, and on older lifecycle rows, which carry the
+   * transition instant in `occurred_at` instead — what `backfill --occurred-at` repairs. */
   transitioned_at?: string;
   /** Why this version retired the record, in the actor's words. Written only by `lifecycle.deprecate`
    * and only when someone typed one; the gate strips it, and a later transition does not carry it
