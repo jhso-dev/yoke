@@ -3,6 +3,8 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
+import { commit } from "../core/commit.js";
+import { inject } from "../core/inject.js";
 import { seedOntology } from "../core/ontology.js";
 import { makeGithubPrConnector } from "./github-pr.js";
 import { ingest } from "./ingest.js";
@@ -135,6 +137,37 @@ describe("ingest", () => {
     expect(hit?.type).toBe("decision");
     expect(hit?.status).toBe("verified");
     expect(hit?.provenance.origin).toBe("connector:github-pr");
+  });
+
+  it("attaches what it captures to the working context when one is named", async () => {
+    // Captured knowledge that is only query-reachable never reaches a briefing: a merged PR's
+    // decision would be absent from the opening page of the work it was merged into.
+    const ws = await commit(
+      port,
+      ont,
+      { type: "collaboration", attributes: { title: "uploads" } },
+      { actor: "u", origin: "cli", occurred_at: now },
+      now,
+    );
+    const connector = makeGithubPrConnector({
+      repo: "o/r",
+      fetchImpl: stubFetch(),
+    });
+    await ingest(
+      port,
+      ont,
+      connector,
+      "u",
+      now,
+      undefined,
+      undefined,
+      undefined,
+      ws.entity.id,
+    );
+    const briefed = await inject(port, ont, "", now, { scope: ws.entity.id });
+    expect(briefed.items.map((i) => i.entity.attributes.conclusion)).toContain(
+      "Add cache",
+    );
   });
 
   it("is idempotent — a second run skips everything already present", async () => {

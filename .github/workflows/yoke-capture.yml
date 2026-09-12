@@ -1,0 +1,25 @@
+# Merge-time capture (ADOPTION §2): a merged pull request becomes a decision on the team's server.
+# Inert until the repository is configured — no server variable, no run, so a fork or an
+# unconfigured clone is unaffected.
+name: yoke capture
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  capture:
+    if: github.event.pull_request.merged == true && vars.YOKE_SERVER != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci && npm run build:cli
+      - name: capture the merge
+        run: node dist/front/cli/index.js connect github-pr --repo "$GITHUB_REPOSITORY" --since "${{ github.event.pull_request.created_at }}" --scope "${{ vars.YOKE_SCOPE }}" --actor connector:github-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          YOKE_SERVER: ${{ vars.YOKE_SERVER }}
+          YOKE_TOKEN: ${{ secrets.YOKE_CAPTURE_TOKEN }}

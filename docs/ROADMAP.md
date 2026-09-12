@@ -808,6 +808,34 @@ said the experiment decides. It decided against all of them.
 - Deferred: `relate`-proposed supersedes edges between captured decisions need the LLM relater
   (`YOKE_LLM_*`), which this measurement session did not run. Measure when an endpoint is up.
 
+## v7.5 — the soak rig, and what standing it up found
+
+The plan's four rungs are built; what they measure needs live traffic. The rig is a persistent
+`serve --auth` on loopback (a launchd agent, `~/.yoke-team/team.db`), the GitHub exchange enabled
+against the org, this repository bound to a workstream on it, and merge capture backfilled into that
+workstream. Two findings came out of the wiring itself:
+
+- [x] **A bound repo leaked its server into the hook suite.** A client applies the repo's
+      `.claude/settings.json` env to what it spawns, so the ambient `YOKE_SERVER` made
+      `plugin/harness.test.ts` read the live server instead of its fixture store — two tests failing
+      for a reason unrelated to them, on the exact setup the plugin documents. `runHook` now strips
+      the whole `YOKE_*` surface, not the one variable that had bitten before.
+- [x] **Capture and delivery pointed at different stores.** On a server-bound repo the hooks read the
+      team's knowledge while the plugin's `yoke mcp` wrote to a local SQLite file — the team never
+      sees what the session learned. The setup skill now wires the server's MCP endpoint explicitly
+      (§4c) and says how to verify a write actually landed there. **The product answer is still
+      open**: one `yoke mcp` that follows `YOKE_SERVER` would end the split, at the cost of teaching
+      the MCP adapter to speak to a server rather than a store. Decide before recommending team
+      deployments more widely.
+- [x] **`connect --scope`** (its own commit): captured knowledge was query-reachable but never
+      briefed, so a merged PR's decision was absent from the opening page of the work it was merged
+      into.
+- Day-0 pulse on the rig: 72 records (18 by hand, 53 connector, 1 agent — hands-free 75%),
+  11 instrumented deliveries of which 3 carried a recall or reversal (27% interrupt rate — the
+  first real reading of the v7.0 ceiling), recall reach 1/3 (the other two sessions had not polled
+  again yet), relitigation 1/1, briefing 50/50 decisions+terms. The 4-week judgment reads against
+  this row.
+
 ## Version-promotion rule
 
 Don't start a higher version before the lower one is shipped and verified.

@@ -1101,7 +1101,9 @@ yoke backfill              # derive missing authored_by edges (upgrade path, ide
 yoke backfill --embeddings [--rebuild] [--limit n] [--after id]   # repair vector coverage; --rebuild changes dimension
 yoke backfill --occurred-at [--dry-run]      # restore event times a pre-fix verify overwrote (idempotent)
 yoke rename-type <from> <to>   # rename an ontology type in the declaration AND every stored row
-yoke connect <github-pr|slack|notes|raw|rdb>   # external sources → knowledge, signed by the connector
+yoke connect <github-pr|slack|notes|raw|rdb> [--scope id]   # external sources → knowledge, signed by
+                           # the connector; --scope attaches what it captures to a working context, so
+                           # captured knowledge reaches a briefing and not only a query
                                            # raw extracts via a model — see "Extractor contract"
 yoke relate [--limit n]    # a model proposes the links BETWEEN stored records — see "Relater contract"
 yoke mcp                   # start the MCP server (stdio)
