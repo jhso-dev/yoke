@@ -110,7 +110,7 @@ export async function ingestItem(
   item: SourceItem,
   prov: { actor: string; origin: string },
   now: string,
-  opts?: { ns?: string | null; embedder?: Embedder },
+  opts?: { ns?: string | null; embedder?: Embedder; attachTo?: string },
 ): Promise<ItemOutcome> {
   const { externalId, occurredAt, ...input } = item;
   const ns = opts?.ns;
@@ -162,6 +162,11 @@ export async function ingestItem(
         ns,
         embedder: opts?.embedder,
         ...(stored ? { existingId: stored.id } : {}),
+        // The working context this sync feeds, when the caller named one. Without it captured
+        // knowledge is query-reachable but never briefed: a merged PR's decision would not be in
+        // the opening page of the very work it was merged into. Passed INTO the gate for the reason
+        // the MCP path does it that way — a bad endpoint must refuse before the record is durable.
+        ...(opts?.attachTo ? { attachTo: opts.attachTo } : {}),
       },
     );
     result = { outcome: stored ? "updated" : "added", id: entity.id };
@@ -185,6 +190,7 @@ export async function ingest(
   since?: string,
   ns?: string | null,
   embedder?: Embedder,
+  attachTo?: string,
 ): Promise<IngestResult> {
   let added = 0;
   let updated = 0;
@@ -201,7 +207,7 @@ export async function ingest(
         item,
         { actor, origin: `connector:${connector.name}` },
         now,
-        { ns, embedder },
+        { ns, embedder, ...(attachTo ? { attachTo } : {}) },
       );
       if (outcome === "added") added++;
       else if (outcome === "updated") updated++;

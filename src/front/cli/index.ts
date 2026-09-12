@@ -2149,6 +2149,11 @@ async function runIngest(
       // The same embedder every other write path gets, so the gate's duplicate and contradiction stages
       // are not weaker on the bulk path than on `yoke add`.
       makeFetchEmbedder(env),
+      // --scope: the working context this sync feeds. Captured knowledge that is only query-reachable
+      // never reaches a briefing, so a merged PR's decision would be absent from the opening page of
+      // the work it was merged into (found wiring the soak rig). Same flag name and meaning as
+      // `yoke add --scope`.
+      v.scope,
     );
     // `updated` is its own count: a re-ingest that re-versions a corrected paragraph must be visible,
     // not folded into `skipped`.
@@ -2203,7 +2208,7 @@ async function cmdConnect(
   if (source === "notes") {
     const dir = positionals[1];
     if (!dir) {
-      console.error("usage: yoke connect notes <dir> [--actor a]");
+      console.error("usage: yoke connect notes <dir> [--actor a] [--scope id]");
       return 1;
     }
     return runIngest(makeNotesConnector({ dir }), v, env);
@@ -2257,7 +2262,7 @@ async function cmdConnect(
   }
   if (source !== "github-pr" || !v.repo) {
     console.error(
-      "usage: yoke connect <github-pr --repo owner/name | slack --channel C123 | notes <dir> | raw <dir> | rdb --mapping f.json> [--since ts] [--actor a]",
+      "usage: yoke connect <github-pr --repo owner/name | slack --channel C123 | notes <dir> | raw <dir> | rdb --mapping f.json> [--since ts] [--actor a] [--scope id]",
     );
     return 1;
   }

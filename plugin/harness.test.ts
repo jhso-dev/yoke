@@ -75,6 +75,8 @@ function runHook(
   env: Record<string, string>,
 ): Promise<{ status: number | null; out: string }> {
   return new Promise((resolve, reject) => {
+    // The ambient yoke configuration is already gone (vitest.setup.ts strips it, and children
+    // inherit that), so the case's own env is the whole of what a hook sees.
     const child = spawn(process.execPath, [join(pluginDir, "hooks", script)], {
       env: { ...process.env, YOKE_SCOPE: "", ...env },
     });

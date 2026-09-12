@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: npm install -g <yoke 배포 패키지>   # 또는 조직의 설치 경로
-      - run: yoke connect github-pr --repo ${{ github.repository }} --since ${{ github.event.pull_request.created_at }}
+      - run: yoke connect github-pr --repo ${{ github.repository }} --since ${{ github.event.pull_request.created_at }} --scope ${{ vars.YOKE_SCOPE }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           YOKE_SERVER: ${{ vars.YOKE_SERVER }}      # 팀 서버

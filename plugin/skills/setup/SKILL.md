@@ -54,6 +54,23 @@ preconditions out loud here: `gh auth token` must print a token, and
 answer JSON with a `token` — a 403 names the org the user is not a member of, and a 404 means the
 server has not enabled the exchange. `YOKE_DEBUG=1` on a hook explains failures on stderr.
 
+## 4c. On a team server, point the AGENT at the server too
+
+The hooks follow `YOKE_SERVER`, but this plugin also registers `yoke mcp`, which opens a LOCAL
+store. Left alone on a team deployment that splits the loop in half: the session is briefed from the
+team's knowledge and files what it learns into a SQLite file nobody else will ever read. Register the
+server's MCP endpoint and say which one the agent is to use:
+
+```
+claude mcp add --scope user --transport http yoke-team "$YOKE_SERVER/mcp" \
+  --header "Authorization: Bearer <a token from 'yoke token create --name mcp-<who> --scopes read,write'>"
+```
+
+A GitHub-exchanged credential works too, but a later exchange replaces it (SPEC "GitHub exchange"),
+which reads as a sudden 401 — a token minted for this purpose does not move. Then check the write
+actually lands on the server: commit something through the agent's tool and confirm it comes back
+from `GET $YOKE_SERVER/api/entity/<id>`. If it does not, the agent used the local one.
+
 ## 5. Prove it
 
 `yoke inject --scope <scope>` must print the briefing. Then tell the user what to expect: the next

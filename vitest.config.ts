@@ -38,6 +38,10 @@ export default defineConfig({
     // embedder configured" mean the same thing everywhere. Cases that exercise the probe inject
     // their own fetch and pass their own env, so this does not hide it.
     env: { YOKE_NO_AUTO_EMBED: "1" },
+    // …and for the same reason, nothing ELSE about yoke may arrive from the machine either. See
+    // vitest.setup.ts: a repo bound to a team server exports its binding into everything the client
+    // spawns, and inherited it steers the code under test.
+    setupFiles: ["./vitest.setup.ts"],
     pool: "forks",
     poolOptions: { forks: { singleFork: true } },
     dangerouslyIgnoreUnhandledErrors: true,
