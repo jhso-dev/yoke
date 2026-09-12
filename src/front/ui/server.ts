@@ -53,6 +53,7 @@ import {
   ULID,
   unseenReport,
 } from "../display.js";
+import { declaredType, storedStatus, wholeNumber } from "../params.js";
 import { validateScopes } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
@@ -167,15 +168,33 @@ function relRow(
 }
 
 /** A bounded positive-int query param. Throws (→400) on garbage or over max — never a silent cap,
- * so a client asking for more than we serve learns it rather than quietly getting less. */
+ * so a client asking for more than we serve learns it rather than quietly getting less. The whole-number
+ * rule is the CLI's, so `?limit=0x10` cannot mean 16 here and nothing there. */
 function intParam(url: URL, name: string, def: number, max: number): number {
   const raw = url.searchParams.get(name);
   if (raw === null) return def;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1)
-    throw new Error(`${name} must be a positive integer`);
-  if (n > max) throw new Error(`${name} must be <= ${max}`);
-  return n;
+  const r = wholeNumber(raw, name);
+  if (!r.ok) throw new Error(r.error);
+  if (r.value > max) throw new Error(`${name} must be <= ${max}`);
+  return r.value;
+}
+
+/** A `status` / `type` query param, judged by the same rules the CLI applies — an unaskable value is
+ *  refused, never answered with an empty list that reads as "none exist". */
+function statusParam(url: URL): string | undefined {
+  const raw = url.searchParams.get("status");
+  if (raw === null) return undefined;
+  const r = storedStatus(raw);
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
+}
+
+function typeParam(url: URL, ontology: TypeDef[]): string | undefined {
+  const raw = url.searchParams.get("type");
+  if (raw === null) return undefined;
+  const r = declaredType(raw, ontology);
+  if (!r.ok) throw new Error(r.error);
+  return r.value;
 }
 
 /**
@@ -588,12 +607,12 @@ export function createUiHandler(
     // Browse: enumerate knowledge. `type` doubles as the RBAC key, so a token scoped to one
     // ontology type can use this endpoint by naming that type — and only that type.
     if (method === "GET" && path === "/api/entities") {
-      const type = url.searchParams.get("type") ?? undefined;
-      if (denied(res, "read", type)) return;
+      const rawType = url.searchParams.get("type") ?? undefined;
+      if (denied(res, "read", rawType)) return;
       const q = {
         ns,
-        type,
-        status: url.searchParams.get("status") ?? undefined,
+        type: typeParam(url, store.loadOntology(ns)),
+        status: statusParam(url),
         after: url.searchParams.get("after") ?? undefined,
         limit: intParam(url, "limit", 100, 1000),
       };
@@ -613,8 +632,9 @@ export function createUiHandler(
     // and `truncated` says when the cap bit, which is the honest way to cap something (the graph
     // and briefing screens already do it this way). Getting everything is `inject`, or the CLI.
     if (method === "GET" && path === "/api/search") {
-      const type = url.searchParams.get("type") ?? undefined;
-      if (denied(res, "read", type)) return;
+      const rawType = url.searchParams.get("type") ?? undefined;
+      if (denied(res, "read", rawType)) return;
+      const type = typeParam(url, store.loadOntology(ns));
       const text = (url.searchParams.get("q") ?? "").trim();
       if (!text) {
         sendJson(res, 400, { error: "q is required" });
@@ -626,7 +646,7 @@ export function createUiHandler(
       const found = await store.search({
         text,
         type,
-        status: url.searchParams.get("status") ?? undefined,
+        status: statusParam(url),
         limit: limit + 1,
         ns,
       });

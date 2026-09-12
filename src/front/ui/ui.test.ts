@@ -453,6 +453,42 @@ describe("ui API", () => {
     expect(bora?.role).toBe("engineer");
   });
 
+  // A value nobody can ask for is refused, never answered with an empty list. `[]` reads as "none
+  // exist", which for `status=stale` is the opposite of the truth — stale is computed at read time,
+  // so no stored filter can ever match it. The CLI has always refused these; the web tier answering
+  // them with emptiness made one product with two contracts.
+  it("refuses a status no row can carry, rather than answering with none", async () => {
+    const res = await fetch(`${base}/api/entities?status=stale`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/computed at read time/);
+    const bogus = await fetch(`${base}/api/entities?status=DRAFT`);
+    expect(bogus.status).toBe(400);
+  });
+
+  it("refuses an undeclared type, and names the ones that exist", async () => {
+    const res = await fetch(`${base}/api/search?q=x&type=nonsense`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/unknown type: nonsense/);
+  });
+
+  it("reads a limit the way the CLI does — digits, not whatever Number() accepts", async () => {
+    // `Number("0x10")` is 16 and the CLI's `/^\d+$/` refuses it, so this param meant two different
+    // things depending on which surface asked.
+    const res = await fetch(`${base}/api/entities?limit=0x10`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/whole number/);
+    expect((await get("/api/entities?limit=10")).items).toBeDefined();
+  });
+
+  it("still answers the values that do exist", async () => {
+    expect(
+      (await get("/api/entities?status=verified")).items.length,
+    ).toBeGreaterThan(0);
+    expect(
+      (await get("/api/entities?type=person")).items.length,
+    ).toBeGreaterThan(0);
+  });
+
   it("GET / says the bundle is missing, with the command that fixes it", async () => {
     // No bundle configured → an honest 503 naming the build step, rather than a fallback UI. A
     // second, less-tested UI is what shipped in v2.5 and never ran in a browser.

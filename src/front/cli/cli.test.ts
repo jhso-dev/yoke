@@ -2270,6 +2270,14 @@ describe("a near-miss command gets the correction", () => {
     expect(errs.join("\n")).not.toContain("getting started");
   });
 
+  it("suggests a command that dispatches but was added to COMMANDS late", async () => {
+    // `relate` dispatched while absent from COMMANDS, so `yoke relatee` got the whole help screen
+    // where `yoke searh` got a correction. Four places enumerate the command set — COMMANDS,
+    // usage(), COMMAND_USAGE and the dispatch switch — and they had already parted.
+    expect(await runCli(["relatee"], {})).toBe(1);
+    expect(errs.join("\n")).toContain("did you mean 'relate'");
+  });
+
   it("falls back to the full usage when nothing is close", async () => {
     expect(await runCli(["frobnicate"], {})).toBe(1);
     expect(errs.join("\n")).toContain("getting started");

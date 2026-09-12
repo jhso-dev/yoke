@@ -102,6 +102,7 @@ import {
   unseenReport,
 } from "../display.js";
 import { runMcp } from "../mcp/index.js";
+import { declaredType, storedStatus, wholeNumber } from "../params.js";
 import { runServe } from "../serve/index.js";
 import { parseScope, SCOPE_GRAMMAR, validateScopes } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
@@ -241,12 +242,9 @@ function intFlag(
   min = 1,
 ): number | undefined {
   if (raw === undefined) return undefined;
-  if (!/^\d+$/.test(raw.trim()) || raw.trim() === "")
-    throw new UsageError(`--${name} must be a whole number (got "${raw}")`);
-  const n = Number(raw);
-  if (n < min)
-    throw new UsageError(`--${name} must be at least ${min} (got ${n})`);
-  return n;
+  const r = wholeNumber(raw, `--${name}`, min);
+  if (!r.ok) throw new UsageError(r.error);
+  return r.value;
 }
 
 /**
@@ -297,29 +295,11 @@ function noExtra(positionals: string[], keep: number, usage: string): void {
     );
 }
 
-/** The stored values of `status`. `stale` is NOT among them — see `statusFilter`. */
-const STORED_STATUSES = ["verified", "deprecated"] as const;
-
-/**
- * A `--status` filter, or a refusal that names why the value cannot match.
- *
- * `stale` is computed at read time and never stored, so pushing it to SQL matches no row and reads as
- * "none are stale" — the opposite of the truth. An unregistered value (`bogus`, `DRAFT`) is equally
- * silent and indistinguishable from an empty corpus, so both are refused rather than answered with
- * emptiness. The stale case gets the command that does answer it; the others get the values that exist.
- */
 function statusFilter(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
-  if (raw === "stale")
-    throw new UsageError(
-      "stale is computed at read time, not stored, so no filter can match it — " +
-        "'yoke review' is the queue of verified records past their TTL",
-    );
-  if (!STORED_STATUSES.includes(raw as (typeof STORED_STATUSES)[number]))
-    throw new UsageError(
-      `--status must be one of ${STORED_STATUSES.join(", ")} (got "${raw}")`,
-    );
-  return raw;
+  const r = storedStatus(raw);
+  if (!r.ok) throw new UsageError(r.error);
+  return r.value;
 }
 
 /**
@@ -333,13 +313,9 @@ function typeFilter(
   ontology: TypeDef[],
 ): string | undefined {
   if (raw === undefined) return undefined;
-  if (!ontology.some((t) => t.name === raw))
-    throw new UsageError(
-      `unknown type: ${raw}\ndeclared types: ${ontology
-        .map((t) => t.name)
-        .join(", ")}`,
-    );
-  return raw;
+  const r = declaredType(raw, ontology);
+  if (!r.ok) throw new UsageError(r.error);
+  return r.value;
 }
 
 /** --attr k=v list → attributes. A repeated key becomes a string[]. */
@@ -430,6 +406,7 @@ const COMMANDS = [
   "ontology",
   "persona",
   "connect",
+  "relate",
   "backfill",
   "rename-type",
   "audit",
