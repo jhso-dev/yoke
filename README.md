@@ -83,10 +83,12 @@ Trust isn't a promise here — it's five mechanisms, each enforced in code:
    injection path until someone re-confirms them. Stale truths are the
    politest form of misinformation, and yoke treats them that way.
 
-And it's measured, not asserted: the injection-quality eval reports **0%
-contamination** (no stale or retired record reaching an injection — those are what it
-plants) and **0% missed contradictions** on its planted pairs. What those numbers cover, and what
-they do not, is in [Measuring quality](#measuring-quality).
+And it's measured, not asserted: the injection-quality eval reports **0% contamination** — no stale
+or retired record reaching an injection, which is what it plants. Contradiction detection is the
+half that does not hold up: against real embeddings it finds **1 of 5** planted reversals, because
+the stage only sees pairs a similarity threshold raised and a reversal reads as less similar than a
+restatement. What those numbers cover, and what they do not, is in
+[Measuring quality](#measuring-quality).
 
 Runs local and embedded — better-sqlite3 + FTS5 + sqlite-vec, no server required.
 
@@ -433,7 +435,7 @@ wired up:
 | Metric | Definition | Target | Measured |
 |---|---|---|---|
 | Contamination rate | Share of stale or retired entries among inject results | 0% | **0.0%** (only the 20 standing of 40 candidates were injected) |
-| Missed-contradiction rate | Share of opposing-conclusion decision pairs with no conflicts_with edge | 0% | **0.0%** (5/5 detected) |
+| Missed-contradiction rate | Share of opposing-conclusion decision pairs with no conflicts_with edge | 0% | **80.0%** (1/5 detected, bge-m3) — the stub embedder's 0% is true by construction; the eval prints which one ran |
 
 Read those two numbers for what they cover: a 50-record synthetic corpus and a stub
 embedder whose vectors are built from the planted topic word, so the contradiction

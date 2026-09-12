@@ -456,6 +456,16 @@ export async function commit(
   // the conclusion text (the v1 ontology has no subject). Both sides preserved, no auto-resolution.
   // Relations must also pass the gate, so we reuse commit internally (relations skip stages 3 & 4,
   // so there is no infinite recursion).
+  //
+  // ceiling: this only ever sees pairs the DUPLICATE detector raised, so it inherits a similarity
+  // threshold to answer a question similarity does not answer. Measured (bge-m3, 2026-09-12):
+  // opposing conclusions score 0.664–0.753 and compatible refinements 0.785–0.872, against a 0.85
+  // cut — a reversal reads as LESS similar than a restatement, so the stage selects for the wrong
+  // thing and `npm run eval` with real vectors finds 1 of 5 planted contradictions (the stub
+  // embedder's 5 of 5 is true by construction; the eval now prints which one ran). Lowering the
+  // threshold does not fix it: it would admit the refinements first. What would is a check that
+  // asks whether two conclusions CONTRADICT rather than whether they resemble each other — an
+  // entailment call, and a design decision (docs/RESEARCH.md §8), not a constant to retune.
   const conflicts: Relation[] = [];
   if (input.type === "decision") {
     const conclusion = String(input.attributes.conclusion ?? "");

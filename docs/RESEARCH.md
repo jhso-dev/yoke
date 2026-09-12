@@ -393,6 +393,41 @@ the formula runs and that the cheap half pays; what it will say in four weeks is
 
 ---
 
+## 8. Contradiction detection is similarity-gated, and a reversal is not similar
+
+Measured 2026-09-12, bge-m3 through a local Ollama, reproducing a finding first made on an
+unmerged branch (`archive/v7-bench-and-scorecard`) and independently confirmed here.
+
+`npm run eval` reported 0% missed contradictions for as long as it has existed. That number came
+from a **stub embedder** that emits one vector per topic keyword, so every planted pair scored 1.0
+and detection was true by construction. Run against real vectors, the same corpus gives **1 of 5**.
+
+Why, measured on Korean decision pairs:
+
+| pair | cosine |
+|---|---|
+| "재시도는 3회" vs "재시도는 하지 않는다" (opposing) | 0.710 |
+| "세션 상한을 올린다" vs "올리지 않는다" (opposing) | 0.753 |
+| "캐시는 LRU" vs "캐시는 TTL" (opposing) | 0.664 |
+| "재시도는 3회" vs "재시도는 3회, 백오프는 지수" (compatible refinement) | 0.872 |
+| "캐시는 LRU" vs "캐시는 LRU, 크기 1000" (compatible refinement) | 0.785 |
+
+Gate stage 4 only judges pairs the DUPLICATE detector raised, at `DUP_THRESHOLD = 0.85`. Opposing
+conclusions sit **below** it; a compatible refinement sits **above**. The stage inherits a
+similarity question to answer a contradiction question, and similarity ranks them backwards — the
+detector selects for restatements.
+
+Lowering the threshold does not fix it, it admits the refinements first. What fixes it is asking
+whether two conclusions contradict rather than whether they resemble each other: an entailment
+call (a small NLI model, or the model already in the loop), scoped to decisions on the same
+subject. That is a design decision with a cost — a second model on the write path — and it is
+unbuilt. Until it is, **`conflicts_with` is a claim the writer makes, not one the gate reliably
+finds**, and everything downstream (injection serving both sides marked, the unseen ledger's
+contradicted line) is only as good as what someone recorded by hand. The eval now prints which
+embedder ran, so a stub 0% can never again be read as a measurement.
+
+---
+
 ## How to use this file
 
 Cite it from the design document that owns the decision, rather than copying the argument. Current
@@ -400,5 +435,6 @@ hook: the scope note above, which binds any future multi-person confirmation des
 "unverified" marker with the page reference — the marker is a debt, not a disclaimer.
 
 §1–4 are unimplemented; §5 is **partly implemented** and names the two SPEC clauses it produced; §6
-is a dated measurement that `audit --pulse` re-takes, and §7 the formula `audit --roi` computes. Where a section drives code, it says which
+is a dated measurement that `audit --pulse` re-takes, §7 the formula `audit --roi` computes, and §8
+a measured limit that bounds what `conflicts_with` can be claimed to do. Where a section drives code, it says which
 code — so the next reader can tell the argument from the artifact.
