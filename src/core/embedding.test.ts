@@ -2,9 +2,21 @@
 // No real API calls (global fetch is stubbed with vi). Verifying against a real provider is on the human-check list.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { makeFetchEmbedder, serializeText } from "./embedding.js";
+import {
+  makeFetchEmbedder,
+  proseKeyEnabled,
+  proseText,
+  serializeText,
+} from "./embedding.js";
+import { seedOntology } from "./ontology.js";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  // `restoreAllMocks` does not undo `stubGlobal`, so the fetch stub above outlived this file and
+  // threw "network down" inside whichever suite ran next (measured: src/front/ui/static.test.ts).
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe("makeFetchEmbedder", () => {
   it("returns a no-op (null) embedder when URL/MODEL unset", async () => {
@@ -76,5 +88,83 @@ describe("makeFetchEmbedder", () => {
 describe("serializeText", () => {
   it("joins type and attributes JSON (shared FTS/embedding rule)", () => {
     expect(serializeText("fact", '{"a":1}')).toBe('fact {"a":1}');
+  });
+
+  it("is byte-identical to the JSON key unless YOKE_INDEX_KEY says prose", () => {
+    // The A/B is two index builds of one corpus, which is only a comparison if the control arm is
+    // untouched — including the ontology argument the prose arm added.
+    const attrs = JSON.stringify({
+      conclusion: "Reads on the commute now",
+      sources: 'raw:00007-a.md — "I read on the commute"',
+      external_id: "raw:00007-a.md#3",
+    });
+    expect(serializeText("decision", attrs, seedOntology())).toBe(
+      `decision ${attrs}`,
+    );
+    expect(proseKeyEnabled({})).toBe(false);
+    expect(proseKeyEnabled({ YOKE_INDEX_KEY: "prose" })).toBe(true);
+    // The name that was asked for, accepted as an alias — and not sent as a bearer token.
+    expect(proseKeyEnabled({ YOKE_EMBED_KEY: "prose" })).toBe(true);
+    expect(proseKeyEnabled({ YOKE_EMBED_KEY: "sk-x" })).toBe(false);
+  });
+
+  it("switches both halves of the key when the flag is set", () => {
+    vi.stubEnv("YOKE_INDEX_KEY", "prose");
+    expect(serializeText("fact", '{"statement":"blogs are back"}')).toBe(
+      "fact. blogs are back",
+    );
+  });
+});
+
+describe("proseText", () => {
+  const ont = seedOntology();
+
+  it("renders the type and the values, in declared order, as prose", () => {
+    // Declared order is {conclusion, rationale, rejected_alternatives}; written order here is not.
+    const key = proseText(
+      "decision",
+      JSON.stringify({
+        rationale: "The long-form ones hold an argument together",
+        conclusion: "Went back to reading blogs",
+        rejected_alternatives: ["newsletters", "short video"],
+      }),
+      ont,
+    );
+    expect(key).toBe(
+      "decision. Went back to reading blogs. " +
+        "The long-form ones hold an argument together. newsletters, short video",
+    );
+  });
+
+  it("keeps the verbatim source quote and drops the bookkeeping", () => {
+    // The real shape a `connect raw` record has, and the real failure it was built for: a record
+    // whose values say "blog" and whose JSON key buries that among attribute names and an id.
+    const attributes = {
+      statement: "Started writing a blog again",
+      sources: 'raw:00012-u2.md — "I picked the blog back up this spring"',
+      external_id: "raw:00012-u2.md#4",
+      author: "u2",
+      status: "verified",
+    };
+    const key = proseText("fact", JSON.stringify(attributes), ont);
+    expect(key).toBe(
+      "fact. Started writing a blog again. " +
+        'raw:00012-u2.md — "I picked the blog back up this spring"',
+    );
+    // Prose plus the original value — not prose alone (LongMemEval measured the concatenation).
+    expect(key).toContain("I picked the blog back up");
+    // Bookkeeping is out: the id, the author, the status.
+    expect(key).not.toContain("#4");
+    expect(key).not.toContain("verified");
+    // And no JSON: no braces, no quoted attribute names, no `":"` separators.
+    expect(key).not.toMatch(/[{}]/);
+    expect(key).not.toContain("statement");
+    expect(key).not.toContain('":');
+  });
+
+  it("falls back to the JSON key when the attributes are not an object", () => {
+    // An index that throws on a malformed row is worse than one that indexes it verbatim.
+    expect(proseText("fact", "not json", ont)).toBe("fact not json");
+    expect(proseText("fact", "[1,2]", ont)).toBe("fact [1,2]");
   });
 });
