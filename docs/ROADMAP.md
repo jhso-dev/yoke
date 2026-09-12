@@ -815,11 +815,14 @@ The plan's four rungs are built; what they measure needs live traffic. The rig i
 against the org, this repository bound to a workstream on it, and merge capture backfilled into that
 workstream. Two findings came out of the wiring itself:
 
-- [x] **A bound repo leaked its server into the hook suite.** A client applies the repo's
-      `.claude/settings.json` env to what it spawns, so the ambient `YOKE_SERVER` made
-      `plugin/harness.test.ts` read the live server instead of its fixture store — two tests failing
-      for a reason unrelated to them, on the exact setup the plugin documents. `runHook` now strips
-      the whole `YOKE_*` surface, not the one variable that had bitten before.
+- [x] **A machine that USES yoke steered the suite that tests it.** A repo bound to a team server
+      exports `YOKE_SERVER`/`YOKE_SCOPE` into everything the client spawns, and a person pointing
+      `YOKE_DB` at their store exports that: the hook suite read the live server instead of its
+      fixture store, and a CLI case asserting the DEFAULT database path got the bound one. Both
+      failed for reasons unrelated to the change in front of them. The suite now starts from no
+      ambient yoke configuration at all (`vitest.setup.ts`, beside the embedder opt-out that exists
+      for the same class of problem); `YOKE_TEST_*` survives, since CI's live backends are named
+      that way.
 - [x] **Capture and delivery pointed at different stores.** On a server-bound repo the hooks read the
       team's knowledge while the plugin's `yoke mcp` wrote to a local SQLite file — the team never
       sees what the session learned. The setup skill now wires the server's MCP endpoint explicitly
