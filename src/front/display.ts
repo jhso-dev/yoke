@@ -211,17 +211,6 @@ export function summarize(
 export const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 /**
- * The `detail` string for an injection audit row: `<subject tokens> -> <ids>` (SPEC "HTTP API").
- *
- * Shared by the CLI, the MCP server and the injection preview so the trail can tell an anchored
- * injection from an unscoped one — the number that decides the retrieval design (docs/RESEARCH.md).
- *
- * The subject is a token list, newest fact first: anchor, then `@`-prefixed as-of instant, then the
- * query text. A ULID token names a record and the audit screen resolves it; `@`-prefixing the
- * timestamp keeps it from being read as query text. An empty query yields just the anchor, which is
- * what a briefing is.
- */
-/**
  * A read's audit row, written best-effort. The answer is already out and WAL guarantees readers never
  * block, so a `database is locked` from a concurrent writer costs the trail row, never the query. The
  * failure goes to stderr — the only safe channel under MCP, where stdout is the protocol. Write paths
@@ -242,6 +231,17 @@ export function bestEffortAudit<E>(
   }
 }
 
+/**
+ * The `detail` string for an injection audit row: `<subject tokens> -> <ids>` (SPEC "HTTP API").
+ *
+ * Shared by the CLI, the MCP server and the injection preview so the trail can tell an anchored
+ * injection from an unscoped one — the number that decides the retrieval design (docs/RESEARCH.md).
+ *
+ * The subject is a token list, newest fact first: anchor, then `@`-prefixed as-of instant, then the
+ * query text. A ULID token names a record and the audit screen resolves it; `@`-prefixing the
+ * timestamp keeps it from being read as query text. An empty query yields just the anchor, which is
+ * what a briefing is.
+ */
 export function injectDetail(
   ids: string[],
   opts?: { query?: string; scope?: string; asOf?: string; changed?: number },

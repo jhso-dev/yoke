@@ -456,12 +456,11 @@ export function createUiHandler(
   const serveStatic = createStaticHandler(
     deps.webRoot === undefined ? defaultWebRoot() : deps.webRoot,
   );
-  /** A row serializer bound to this request's ontology and clock — so effectiveStatus is computed
-   * once per request rather than per row, and every route reports freshness the same way.
-   * Async because it also resolves actor ids to display names; the name memo is created here, per
-   * call, so it cannot outlive one response and serve a renamed person their old name. */
-  /** Entity rows, relation rows, and the actor-name prefetch — ONE memo behind all three, so a route
-   * serializing both entities and relations (the graph route) does not read every author twice. */
+  /** Entity rows, relation rows and the actor-name prefetch, bound to this request's ontology and
+   * clock: effectiveStatus is computed once per request rather than per row, so every route reports
+   * freshness the same way, and ONE name memo sits behind all three so the graph route does not read
+   * every author twice. The memo is created per call, so it cannot outlive one response and serve a
+   * renamed person their old name. */
   const serializers = () => {
     const ontology = store.loadOntology(ns);
     const ts = now();
