@@ -3,7 +3,7 @@
 ## One-line positioning
 
 **"Knowledge your AI can trust."**
-Competitors sell memory (automatic); yoke sells knowledge (governed). A memory layer automates what the AI remembers; yoke governs what the AI is allowed to believe — and the load-bearing case is the team's **decision flow**: memory products store what one agent saw, while yoke relays what the team settled (and un-settled) into every running session, rejected alternatives attached. The trust claim is backed by mechanism, not marketing: sourced-and-signed entry, freshness decay with a re-confirmation queue, preserved contradictions served as disputed, retirement broadcast to everyone previously handed the record, and an append-only audit trail (see README "Why you can trust it"). The Git analogy (commits/blame/merge conflicts ↔ append-only versions/signed provenance/conflicts_with) remains useful as an explanatory device, but not as the tagline.
+Competitors sell memory (automatic); yoke sells knowledge (governed). A memory layer automates what the AI remembers; yoke governs what the AI is allowed to believe — and the load-bearing case is the team's **decision flow**: memory products store what one agent saw, while yoke relays what the team settled (and un-settled) into every running session, rejected alternatives attached. The trust claim is backed by mechanism, not marketing — the five are in docs/KNOWLEDGE-POLICY.md, and README "Why you can trust it" is the short version. The Git analogy (commits/blame/merge conflicts ↔ append-only versions/signed provenance/conflicts_with) remains useful as an explanatory device, but not as the tagline.
 
 ## Competitive landscape (five categories)
 
