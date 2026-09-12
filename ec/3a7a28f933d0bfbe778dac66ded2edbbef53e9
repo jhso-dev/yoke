@@ -1,0 +1,26 @@
+vitest.setup.ts
+  s_03673cb32bfdc1::t_302e5a0433c476 1-16
+vitest.config.ts
+  s_03673cb32bfdc1::t_a313748228e8e2 41-44
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_110f65e4d34b19 818-820
+  s_03673cb32bfdc1::t_2714ef2dddf8f9 821-825
+plugin/harness.test.ts
+  s_03673cb32bfdc1::t_a313748228e8e2 78-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ec3a7a28f933d0bfbe778dac66ded2edbbef53e9",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    }
+  }
+}
