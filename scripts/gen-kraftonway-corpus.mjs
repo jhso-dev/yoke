@@ -23,11 +23,8 @@
 
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { commit } from "../dist/core/commit.js";
-import { makeFetchEmbedder } from "../dist/core/embedding.js";
 import { deprecate, verify } from "../dist/core/lifecycle.js";
-import { seedOntology } from "../dist/core/ontology.js";
-import { openStore } from "../dist/front/store.js";
+import { dateSpread, openSeededStore, probeEmbedder } from "./corpus-lib.mjs";
 
 // --- args ---------------------------------------------------------------------------------------
 const argv = process.argv.slice(2);
@@ -41,15 +38,8 @@ const COUNT = Number(argv.find((a, i) => i > 0 && /^\d+$/.test(a)) ?? 30000);
 
 const A_DIR = fileURLToPath(new URL("kraftonway-corpus", import.meta.url));
 const NOW = "2026-08-04T09:00:00.000Z";
-const DAY = 86400000;
-const iso = (daysAgo) =>
-  new Date(Date.parse(NOW) - daysAgo * DAY).toISOString();
-// Deterministic occurred_at spread. No Math.random: a reload must produce the same corpus.
-const dateForKey = (key) => {
-  let h = 0;
-  for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return iso(h % 3000); // spread across ~8 years so fact(180d)/decision(365d) TTLs straddle
-};
+// ~8 years, so fact(180d)/decision(365d) TTLs straddle the spread.
+const { iso, dateFor: dateForKey } = dateSpread(NOW, 3000);
 
 // --- the real cast (persona anchors). Referenced by id from the role files; defined once here. -----
 const CAST = [
@@ -160,44 +150,19 @@ const INITIATIVES = [
 
 // --- open store, seed ontology + bootstrap actor ------------------------------------------------
 for (const s of ["", "-wal", "-shm"]) rmSync(LOCAL + s, { force: true });
-const embedder = makeFetchEmbedder(process.env);
-const vectors = (await embedder("probe")) !== null;
-console.log(
-  vectors
-    ? `embedder: ${process.env.YOKE_EMBED_MODEL} — vectors on`
-    : "embedder: none — keyword-only corpus (set YOKE_EMBED_URL for hybrid)",
+const { embedder, vectors } = await probeEmbedder(
+  process.env,
+  "keyword-only corpus (set YOKE_EMBED_URL for hybrid)",
 );
 console.log(`ns=${NS ?? "(default)"}  target=${COUNT} records  db=${LOCAL}`);
 
-const store = await openStore({ db: LOCAL }, process.env);
-await store.init();
-const ontology = seedOntology();
-await store.saveOntology(ontology);
-
-if (!(await store.getEntity("yoke:system"))) {
-  const at = "2025-01-01T00:00:00.000Z";
-  const { entity } = await commit(
-    store,
-    ontology,
-    { type: "person", attributes: { name: "yoke" } },
-    { actor: "yoke:system", origin: "seed", occurred_at: at },
-    at,
-    { existingId: "yoke:system" },
-  );
-  await verify(store, [entity.id], "yoke:system", at);
-}
-
-const commitRec = async (input, actor, at, existingId) => {
-  const { entity } = await commit(
-    store,
-    ontology,
-    input,
-    { actor, origin: "kraftonway-test", occurred_at: at },
-    at,
-    { embedder, existingId, ns: NS },
-  );
-  return entity.id;
-};
+const { store, add: commitRec } = await openSeededStore({
+  db: LOCAL,
+  env: process.env,
+  embedder,
+  origin: "kraftonway-test",
+  ns: NS,
+});
 const rel = (type, from, to, actor, at) =>
   commitRec({ type, attributes: {}, from, to }, actor, at);
 
