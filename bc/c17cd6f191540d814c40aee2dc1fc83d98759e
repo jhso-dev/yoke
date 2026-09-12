@@ -1,0 +1,34 @@
+web/tsconfig.json
+  s_03673cb32bfdc1::t_8211ed6e0950a9 4,16,32
+src/ports/conformance.self.test.ts
+  s_03673cb32bfdc1::t_1f109d80c1f35f 4,16-90
+  s_03673cb32bfdc1::t_d8efb8932dcbfc 91
+src/core/backfill.ts
+  s_03673cb32bfdc1::t_95f6bb4cdb55a5 184-186
+src/adapters/storage-opensearch/index.ts
+  s_03673cb32bfdc1::t_95f6bb4cdb55a5 196,203
+src/core/rank.ts
+  s_03673cb32bfdc1::t_2778f95a6a2845 3-7,9-11
+src/ports/storage.ts
+  s_03673cb32bfdc1::t_95f6bb4cdb55a5 246-248
+src/connectors/rdb-mapping.ts
+  s_03673cb32bfdc1::t_95f6bb4cdb55a5 185-187
+src/core/types.ts
+  s_03673cb32bfdc1::t_95f6bb4cdb55a5 22-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bcc17cd6f191540d814c40aee2dc1fc83d98759e",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
