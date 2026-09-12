@@ -1,0 +1,54 @@
+src/adapters/storage-postgres/index.ts
+  s_03673cb32bfdc1::t_9278ab21c0d62b 184-185
+src/front/mcp/index.ts
+  s_03673cb32bfdc1::t_59a75aae103733 42
+  s_03673cb32bfdc1::t_5d328340493886 27
+  s_03673cb32bfdc1::t_051e5565ab513a 387
+  s_03673cb32bfdc1::t_fd850672f8162b 401,641,732
+src/core/inject.ts
+  s_03673cb32bfdc1::t_b699f67f09bdbb 134-151
+  s_03673cb32bfdc1::t_cce6e5790ac638 133
+src/front/serve/rbac.ts
+  s_03673cb32bfdc1::t_4f008713a0a8e1 35,38-48,52-68
+  s_03673cb32bfdc1::t_5d328340493886 36-37,49-51
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_051e5565ab513a 1281
+  s_03673cb32bfdc1::t_f625fc6db836e5 2512
+  s_03673cb32bfdc1::t_a18cbb572a0211 85
+  s_03673cb32bfdc1::t_5d328340493886 54,106
+  s_03673cb32bfdc1::t_dbceb986fcf586 2755,2772-2774,2777
+  s_03673cb32bfdc1::t_fd850672f8162b 810,857,900,1047,1309,1386,1931
+  s_03673cb32bfdc1::t_9278ab21c0d62b 27
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_051e5565ab513a 18-22,787
+  s_03673cb32bfdc1::t_dbceb986fcf586 1090-1091,1093-1094,1098
+  s_03673cb32bfdc1::t_428e3ce31bca7b 303-306,318-324
+  s_03673cb32bfdc1::t_bc86fb4f7d5945 56
+  s_03673cb32bfdc1::t_2e5046046571dd 890
+  s_03673cb32bfdc1::t_59a75aae103733 42
+  s_03673cb32bfdc1::t_ca9621105083d2 449,827,1178
+  s_03673cb32bfdc1::t_e3549820df6ea5 17
+src/connectors/rdb-mapping.test.ts
+  s_03673cb32bfdc1::t_833b3a2510b403 10
+  s_03673cb32bfdc1::t_722cca9c5d9948 59,62,81,84,97,100,131,151,165,205,228,237,240
+src/front/display.ts
+  s_03673cb32bfdc1::t_2fb5b8c9c0a268 224-244
+src/front/serve/index.ts
+  s_03673cb32bfdc1::t_f7c9366c82151a 34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f86372fe9e59b881f38decafe105f921d7f2be0f",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
