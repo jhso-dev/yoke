@@ -327,15 +327,9 @@ async function readIds(
   return { ids: ids as string[], reason: reason as string | undefined };
 }
 
-/** Attribute values a form can send. Anything else (nested objects, numbers that should have been
- * strings) is refused here rather than reaching the gate as a shape the ontology cannot describe. */
 /**
  * The four value shapes an attribute may take — the same four the ontology declares (`string`,
- * `number`, `boolean`, `string[]`, see core/ontology.ts AttrSpec).
- *
- * It used to accept only strings and string arrays, which made the route narrower than the gate it
- * fronts: a type declaring a `number` attribute could be committed from the CLI and not from HTTP,
- * so the web form had no honest way to offer the field at all. Validation still belongs to the gate;
+ * `number`, `boolean`, `string[]`, see core/ontology.ts AttrSpec). Validation belongs to the gate;
  * this only refuses shapes no attribute can ever hold (objects, nested arrays, null).
  */
 function readAttributes(v: unknown): Record<string, unknown> {
