@@ -131,6 +131,25 @@ export const WALK_BUDGET = 128;
 export const BRIEFING_LIMIT = 50;
 
 /**
+ * The limit a front adapter passes to `inject`. An anchored briefing with no query is capped —
+ * uncapped, a collaboration with 300 records attached returns all 300 in full (~15k tokens) — and a
+ * query is not, because its own terms already narrow it. An explicit limit always wins (SPEC: the
+ * three front adapters "apply the default to a briefing … and never to a query").
+ *
+ * All three call this rather than restating it: the CLI, the MCP tool and the preview route must
+ * agree byte for byte, and a preview showing 50 where the agent gets everything is exactly the drift
+ * that claim forbids.
+ */
+export function injectLimit(
+  scope: string | undefined,
+  query: string,
+  explicit: number | undefined,
+): number | undefined {
+  const briefing = scope !== undefined && !query;
+  return explicit ?? (briefing ? BRIEFING_LIMIT : undefined);
+}
+
+/**
  * What injection asks the store for, so the cap lands after the filter rather than before it.
  *
  * Two parts, and the first is the one that matters:

@@ -221,6 +221,27 @@ export const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
  * timestamp keeps it from being read as query text. An empty query yields just the anchor, which is
  * what a briefing is.
  */
+/**
+ * A read's audit row, written best-effort. The answer is already out and WAL guarantees readers never
+ * block, so a `database is locked` from a concurrent writer costs the trail row, never the query. The
+ * failure goes to stderr — the only safe channel under MCP, where stdout is the protocol. Write paths
+ * keep their audit inline; only reads come through here.
+ *
+ * Generic over the event so this file keeps importing only core, never an adapter's AuditEvent.
+ */
+export function bestEffortAudit<E>(
+  store: { logAudit?: (event: E) => void },
+  event: E,
+): void {
+  try {
+    store.logAudit?.(event);
+  } catch (err) {
+    console.error(
+      `warning: audit row not written (read succeeded): ${(err as Error).message}`,
+    );
+  }
+}
+
 export function injectDetail(
   ids: string[],
   opts?: { query?: string; scope?: string; asOf?: string; changed?: number },

@@ -24,6 +24,7 @@ import {
   entityIdCandidates,
   envKeywordWeight,
   inject,
+  injectLimit,
   WALK_BUDGET,
 } from "../../core/inject.js";
 import { normalizeNs, resolveNs } from "../../core/namespace.js";
@@ -38,6 +39,7 @@ import {
 import type { Entity, EntityInput, RelationInput } from "../../core/types.js";
 import type { StoragePort } from "../../ports/storage.js";
 import {
+  bestEffortAudit,
   citeActors,
   describeWithheld,
   injectDetail,
@@ -171,19 +173,6 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
 
   // Input actor > server startup env (defaultActor) > 'yoke:system' (already folded into defaultActor).
   const resolveActor = (actor?: string) => actor ?? defaultActor;
-
-  // A read's audit row is best-effort: on a locked DB logAudit throws, and a dropped trail row must
-  // not turn an already-computed read into a failed query. stderr, not stdout: stdout is the protocol
-  // channel. WRITE tools keep the audit inline; only reads are best-effort.
-  const bestEffortAudit = (event: AuditEvent): void => {
-    try {
-      store.logAudit?.(event);
-    } catch (e) {
-      process.stderr.write(
-        `warning: audit row not written (read succeeded): ${(e as Error).message}\n`,
-      );
-    }
-  };
 
   async function doCommit(
     input: EntityInput | RelationInput,
@@ -389,17 +378,13 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       if (!authorize("read")) return forbidden();
       const ts = now();
       const anchor = effectiveScope(scope);
-      // A briefing (anchored, no query) is capped: uncapped, a collaboration with 300 records attached
-      // returns all 300 in full (~15k tokens). An explicit limit overrides; a query is already
-      // narrowed by its own terms.
-      const briefing = anchor !== undefined && !query;
       const { items, omitted, walk, withheld } = await inject(
         store,
         ontology,
         query,
         ts,
         {
-          limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
+          limit: injectLimit(anchor, query, limit),
           ns,
           scope: anchor,
           depth,
@@ -413,7 +398,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
       // unscoped one, and which of the two agents actually do is the measurement that decides whether
       // graph expansion is worth investing in at all (docs/RESEARCH.md).
-      bestEffortAudit({
+      bestEffortAudit(store, {
         actor: defaultActor,
         action: "inject",
         detail: injectDetail(
@@ -653,7 +638,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const o = await overview(store, ontology, ts, { ns, top });
       // Audited like every other read that returns knowledge attributes — a hub row carries a record's
       // own text (SPEC "Any route that returns knowledge attributes writes an audit row").
-      bestEffortAudit({
+      bestEffortAudit(store, {
         actor: defaultActor,
         action: "overview",
         detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
@@ -744,7 +729,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const { decisions, facts } = persona;
       // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.
       const injected = [...decisions, ...facts].map((i) => i.entity);
-      bestEffortAudit({
+      bestEffortAudit(store, {
         actor: defaultActor,
         action: "persona",
         detail: `${person}${query ? ` ${query}` : ""} -> ${injected.map((e) => e.id).join(" ")}`,

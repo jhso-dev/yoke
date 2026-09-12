@@ -137,8 +137,6 @@ export interface PostgresOptions {
   url: string;
   /** Schema holding every table. Created by `init()`. Default `yoke` — see decision 1. */
   schema?: string;
-  /** Pool size. The CLI opens and closes per command, so the default is deliberately small. */
-  poolSize?: number;
 }
 
 export class PostgresStorage implements StoragePort {
@@ -183,10 +181,8 @@ export class PostgresStorage implements StoragePort {
     }
     this.schemaName = name;
     this.schema = `"${name}"`;
-    this.pool = new Pool({
-      connectionString: opts.url,
-      max: opts.poolSize ?? 4,
-    });
+    // Small on purpose: the CLI opens and closes a store per command, and `serve` is one process.
+    this.pool = new Pool({ connectionString: opts.url, max: 4 });
   }
 
   /** Schema-qualified table reference. */

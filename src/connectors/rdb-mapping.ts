@@ -54,12 +54,6 @@ export interface MappedResult {
   errors: number;
 }
 
-export function makeRdbMappingConnector(
-  opts: RdbMappingConnector,
-): RdbMappingConnector {
-  return opts;
-}
-
 const externalId = (table: string, pk: unknown): string =>
   `rdb:${table}:${String(pk)}`;
 
