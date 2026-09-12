@@ -1,0 +1,26 @@
+docs/ADOPTION.md
+  s_03673cb32bfdc1::t_66aa2dfabf467c 70-75
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_66aa2dfabf467c 842-864
+scripts/self-check.mjs
+  s_03673cb32bfdc1::t_2e968ddf0dc0c9 21,129-132,134-135,138,202
+  s_03673cb32bfdc1::t_542653dda90ed2 158-176
+  s_03673cb32bfdc1::t_bb436b5fb27559 1-20,22-128,133,136-137,139-157,177-201
+  s_03673cb32bfdc1::t_fe2ede8d3673ec 203-261
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9cac9188636619e948d897f2895a6d94bdfc6bb2",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
