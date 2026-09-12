@@ -1,0 +1,101 @@
+src/adapters/storage-sqlite/index.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 340,536
+src/adapters/storage-sqlite/index.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1,3,44,57,82,86,96,155,210,302,582,727,839,848,902,962,993
+src/ports/storage.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 47
+src/core/namespace.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/core/types.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 43
+src/core/embedding.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/adapters/storage-sharded/config.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/core/persona.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/front/serve/oidc.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/connectors/slack.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/ports/conformance-cases.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 421
+src/front/cli/cli.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 980,1434,1479,1519
+src/connectors/types.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_a135deb43c1a45 101,411
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1,63,543
+src/front/serve/rbac.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/front/ui/ui.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/front/serve/rbac.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/core/commit.test.ts
+  s_03673cb32bfdc1::t_a135deb43c1a45 2
+src/front/ui/bundle.size.test.ts
+  s_03673cb32bfdc1::t_a135deb43c1a45 1
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1,66,69,367
+src/front/mcp/index.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 3,85,92,100,397,730
+src/front/store.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/ports/conformance.self.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 85
+src/adapters/storage-sharded/index.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 3,1317,1390,2474,2731,2747,2843,2887,2972
+  s_03673cb32bfdc1::t_c3edfd65edffa5 2714
+src/connectors/slack.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/connectors/meeting-notes.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/core/namespace.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/core/ontology.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 239
+src/front/mcp/mcp.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/connectors/ingest.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/connectors/rdb-mapping.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/connectors/rdb-mapping.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/connectors/github-pr.ts
+  s_03673cb32bfdc1::t_a135deb43c1a45 1
+src/core/commit.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 114
+src/connectors/meeting-notes.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+eval/inject-quality.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/adapters/storage-sharded/index.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/connectors/github-pr.test.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/connectors/rdb-pg.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1
+src/front/serve/index.ts
+  s_03673cb32bfdc1::t_5f12a9aabe9338 1,7,65,407
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b8e9ec9c1a16e8fd455263b88321498bc7eb3170",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
