@@ -14,7 +14,7 @@
 
 import { SqliteStorage } from "../src/adapters/storage-sqlite/index.js";
 import { commit } from "../src/core/commit.js";
-import type { Embedder } from "../src/core/embedding.js";
+import { type Embedder, makeFetchEmbedder } from "../src/core/embedding.js";
 import { inject } from "../src/core/inject.js";
 import { deprecate } from "../src/core/lifecycle.js";
 import { seedOntology } from "../src/core/ontology.js";
@@ -100,6 +100,8 @@ function makeStubEmbedder(topics: string[]): Embedder {
 }
 
 interface Report {
+  /** Which embedder gate stage 4 ran against — a detection rate means nothing without it. */
+  embedder: string;
   briefing: {
     /** Of the `leads`-marked records planted on the scope, how many survive in the opening page. */
     planted: number;
@@ -159,8 +161,20 @@ async function run(): Promise<Report> {
   }
   await deprecate(store, retiredIds, ACTOR, NOW);
 
-  // (c) Opposing-conclusion decision pairs — inject the deterministic stub embedder → exercises gate stage 4.
-  const embedder = makeStubEmbedder(DECISION_TOPICS);
+  // (c) Opposing-conclusion decision pairs — gate stage 4 needs an embedder to run at all.
+  //
+  // WHICH embedder decides what this measures, so the report says which one ran. The stub emits one
+  // vector per topic keyword, so every planted pair scores a perfect 1.0 and detection is true by
+  // construction: it proves the plumbing executes, never that real embeddings surface a reversal.
+  // Configure one (YOKE_EMBED_URL/YOKE_EMBED_MODEL) and the same corpus is measured against vectors
+  // a deployment would actually have — which is the number worth quoting anywhere.
+  const real = process.env.YOKE_EMBED_URL && process.env.YOKE_EMBED_MODEL;
+  const embedder = real
+    ? makeFetchEmbedder(process.env)
+    : makeStubEmbedder(DECISION_TOPICS);
+  const embedderKind = real
+    ? `${process.env.YOKE_EMBED_MODEL} via ${process.env.YOKE_EMBED_URL}`
+    : "stub (one vector per topic — detection is true by construction)";
   const pairIds: Array<[string, string]> = [];
   for (const { topic, a, b } of DECISION_PAIRS) {
     const first = await commit(
@@ -272,6 +286,7 @@ async function run(): Promise<Report> {
   store.close();
 
   return {
+    embedder: embedderKind,
     briefing: { planted: gold.length, surviving, noise: NOISE },
     contamination: {
       ftsCandidates,
@@ -305,6 +320,7 @@ console.log(
   `  of which retired (contamination) ${r.contamination.injectedRetired}`,
 );
 console.log(`contamination rate (target 0%)    ${pct(r.contamination.rate)}`);
+console.log(`embedder (stage 4)                ${r.embedder}`);
 console.log(
   `gold-in-brief (target all)        ${r.briefing.surviving}/${r.briefing.planted} decisions survive ${r.briefing.noise} noise facts`,
 );
