@@ -42,7 +42,7 @@ interface Proposed {
   because: string;
 }
 
-type Relater = (records: Ref[]) => Promise<Proposed[] | null>;
+export type Relater = (records: Ref[]) => Promise<Proposed[] | null>;
 
 /**
  * Which relation types a model may propose.

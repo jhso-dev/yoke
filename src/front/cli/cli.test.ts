@@ -2655,29 +2655,24 @@ describe("a kind flip sees the table its records are actually in", () => {
 describe("the team path", () => {
   // Two rules hold this deployment together, and both are invisible from reading one file.
   //
-  //   1. A shared knowledge store is the SERVER's connection. Reached from the CLI directly it would
-  //      be an ungated path onto a team's corpus, where `--actor` is an unverified string.
-  //   2. With YOKE_SERVER bound the actor comes off the verified credential, so `--actor` cannot
-  //      claim to be anybody.
-  it("refuses a shared backend on the ungated path, and names the way in", async () => {
-    const code = await cli(["list"], {
+  //   1. A backend URL is the SERVER's connection. The CLI never opens one, whatever is exported —
+  //      so there is no ungated path onto a shared corpus to guard.
+  //   2. With a gated server the actor comes off the verified credential, so `--actor` cannot claim
+  //      to be anybody.
+  it("never opens a backend itself, whatever is exported", async () => {
+    // A cluster address that would resolve if anything reached for it, and a port with nothing on
+    // it. The failure has to be about the SERVER, not about OpenSearch: that is the proof the CLI
+    // did not try to open the store.
+    const code = await cli(["list", "--db", newDb()], {
       ...NO_EMBED,
       YOKE_OPENSEARCH_URL: "http://opensearch.internal:9200",
+      YOKE_SERVER: "http://127.0.0.1:45999",
     });
     expect(code).toBe(1);
-    expect(errs.join("\n")).toMatch(/YOKE_SERVER/);
-    // The single-user-at-scale case still works: the refusal is about WHO is asking, not about
-    // OpenSearch. Past the guard it fails on the unreachable cluster instead — a different error.
-    errs.length = 0;
-    const solo = await cli(["list"], {
-      ...NO_EMBED,
-      YOKE_OPENSEARCH_URL: "http://127.0.0.1:1/",
-      YOKE_SOLO: "1",
-    });
-    expect(solo).toBe(1);
-    expect(errs.join("\n")).not.toMatch(
-      /YOKE_SOLO=1 if this store is yours alone/,
+    expect(errs.join("\n")).toMatch(
+      /no yoke server at http:\/\/127\.0\.0\.1:45999/,
     );
+    expect(errs.join("\n")).not.toMatch(/opensearch/i);
   });
 
   it("writes under the credential's actor, so --actor cannot forge authorship", async () => {
@@ -2755,5 +2750,97 @@ describe("the team path", () => {
       await new Promise((r) => server.close(r));
       store.close();
     }
+  });
+});
+
+describe("relate proposes edges where the model is, over a corpus it never holds", () => {
+  // The split this command is built on: the server pages the whole namespace and runs a search per
+  // anchor (`/api/relate/groups`), the model runs HERE with this machine's YOKE_LLM_*, and every
+  // accepted proposal goes back through the ordinary link route — so an edge a model proposed passes
+  // the same gate as one a person typed, and the CLI never opens the store to do any of it.
+  it("links what the model proposes, keeps its reason, and says so the second time", async () => {
+    const db = newDb();
+    expect(await cli(["init", "--db", db])).toBe(0);
+    // Two records that share words, so the anchor's search actually finds the earlier one.
+    for (const c of ["결제 재시도는 3회", "결제 재시도 간격은 백오프"])
+      expect(
+        await cli(
+          [
+            "add",
+            "decision",
+            "--db",
+            db,
+            "--attr",
+            `conclusion=${c}`,
+            "--attr",
+            "rationale=r",
+          ],
+          NO_EMBED,
+        ),
+      ).toBe(0);
+
+    // An OpenAI-compatible stream that always proposes the anchor relating to its neighbour.
+    const llm = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        const body = JSON.stringify([
+          {
+            from: "r1",
+            to: "r2",
+            type: "relates_to",
+            because: "같은 결제 영역",
+          },
+        ]);
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write(
+          `data: ${JSON.stringify({ choices: [{ delta: { content: body } }] })}\n\n`,
+        );
+        res.end("data: [DONE]\n\n");
+      });
+    });
+    await new Promise<void>((r) => llm.listen(0, "127.0.0.1", r));
+    const env = {
+      ...NO_EMBED,
+      YOKE_LLM_URL: `http://127.0.0.1:${(llm.address() as { port: number }).port}/v1`,
+      YOKE_LLM_MODEL: "stub",
+    };
+    try {
+      expect(await cli(["relate", "--db", db, "--json"], env)).toBe(0);
+      const first = JSON.parse(logs.at(-1) as string) as {
+        added: number;
+        existed: number;
+        rejected: number;
+      };
+      expect(first.added).toBeGreaterThan(0);
+      expect(first.rejected).toBe(0);
+
+      // The sentence that justified the edge rides it — a reviewer deciding whether the link is real
+      // should not have to reconstruct why a model thought so.
+      const store = new SqliteStorage(db);
+      await store.init();
+      const edges = (await store.listRelations({ type: "relates_to" })).items;
+      expect(
+        edges.some((e) => e.attributes.rationale === "같은 결제 영역"),
+      ).toBe(true);
+      store.close();
+
+      // Idempotent: the gate reports the edge as already recorded rather than versioning it again.
+      expect(await cli(["relate", "--db", db, "--json"], env)).toBe(0);
+      const second = JSON.parse(logs.at(-1) as string) as {
+        added: number;
+        existed: number;
+      };
+      expect(second.added).toBe(0);
+      expect(second.existed).toBe(first.added);
+    } finally {
+      await new Promise((r) => llm.close(r));
+    }
+  });
+
+  it("refuses without a model rather than reporting a corpus with nothing to connect", async () => {
+    const db = newDb();
+    expect(await cli(["init", "--db", db])).toBe(0);
+    expect(await cli(["relate", "--db", db], NO_EMBED)).toBe(1);
+    expect(errs.join("\n")).toContain("relate needs a model");
   });
 });

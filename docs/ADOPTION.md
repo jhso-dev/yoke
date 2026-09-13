@@ -206,6 +206,16 @@ PUBG 하나에 PO·PD·개발·사업 지식이 함께 붙는다(§3). 임베더
 서버가 안 떠 있으면 CLI 는 거부하고 무엇을 실행할지 말한다. `init`·`serve`·`ui`·`mcp`·`token`·
 `backup`·`restore`·`export` 는 기계에 대고 하는 일이라 서버 없이 동작한다.
 
+**바깥을 읽는 명령은 여기서 읽고 저기서 커밋한다.** `connect`(GitHub·Slack·노트·raw·rdb)와 `relate`
+는 자격증명·파일·DSN·모델이 개발자 기계에 있으므로 그 절반은 로컬에서 돌고, 게이트는 코퍼스가 있는
+쪽에서 돈다 — 같은 루프이므로 두 곳이 한 항목을 다르게 판정할 수 없다.
+
+| 명령 | 여기서 | 저기서 |
+|---|---|---|
+| `connect github-pr\|slack\|notes\|raw` | 원본을 당김 | `POST /api/ingest` — 게이트 |
+| `connect rdb` | 자기 DB 를 쿼리 | `POST /api/ingest-mapped` — 매핑 2패스 + 게이트 |
+| `relate` | 모델 호출 | `GET /api/relate/groups` (후보·이웃) + `POST /api/link` |
+
 ## 주간 자가점검이 비율을 최적화하지 않는 이유
 
 `audit --roi` 는 비율로 끝나고, 그 비율을 극대화하는 루프는 개선을 찾기 전에 지름길 셋을 먼저

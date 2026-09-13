@@ -12,6 +12,16 @@ import {
 } from "node:http";
 import { fileURLToPath } from "node:url";
 import { ingestItems } from "../../connectors/ingest.js";
+import {
+  ingestMappedRows,
+  type MappingSpec,
+} from "../../connectors/rdb-mapping.js";
+import {
+  candidates,
+  groupsFor,
+  neighbourCount,
+  relateText,
+} from "../../connectors/relate.js";
 import type { SourceItem } from "../../connectors/types.js";
 import { overview } from "../../core/aggregate.js";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
@@ -1523,6 +1533,53 @@ export function createUiHandler(
     // itself would be circular), which makes it an operating action rather than a knowledge act.
     // Append-only per name, so an existing name is a new version — a migration, exactly as it is
     // from the CLI.
+    // `yoke relate`, first half: which records might be linked, and what a model should be shown of
+    // them. The walk is the corpus's — `candidates` pages the whole namespace and `groupsFor` runs a
+    // search per anchor — so it happens here; the model call stays on the caller's machine with the
+    // caller's YOKE_LLM_*, exactly as `connect raw`'s extractor does.
+    //
+    // It hands over record TEXT, so it is a read of knowledge and writes the row that says so.
+    if (method === "GET" && path === "/api/relate/groups") {
+      if (denied(res, "read")) return;
+      if (uninitialized(res)) return;
+      const ontology = store.loadOntology(ns);
+      const records = await candidates(
+        store,
+        ns,
+        intParam(url, "limit", 500, 5000),
+      );
+      if (records.length < 2) {
+        sendJson(res, 200, { records: records.length, groups: [] });
+        return;
+      }
+      const groups = await groupsFor(
+        store,
+        records,
+        // relateText, NOT summarize: the terminal's 60-character one-liner drops a decision's
+        // rationale, which is the half that says a position changed — see relateText.
+        (e) => relateText(e, ontology),
+        ns,
+        // The caller's YOKE_RELATE_NEIGHBOURS rides the query; `neighbourCount`'s own default
+        // stands in when they set none, so the two surfaces cannot disagree on what it is.
+        intParam(url, "neighbours", neighbourCount({}), 64),
+      );
+      sendJson(res, 200, {
+        records: records.length,
+        groups: groups.map((g) => ({
+          refs: g.refs,
+          byRef: Object.fromEntries(
+            [...g.byRef].map(([ref, e]) => [ref, e.id]),
+          ),
+        })),
+      });
+      auditRead(
+        "read",
+        groups.flatMap((g) => [...g.byRef.values()].map((e) => e.id)),
+        "relate",
+      );
+      return;
+    }
+
     // Bulk entry. The connector ran where its credentials and files are; the gate runs here, with
     // this corpus's ontology and embedder, so a captured record is judged exactly like `yoke add`.
     // `yoke persona --check`: the markdown lives on the caller's machine, the corpus it cites lives
@@ -1580,6 +1637,48 @@ export function createUiHandler(
         },
       );
       sendJson(res, 200, result);
+      return;
+    }
+
+    // `yoke connect rdb`, second half. The caller queried their own database — the DSN is theirs and
+    // the network is theirs — and hands over the rows; the mapping's two passes run here, where the
+    // ontology and the gate are, so a mapped record is judged exactly like `yoke add`.
+    //
+    // ceiling: whole tables in one body. `ingestMapped` already reads each table fully into memory
+    // (`SELECT *`), so this moves the same set rather than adding a limit — but a table that does not
+    // fit in a request is the point at which this needs streaming.
+    if (method === "POST" && path === "/api/ingest-mapped") {
+      if (denied(res, "write")) return;
+      if (uninitialized(res)) return;
+      const body = await readBody(req);
+      const mapping = body.mapping;
+      const tables = body.tables;
+      if (!Array.isArray(mapping) || !Array.isArray(tables)) {
+        sendJson(res, 400, {
+          error: "mapping and tables are required",
+        });
+        return;
+      }
+      const rowsByTable = new Map(
+        (tables as { table: string; rows: Record<string, unknown>[] }[]).map(
+          (t) => [t.table, t.rows],
+        ),
+      );
+      sendJson(
+        res,
+        200,
+        await ingestMappedRows(
+          store,
+          store.loadOntology(ns),
+          (mapping as MappingSpec[]).map((spec) => ({
+            spec,
+            rows: rowsByTable.get(spec.table) ?? [],
+          })),
+          now(),
+          ns,
+          deps.embedder,
+        ),
+      );
       return;
     }
 

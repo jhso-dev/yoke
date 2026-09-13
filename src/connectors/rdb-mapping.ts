@@ -47,11 +47,15 @@ export interface RdbMappingConnector {
   mapping: MappingSpec[];
 }
 
-interface MappedResult {
+export interface MappedResult {
   added: number;
   updated: number;
   skipped: number;
   errors: number;
+  /** What went wrong, in the operator's words. Returned rather than printed: the gate may run on a
+   * server while the person who wrote the mapping is at a terminal somewhere else, and a count with
+   * no reasons names nothing to fix. */
+  messages: string[];
 }
 
 const externalId = (table: string, pk: unknown): string =>
@@ -69,10 +73,48 @@ export async function ingestMapped(
   ns?: string | null,
   embedder?: Embedder,
 ): Promise<MappedResult> {
+  // Query each table once; both passes read the same rows.
+  // ceiling: `SELECT *` over an operator-supplied table name. The mapping file is trusted operator
+  // config (not end-user input), so raw identifier interpolation is acceptable here; add
+  // quoting/allowlist if the mapping ever becomes user-facing.
+  return ingestMappedRows(
+    port,
+    ontology,
+    await Promise.all(
+      connector.mapping.map(async (spec) => ({
+        spec,
+        rows: await connector.query(`SELECT * FROM ${spec.table}`),
+      })),
+    ),
+    now,
+    ns,
+    embedder,
+  );
+}
+
+/**
+ * The mapping's two passes over rows that are already in hand.
+ *
+ * Split from the query for the same reason `ingestItems` is split from `ingest`: the database being
+ * read is the CALLER's — their DSN, their network — while the gate belongs where the corpus is. Both
+ * entry points run this, so the two cannot judge a row differently.
+ */
+export async function ingestMappedRows(
+  port: StoragePort,
+  ontology: TypeDef[],
+  tables: { spec: MappingSpec; rows: Record<string, unknown>[] }[],
+  now: string,
+  ns?: string | null,
+  embedder?: Embedder,
+): Promise<MappedResult> {
   let added = 0;
   let updated = 0;
   let skipped = 0;
   let errors = 0;
+  const messages: string[] = [];
+  const complain = (m: string) => {
+    messages.push(m);
+  };
   const idByExtId = new Map<string, string>();
 
   /** Who a mapped row is recorded as coming from. The table is in the origin, so a reader can tell
@@ -91,17 +133,6 @@ export async function ingestMapped(
     return undefined;
   };
 
-  // Query each table once; reused by both passes.
-  // ceiling: `SELECT *` over an operator-supplied table name. The mapping file is trusted operator
-  // config (not end-user input), so raw identifier interpolation is acceptable here; add quoting/allowlist
-  // if the mapping ever becomes user-facing.
-  const tables = await Promise.all(
-    connector.mapping.map(async (spec) => ({
-      spec,
-      rows: await connector.query(`SELECT * FROM ${spec.table}`),
-    })),
-  );
-
   // Pass 1 — entities. Build the external_id → yoke id map for pass 2.
   for (const { spec, rows } of tables) {
     // The primary key column, checked ONCE against the first row rather than per row: a typo'd `idColumn`
@@ -110,7 +141,7 @@ export async function ingestMapped(
     // version chain with the last row winning. Refusing the whole spec names the fix; refusing row by row
     // would bury it in identical errors.
     if (rows.length > 0 && !(spec.idColumn in rows[0])) {
-      console.error(
+      complain(
         `rdb: ${spec.table} has no column "${spec.idColumn}" — ` +
           `mapped columns are ${Object.keys(rows[0]).join(", ")}. Nothing from this table was imported.`,
       );
@@ -121,7 +152,7 @@ export async function ingestMapped(
       // A NULL primary key in an actual row. Same consequence, different cause, so it is skipped rather
       // than aborting the table.
       if (row[spec.idColumn] === null || row[spec.idColumn] === undefined) {
-        console.error(
+        complain(
           `rdb: skipped a ${spec.table} row whose ${spec.idColumn} is null — it cannot be identified`,
         );
         errors++;
@@ -154,7 +185,7 @@ export async function ingestMapped(
       } catch (e) {
         if (e instanceof CommitRejected) {
           // Ontology-invalid row: surface it, keep going (one bad row must not abort the whole sync).
-          console.error(`rdb: rejected ${extId}: ${e.message}`);
+          complain(`rdb: rejected ${extId}: ${e.message}`);
           errors++;
           continue;
         }
@@ -177,7 +208,7 @@ export async function ingestMapped(
           idByExtId.get(targetExt) ??
           (await findByExternalId(port, targetExt, ns))?.id;
         if (!toId) {
-          console.error(
+          complain(
             `rdb: skip relation ${rel.relType} from ${externalId(spec.table, row[spec.idColumn])}: target ${targetExt} not found`,
           );
           continue;
@@ -196,9 +227,7 @@ export async function ingestMapped(
           );
         } catch (e) {
           if (e instanceof CommitRejected) {
-            console.error(
-              `rdb: rejected relation ${rel.relType}: ${e.message}`,
-            );
+            complain(`rdb: rejected relation ${rel.relType}: ${e.message}`);
             errors++;
             continue;
           }
@@ -208,5 +237,5 @@ export async function ingestMapped(
     }
   }
 
-  return { added, updated, skipped, errors };
+  return { added, updated, skipped, errors, messages };
 }

@@ -16,6 +16,11 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { IngestResult } from "../connectors/ingest.js";
+import type {
+  MappedResult,
+  RdbMappingConnector,
+} from "../connectors/rdb-mapping.js";
+import type { Ref, Relater } from "../connectors/relate.js";
 import type { Connector, SourceItem } from "../connectors/types.js";
 import type { WithheldStats } from "../core/inject.js";
 import type { TypeDef } from "../core/ontology.js";
@@ -204,15 +209,20 @@ export function resolveRemote(
       const res = await send(held()).catch((e: unknown) => {
         // Nothing listening is the one failure with a single obvious remedy, and `fetch` reports it
         // as a bare "fetch failed" that names neither the address nor the fix.
-        const code = (e as { cause?: { code?: string } })?.cause?.code;
-        if (code === "ECONNREFUSED" || code === "ENOTFOUND")
+        const cause = (e as { cause?: { code?: string; message?: string } })
+          ?.cause;
+        if (cause?.code === "ECONNREFUSED" || cause?.code === "ENOTFOUND")
           throw new Error(
             `no yoke server at ${base} — start one with 'yoke serve'` +
               (env.YOKE_SERVER
                 ? ""
                 : ", or set YOKE_SERVER to the address of your team's"),
           );
-        throw e;
+        // Anything else still has to name the address and the cause: `fetch` on its own says
+        // "fetch failed", which tells a reader neither what was unreachable nor why.
+        throw new Error(
+          `cannot reach ${base}: ${cause?.message ?? (e as Error).message}`,
+        );
       });
       if (res.status !== 401) return res;
       const fresh = await renew();
@@ -269,16 +279,6 @@ function query(pairs: Record<string, string | undefined>): string {
   for (const [k, v] of Object.entries(pairs)) if (v) q.set(k, v);
   const s = q.toString();
   return s ? `?${s}` : "";
-}
-
-/** Rows out of whatever shape the route returns — some answer a bare array, some an envelope. */
-function _rowsOf(parsed: unknown): Row[] {
-  if (Array.isArray(parsed)) return parsed as Row[];
-  const o = parsed as Record<string, unknown>;
-  for (const k of ["items", "records", "results", "entities"]) {
-    if (Array.isArray(o?.[k])) return o[k] as Row[];
-  }
-  return [];
 }
 
 /** Attributes from repeated `--attr k=v`, the same grammar the local path parses. */
@@ -998,6 +998,130 @@ export async function remoteIngest(
     updated: total.updated,
     skipped: total.skipped,
     ...(total.rejected.length > 0 ? { rejected: total.rejected } : {}),
+  };
+}
+
+/**
+ * `yoke connect rdb` — query here, map and commit there.
+ *
+ * The database being read is the caller's: their DSN, their network, and often a machine the server
+ * cannot reach at all. So the rows are fetched here and the mapping's two passes run behind the
+ * server, where the ontology and the gate are.
+ */
+export async function remoteIngestMapped(
+  remote: Remote,
+  connector: RdbMappingConnector,
+): Promise<MappedResult> {
+  const tables = await Promise.all(
+    connector.mapping.map(async (spec) => ({
+      table: spec.table,
+      // ceiling: `SELECT *` over an operator-supplied table name. The mapping file is trusted
+      // operator config, so raw identifier interpolation is acceptable; add quoting if it ever
+      // becomes user-facing.
+      rows: await connector.query(`SELECT * FROM ${spec.table}`),
+    })),
+  );
+  const r = await remote.call("POST", "/api/ingest-mapped", {
+    mapping: connector.mapping,
+    tables,
+  });
+  const parsed = JSON.parse(r.text || "{}") as Partial<MappedResult> & {
+    error?: string;
+  };
+  if (r.status >= 400)
+    throw new Error(`${remote.base}: ${parsed.error ?? `HTTP ${r.status}`}`);
+  return {
+    added: parsed.added ?? 0,
+    updated: parsed.updated ?? 0,
+    skipped: parsed.skipped ?? 0,
+    errors: parsed.errors ?? 0,
+    messages: parsed.messages ?? [],
+  };
+}
+
+/**
+ * `yoke relate` — a model proposes the edges between records already in the corpus.
+ *
+ * Split where the work is: the server picks the candidates and their neighbours (a page over the
+ * whole namespace plus a search per anchor), the model runs HERE with this machine's YOKE_LLM_*,
+ * and each accepted proposal goes back through the ordinary link route — so an edge a model
+ * proposed passes the same gate as one a person typed.
+ */
+export async function remoteRelate(
+  remote: Remote,
+  relater: Relater,
+  opts: { limit?: string; neighbours?: string },
+): Promise<{
+  records: number;
+  groups: number;
+  added: number;
+  existed: number;
+  rejected: number;
+  failedCalls: number;
+  rejections: Map<string, number>;
+}> {
+  const r = await remote.call(
+    "GET",
+    `/api/relate/groups${query({ limit: opts.limit, neighbours: opts.neighbours })}`,
+  );
+  if (r.status >= 400)
+    throw new Error(
+      `${remote.base}: ${(JSON.parse(r.text || "{}") as { error?: string }).error ?? `HTTP ${r.status}`}`,
+    );
+  const b = JSON.parse(r.text) as {
+    records: number;
+    groups: { refs: Ref[]; byRef: Record<string, string> }[];
+  };
+  let added = 0;
+  let existed = 0;
+  // A call that never answered and a proposal the gate refused are different failures: the first
+  // says the endpoint is unreachable, the second says the model answered and was wrong. Counted
+  // together, a corpus whose every proposal is a duplicate edge reports an outage.
+  let failedCalls = 0;
+  let rejected = 0;
+  const rejections = new Map<string, number>();
+  for (const g of b.groups) {
+    const proposed = await relater(g.refs);
+    if (proposed === null) {
+      failedCalls++;
+      continue;
+    }
+    for (const p of proposed) {
+      const from = g.byRef[p.from];
+      const to = g.byRef[p.to];
+      if (!from || !to) continue;
+      const res = await remote.call("POST", "/api/link", {
+        type: p.type,
+        from,
+        to,
+        // The sentence that justified the edge, kept beside it for the same reason a record keeps
+        // its quote: a reviewer deciding whether this link is real should not have to reconstruct
+        // why a model thought so.
+        attributes: p.because ? { rationale: p.because } : {},
+      });
+      if (res.status === 201) {
+        added++;
+      } else if (res.status === 200) {
+        existed++;
+      } else {
+        // One bad proposal must not end a batch that also contains good ones — but a bare count of
+        // rejections tells nobody what to change. The reason is the whole value of the number.
+        rejected++;
+        const why =
+          (JSON.parse(res.text || "{}") as { error?: string }).error ??
+          `HTTP ${res.status}`;
+        rejections.set(why, (rejections.get(why) ?? 0) + 1);
+      }
+    }
+  }
+  return {
+    records: b.records,
+    groups: b.groups.length,
+    added,
+    existed,
+    rejected,
+    failedCalls,
+    rejections,
   };
 }
 

@@ -12,23 +12,15 @@ import { makeFetchExtractor, numEnv } from "../../connectors/extract.js";
 import { makeGithubPrConnector } from "../../connectors/github-pr.js";
 import { makeNotesConnector } from "../../connectors/meeting-notes.js";
 import { type ExtractStats, makeRawConnector } from "../../connectors/raw.js";
-import {
-  ingestMapped,
-  type MappingSpec,
-  type RdbMappingConnector,
+import type {
+  MappingSpec,
+  RdbMappingConnector,
 } from "../../connectors/rdb-mapping.js";
-import {
-  candidates,
-  groupsFor,
-  makeFetchRelater,
-  neighbourCount,
-  relateText,
-} from "../../connectors/relate.js";
+import { makeFetchRelater } from "../../connectors/relate.js";
 import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
 import { commit } from "../../core/commit.js";
 import {
-  makeFetchEmbedder,
   resolveEmbedConfig,
   suppressEmbedAnnounce,
 } from "../../core/embedding.js";
@@ -139,9 +131,6 @@ const now = (): string => new Date().toISOString();
 
 const resolveDb = (v: Values, env: Env): string =>
   v.db ?? env.YOKE_DB ?? "./yoke.db";
-
-const resolveActor = (v: Values, env: Env): string =>
-  v.actor ?? env.YOKE_ACTOR ?? "yoke:system";
 
 /** Machine JSON with --json, human text otherwise. */
 function emit(v: Values, human: string, data: unknown): void {
@@ -254,24 +243,6 @@ common options: --db <path> --ns <namespace> --actor <id> --json
 run 'yoke <command>' with missing args to see its usage`;
 }
 
-/** Ontology-needing commands: an empty ontology means the DB was never `yoke init`ed.
- * Returns the ontology, or null after printing an actionable error (caller returns 1). */
-function requireOntology(
-  store: YokeStore,
-  ns: string | null | undefined,
-  v: Values,
-  env: Env,
-): TypeDef[] | null {
-  const ontology = store.loadOntology(ns);
-  if (ontology.length === 0) {
-    console.error(
-      `not initialized: ${storeLabel(v, env)} — run 'yoke init' first`,
-    );
-    return null;
-  }
-  return ontology;
-}
-
 // Open the resolved store (ShardedStorage under --shards, else SqliteStorage), run fn, always close.
 //
 // `create` is the opt-out for the two commands that bootstrap a store from nothing — `init` and
@@ -279,29 +250,19 @@ function requireOntology(
 // store that was never `yoke init`ed must REFUSE, and must not bring the file into existence doing it:
 // `openStore` opens a better-sqlite3 Database, which creates the path, so the guard runs BEFORE it —
 // otherwise a read on a typo'd `--db` prints "nothing", exits 0, and leaves a stray db behind. This
-// matches the refusal `requireOntology` prints for `add`/`inject`/`overview`. Only the local
+// matches the refusal the server gives a command asked of an uninitialized corpus. Only the local
 // single-file path is judged by file existence; a sharded or remote store initializes elsewhere.
 async function withStore<T>(
   v: Values,
   env: Env,
   fn: (s: YokeStore) => Promise<T>,
-  opts?: { create?: boolean; writesKnowledge?: boolean },
+  opts?: { create?: boolean },
 ): Promise<T> {
+  // Only `init`, `backup` and `export` reach here, and a remote backend is theirs to open: each is
+  // what an operator runs where the corpus lives. NOTHING on this path files knowledge any more, so
+  // there is no ungated write to guard against — the commands that file go through the server, which
+  // reads the actor off a credential.
   const remote = env.YOKE_OPENSEARCH_URL ?? env.YOKE_POSTGRES_URL;
-  // `init`, `backup` and `export` act on a store, so a remote one is theirs to open — they are what
-  // an operator runs where the corpus lives. `relate` and `connect rdb` are different: they FILE
-  // knowledge, and on this path `--actor` is an unverified string. Harmless when the store is one
-  // person's file; forged authorship when it is the team's.
-  //
-  // ceiling: those two still open a store at all because each walks the whole corpus to decide what
-  // to file, which belongs behind the server the way the audit reports do. Until they move, this is
-  // the guard. YOKE_SOLO is the single-user-at-scale opt-out (docs/SCALE.md).
-  if (opts?.writesKnowledge && remote && !env.YOKE_SOLO)
-    throw new UsageError(
-      `${env.YOKE_OPENSEARCH_URL ? "YOKE_OPENSEARCH_URL" : "YOKE_POSTGRES_URL"} points this command ` +
-        "straight at a shared knowledge store, where nothing verifies who you say you are. Run it " +
-        "where the server runs, or set YOKE_SOLO=1 if this store is yours alone.",
-    );
   if (
     !opts?.create &&
     !resolveShards(v, env) &&
@@ -450,113 +411,64 @@ const HISTORY_USAGE = "usage: yoke history <id>";
 // says why that is a command of its own). What it files is a claim about two records rather than
 // one, signed by the connector's actor like every other automatic path.
 async function cmdRelate(v: Values, env: Env): Promise<number> {
-  const actor = resolveActor(v, env);
-  const ns = resolveNs(v.ns, env);
-  const limit = v.limit === undefined ? 500 : Number(v.limit);
-  return withStore(
-    v,
-    env,
-    async (store) => {
-      const ontology = requireOntology(store, ns, v, env);
-      if (!ontology) return 1;
-      const relater = makeFetchRelater(env, ontology);
-      // The same refusal as `connect raw`: an unconfigured run would report "0 links" and look like a
-      // corpus with nothing to connect.
-      if (!relater) {
-        console.error(
-          "relate needs a model: set YOKE_LLM_URL and YOKE_LLM_MODEL (YOKE_LLM_KEY if the endpoint needs auth)",
-        );
-        return 1;
-      }
-      const records = await candidates(store, ns, limit);
-      if (records.length < 2) {
-        emit(v, "nothing to relate: fewer than two records on this scope", []);
-        return 0;
-      }
-      const groups = await groupsFor(
-        store,
-        records,
-        // relateText, NOT summarize: the terminal's 60-character one-liner drops a decision's
-        // rationale, which is the half that says a position changed — see relateText.
-        (e) => relateText(e, ontology),
-        ns,
-        neighbourCount(env),
-      );
-      let added = 0;
-      let existed = 0;
-      // A call that never answered and a proposal the gate refused are different failures: the first
-      // says the endpoint is unreachable, the second says the model answered and was wrong. Counted
-      // together, a corpus whose every proposal is a duplicate edge reports an outage.
-      let failedCalls = 0;
-      let rejected = 0;
-      const rejections = new Map<string, number>();
-      for (const { refs, byRef } of groups) {
-        const proposed = await relater(refs);
-        if (proposed === null) {
-          failedCalls++;
-          continue;
-        }
-        for (const p of proposed) {
-          const from = byRef.get(p.from);
-          const to = byRef.get(p.to);
-          if (!from || !to) continue;
-          const ts = now();
-          try {
-            const res = await commit(
-              store,
-              ontology,
-              {
-                type: p.type,
-                // The sentence that justified the edge, kept beside it for the same reason a record
-                // keeps its quote: a reviewer deciding whether this link is real should not have to
-                // reconstruct why a model thought so.
-                attributes: p.because ? { rationale: p.because } : {},
-                from: from.id,
-                to: to.id,
-              },
-              { actor, origin: "cli", occurred_at: ts },
-              ts,
-              { ns },
-            );
-            res.existed ? existed++ : added++;
-          } catch (e) {
-            // One bad proposal must not end a batch that also contains good ones — but a bare count
-            // of rejections tells nobody what to change. The reason is the whole value of the number:
-            // a model naming an undeclared attribute is a prompt to fix, and a gate refusing a
-            // duplicate edge is nothing to fix at all.
-            rejected++;
-            const why = (e as Error).message;
-            rejections.set(why, (rejections.get(why) ?? 0) + 1);
-          }
-        }
-      }
-      if (failedCalls > 0 && added === 0 && existed === 0 && rejected === 0) {
-        console.error(
-          `yoke: every relating call failed over ${records.length} records — nothing was linked. Check that YOKE_LLM_URL is reachable.`,
-        );
-        return 1;
-      }
-      for (const [why, n] of [...rejections].sort((a, b) => b[1] - a[1]))
-        console.error(`yoke: ${n} proposal(s) rejected — ${why}`);
-      if (failedCalls > 0)
-        console.error(
-          `yoke: ${failedCalls} of ${groups.length} relating call(s) never answered — those records were not considered`,
-        );
-      emit(
-        v,
-        `linked ${added}, already linked ${existed}, rejected ${rejected}`,
-        {
-          added,
-          existed,
-          rejected,
-          failedCalls,
-          rejections: Object.fromEntries(rejections),
-        },
-      );
-      return 0;
-    },
-    { writesKnowledge: true },
+  const { remoteOntology, remoteRelate, resolveRemote } = await import(
+    "../remote.js"
   );
+  const remote = resolveRemote(env, {
+    actor: v.actor ?? env.YOKE_ACTOR,
+    ns: resolveNs(v.ns, env) ?? undefined,
+  });
+  const ontology = await remoteOntology(remote);
+  if (ontology.length === 0) {
+    console.error("not initialized: run 'yoke init' first");
+    return 1;
+  }
+  const relater = makeFetchRelater(env, ontology);
+  // The same refusal as `connect raw`: an unconfigured run would report "0 links" and look like a
+  // corpus with nothing to connect.
+  if (!relater) {
+    console.error(
+      "relate needs a model: set YOKE_LLM_URL and YOKE_LLM_MODEL (YOKE_LLM_KEY if the endpoint needs auth)",
+    );
+    return 1;
+  }
+  const r = await remoteRelate(remote, relater, {
+    limit: v.limit,
+    neighbours: env.YOKE_RELATE_NEIGHBOURS,
+  });
+  if (r.records < 2) {
+    emit(v, "nothing to relate: fewer than two records on this scope", []);
+    return 0;
+  }
+  if (
+    r.failedCalls > 0 &&
+    r.added === 0 &&
+    r.existed === 0 &&
+    r.rejected === 0
+  ) {
+    console.error(
+      `yoke: every relating call failed over ${r.records} records — nothing was linked. Check that YOKE_LLM_URL is reachable.`,
+    );
+    return 1;
+  }
+  for (const [why, n] of [...r.rejections].sort((a, b) => b[1] - a[1]))
+    console.error(`yoke: ${n} proposal(s) rejected — ${why}`);
+  if (r.failedCalls > 0)
+    console.error(
+      `yoke: ${r.failedCalls} of ${r.groups} relating call(s) never answered — those records were not considered`,
+    );
+  emit(
+    v,
+    `linked ${r.added}, already linked ${r.existed}, rejected ${r.rejected}`,
+    {
+      added: r.added,
+      existed: r.existed,
+      rejected: r.rejected,
+      failedCalls: r.failedCalls,
+      rejections: Object.fromEntries(r.rejections),
+    },
+  );
+  return 0;
 }
 
 const ONTOLOGY_USAGE = "usage: yoke ontology <list|add-type <json-file>>";
@@ -748,34 +660,27 @@ async function cmdConnectRdb(v: Values, env: Env): Promise<number> {
 
   const connector: RdbMappingConnector = { query, mapping };
   try {
-    const ns = resolveNs(v.ns, env);
-    return await withStore(
+    const { remoteIngestMapped, resolveRemote } = await import("../remote.js");
+    const { added, updated, skipped, errors, messages } =
+      await remoteIngestMapped(
+        resolveRemote(env, {
+          actor: v.actor ?? env.YOKE_ACTOR,
+          ns: resolveNs(v.ns, env) ?? undefined,
+        }),
+        connector,
+      );
+    // What the mapping could not file, in the operator's words — the count alone names nothing to fix.
+    for (const m of messages) console.error(m);
+    // `errors` rides the summary and --json: without it a scheduled sync in which EVERY row failed is
+    // indistinguishable from a no-op success. The count and the exit code are the only things a cron
+    // job can read.
+    emit(
       v,
-      env,
-      async (store) => {
-        const ontology = requireOntology(store, ns, v, env);
-        if (!ontology) return 1;
-        const { added, updated, skipped, errors } = await ingestMapped(
-          store,
-          ontology,
-          connector,
-          now(),
-          ns,
-          makeFetchEmbedder(env),
-        );
-        // `errors` rides the summary and --json: without it a scheduled sync in which EVERY row failed is
-        // indistinguishable from a no-op success. The count and the exit code are the only things a cron
-        // job can read.
-        emit(
-          v,
-          `mapped ${added} added, ${updated} updated, ${skipped} skipped` +
-            (errors > 0 ? `, ${errors} failed (see the messages above)` : ""),
-          { added, updated, skipped, errors },
-        );
-        return errors > 0 ? 1 : 0;
-      },
-      { writesKnowledge: true },
+      `mapped ${added} added, ${updated} updated, ${skipped} skipped` +
+        (errors > 0 ? `, ${errors} failed (see the messages above)` : ""),
+      { added, updated, skipped, errors },
     );
+    return errors > 0 ? 1 : 0;
   } finally {
     closeSrc();
   }
