@@ -1,0 +1,63 @@
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_0b33cb7e1e9394 3079
+  s_03673cb32bfdc1::t_74fb32ca0a2b6c 496-507
+  s_03673cb32bfdc1::t_1637a1cc1e919f 3073-3078,3080-3085
+  s_03673cb32bfdc1::t_2eebee729ddd2e 3179-3184
+plugin/hooks/lib.mjs
+  s_03673cb32bfdc1::t_3d8d2281d3697a 54-58,61
+  s_03673cb32bfdc1::t_77e195a2593837 66-70,73
+  s_03673cb32bfdc1::t_0e4f28a4631c03 77-82
+  s_03673cb32bfdc1::t_425e57827497eb 85
+plugin/skills/setup/SKILL.md
+  s_03673cb32bfdc1::t_e4d3fd350ba173 50-54,59,61-65
+plugin/harness.test.ts
+  s_03673cb32bfdc1::t_72dc6db6832d63 250-258
+src/front/cli/cli.test.ts
+  s_03673cb32bfdc1::t_0a7d9cb1d501f7 2713,2772-2773,2775-2787,2791
+  s_03673cb32bfdc1::t_7a50cbc51ecf41 2720-2722,2788-2790,2793-2795
+  s_03673cb32bfdc1::t_35d9372b9b8667 2696-2712,2714-2719,2723-2771,2774,2792,2796-2802
+plugin/README.md
+  s_03673cb32bfdc1::t_4253cc6430125c 39,45-46
+src/front/remote.ts
+  s_03673cb32bfdc1::t_04870f99c24a1c 174-180
+  s_03673cb32bfdc1::t_09d5d77c73774b 1-173,181-462
+plugin/hooks/unseen.mjs
+  s_03673cb32bfdc1::t_3d8d2281d3697a 10,16
+plugin/hooks/brief.mjs
+  s_03673cb32bfdc1::t_3d8d2281d3697a 7,13
+docs/ADOPTION.md
+  s_03673cb32bfdc1::t_9b3332d78fa65a 124-126,128,131-132
+  s_03673cb32bfdc1::t_4253cc6430125c 188-192,194-196
+.env.example
+  s_03673cb32bfdc1::t_9b3332d78fa65a 100-106
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_93af43fede9867 782,865-869
+docs/SPEC.md
+  s_03673cb32bfdc1::t_742bca777aeb91 647-650,652-657
+src/front/ui/ui.test.ts
+  s_03673cb32bfdc1::t_f1a9f1dfa58a28 673,681,746,1036,1048,1057,1084,1089,1161,1205,1487,1522,1534,1891-1892,1906
+  s_03673cb32bfdc1::t_b78a527fe919ca 701-704,708-713
+  s_03673cb32bfdc1::t_7a50cbc51ecf41 705-707,1511-1513,1549-1550,1557-1559
+web/lib/api.ts
+  s_03673cb32bfdc1::t_93af43fede9867 196-199
+src/front/mcp/index.ts
+  s_03673cb32bfdc1::t_03485a5cd6c965 50
+  s_03673cb32bfdc1::t_308a5e4cd1200d 10,853-858,902-929
+  s_03673cb32bfdc1::t_130f09217cea23 930
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0040caacfeb3d2615fbd2dccf2aa79318db3ceb7",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
