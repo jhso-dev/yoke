@@ -51,7 +51,7 @@ stored, and the minted token is cached in `~/.yoke` (0600). The one visible trac
 yoke: authenticated as <login> via GitHub — credential cached in ~/.yoke
 ```
 
-A token revoked or rotated server-side heals itself: the next delivery re-exchanges. No `gh` on the
+A credential the server stops accepting — the signing key was rotated — heals itself: the next delivery re-exchanges. No `gh` on the
 machine, or no org membership, means what every other missing precondition means — silence, and
 `/yoke:setup` is where the wiring is checked out loud.
 

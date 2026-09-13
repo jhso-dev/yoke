@@ -402,7 +402,7 @@ yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
 yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape|--pulse|--roi]
 yoke connect github-pr|slack|notes|raw|rdb ... [--scope id]
 yoke relate <id...>                           # propose edges between records
-yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
+yoke mcp | ui | serve [--auth] [--host addr] | token create --name n --scopes s
 yoke backup <dest.db> [--force] | restore <src.db> [--force]
 yoke export --until <ts> --out <new.db>       # --shards <file> federates backends
 yoke backfill [--embeddings [--rebuild]]      # repair authorship edges / the vector index

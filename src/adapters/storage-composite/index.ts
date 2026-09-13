@@ -38,7 +38,6 @@ import type {
   AuditEvent,
   AuditQuery,
   SqliteStorage,
-  TokenInfo,
 } from "../storage-sqlite/index.js";
 
 /** The remote half: a StoragePort plus async ontology methods. Structural, so any future remote
@@ -171,7 +170,7 @@ class CompositeStorage implements YokeStore {
     return n;
   }
 
-  // --- audit + tokens: the local sqlite -----------------------------------------------------------
+  // --- the read trail: the local sqlite -----------------------------------------------------------
 
   logAudit(event: AuditEvent): void {
     this.local.logAudit(event);
@@ -179,21 +178,6 @@ class CompositeStorage implements YokeStore {
   listAudit(q?: AuditQuery): AuditEvent[] {
     return this.local.listAudit(q);
   }
-  createToken(spec: { name: string; scopes: string[]; created_at: string }): {
-    token: string;
-  } {
-    return this.local.createToken(spec);
-  }
-  verifyToken(secret: string): { name: string; scopes: string[] } | null {
-    return this.local.verifyToken(secret);
-  }
-  revokeToken(name: string): boolean {
-    return this.local.revokeToken(name);
-  }
-  listTokens(): TokenInfo[] {
-    return this.local.listTokens();
-  }
-
   // --- deliberately absent / refused --------------------------------------------------------------
 
   /**

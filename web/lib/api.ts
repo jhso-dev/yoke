@@ -4,7 +4,13 @@
 // `fetchImpl` is injectable so both are unit-testable without a browser — the convention the
 // opensearch adapter and the slack connector already use in this repo.
 
-import { clearCredential, getCredential } from "./credential";
+import {
+  clearCredential,
+  getCredential,
+  getRefresh,
+  setCredential,
+  setRefresh,
+} from "./credential";
 import type {
   AuditEntry,
   ConflictPair,
@@ -55,7 +61,48 @@ export function configureApi(opts: {
   if (opts.onUnauthorized) onUnauthorized = opts.onUnauthorized;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+/**
+ * One refresh in flight, ever.
+ *
+ * A screen fires several reads at once, so an expired credential produces several 401s in the same
+ * tick. Without this they would each spend the refresh token and the last one home would win, which
+ * is a race that shows up as a random logout rather than as a bug.
+ */
+let refreshing: Promise<boolean> | null = null;
+
+/** Spend the refresh token for a new pair. False when there is none, or the server refused it. */
+async function refreshCredential(): Promise<boolean> {
+  const refresh = getRefresh();
+  if (!refresh) return false;
+  refreshing ??= (async () => {
+    try {
+      const res = await fetchImpl("/api/refresh", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${refresh}`,
+          accept: "application/json",
+        },
+      });
+      if (!res.ok) return false;
+      const body = (await res.json()) as { token?: string; refresh?: string };
+      if (!body.token) return false;
+      setCredential(body.token);
+      if (body.refresh) setRefresh(body.refresh);
+      return true;
+    } catch {
+      return false; // offline, or a server that mints nothing — treat as "cannot refresh"
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  retried = false,
+): Promise<T> {
   const cred = getCredential();
   const headers: Record<string, string> = {
     accept: "application/json",
@@ -64,7 +111,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (cred) headers.authorization = `Bearer ${cred}`;
   const res = await fetchImpl(path, { ...init, headers });
   if (res.status === 401) {
-    // A revoked or expired credential must not linger and keep failing silently.
+    // An access token lasts a week, so this is the ordinary end of a session rather than a failure:
+    // spend the refresh token and repeat the call. Once — a second 401 after a fresh credential is a
+    // real refusal, not an expiry.
+    if (!retried && (await refreshCredential()))
+      return request<T>(path, init, true);
     clearCredential();
     onUnauthorized?.();
     throw new ApiError(401, "not authenticated");
@@ -91,6 +142,32 @@ const qs = (params: Record<string, string | number | boolean | undefined>) => {
 };
 
 export const api = {
+  /**
+   * Trade a pasted refresh token for a live pair, or false when it is not one.
+   *
+   * The login form cannot tell the two apart by looking — both are opaque to a person — so it offers
+   * whatever was pasted here first and falls back to treating it as an access credential.
+   */
+  exchangeRefresh: async (candidate: string): Promise<boolean> => {
+    if (!candidate) return false;
+    try {
+      const res = await fetchImpl("/api/refresh", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${candidate}`,
+          accept: "application/json",
+        },
+      });
+      if (!res.ok) return false;
+      const body = (await res.json()) as { token?: string; refresh?: string };
+      if (!body.token) return false;
+      setCredential(body.token);
+      setRefresh(body.refresh ?? candidate);
+      return true;
+    } catch {
+      return false;
+    }
+  },
   meta: () => request<Meta>("/api/meta"),
   /** The re-confirmation queue — verified records past their TTL, most-consumed first. `scanned`
    * rides along because the walk is bounded: the screen must say what the count covered. */

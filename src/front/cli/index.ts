@@ -103,6 +103,7 @@ import {
 } from "../display.js";
 import { runMcp } from "../mcp/index.js";
 import { declaredType, storedStatus, wholeNumber } from "../params.js";
+import { credentialSigner } from "../serve/credential.js";
 import { runServe } from "../serve/index.js";
 import { parseScope, SCOPE_GRAMMAR, validateScopes } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
@@ -2740,81 +2741,59 @@ async function cmdToken(
   env: Env,
 ): Promise<number> {
   const [sub] = positionals;
-  if (sub === "create") {
-    if (!v.name || !v.scopes) {
-      console.error(TOKEN_CREATE_USAGE);
-      return 1;
-    }
-    const checked = validateScopes(v.scopes.split(","));
-    if (!checked.ok) {
-      console.error(`${checked.error}\n${TOKEN_CREATE_USAGE}`);
-      return 1;
-    }
-    const scopes = checked.scopes;
-    return withStore(v, env, async (store) => {
-      const { token } = store.createToken({
-        name: v.name as string,
-        scopes,
-        created_at: now(),
-      });
-      // The plaintext secret is only ever returned here — store it now (only the hash is persisted).
-      // This is the one moment an admin can record what the credential is for, so its name, scopes and
-      // the shown-once notice ride with it. A wildcard-ns scope is called out, because `read` reads
-      // EVERY tenant and both the usage string and `serve`'s own refusal teach exactly that spelling.
-      const wildcard = scopes.filter((raw) => parseScope(raw)?.ns === null);
-      emit(
-        v,
-        [
-          token,
-          `  shown once — this is the only time the secret is printed`,
-          `  name: ${v.name}   scopes: ${scopes.join(", ")}`,
-          ...(wildcard.length > 0
-            ? [
-                `  note: ${wildcard.join(", ")} ${wildcard.length === 1 ? "has" : "have"} no namespace, ` +
-                  `so ${wildcard.length === 1 ? "it grants" : "they grant"} every tenant — ` +
-                  `write '<namespace>:${parseScope(wildcard[0])?.action}' to scope it to one`,
-              ]
-            : []),
-        ].join("\n"),
-        { name: v.name, scopes, token },
-      );
-      return 0;
-    });
+  if (sub !== "create") {
+    console.error(
+      "usage: yoke token create --name <who> --scopes <list>\n" +
+        "  a credential is signed, not stored, so there is nothing to list and nothing to revoke —\n" +
+        "  rotate YOKE_TOKEN_SECRET to invalidate every credential at once",
+    );
+    return 1;
   }
-  if (sub === "list") {
-    return withStore(v, env, async (store) => {
-      const toks = store.listTokens();
-      // A wildcard-ns scope is marked: it is the difference between a credential for one tenant and one
-      // for all of them, and this listing is the only answer to "who can reach what right now".
-      const lines = toks.map(
-        (t) =>
-          `${t.name}  ${t.scopes.join(",")}  ${t.created_at}` +
-          (t.scopes.some((raw) => parseScope(raw)?.ns === null)
-            ? "  [all namespaces]"
-            : ""),
-      );
-      emit(v, toks.length ? lines.join("\n") : "no tokens", toks);
-      return 0;
-    });
+  if (!v.name || !v.scopes) {
+    console.error(TOKEN_CREATE_USAGE);
+    return 1;
   }
-  if (sub === "revoke") {
-    const name = positionals[1];
-    if (!name) {
-      console.error("usage: yoke token revoke <name>");
-      return 1;
-    }
-    return withStore(v, env, async (store) => {
-      const removed = store.revokeToken(name);
-      if (!removed) {
-        console.error(`no such token: ${name}`);
-        return 1;
-      }
-      emit(v, `revoked: ${name}`, { name, revoked: true });
-      return 0;
-    });
+  const checked = validateScopes(v.scopes.split(","));
+  if (!checked.ok) {
+    console.error(`${checked.error}\n${TOKEN_CREATE_USAGE}`);
+    return 1;
   }
-  console.error("usage: yoke token <create|list|revoke> ...");
-  return 1;
+  const scopes = checked.scopes;
+  // The same key the server verifies with. Without it this would mint something nothing accepts, so
+  // it is a refusal rather than a default — see front/serve/credential.ts.
+  const signer = credentialSigner(env.YOKE_TOKEN_SECRET);
+  if (!signer) {
+    console.error(
+      "set YOKE_TOKEN_SECRET to the same value the server runs with — a credential is signed with " +
+        "it, and a server that does not share the key will refuse what this mints",
+    );
+    return 1;
+  }
+  const { token, refresh } = await signer.mint({
+    name: v.name as string,
+    scopes,
+    ns: resolveNs(v.ns, env),
+  });
+  // A wildcard-ns scope is called out, because `read` reads EVERY tenant and both the usage string
+  // and `serve`'s own refusal teach exactly that spelling.
+  const wildcard = scopes.filter((raw) => parseScope(raw)?.ns === null);
+  emit(
+    v,
+    [
+      token,
+      `  name: ${v.name}   scopes: ${scopes.join(", ")}   expires in 7 days`,
+      `  refresh (POST /api/refresh, good for a year): ${refresh}`,
+      ...(wildcard.length > 0
+        ? [
+            `  note: ${wildcard.join(", ")} ${wildcard.length === 1 ? "has" : "have"} no namespace, ` +
+              `so ${wildcard.length === 1 ? "it grants" : "they grant"} every tenant — ` +
+              `write '<namespace>:${parseScope(wildcard[0])?.action}' to scope it to one`,
+          ]
+        : []),
+    ].join("\n"),
+    { name: v.name, scopes, token, refresh },
+  );
+  return 0;
 }
 
 // backup (ENTERPRISE "backup"): online WAL-safe snapshot to a fresh file.

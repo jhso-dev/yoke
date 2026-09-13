@@ -25,7 +25,17 @@ import { commit } from "../../core/commit.js";
 import { seedOntology } from "../../core/ontology.js";
 import { runCli } from "../cli/index.js";
 import { isLoopback } from "../ui/server.js";
+import { credentialSigner } from "./credential.js";
 import { createServeServer, runServe } from "./index.js";
+
+/** The key these tests sign and verify with — the same one every instance would share in a real
+ *  deployment, which is the whole reason a credential needs no storage. */
+const SECRET = "test-signing-key-not-a-real-one";
+// biome-ignore lint/style/noNonNullAssertion: SECRET is a literal, so the signer is never null.
+const sign = credentialSigner(SECRET)!;
+const mint = async (name: string, scopes: string[]): Promise<string> =>
+  (await sign.mint({ name, scopes, ns: null })).token;
+
 import { makeOidcVerifier, type OidcConfig } from "./oidc.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-serve-"));
@@ -60,41 +70,51 @@ async function freshDb(name: string): Promise<string> {
   return db;
 }
 
-describe("SqliteStorage tokens", () => {
-  it("create → verify → revoke round-trip; the plaintext is never stored", async () => {
-    const db = await freshDb("tokens");
-    const store = new SqliteStorage(db);
-    await store.init();
-    const { token } = store.createToken({
-      name: "ci",
-      scopes: ["read", "write"],
-      created_at: now(),
-    });
-    expect(store.verifyToken(token)).toEqual({
-      name: "ci",
-      scopes: ["read", "write"],
-    });
-    expect(store.verifyToken("yk_wrong")).toBeNull();
-    store.close();
+describe("signed credentials", () => {
+  it("mints an access/refresh pair that verifies without touching storage", async () => {
+    const cred = { name: "ci", scopes: ["read", "write"], ns: null };
+    const { token, refresh } = await sign.mint(cred);
+    expect(await sign.verifyAccess(token)).toEqual(cred);
+    expect(await sign.verifyRefresh(refresh)).toEqual(cred);
+  });
 
-    // Storage check: only a salted hash is persisted — the secret appears nowhere in the row.
-    const raw = new Database(db, { readonly: true });
-    const rowRaw = raw.prepare("SELECT * FROM tokens").get() as {
-      hash: string;
-      salt: string;
-      scopes: string;
-    };
-    raw.close();
-    expect(rowRaw.hash).not.toBe(token);
-    expect(JSON.stringify(rowRaw)).not.toContain(token);
+  it("refuses a refresh token presented as an access one, and the reverse", async () => {
+    // The substitution the `typ` claim exists to stop: a refresh token is long-lived and travels to
+    // one route, so accepting it as an access credential would hand a year's access to every route.
+    const { token, refresh } = await sign.mint({
+      name: "ci",
+      scopes: ["read"],
+      ns: null,
+    });
+    expect(await sign.verifyAccess(refresh)).toBeNull();
+    expect(await sign.verifyRefresh(token)).toBeNull();
+  });
 
-    const store2 = new SqliteStorage(db);
-    await store2.init();
-    expect(store2.listTokens().map((t) => t.name)).toEqual(["ci"]);
-    expect(store2.revokeToken("ci")).toBe(true);
-    expect(store2.verifyToken(token)).toBeNull();
-    expect(store2.revokeToken("ci")).toBe(false);
-    store2.close();
+  it("refuses a credential signed with another key", async () => {
+    // The multi-instance contract in reverse: instances agree because they share the key, so one
+    // that does not share it must agree about nothing.
+    // biome-ignore lint/style/noNonNullAssertion: a literal secret, so never null.
+    const other = credentialSigner("a-different-key")!;
+    const { token } = await other.mint({
+      name: "ci",
+      scopes: ["read"],
+      ns: null,
+    });
+    expect(await sign.verifyAccess(token)).toBeNull();
+  });
+
+  it("carries the namespace, so a tenant credential stays one", async () => {
+    const { token } = await sign.mint({
+      name: "t",
+      scopes: ["tenant-a:read"],
+      ns: "tenant-a",
+    });
+    expect((await sign.verifyAccess(token))?.ns).toBe("tenant-a");
+  });
+
+  it("mints nothing without a key", () => {
+    expect(credentialSigner(undefined)).toBeNull();
+    expect(credentialSigner("")).toBeNull();
   });
 });
 
@@ -118,21 +138,14 @@ describe("serve auth + RBAC", () => {
       now(),
     );
     factId = fact.entity.id;
-    readToken = store.createToken({
-      name: "reader",
-      scopes: ["read"],
-      created_at: now(),
-    }).token;
-    writeToken = store.createToken({
-      name: "writer",
-      scopes: ["read", "write"],
-      created_at: now(),
-    }).token;
+    readToken = await mint("reader", ["read"]);
+    writeToken = await mint("writer", ["read", "write"]);
     run = await listen(
       createServeServer({
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         now,
         webRoot: fixtureBundle(),
       }),
@@ -237,11 +250,7 @@ describe("serve auth + RBAC", () => {
         },
       )
     ).entity.id;
-    const feToken = store.createToken({
-      name: "fe",
-      scopes: ["read"],
-      created_at: now(),
-    }).token;
+    const feToken = await mint("fe", ["read"]);
     const unseen = (tok: string) =>
       authGet(`/api/inject?scope=${scope}&unseen=1`, tok);
 
@@ -293,11 +302,7 @@ describe("serve auth + RBAC", () => {
         now(),
       )
     ).entity.id;
-    const beToken = store.createToken({
-      name: "be",
-      scopes: ["read", "write"],
-      created_at: now(),
-    }).token;
+    const beToken = await mint("be", ["read", "write"]);
     // BE files a fact through the server (signed token:be — the same handle the authored_by edge
     // carries), and never reads the scope.
     const created = await authPost(
@@ -342,11 +347,7 @@ describe("serve auth + RBAC", () => {
   });
 
   it("MCP endpoint: write-only token can commit, but yoke_inject is forbidden", async () => {
-    const writeToken = store.createToken({
-      name: "agent",
-      scopes: ["write"],
-      created_at: now(),
-    }).token;
+    const writeToken = await mint("agent", ["write"]);
     const client = new Client({ name: "t", version: "0" });
     await client.connect(
       new StreamableHTTPClientTransport(new URL(run.base + "/mcp"), {
@@ -439,6 +440,7 @@ describe("OIDC (local JWKS fixture)", () => {
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         oidc,
         now,
       }),
@@ -646,16 +648,13 @@ describe("meta under auth", () => {
     const db = await freshDb("meta");
     const store = new SqliteStorage(db);
     await store.init();
-    const { token } = store.createToken({
-      name: "reader",
-      scopes: ["read"],
-      created_at: now(),
-    });
+    const token = await mint("reader", ["read"]);
     const run = await listen(
       createServeServer({
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         ns: "acme",
         now,
       }),
@@ -789,6 +788,7 @@ describe("GitHub exchange (POST /api/login/github)", () => {
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         now,
         webRoot: fixtureBundle(),
         github: { org: "acme", api: gh.base },
@@ -828,23 +828,70 @@ describe("GitHub exchange (POST /api/login/github)", () => {
     expect(read.status).toBe(200);
   });
 
-  it("re-exchange replaces the previous token for that login", async () => {
+  it("re-exchange does NOT invalidate the credential already issued", async () => {
+    // The cost of a signed credential, pinned so nobody assumes otherwise: there is no list to remove
+    // a token from, so one already in someone's hands stands until it expires. Removing the person
+    // from the org stops the NEXT exchange, which is the durable lever (credential.ts).
     const first = (await (await login("gh_alice")).json()) as { token: string };
     const second = (await (await login("gh_alice")).json()) as {
       token: string;
     };
-    expect(second.token).not.toBe(first.token);
-    const stale = await fetch(`${run.base}/api/review`, {
-      headers: { authorization: `Bearer ${first.token}` },
-    });
-    expect(stale.status).toBe(401);
+    for (const token of [first.token, second.token]) {
+      const res = await fetch(`${run.base}/api/review`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("hands back a refresh token that buys a new access token", async () => {
+    // The browser's seamless path: a pasted credential expires, and there is nothing for a person to
+    // paste again — so the client spends the refresh token instead of showing a login form.
+    const issued = (await (await login("gh_alice")).json()) as {
+      token: string;
+      refresh: string;
+    };
+    expect(issued.refresh).toBeTruthy();
+    // The refresh token is not an access credential, whatever a client does with it.
     expect(
       (
         await fetch(`${run.base}/api/review`, {
-          headers: { authorization: `Bearer ${second.token}` },
+          headers: { authorization: `Bearer ${issued.refresh}` },
+        })
+      ).status,
+    ).toBe(401);
+
+    const refreshed = await fetch(`${run.base}/api/refresh`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${issued.refresh}` },
+    });
+    expect(refreshed.status).toBe(200);
+    const next = (await refreshed.json()) as { token: string; name: string };
+    expect(next.name).toBe("github:alice");
+    expect(
+      (
+        await fetch(`${run.base}/api/review`, {
+          headers: { authorization: `Bearer ${next.token}` },
         })
       ).status,
     ).toBe(200);
+  });
+
+  it("refuses a refresh call with no credential, or with an access token", async () => {
+    const issued = (await (await login("gh_alice")).json()) as {
+      token: string;
+    };
+    const cases: Record<string, string>[] = [
+      {},
+      { authorization: `Bearer ${issued.token}` },
+    ];
+    for (const headers of cases) {
+      const res = await fetch(`${run.base}/api/refresh`, {
+        method: "POST",
+        headers,
+      });
+      expect(res.status).toBe(401);
+    }
   });
 
   it("refuses a non-member (403 naming the org), a bad credential (401), and a bare call (401)", async () => {
@@ -871,6 +918,7 @@ describe("GitHub exchange (POST /api/login/github)", () => {
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         now,
         webRoot: fixtureBundle(),
       }),
@@ -895,6 +943,7 @@ describe("GitHub exchange (POST /api/login/github)", () => {
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         now,
         webRoot: fixtureBundle(),
         github: { org: "acme", api: "http://127.0.0.1:1" },
@@ -960,6 +1009,7 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
           store,
           defaultActor: "yoke:system",
           auth: true,
+          tokenSecret: SECRET,
           now,
           webRoot: fixtureBundle(),
           github: { org: "acme", api: gh.base },

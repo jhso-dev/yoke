@@ -183,7 +183,7 @@ describe.skipIf(process.platform === "win32")("end to end against the real CLI",
 });
 
 describe.skipIf(process.platform === "win32")("zero-action credential against a real team server", () => {
-  it("first contact exchanges gh → yoke token (announced once), delivers, heals a revocation", async () => {
+  it("first contact exchanges gh → yoke credential (announced once), delivers, heals a rotated key", async () => {
     const { createServer } = await import("node:http");
     const { createServeServer } = await import("../src/front/serve/index.js");
     const listen = (srv: import("node:http").Server) =>
@@ -223,12 +223,17 @@ describe.skipIf(process.platform === "win32")("zero-action credential against a 
     const d1 = (
       await commit(store, ont, { type: "fact", attributes: { statement: "PG is Toss" } }, prov, now, { attachTo: scope })
     ).entity.id;
-    const po = store.createToken({ name: "po", scopes: ["read", "write"], created_at: now }).token;
+    const { credentialSigner } = await import("../src/front/serve/credential.js");
+    const SECRET = "harness-signing-key";
+    // biome-ignore lint/style/noNonNullAssertion: SECRET is a literal.
+    const signer = credentialSigner(SECRET)!;
+    const po = (await signer.mint({ name: "po", scopes: ["read", "write"], ns: null })).token;
     const run = await listen(
       createServeServer({
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         github: { org: "acme", api: gh.base },
       }),
     );
@@ -251,9 +256,12 @@ describe.skipIf(process.platform === "win32")("zero-action credential against a 
       const ctx = JSON.parse(first.out).hookSpecificOutput.additionalContext as string;
       expect(ctx).toContain("authenticated as alice via GitHub");
       expect(ctx).toContain("PG is Toss");
-      // The minted credential is on disk, owner-only, and is a yoke token — not the gh one.
-      const cached = readFileSync(join(authDir, readdirSync(authDir)[0]), "utf8");
-      expect(JSON.parse(cached).token).toMatch(/^yk_/);
+      // The minted credential is on disk, owner-only, and is yoke's own — not the gh one.
+      const cachedFile = join(authDir, readdirSync(authDir)[0]);
+      const cached = readFileSync(cachedFile, "utf8");
+      expect(await signer.verifyAccess(JSON.parse(cached).token)).toMatchObject({
+        name: "github:alice",
+      });
       expect(cached).not.toContain("gh_alice");
       // 2. Quiet, and no second announce.
       expect((await runHook("unseen.mjs", { cwd, hook_event_name: "PostToolUse" }, env)).out).toBe("");
@@ -268,8 +276,16 @@ describe.skipIf(process.platform === "win32")("zero-action credential against a 
       expect(JSON.parse(third.out).hookSpecificOutput.additionalContext).toContain(
         `${d1}  PG is Toss  -> deprecated: Toss said no`,
       );
-      // 4. Revoked server-side: the next delivery re-exchanges on its own — announced again, nothing touched.
-      expect(store.revokeToken("github:alice")).toBe(true);
+      // 4. The credential stops being accepted — which for a signed one means the key was rotated, the
+      //    only way to cut access off. From the client's side that is a 401 on a cached token, and the
+      //    next delivery re-exchanges on its own: announced again, nothing touched.
+      // biome-ignore lint/style/noNonNullAssertion: a literal secret.
+      const stale = await credentialSigner("a-rotated-away-key")!.mint({
+        name: "github:alice",
+        scopes: ["read", "write"],
+        ns: null,
+      });
+      writeFileSync(cachedFile, JSON.stringify({ token: stale.token, login: "alice", server: run.base }));
       const ts2 = new Date().toISOString();
       const d2 = (
         await commit(store, store.loadOntology(), { type: "fact", attributes: { statement: "PG is Nice" } }, { ...prov, occurred_at: ts2 }, ts2, { attachTo: scope })

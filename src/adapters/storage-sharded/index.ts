@@ -44,14 +44,10 @@ import type {
   TextQuery,
 } from "../../ports/storage.js";
 import { DEFAULT_SEARCH_LIMIT } from "../../ports/storage.js";
-import type {
-  AuditEvent,
-  AuditQuery,
-  TokenInfo,
-} from "../storage-sqlite/index.js";
+import type { AuditEvent, AuditQuery } from "../storage-sqlite/index.js";
 import { loadShardConfig, makeShard } from "./config.js";
 
-export type { AuditEvent, AuditQuery, TokenInfo };
+export type { AuditEvent, AuditQuery };
 
 /** The full storage surface CLI/UI/serve rely on: the port plus the sqlite-shaped extension methods.
  *  SqliteStorage satisfies it structurally; ShardedStorage implements it by delegation. */
@@ -68,12 +64,6 @@ export interface YokeStore extends StoragePort {
   renameType(from: string, to: string, ns?: string | null): Promise<number>;
   logAudit(event: AuditEvent): void;
   listAudit(q?: AuditQuery): AuditEvent[];
-  createToken(spec: { name: string; scopes: string[]; created_at: string }): {
-    token: string;
-  };
-  verifyToken(secret: string): { name: string; scopes: string[] } | null;
-  revokeToken(name: string): boolean;
-  listTokens(): TokenInfo[];
   backupTo(dest: string): Promise<void>;
   exportUntil(ts: string, destPath: string): Promise<void>;
   /**
@@ -348,24 +338,6 @@ export class ShardedStorage implements YokeStore {
 
   listAudit(q?: AuditQuery): AuditEvent[] {
     return (this.defaultShard.store as ExtStore).listAudit?.(q) ?? [];
-  }
-
-  createToken(spec: { name: string; scopes: string[]; created_at: string }): {
-    token: string;
-  } {
-    return (this.defaultShard.store as YokeStore).createToken(spec);
-  }
-
-  verifyToken(secret: string): { name: string; scopes: string[] } | null {
-    return (this.defaultShard.store as ExtStore).verifyToken?.(secret) ?? null;
-  }
-
-  revokeToken(name: string): boolean {
-    return (this.defaultShard.store as ExtStore).revokeToken?.(name) ?? false;
-  }
-
-  listTokens(): TokenInfo[] {
-    return (this.defaultShard.store as ExtStore).listTokens?.() ?? [];
   }
 
   // Physical durability is inherently per-file — there is no meaningful composite backup.

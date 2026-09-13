@@ -54,6 +54,7 @@ import {
   unseenReport,
 } from "../display.js";
 import { declaredType, storedStatus, wholeNumber } from "../params.js";
+import { credentialSigner } from "../serve/credential.js";
 import { validateScopes } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
 import { createStaticHandler } from "./static.js";
@@ -79,6 +80,9 @@ interface UiDeps {
    * (invariant 4). See `ungrantable` in serve/rbac.ts for the reach rule.
    */
   grantable?: (wanted: string[]) => string[];
+  /** Signs the credentials POST /api/tokens hands out (YOKE_TOKEN_SECRET). Absent = this server mints
+   * none, which is the local ungated case: `yoke ui` has no credential surface to serve. */
+  tokenSecret?: string;
   /** Directory holding the built web bundle. Injectable so tests point at a fixture and never
    * depend on a build existing (CI runs tests before build). Defaults to the resolved location. */
   webRoot?: string | null;
@@ -472,6 +476,7 @@ export function createUiHandler(
       at: now(),
       ns,
     });
+  const signer = credentialSigner(deps.tokenSecret);
   const serveStatic = createStaticHandler(
     deps.webRoot === undefined ? defaultWebRoot() : deps.webRoot,
   );
@@ -1076,19 +1081,6 @@ export function createUiHandler(
       return;
     }
 
-    if (method === "GET" && path === "/api/tokens") {
-      // `admin`, not `verify`: this is the credential surface, and every reviewer holds verify.
-      if (denied(res, "admin")) return;
-      if (refusedRemoteCredential(req, res)) return;
-      // Only the rows this caller could have issued. A tenant admin listing every tenant's credentials
-      // and their scopes is a map of the whole deployment's access.
-      const visible = store
-        .listTokens()
-        .filter((t) => grantable(t.scopes).length === 0);
-      sendJson(res, 200, visible);
-      return;
-    }
-
     if (method === "POST" && path === "/api/tokens") {
       if (denied(res, "admin")) return;
       if (refusedRemoteCredential(req, res)) return;
@@ -1129,41 +1121,26 @@ export function createUiHandler(
         });
         return;
       }
+      if (!signer) {
+        sendJson(res, 503, {
+          error:
+            "this server mints no credentials of its own: set YOKE_TOKEN_SECRET",
+        });
+        return;
+      }
       const created_at = now();
-      const { token } = store.createToken({
+      const { token, refresh } = await signer.mint({
         name: name.trim(),
         scopes: cleanScopes,
-        created_at,
+        ns,
       });
       sendJson(res, 201, {
         name: name.trim(),
         scopes: cleanScopes,
         created_at,
         token,
+        refresh,
       });
-      return;
-    }
-
-    if (method === "DELETE" && path.startsWith("/api/tokens/")) {
-      if (denied(res, "admin")) return;
-      if (refusedRemoteCredential(req, res)) return;
-      const name = decodeURIComponent(path.slice("/api/tokens/".length));
-      if (!name) {
-        sendJson(res, 400, { error: "token name is required" });
-        return;
-      }
-      // Out of reach reads as absent, for the same reason a foreign record does: "exists, but not
-      // yours" lets one tenant enumerate another's credentials by name.
-      const target = store.listTokens().find((t) => t.name === name);
-      if (target && grantable(target.scopes).length > 0) {
-        sendJson(res, 404, { error: `no such token: ${name}` });
-        return;
-      }
-      if (!store.revokeToken(name)) {
-        sendJson(res, 404, { error: `no such token: ${name}` });
-        return;
-      }
-      sendJson(res, 200, { name, revoked: true });
       return;
     }
 

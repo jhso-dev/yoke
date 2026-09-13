@@ -34,6 +34,11 @@ import {
   readJsonBody,
 } from "../ui/server.js";
 import {
+  type Credential,
+  type Credentials,
+  credentialSigner,
+} from "./credential.js";
+import {
   makeOidcVerifier,
   type OidcConfig,
   type OidcSubject,
@@ -59,8 +64,12 @@ interface ServeDeps {
   now?: () => string;
   /** Gate /api/* and /mcp behind Bearer auth. Off = single-user (ungated), same UX as `yoke ui`. */
   auth: boolean;
-  /** OIDC config (from env). Omitted = only API tokens can authenticate. */
+  /** OIDC config (from env). Omitted = only yoke's own credentials can authenticate. */
   oidc?: OidcConfig;
+  /** Signing key for yoke's own credentials (YOKE_TOKEN_SECRET). Absent = this server mints none,
+   * and only OIDC can authenticate — there is no unsigned fallback, because a default key is a
+   * credential anyone who read the source could mint. */
+  tokenSecret?: string;
   embedder?: Embedder;
   /** Read-only replica mode (BACKENDS "read replicas"): deny every mutation regardless of scopes. Mutating
    * API endpoints answer 409; MCP write tools get a tool error via the authorize hook. */
@@ -106,6 +115,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
   const ns = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
   const oidcVerify = deps.oidc ? makeOidcVerifier(deps.oidc) : null;
+  const signer = credentialSigner(deps.tokenSecret);
 
   // ceiling: interval-pull snapshot replica — refresh = close store, re-copy primary via .backup(),
   // reopen. A tiny swap window; move to WAL shipping if a staleness SLO ever demands it. better-sqlite3
@@ -147,9 +157,10 @@ export function createServeServer(deps: ServeDeps): ServeServer {
   }
 
   async function authenticate(cred: string): Promise<Principal | null> {
-    // API token first (a plain secret, no dots). Then OIDC JWT.
-    const tok = store.verifyToken(cred);
-    if (tok) return { actor: `token:${tok.name}`, scopes: tok.scopes };
+    // yoke's own credential first, then an OIDC one. Both are verified against a key and neither
+    // reads storage, which is what lets any number of instances answer the same token the same way.
+    const own = await signer?.verifyAccess(cred);
+    if (own) return { actor: `token:${own.name}`, scopes: own.scopes };
     if (oidcVerify) {
       const sub: OidcSubject | null = await oidcVerify(cred);
       if (sub) {
@@ -223,9 +234,9 @@ export function createServeServer(deps: ServeDeps): ServeServer {
     // credential (it is how you get one) but never open by default: it exists only under --auth AND
     // when an org is named, and membership in that org IS the access decision. The presented GitHub
     // token is spent on two lookups and discarded — never stored, never logged, never echoed; what
-    // this server keeps is a token of its own minting. Re-exchange replaces the previous token for
-    // that login, so "revoke" as a durable act means removing the person from the org — the lever
-    // GitHub already owns.
+    // comes back is signed by this server and stored nowhere. Removing the person from the org — the
+    // lever GitHub already owns — stops the NEXT exchange; a credential already minted stands until
+    // it expires, which is what a signed credential costs (see credential.ts).
     if (req.method === "POST" && path === "/api/login/github") {
       const gh = deps.github;
       if (!auth || !gh) {
@@ -287,22 +298,67 @@ export function createServeServer(deps: ServeDeps): ServeServer {
           return deny(403, `not an active member of ${gh.org}`);
         const scopes = ["read", "write"];
         const name = `github:${login}`;
-        store.revokeToken(name);
-        const { token } = store.createToken({
+        if (!signer)
+          return deny(
+            503,
+            "this server mints no credentials of its own: set YOKE_TOKEN_SECRET",
+          );
+        // Both halves at once. The refresh token is what keeps a browser from being sent back to a
+        // login form a week later; a client that can re-run this exchange on its own (the hooks call
+        // it with `gh auth token`) can ignore it.
+        const { token, refresh }: Credentials = await signer.mint({
           name,
           scopes,
-          created_at: now(),
+          ns,
         });
         res.writeHead(200, {
           "content-type": "application/json; charset=utf-8",
         });
-        res.end(JSON.stringify({ token, name, login, scopes }));
+        res.end(JSON.stringify({ token, refresh, name, login, scopes }));
       } catch {
         // GitHub unreachable (or slow past the budget) — the caller's credential may be fine, so this
         // is the upstream's failure, not an authentication verdict.
         deny(502, "cannot reach GitHub to verify the credential");
       }
       return;
+    }
+
+    /**
+     * A new access token, for a client that holds a refresh one.
+     *
+     * The browser's whole reason for existing: a pasted credential that expired a week ago would send
+     * someone back to a login form, and there is nothing for them to paste again. A client that can
+     * re-run the GitHub exchange by itself does not need this route at all.
+     *
+     * Not gated by `authenticate` — the refresh token IS the credential here, and an expired access
+     * token is exactly the state this exists to repair. Nothing is rotated: the same refresh token
+     * keeps working until it expires, which is the trade credential.ts states.
+     */
+    if (req.method === "POST" && path === "/api/refresh") {
+      const send = (code: number, body: unknown) => {
+        res.writeHead(code, {
+          "content-type": "application/json; charset=utf-8",
+          ...(code === 401 ? { "www-authenticate": "Bearer" } : {}),
+        });
+        res.end(JSON.stringify(body));
+      };
+      if (!auth || !signer)
+        return send(404, { error: "this server mints no credentials" });
+      const presented = bearer(req);
+      const cred: Credential | null = presented
+        ? await signer.verifyRefresh(presented)
+        : null;
+      if (!cred)
+        return send(401, {
+          error: "send a valid refresh token as the Bearer credential",
+        });
+      const minted = await signer.mint(cred);
+      return send(200, {
+        token: minted.token,
+        refresh: minted.refresh,
+        name: cred.name,
+        scopes: cred.scopes,
+      });
     }
 
     // /api/meta is the one API route that must answer without a credential: it is how the browser
@@ -360,6 +416,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       now,
       authorize,
       grantable,
+      tokenSecret: deps.tokenSecret,
       webRoot: deps.webRoot,
       authRequired: auth,
       readOnly,
@@ -423,11 +480,20 @@ export async function runServe(
         `SPEC "GitHub exchange"); a machine actor gets ` +
         `'yoke token create --name <who> --scopes "${opts.ns ?? resolveNs(undefined, env) ?? "<namespace>"}:read"'`,
     );
+  // A gated server has to be able to recognise somebody. Without a signing key it mints nothing, so
+  // unless an external issuer is configured every request would 401 and the cause would be invisible.
+  if (auth && !env.YOKE_TOKEN_SECRET && !oidcFromEnv(env))
+    throw new Error(
+      "--auth needs a way to recognise a credential: set YOKE_TOKEN_SECRET (any high-entropy " +
+        "string, the same one on every instance) so this server can sign its own, or configure " +
+        "YOKE_OIDC_ISSUER/YOKE_OIDC_AUDIENCE to accept your identity provider's.",
+    );
   const common = {
     defaultActor: env.YOKE_ACTOR ?? "yoke:system",
     ns: opts.ns ?? resolveNs(undefined, env),
     auth,
     oidc: oidcFromEnv(env) ?? undefined,
+    tokenSecret: env.YOKE_TOKEN_SECRET,
     // YOKE_GITHUB_ORG turns the exchange on; a GHE api base rides along.
     github: env.YOKE_GITHUB_ORG
       ? {

@@ -7,12 +7,18 @@
 //
 // The XSS trade is accepted under mitigations that are cheap and enforced: React escapes by
 // default, nothing in web/ uses dangerouslySetInnerHTML, no user-supplied value is ever rendered
-// into an href/src, and the credential itself is least-privilege (`yoke token create --scopes read`)
-// and revocable (`yoke token revoke`).
+// into an href/src, and the credential is least-privilege (`yoke token create --scopes read`).
+// It is NOT revocable — a signed credential stands until it expires (front/serve/credential.ts).
+//
+// The refresh token is the exception to sessionStorage, and deliberately: it is what stops an expired
+// access token from sending someone to a login form with nothing to paste, and in sessionStorage it
+// would die with the tab and buy nothing. The cost is real and stated — a year-long credential on
+// disk, so a shared browser keeps one until someone signs out or the key is rotated.
 //
 // There is no cookie anywhere, which is why the API needs no CSRF machinery.
 
 const KEY = "yoke.cred";
+const REFRESH_KEY = "yoke.refresh";
 
 let memory: string | null = null;
 
@@ -43,8 +49,28 @@ export function clearCredential(): void {
   memory = null;
   try {
     store()?.removeItem(KEY);
+    window.localStorage.removeItem(REFRESH_KEY);
   } catch {
     // nothing to clean up
+  }
+}
+
+/** The refresh token, which outlives the tab so a week-old session still opens without a re-paste. */
+export function getRefresh(): string | null {
+  try {
+    return typeof window === "undefined"
+      ? null
+      : window.localStorage.getItem(REFRESH_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setRefresh(value: string): void {
+  try {
+    window.localStorage.setItem(REFRESH_KEY, value);
+  } catch {
+    // A session that cannot persist its refresh token still works; it just asks again later.
   }
 }
 

@@ -920,10 +920,9 @@ endpoint shares it at `POST /mcp`.
 | `POST /api/backfill` | `backfillAuthorship`, or `backfillEmbeddings` with `{embeddings:true, rebuild?}` | write | no — the edges it creates record it, and a vector is not knowledge |
 | `POST /api/ontology` | `saveOntology([def], ns)` | **admin** | no |
 | `POST /api/rename-type` | `renameType(from, to, ns)` | **admin** | **yes** (`rename_type`) |
-| `GET /api/tokens` | `listTokens` (names + scopes, never secrets) | **admin** | no |
-| `POST /api/login/github` | GitHub token in, yoke token out (see "GitHub exchange") | none — it is the door | no |
-| `POST /api/tokens` | `createToken` — 201 with the plaintext secret, shown once | **admin** | no |
-| `DELETE /api/tokens/:name` | `revokeToken` | **admin** | no |
+| `POST /api/login/github` | GitHub token in, a signed yoke credential out (see "GitHub exchange") | none — it is the door | no |
+| `POST /api/refresh` | refresh credential in, a fresh access credential out | none — the refresh credential IS the authentication | no |
+| `POST /api/tokens` | signs a credential — 201 with the access and refresh halves, shown once | **admin** | no |
 
 Rules that hold for every route:
 

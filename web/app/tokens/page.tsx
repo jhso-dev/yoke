@@ -12,24 +12,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { CopyCode } from "../../components/CopyCode";
 import { ErrorBanner } from "../../components/ErrorBanner";
-import { Instant } from "../../components/Instant";
 import { Modal } from "../../components/Modal";
-import { Pagination, usePage } from "../../components/Pagination";
 import { Panel } from "../../components/Panel";
 import { api } from "../../lib/api";
 import { useT } from "../../lib/i18n";
-import { announce } from "../../lib/toast";
-import type { CreatedToken, TokenInfo } from "../../lib/types";
+import type { CreatedToken } from "../../lib/types";
 import { useAsync } from "../../lib/useAsync";
 
 /** Radix Select reserves the empty string for "no selection", so an "all types" option cannot BE the
@@ -67,70 +56,26 @@ export default function Tokens() {
   // The namespace this server serves. Ungated, so it resolves whether or not a credential is required.
   const meta = useAsync(() => api.meta(), []);
   const ns = meta.data?.ns ?? null;
-  const tokens = useAsync(() => api.tokens(), []);
-  const rows = [...(tokens.data ?? [])].reverse();
-  const page = usePage(rows);
   const [created, setCreated] = useState<CreatedToken | null>(null);
-  const [error, setError] = useState<unknown>(null);
 
   return (
     <>
       <div className="page-head">
         <h1>{t.tokens.heading}</h1>
-        <CreateTokenButton
-          ns={ns}
-          onCreated={(tok) => {
-            setCreated(tok);
-            tokens.reload();
-          }}
-        />
+        <CreateTokenButton ns={ns} onCreated={setCreated} />
       </div>
       <p className="lede">{t.tokens.lede}</p>
-      <ErrorBanner error={tokens.error ?? error} />
+      <ErrorBanner error={meta.error} />
       {/* The secret exists on screen exactly once, so it gets a dialog the reader must dismiss —
           a panel below the fold is how a credential scrolls away unsaved. */}
       {created && (
         <SecretModal token={created} onClose={() => setCreated(null)} />
       )}
-      {/* No `.scroll-x` around the table: Table renders its own `overflow-x-auto` container, so the
-          wrapper was a second scroller around the first — and the pager it also held scrolled
-          sideways out of view on a narrow viewport, which is the one control a reader needs to reach
-          page 2. The pager now sits outside the table's container. */}
+      {/* There is no listing, because a credential is signed rather than stored: nothing here has a
+          copy of what was issued, and nothing can take one back. Saying so is the honest screen — an
+          empty table would read as "none have been issued". */}
       <Panel>
-        {tokens.loading ? (
-          <div className="empty">{t.common.loading}</div>
-        ) : rows.length === 0 ? (
-          <div className="empty">{t.tokens.empty}</div>
-        ) : (
-          <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t.tokens.name}</TableHead>
-                  <TableHead>{t.tokens.scopes}</TableHead>
-                  <TableHead>{t.common.when}</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {page.items.map((tok) => (
-                  <TokenRow
-                    key={tok.name}
-                    token={tok}
-                    onRevoked={tokens.reload}
-                    onError={setError}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-            <Pagination
-              page={page.page}
-              pages={page.pages}
-              setPage={page.setPage}
-              total={rows.length}
-            />
-          </>
-        )}
+        <div className="empty">{t.tokens.statelessNote}</div>
       </Panel>
     </>
   );
@@ -317,87 +262,5 @@ function SecretModal({
         <CopyCode value={share} />
       </div>
     </Modal>
-  );
-}
-
-function TokenRow({
-  token,
-  onRevoked,
-  onError,
-}: {
-  token: TokenInfo;
-  onRevoked: () => void;
-  onError: (error: unknown) => void;
-}) {
-  const t = useT();
-  const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-
-  const revoke = async () => {
-    setBusy(true);
-    onError(null);
-    try {
-      await api.revokeToken(token.name);
-      announce(t.tokens.revoked(token.name));
-      setConfirming(false);
-      onRevoked();
-    } catch (e) {
-      onError(e);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <TableRow>
-      <TableCell className="mono">{token.name}</TableCell>
-      <TableCell className="mono">{token.scopes.join(", ")}</TableCell>
-      <TableCell className="mono">
-        <Instant iso={token.created_at} />
-      </TableCell>
-      <TableCell>
-        {/* Destructive, and it now looks it: this was `variant="secondary"` — the same grey box as
-            "Previous" in the pager directly below it — one click away from ending a credential. */}
-        <Button
-          type="button"
-          variant="destructive"
-          disabled={busy}
-          onClick={() => setConfirming(true)}
-        >
-          {busy ? t.common.saving : t.tokens.revoke}
-        </Button>
-        {/* The rule this project skips a confirmation under is reversibility — rename-type on the
-            ontology screen reports the row count afterwards instead of asking first, because you can
-            run it back the other way. Revoke is the opposite: yoke stores only the hash, so the secret
-            cannot be recovered and the only repair is minting a new token and redistributing it to
-            everything that was using this one. That earns a dialog, and the dialog names the token so
-            a misread row is caught before the click and not after. */}
-        <Modal
-          open={confirming}
-          title={t.tokens.revokeTitle}
-          description={t.tokens.revokeConfirm(token.name)}
-          onClose={() => setConfirming(false)}
-        >
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={busy}
-              onClick={revoke}
-            >
-              {busy ? t.common.saving : t.tokens.revoke}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={busy}
-              onClick={() => setConfirming(false)}
-            >
-              {t.common.close}
-            </Button>
-          </div>
-        </Modal>
-      </TableCell>
-    </TableRow>
   );
 }

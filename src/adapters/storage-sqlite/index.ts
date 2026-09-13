@@ -2,7 +2,6 @@
 // append-only: only (id, version) rows are added. FTS5 keeps just the latest version (delete+insert).
 // sqlite-vec (vec0) provides embeddings/similar — latest version only (same policy as FTS).
 
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { dimensionMismatch, serializeText } from "../../core/embedding.js";
@@ -93,15 +92,6 @@ CREATE TABLE IF NOT EXISTS audit_log (
   ns TEXT                            -- tenant namespace; NULL = default shared ns
 );
 
--- API tokens (ENTERPRISE "auth"). Only a salted sha256 of the secret is stored — never the plaintext.
-CREATE TABLE IF NOT EXISTS tokens (
-  name TEXT PRIMARY KEY,
-  salt TEXT NOT NULL,                -- hex, per-token
-  hash TEXT NOT NULL,                -- hex sha256(salt + secret)
-  scopes TEXT NOT NULL,              -- JSON string[] (scope grammar parsed at the RBAC tier)
-  created_at TEXT NOT NULL           -- ISO 8601
-);
-
 -- Indexes. The primary key alone is only enough while the
 -- corpus is small: every filtered read degraded into a scan of it. Measured at 10M entities /
 -- 3M relations (docs/SCALE.md), with the query each one exists for:
@@ -151,15 +141,6 @@ export interface AuditQuery {
   ns?: string | null;
   limit?: number;
 }
-
-/** A stored API token, sans secret (ENTERPRISE "auth") — for `yoke token list`. */
-export interface TokenInfo {
-  name: string;
-  scopes: string[];
-  created_at: string;
-}
-
-const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 interface EntityRow {
   id: string;
@@ -897,66 +878,6 @@ export class SqliteStorage implements StoragePort {
     // Default ns leaves the field absent, matching how entity rows carry ns (opaque parity).
     for (const r of rows) if (r.ns == null) delete r.ns;
     return q.limit === undefined ? rows : rows.reverse();
-  }
-
-  // --- API tokens (ENTERPRISE "auth") — Bearer auth for serve mode. Plaintext is never stored. ---
-
-  /** Mint a token: random 32-byte secret, store salted sha256 hash + scopes. Returns the plaintext once. */
-  createToken(spec: { name: string; scopes: string[]; created_at: string }): {
-    token: string;
-  } {
-    const secret = `yk_${randomBytes(32).toString("hex")}`;
-    const salt = randomBytes(16).toString("hex");
-    this.db
-      .prepare(
-        `INSERT INTO tokens (name, salt, hash, scopes, created_at) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(
-        spec.name,
-        salt,
-        sha256(salt + secret),
-        JSON.stringify(spec.scopes),
-        spec.created_at,
-      );
-    return { token: secret };
-  }
-
-  /** Resolve a presented secret to its name+scopes, or null. Scans all rows (per-token salt) —
-   * token counts are tiny, and the timing-safe compare avoids a hash-comparison side channel. */
-  verifyToken(secret: string): { name: string; scopes: string[] } | null {
-    const rows = this.db
-      .prepare(`SELECT name, salt, hash, scopes FROM tokens`)
-      .all() as { name: string; salt: string; hash: string; scopes: string }[];
-    for (const r of rows) {
-      const got = Buffer.from(sha256(r.salt + secret), "hex");
-      const want = Buffer.from(r.hash, "hex");
-      if (got.length === want.length && timingSafeEqual(got, want)) {
-        return { name: r.name, scopes: JSON.parse(r.scopes) as string[] };
-      }
-    }
-    return null;
-  }
-
-  /** Delete a token by name. Returns whether a row was removed. */
-  revokeToken(name: string): boolean {
-    return (
-      this.db.prepare(`DELETE FROM tokens WHERE name = ?`).run(name).changes > 0
-    );
-  }
-
-  /** All tokens, sans secret/hash (for `yoke token list`). */
-  listTokens(): TokenInfo[] {
-    return (
-      this.db
-        .prepare(
-          `SELECT name, scopes, created_at FROM tokens ORDER BY created_at`,
-        )
-        .all() as { name: string; scopes: string; created_at: string }[]
-    ).map((r) => ({
-      name: r.name,
-      scopes: JSON.parse(r.scopes) as string[],
-      created_at: r.created_at,
-    }));
   }
 
   // --- Durability (ENTERPRISE "backup"): backup + PITR-lite export. ---

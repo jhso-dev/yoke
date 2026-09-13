@@ -13,7 +13,12 @@ import { commit } from "../../core/commit.js";
 import { verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
+import { credentialSigner } from "../serve/credential.js";
 import { createUiServer, isLoopbackPeer } from "./server.js";
+
+/** This suite's signing key. A credential is signed rather than stored, so the key is all a server
+ *  needs to hand one out and all another needs to accept it. */
+const UI_SECRET = "ui-test-signing-key";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-ui-"));
 const now = "2026-07-13T00:00:00Z";
@@ -219,6 +224,7 @@ beforeAll(async () => {
     store,
     actor: "reviewer",
     now: () => now,
+    tokenSecret: UI_SECRET,
     webRoot: null,
   });
   await new Promise<void>((r) => server.listen(0, r));
@@ -245,11 +251,6 @@ const postRaw2 = (p: string, body: unknown) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-const del = (p: string) =>
-  fetch(base + p, { method: "DELETE" }).then(async (r) => ({
-    status: r.status,
-    body: await r.json(),
-  }));
 
 describe("ui API", () => {
   it("review is the re-confirmation queue: an aged row with its citation, gone once verified", async () => {
@@ -395,33 +396,33 @@ describe("ui API", () => {
     expect(Object.keys(decision.attrs)).toContain("conclusion");
   });
 
-  it("tokens can be created, listed without secret, and revoked", async () => {
+  it("mints a credential that verifies, and keeps no copy of it", async () => {
     const created = await post("/api/tokens", {
       name: "ui-test",
       scopes: ["read", "write"],
     });
-    expect(created.token).toMatch(/^yk_[0-9a-f]{64}$/);
     expect(created.name).toBe("ui-test");
-
-    const listed = await get("/api/tokens");
-    const row = listed.find((t: { name: string }) => t.name === "ui-test");
-    expect(row).toEqual({
+    // A signed credential, not a stored secret: it carries its own claims, so the server that minted
+    // it keeps nothing and any server sharing the key accepts it.
+    // biome-ignore lint/style/noNonNullAssertion: UI_SECRET is a literal.
+    const verified = await credentialSigner(UI_SECRET)!.verifyAccess(
+      created.token,
+    );
+    expect(verified).toEqual({
       name: "ui-test",
       scopes: ["read", "write"],
-      created_at: now,
+      ns: null,
     });
-    expect(JSON.stringify(listed)).not.toContain(created.token);
+    expect(created.refresh).toBeTruthy();
+  });
 
-    const revoked = await del("/api/tokens/ui-test");
-    expect(revoked).toEqual({
-      status: 200,
-      body: { name: "ui-test", revoked: true },
-    });
+  it("has no credential listing and no revoke, because nothing is stored", async () => {
+    // Both routes are gone rather than emptied: an endpoint that always answers "none" would read as
+    // "this deployment has issued no credentials", which is a different claim from "we do not know".
+    expect((await fetch(`${base}/api/tokens`)).status).toBe(404);
     expect(
-      (await get("/api/tokens")).some(
-        (t: { name: string }) => t.name === "ui-test",
-      ),
-    ).toBe(false);
+      (await fetch(`${base}/api/tokens/ui-test`, { method: "DELETE" })).status,
+    ).toBe(404);
   });
 
   it("persona returns decisions/facts with citations", async () => {
