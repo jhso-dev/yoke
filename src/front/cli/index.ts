@@ -101,13 +101,9 @@ import {
   summarize,
   unseenReport,
 } from "../display.js";
-import { runMcp } from "../mcp/index.js";
 import { declaredType, storedStatus, wholeNumber } from "../params.js";
-import { credentialSigner } from "../serve/credential.js";
-import { runServe } from "../serve/index.js";
 import { parseScope, SCOPE_GRAMMAR, validateScopes } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
-import { runUi } from "../ui/server.js";
 import { banner, decorated, getStartedBlock, log, version } from "./banner.js";
 
 type Values = {
@@ -2692,6 +2688,9 @@ async function cmdPersonaCheck(v: Values, env: Env): Promise<number> {
 // ui: the governance workbench. Server keeps the process alive until SIGINT.
 async function cmdUi(v: Values, env: Env): Promise<number> {
   const port = intFlag(v.port, "port", 0) ?? 4800;
+  // Imported here, not at the top. The serve/ui subtree pulls the MCP SDK and jose — 94ms of startup,
+  // measured — and two commands out of twenty-nine need it, while every `yoke add` paid it.
+  const { runUi } = await import("../ui/server.js");
   const server = await runUi(
     resolveDb(v, env),
     port,
@@ -2709,6 +2708,7 @@ async function cmdUi(v: Values, env: Env): Promise<number> {
 // serve (ENTERPRISE "server mode"): UI + JSON API + remote MCP on one port. Auth (10.3/10.4) is opt-in.
 async function cmdServe(v: Values, env: Env): Promise<number> {
   const port = intFlag(v.port, "port", 0) ?? 4800;
+  const { runServe } = await import("../serve/index.js");
   const server = await runServe(resolveDb(v, env), port, env, {
     auth: v.auth,
     ns: resolveNs(v.ns, env),
@@ -2761,6 +2761,7 @@ async function cmdToken(
   const scopes = checked.scopes;
   // The same key the server verifies with. Without it this would mint something nothing accepts, so
   // it is a refusal rather than a default — see front/serve/credential.ts.
+  const { credentialSigner } = await import("../serve/credential.js");
   const signer = credentialSigner(env.YOKE_TOKEN_SECRET);
   if (!signer) {
     console.error(
@@ -3112,10 +3113,15 @@ export async function runCli(
         return await cmdRestore(rest, values, env);
       case "export":
         return await cmdExport(values, env);
-      case "mcp":
+      case "mcp": {
         // Start the stdio server — does not resolve until the connection closes (keeps the process alive).
+        // Imported here, not at the top: the MCP SDK is 55ms of startup (measured) and only this
+        // one command needs it. Every other invocation — and a hook shelling out to one — pays it
+        // for nothing. Same reason `openStore` defers the remote adapters.
+        const { runMcp } = await import("../mcp/index.js");
         await runMcp(resolveDb(values, env), env, resolveShards(values, env));
         return 0;
+      }
       default:
         // A near miss gets the correction instead of 25 lines of overview. Every mistyped command in a
         // usability pass was one edit away (`inejct`, `ad`, `lst`), and a full help dump for a
