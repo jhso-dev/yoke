@@ -247,7 +247,15 @@ describe.skipIf(process.platform === "win32")("zero-action credential against a 
       join(cwd, ".claude/settings.json"),
       JSON.stringify({ env: { YOKE_SCOPE: scope, YOKE_SERVER: run.base } }),
     );
-    const env = { YOKE_GH_BIN: ghBin, YOKE_AUTH_DIR: authDir };
+    // The hook reaches the server the ONLY way it can: through the CLI. Same tsx wrapper the local
+    // deployment above uses — nothing in plugin/ speaks HTTP or holds a credential of its own.
+    const teamBin = join(dir, "yoke-team-wrapper");
+    writeFileSync(
+      teamBin,
+      `#!/bin/sh\nexec "${join(repo, "node_modules/.bin/tsx")}" "${join(repo, "src/front/cli/index.ts")}" "$@"\n`,
+    );
+    chmodSync(teamBin, 0o755);
+    const env = { YOKE_BIN: teamBin, YOKE_GH_BIN: ghBin, YOKE_AUTH_DIR: authDir };
 
     try {
       // 1. First contact: exchange + briefing, and the credential's movement is announced ONCE.

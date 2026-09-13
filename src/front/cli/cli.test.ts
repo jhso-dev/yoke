@@ -2693,3 +2693,110 @@ describe("a kind flip sees the table its records are actually in", () => {
     expect(await runCli(["link", ids[1], "cites", ids[0], "--db", db])).toBe(0);
   });
 });
+
+describe("the team path", () => {
+  // Two rules hold this deployment together, and both are invisible from reading one file.
+  //
+  //   1. A shared knowledge store is the SERVER's connection. Reached from the CLI directly it would
+  //      be an ungated path onto a team's corpus, where `--actor` is an unverified string.
+  //   2. With YOKE_SERVER bound the actor comes off the verified credential, so `--actor` cannot
+  //      claim to be anybody.
+  it("refuses a shared backend on the ungated path, and names the way in", async () => {
+    const code = await runCli(["list"], {
+      ...NO_EMBED,
+      YOKE_OPENSEARCH_URL: "http://opensearch.internal:9200",
+    });
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toMatch(/YOKE_SERVER/);
+    // The single-user-at-scale case still works: the refusal is about WHO is asking, not about
+    // OpenSearch. Past the guard it fails on the unreachable cluster instead — a different error.
+    errs.length = 0;
+    const solo = await runCli(["list"], {
+      ...NO_EMBED,
+      YOKE_OPENSEARCH_URL: "http://127.0.0.1:1/",
+      YOKE_SOLO: "1",
+    });
+    expect(solo).toBe(1);
+    expect(errs.join("\n")).not.toMatch(
+      /YOKE_SOLO=1 if this store is yours alone/,
+    );
+  });
+
+  it("writes under the credential's actor, so --actor cannot forge authorship", async () => {
+    const { createServeServer } = await import("../serve/index.js");
+    const { credentialSigner } = await import("../serve/credential.js");
+    const SECRET = "cli-team-path-signing-key";
+    // biome-ignore lint/style/noNonNullAssertion: SECRET is a literal.
+    const signer = credentialSigner(SECRET)!;
+    const token = (
+      await signer.mint({ name: "alice", scopes: ["read", "write"], ns: null })
+    ).token;
+    const store = new SqliteStorage(newDb());
+    await store.init();
+    await store.saveOntology(seedOntology());
+    const server = createServeServer({
+      store,
+      defaultActor: "yoke:system",
+      auth: true,
+      tokenSecret: SECRET,
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const port = (server.address() as { port: number }).port;
+    const env = {
+      ...NO_EMBED,
+      YOKE_SERVER: `http://127.0.0.1:${port}`,
+      YOKE_TOKEN: token,
+    };
+    try {
+      expect(
+        await runCli(
+          [
+            "add",
+            "decision",
+            "--actor",
+            "person:the-cto",
+            "--attr",
+            "title=t",
+            "--attr",
+            "conclusion=c",
+            "--attr",
+            "rationale=r",
+          ],
+          env,
+        ),
+      ).toBe(0);
+      expect(logs.join("\n")).toContain("token:alice");
+      expect(logs.join("\n")).not.toContain("person:the-cto");
+
+      // And the briefing marks what it handed over, so the next unseen read is silent — the same
+      // contract the local path has. Recorded as a preview it would not, which is the whole reason
+      // the route separates the two.
+      logs.length = 0;
+      expect(
+        await runCli(["add", "collaboration", "--attr", "title=PROJ-1"], env),
+      ).toBe(0);
+      const scope = logs.join("\n").split(/\s+/)[0];
+      logs.length = 0;
+      expect(
+        await runCli(
+          ["add", "fact", "--scope", scope, "--attr", "statement=PG is Toss"],
+          env,
+        ),
+      ).toBe(0);
+
+      logs.length = 0;
+      expect(await runCli(["inject", "--scope", scope, "--unseen"], env)).toBe(
+        0,
+      );
+      expect(logs.join("\n")).toContain("PG is Toss");
+      logs.length = 0;
+      expect(await runCli(["inject", "--scope", scope, "--unseen"], env)).toBe(
+        0,
+      );
+      expect(logs.join("\n")).toBe("");
+    } finally {
+      await new Promise((r) => server.close(r));
+      store.close();
+    }
+  });
+});

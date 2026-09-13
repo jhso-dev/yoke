@@ -7,6 +7,7 @@
 // No verify/deprecate tool: re-confirming and retiring are a person's acts, on the CLI and the UI.
 // Time is obtained only in this front tier (core receives `now` by injection).
 
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -46,6 +47,7 @@ import {
   makeActorNames,
   readableCite,
 } from "../display.js";
+import { type Remote, resolveRemote } from "../remote.js";
 import { openStore } from "../store.js";
 
 const ORIGIN = "mcp";
@@ -848,6 +850,12 @@ export async function runMcp(
   env: Record<string, string | undefined>,
   shards?: string,
 ): Promise<void> {
+  // The team deployment: relay to the server's own MCP endpoint instead of opening a store. One
+  // registration covers both — without this the agent files what it learns into a local file nobody
+  // else reads, while the same session is briefed out of the team's corpus. The credential is the
+  // CLI's, acquired the same way, so the agent's writes carry the developer's verified identity.
+  const remote = env.YOKE_SERVER ? resolveRemote(env) : null;
+  if (remote) return relayMcp(remote);
   const store = await openStore({ db, shards }, env);
   await store.init();
   // An uninitialized DB has no bootstrap actor (yoke:system) → error and exit 1.
@@ -890,4 +898,33 @@ export async function runMcp(
     server.server.onclose = resolve;
   });
   store.close();
+}
+
+/**
+ * stdio in, the server's `/mcp` out — the whole team-mode MCP adapter.
+ *
+ * Raw JSON-RPC in both directions: this holds no tools of its own, so a tool added to the server is
+ * available here the moment it ships, with nothing to keep in step. The credential rides every
+ * request and is re-acquired by `Remote` when it expires, which is the only reason a long-lived
+ * stdio session survives a week-old access token.
+ *
+ * Resolves when stdin closes, like the local path — the client owns the process lifetime.
+ */
+async function relayMcp(remote: Remote): Promise<void> {
+  const stdio = new StdioServerTransport();
+  const http = new StreamableHTTPClientTransport(new URL("/mcp", remote.base), {
+    fetch: (url, init) =>
+      remote.fetch(url instanceof URL ? url.toString() : String(url), init),
+  });
+  stdio.onmessage = (m) => {
+    void http.send(m);
+  };
+  http.onmessage = (m) => {
+    void stdio.send(m);
+  };
+  await http.start();
+  await stdio.start();
+  await new Promise<void>((resolve) => {
+    stdio.onclose = resolve;
+  });
 }

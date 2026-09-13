@@ -193,7 +193,10 @@ export const api = {
     limit?: number;
     /** An ISO instant: what this query would have injected then. */
     asOf?: string;
-  }) => request<InjectPreview>(`/api/inject${qs(p)}`),
+    // `preview` is what keeps the screen out of the deliveries ledger: this is a human looking at
+    // what an agent WOULD receive, and counting it as handed over would silence a real session's
+    // next `--unseen`.
+  }) => request<InjectPreview>(`/api/inject${qs({ ...p, preview: 1 })}`),
   graph: (p: { limit?: number; scope?: string; depth?: number }) =>
     request<GraphData>(`/api/graph${qs(p)}`),
   audit: (p: { since?: string; until?: string; limit?: number }) =>

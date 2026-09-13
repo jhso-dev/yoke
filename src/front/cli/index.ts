@@ -493,6 +493,18 @@ async function withStore<T>(
   opts?: { create?: boolean },
 ): Promise<T> {
   const remote = env.YOKE_OPENSEARCH_URL ?? env.YOKE_POSTGRES_URL;
+  // A remote backend is the SERVER's connection, not a developer's. Reached from here it would hand
+  // the whole corpus to an ungated path — `--actor` is an unverified string on the local path, which
+  // is harmless when the store is one person's file and is forged authorship when it is the team's.
+  // `yoke serve` and `yoke ui` open the store directly and never come through here, so this refuses
+  // exactly the case it means to. YOKE_SOLO is the single-user-at-scale opt-out (docs/SCALE.md).
+  if (remote && !env.YOKE_SOLO)
+    throw new UsageError(
+      `${env.YOKE_OPENSEARCH_URL ? "YOKE_OPENSEARCH_URL" : "YOKE_POSTGRES_URL"} points this command ` +
+        "straight at a shared knowledge store, where nothing verifies who you say you are. Set " +
+        "YOKE_SERVER to your team's 'yoke serve' instead — the credential is acquired from your " +
+        "existing 'gh' login with no step of your own. Set YOKE_SOLO=1 if this store is yours alone.",
+    );
   if (
     !opts?.create &&
     !resolveShards(v, env) &&
@@ -3058,6 +3070,19 @@ export async function runCli(
     return 0;
   }
   try {
+    // The team path. YOKE_SERVER is the only thing a developer configures, and with it bound every
+    // action that touches the corpus goes over HTTP under a credential acquired from their existing
+    // `gh` login — the actor is read off that credential server-side, so `--actor` cannot claim to be
+    // someone else. `runRemote` returns null for the commands that act on a MACHINE rather than on a
+    // corpus (init, serve, ui, mcp, token, backup, the connectors); those fall through unchanged.
+    if (env.YOKE_SERVER) {
+      const { resolveRemote, runRemote } = await import("../remote.js");
+      const remote = resolveRemote(env);
+      if (remote) {
+        const code = await runRemote(remote, command, rest, values);
+        if (code !== null) return code;
+      }
+    }
     switch (command) {
       case "init":
         return await cmdInit(values, env);
@@ -3151,6 +3176,12 @@ export async function runCli(
     // database is the one piece of context this layer always has, and the corruption case gets the
     // command that exists for it.
     const msg = (e as Error).message;
+    // Against a team server the failure happened there, and naming a local file the command never
+    // opened sends the reader to the wrong machine. The remote's own messages already name the host.
+    if (env.YOKE_SERVER) {
+      console.error(msg);
+      return 1;
+    }
     const db = resolveDb(values, env);
     const corrupt =
       /malformed|not a database|file is encrypted|disk image/i.test(msg);

@@ -7,7 +7,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { clearToken, getToken } from "./auth.mjs";
 
 /** The hook's stdin: one JSON object from the client (cwd, hook_event_name, …). {} on anything
  * unparseable, so a malformed payload degrades to "no scope" rather than a crash in the hot path. */
@@ -52,60 +51,36 @@ export function resolveScope(cwd, env) {
 /**
  * Run `yoke inject <args>` in the project directory and return its stdout, or null.
  *
+ * The ONLY way this plugin reaches knowledge, in both deployments: with `YOKE_SERVER` bound the CLI
+ * talks to the team server under a credential it acquires from the developer's `gh` login, and
+ * without it the CLI opens the local store. A hook does not need to know which, and must not hold a
+ * second HTTP client and a second credential cache to find out.
+ *
  * `YOKE_BIN` overrides the binary for a machine where `yoke` is not on PATH (and for tests). Every
  * failure — ENOENT, non-zero exit, the spawn timeout — is null: which store the CLI opens, and why
- * it could not, are the CLI's own environment contract (YOKE_DB, .env, remote URLs), not something
+ * it could not, are the CLI's own environment contract (YOKE_DB, .env, YOKE_SERVER), not something
  * a hook should second-guess. The timeout is inside the client's hooks.json budget on purpose, so
  * the failure mode is "no context this round", never a stalled session.
  */
 export function runInject(args, cwd, env) {
+  // The repo's settings file is where a team binds its server (ADOPTION §3), and whether a hook
+  // process inherits settings env is the client's business — so the value is read from the file and
+  // handed to the child explicitly. Without this the CLI would open a local store on a machine whose
+  // repo says otherwise, and quietly answer out of the wrong corpus.
+  const server = resolveSetting(cwd, env, "YOKE_SERVER");
   const r = spawnSync(env.YOKE_BIN || "yoke", ["inject", ...args], {
     cwd,
-    env,
+    env: server ? { ...env, YOKE_SERVER: server } : env,
     encoding: "utf8",
     timeout: 8000,
   });
-  if (r.error || r.status !== 0) return null;
-  return r.stdout ?? "";
-}
-
-/**
- * The same read against a team server (`YOKE_SERVER` bound): `GET /api/inject?scope=&unseen=1`,
- * authenticated by the zero-action exchange (auth.mjs). The server's ledger is per token, so this is
- * the deployment where the deliveries live server-side and the CLI's local trail would be blind.
- *
- * A 401 clears the cache and re-exchanges ONCE — a token revoked or rotated server-side heals on the
- * next call with nobody touching anything. When the exchange just ran, the delivery is prefixed with
- * one announce line: the credential left the machine, and that must never be discoverable-only.
- */
-export async function fetchUnseen(server, scope, env) {
-  let auth = await getToken(server, env);
-  if (!auth) return null;
-  const call = (token) =>
-    fetch(
-      new URL(`/api/inject?scope=${encodeURIComponent(scope)}&unseen=1`, server),
-      {
-        headers: { authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(8000),
-      },
-    );
-  try {
-    let res = await call(auth.token);
-    if (res.status === 401) {
-      clearToken(server, env);
-      auth = await getToken(server, env);
-      if (!auth) return null;
-      res = await call(auth.token);
-    }
-    const announce = auth.minted
-      ? `yoke: authenticated as ${auth.minted} via GitHub — credential cached in ${env.YOKE_AUTH_DIR || "~/.yoke"}\n`
-      : "";
-    if (res.status === 204) return announce || null;
-    if (!res.ok) return null;
-    return announce + (await res.text());
-  } catch (e) {
-    // Same escape hatch as auth.mjs: silent by rule, explicable on demand.
-    if (process.env.YOKE_DEBUG) process.stderr.write(`yoke unseen: ${e}\n`);
+  if (r.error || r.status !== 0) {
+    // The silence rule hides real failures too — an unreachable server, a `gh` login that lapsed —
+    // and a hook has no other channel. This is the one escape hatch: the CLI's own message, on
+    // stderr, which the client keeps in its debug log without touching the model's context.
+    if (env.YOKE_DEBUG)
+      process.stderr.write(`yoke inject: ${r.error ?? r.stderr ?? `exit ${r.status}`}\n`);
     return null;
   }
+  return r.stdout ?? "";
 }

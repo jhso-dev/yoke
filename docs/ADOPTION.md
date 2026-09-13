@@ -121,18 +121,15 @@ jobs:
   개발자 id로 두면 감사 행이 누가 받았는지를 기록한다. 다른 MCP 클라이언트는 각자의 훅에 같은 명령을 건다 — yoke 쪽은
   CLI 하나고, 봉투는 클라이언트 것이다.
 
-  **팀 서버(`yoke serve`)에 붙는 경우** 배달 기록은 서버에 있으므로 `yoke inject … --unseen` 자리에 서버를 묻는다 — 같은
-  줄, 같은 봉투, 실측 1–5ms(조용할 때 ~1ms). 자격증명은 아래 GitHub 교환이 알아서 받는다 —
-  `yoke token create` 는 GitHub 계정이 없는 기계 액터(CI·야간 커넥터)용으로만 남는다:
+  **팀 서버(`yoke serve`)에 붙는 경우에도 명령은 같다.** `YOKE_SERVER` 가 바인딩되면 CLI 가 저장소 대신 서버와
+  말하므로 훅은 달라질 것이 없다 — 같은 줄, 같은 봉투. 배달 기록은 서버에 토큰 단위로 남고, 자격증명은 아래
+  GitHub 교환이 알아서 받는다. `yoke token create` 는 GitHub 계정이 없는 기계 액터(CI·야간 커넥터)용으로만 남는다.
 
-  ```
-  curl -s -H "Authorization: Bearer $YOKE_TOKEN" "$YOKE_SERVER/api/inject?scope=<initiative>&unseen=1"
-  ```
-
-  **토큰은 아무도 배포하지 않는다** — 플러그인이 개발자의 `gh` 로그인을 1회 교환해 스스로 받는다
+  **토큰은 아무도 배포하지 않는다** — CLI 가 개발자의 `gh` 로그인을 1회 교환해 스스로 받는다
   (SPEC "GitHub exchange"): 서버에 `YOKE_GITHUB_ORG`를 설정하고, 레포
   `.claude/settings.json`에 `YOKE_SERVER`를 두면 끝. 첫 배달에 `yoke: authenticated as <login> via
-  GitHub` 한 줄이 공지되고, 서버가 토큰을 회수해도 다음 훅이 알아서 재교환한다. 수동 경로:
+  GitHub` 한 줄이 공지되고, 서명 키가 회전해도 다음 호출이 알아서 재교환한다. 만료는 refresh 토큰으로
+  조용히 갱신된다(access 7일 / refresh 1년). 수동 경로:
   `curl -X POST $YOKE_SERVER/api/login/github -H "Authorization: Bearer $(gh auth token)"`.
 
   서버는 **그 토큰이 받은 것만** 기준으로 답한다 — PO가 결정을 읽었다고 FE의 훅이 조용해지지 않는다. **ceiling**: 장부는
@@ -188,13 +185,15 @@ node dist/front/cli/index.js inject "" --scope collab:pubg --db kraftonway.db  #
 PUBG 하나에 PO·PD·개발·사업 지식이 함께 붙는다(§3). 임베더가 있으면(`YOKE_EMBED_URL`/`YOKE_EMBED_MODEL`) 하이브리드 검색·중복/모순 탐지까지 켜진다. 없으면 키워드 전용으로
 로드되며, 이는 벡터 절반이 빠진 완전한 코퍼스다. 생성기 상세는 `scripts/gen-kraftonway-corpus.mjs` 헤더 참조.
 
-## 미결: `yoke mcp` 가 `YOKE_SERVER` 를 따라야 하는가
+## 팀 배포에서 문은 하나다
 
-서버에 바인딩된 저장소에서 훅은 팀 지식을 읽지만, 플러그인의 `yoke mcp` 는 로컬 SQLite 에 쓴다 —
-세션이 배운 것을 팀은 보지 못한다. 지금은 setup 스킬이 서버의 MCP 엔드포인트를 명시적으로 연결하고
-(§4c), 쓰기가 거기 도착했는지 확인하는 방법을 말해 준다. **제품 차원의 답은 아직 열려 있다**: `yoke
-mcp` 하나가 `YOKE_SERVER` 를 따르면 이 분리가 끝나지만, MCP 어댑터가 저장소가 아니라 서버와 말하도록
-가르치는 비용이 든다. 팀 배포를 더 넓게 권하기 전에 결정할 것.
+`YOKE_SERVER` 하나가 배포 전체를 가른다. 바인딩되면 CLI 는 저장소를 여는 대신 서버와 말하고,
+훅(`yoke inject`)과 에이전트(`yoke mcp` → 서버의 `/mcp` 중계)가 **같은 CLI, 같은 자격증명**을 탄다.
+actor 는 검증된 자격증명에서 읽으므로 `--actor` 로는 아무도 사칭할 수 없다.
+
+원격 백엔드(`YOKE_OPENSEARCH_URL`·`YOKE_POSTGRES_URL`)는 **서버의 연결**이다. CLI 데이터 경로에서
+이를 직접 가리키면 거부한다 — 그 경로에는 신원을 검증하는 것이 없어서, 공용 코퍼스에 자칭 서명이
+들어간다. 혼자 규모를 키우는 경우(docs/SCALE.md)만 `YOKE_SOLO=1` 로 명시하고 빠져나간다.
 
 ## 주간 자가점검이 비율을 최적화하지 않는 이유
 

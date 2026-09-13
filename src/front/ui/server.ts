@@ -779,6 +779,7 @@ export function createUiHandler(
       // so only this actor's rows count (SPEC "Since, and unseen"). Text, not JSON: the caller is a
       // hook that hands the body to a model, and the CLI prints the identical lines.
       const unseen = url.searchParams.get("unseen") === "1";
+      const preview = url.searchParams.get("preview") === "1";
       if (unseen && (!scope || query))
         throw new Error(
           "unseen=1 is a briefing of one working context: pass scope and no q",
@@ -861,7 +862,11 @@ export function createUiHandler(
       // turn a preview the human already needed into a `database is locked` 500.
       const previewEvent: AuditEvent = {
         actor,
-        action: "inject_preview",
+        // `preview=1` is the BROWSER saying it is only looking. Everything else asking this route is
+        // receiving knowledge, and a delivery is what `deliveries()` counts — without the
+        // distinction the CLI's team-mode read would never mark anything handed over, so the very
+        // next `--unseen` would re-deliver what the session was just given.
+        action: preview ? "inject_preview" : "inject",
         detail: injectDetail(
           items.map((it) => it.entity.id),
           { query, scope, asOf: asOfParam },

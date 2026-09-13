@@ -644,14 +644,17 @@ yoke API token.
 - **Scopes**: `read,write` — the whole knowledge permission (commit, re-confirm, retire; see the
   action table). Membership is the only tier: what a member files is signed and answerable, which is
   the accountability this policy runs on. `admin` is never minted here.
-- **Re-exchange replaces** the previous token for that login, which is what makes revocation
-  self-healing on the client: a 401 clears the cache and exchanges again. The durable revocation
-  lever is therefore GitHub's own — remove the person from the org.
+- Credentials are **signed, not stored**: nothing is written down to revoke, and a re-exchange does
+  not invalidate what came before. The two levers are the signing key (`YOKE_TOKEN_SECRET`, rotating
+  it retires every credential at once) and GitHub's own — remove the person from the org and the
+  next exchange fails. A client heals into both on its own: a 401 refreshes, then re-exchanges.
 - A GitHub outage is a **502**, not a 401: an upstream failure is not a verdict on the caller.
-- The plugin's `auth.mjs` is the zero-action client: cache in `~/.yoke` (0600, keyed by server),
-  `gh auth token` → exchange on miss, one announce line when a credential actually moved
-  (`YOKE_TOKEN` set explicitly disables all of it). `YOKE_DEBUG=1` explains failures on stderr —
-  the one escape hatch from the hooks' silence rule.
+- `src/front/remote.ts` is the zero-action client, and the CLI is its only caller — so the hooks and
+  the MCP adapter inherit it rather than each holding a credential. Cache in `~/.yoke` (0600, keyed
+  by server) holding both halves; on a miss, the refresh token first and `gh auth token` → exchange
+  only when that is gone too; one announce line when a credential actually moved (`YOKE_TOKEN` set
+  explicitly disables all of it). `YOKE_DEBUG=1` on a hook forwards the CLI's stderr — the one
+  escape hatch from the hooks' silence rule.
 
 ### The stale queue (v5.2)
 

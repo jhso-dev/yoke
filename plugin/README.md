@@ -36,13 +36,14 @@ missing scope, or an unreachable store all mean "no context this round".
 | `.claude/settings.local.json` `env` | `YOKE_ACTOR` | who this client is — the audit trail records who was told what |
 | env | `YOKE_BIN` | path to the yoke CLI when it is not on PATH |
 | env / repo `.env` | `YOKE_DB`, `YOKE_POSTGRES_URL`, … | which store — the CLI's normal contract, unchanged |
-| repo `.claude/settings.json` `env` | `YOKE_SERVER` | a team `yoke serve --auth` — the hooks switch to its HTTP read, and the credential is acquired by the zero-action GitHub exchange below |
+| repo `.claude/settings.json` `env` | `YOKE_SERVER` | a team `yoke serve --auth`. The CLI talks to it instead of opening a store, and the hooks and `yoke mcp` both follow — one binding, one credential, acquired by the zero-action GitHub exchange below |
 | env | `YOKE_TOKEN` | an explicitly issued token — set, it disables the exchange entirely |
 | env | `YOKE_DEBUG` | `1` explains hook failures on stderr (the debug log) — the escape hatch from the silence rule |
 
 ## Team server: nobody hands out credentials
 
-With `YOKE_SERVER` bound, the first delivery exchanges the developer's existing `gh` login for a
+Nothing in this directory speaks HTTP or holds a credential: a hook shells out to `yoke inject`, and
+the CLI is what knows about the server. With `YOKE_SERVER` bound, the first call exchanges the developer's existing `gh` login for a
 yoke token (`POST /api/login/github` — SPEC "GitHub exchange"): membership in the server's
 `YOKE_GITHUB_ORG` is the access decision, the GitHub token is spent on the exchange and never
 stored, and the minted token is cached in `~/.yoke` (0600). The one visible trace is one line, once:

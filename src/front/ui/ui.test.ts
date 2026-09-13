@@ -670,7 +670,7 @@ describe("ui API", () => {
   });
 
   it("injection preview shows exactly what an agent would receive, and audits the look", async () => {
-    const shown = await get("/api/inject?q=sky");
+    const shown = await get("/api/inject?preview=1&q=sky");
     expect(shown.items.map((r: { id: string }) => r.id)).toEqual([factId]);
     expect(shown.items[0].citation).toContain(factId);
     expect(shown.query).toBe("sky");
@@ -678,7 +678,7 @@ describe("ui API", () => {
     // The contradiction travels with the row. This screen's own claim is that it shows what an agent
     // receives; the agent receives the marker, and without it two records that flatly disagree render as
     // two ordinary rows — which is what the conflicts screen one page over was already doing.
-    const disputed = await get("/api/inject?q=mysql");
+    const disputed = await get("/api/inject?preview=1&q=mysql");
     expect(disputed.items.map((r: { id: string }) => r.id)).toEqual([
       decisionBId,
     ]);
@@ -696,6 +696,19 @@ describe("ui API", () => {
     // Neither q nor scope is a 400, not an accidental full dump.
     const bad = await fetch(`${base}/api/inject`);
     expect(bad.status).toBe(400);
+  });
+
+  it("without preview=1 the same route is a DELIVERY — the CLI's team-mode read is not a look", async () => {
+    // `preview=1` is the browser saying it is only looking; every other caller is receiving. Only
+    // `inject` rows count in the deliveries ledger, so a team-mode `yoke inject --scope` recorded as
+    // a preview would leave nothing marked handed over and re-deliver it on the very next --unseen.
+    const before = store
+      .listAudit()
+      .filter((e) => e.action === "inject").length;
+    const res = await fetch(`${base}/api/inject?q=mysql`);
+    expect(res.status).toBe(200);
+    const delivered = store.listAudit().filter((e) => e.action === "inject");
+    expect(delivered.length).toBe(before + 1);
   });
 
   // C7: a read whose answer is computed must not be discarded because the trail INSERT lost the write
@@ -730,7 +743,7 @@ describe("ui API", () => {
     await new Promise<void>((r) => srv.listen(0, r));
     const b = `http://localhost:${(srv.address() as AddressInfo).port}`;
     try {
-      const res = await fetch(`${b}/api/inject?q=sky`);
+      const res = await fetch(`${b}/api/inject?preview=1&q=sky`);
       // 200, NOT a 500 from the trail INSERT — the read succeeded and is returned.
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -1020,7 +1033,7 @@ describe("ui API namespace isolation", () => {
 describe("scope-anchored injection over HTTP", () => {
   it("anchors a briefing on a collaboration and reports the anchor back", async () => {
     const out = await get(
-      `/api/inject?scope=${encodeURIComponent(collaborationId)}`,
+      `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}`,
     );
     expect(out.scope).toBe(collaborationId);
     // The attached, verified fact is in the briefing; the anchor itself never is.
@@ -1032,7 +1045,7 @@ describe("scope-anchored injection over HTTP", () => {
 
   it("injects only verified knowledge, anchored or not", async () => {
     const out = await get(
-      `/api/inject?scope=${encodeURIComponent(collaborationId)}`,
+      `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}`,
     );
     // The hard rule (KNOWLEDGE-POLICY): an anchor prioritises, it never lowers the gate.
     for (const i of out.items)
@@ -1041,7 +1054,7 @@ describe("scope-anchored injection over HTTP", () => {
 
   it("audits a scoped preview like any other read", async () => {
     await get(
-      `/api/inject?scope=${encodeURIComponent(collaborationId)}&q=tokens`,
+      `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}&q=tokens`,
     );
     const entry = store
       .listAudit()
@@ -1068,12 +1081,12 @@ describe("scope-anchored injection over HTTP", () => {
       ids.push(entity.id);
     }
     await verify(store, ids, "tester", now);
-    const out = await get(`/api/inject?q=${many}`);
+    const out = await get(`/api/inject?preview=1&q=${many}`);
     expect(out.items.length).toBe(51);
     expect(out.omitted).toBe(0);
     // An explicit limit still wins, and the response says it dropped something. Not the exact count:
     // `omitted` counts within core's over-fetched window (inject.ts documents this), not the corpus.
-    const paged = await get(`/api/inject?q=${many}&limit=10`);
+    const paged = await get(`/api/inject?preview=1&q=${many}&limit=10`);
     expect(paged.items.length).toBe(10);
     expect(paged.omitted).toBeGreaterThan(0);
   });
@@ -1145,7 +1158,7 @@ describe("audit detail resolves both of its shapes", () => {
     );
 
     // The arrow form keeps working: a read names its subject before the ids.
-    await get(`/api/inject?q=${encodeURIComponent("tokens")}`);
+    await get(`/api/inject?preview=1&q=${encodeURIComponent("tokens")}`);
     const read = (await get("/api/audit")).items
       .filter((e: { action: string }) => e.action === "inject_preview")
       .at(-1);
@@ -1189,7 +1202,7 @@ describe("creating from the browser", () => {
     expect(stored?.provenance.actor).toBe("reviewer");
 
     // And it is a real record: live to injection like any other commit.
-    const shown = await get("/api/inject?q=typed%20at%20a%20screen");
+    const shown = await get("/api/inject?preview=1&q=typed%20at%20a%20screen");
     expect(shown.items.some((i: { id: string }) => i.id === created.id)).toBe(
       true,
     );
@@ -1471,7 +1484,7 @@ describe("an injection records WHICH shape it was", () => {
 
   it("names the anchor in the subject, and resolves it for reading", async () => {
     await get(
-      `/api/inject?scope=${encodeURIComponent(collaborationId)}&q=tokens`,
+      `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}&q=tokens`,
     );
     const entry = store
       .listAudit()
@@ -1495,7 +1508,9 @@ describe("an injection records WHICH shape it was", () => {
   });
 
   it("a briefing's subject is the anchor alone, so it is attributable too", async () => {
-    await get(`/api/inject?scope=${encodeURIComponent(collaborationId)}`);
+    await get(
+      `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}`,
+    );
     const entry = store
       .listAudit()
       .filter((a) => a.action === "inject_preview")
@@ -1504,7 +1519,7 @@ describe("an injection records WHICH shape it was", () => {
   });
 
   it("an unscoped query still writes the query alone — the old rows stay comparable", async () => {
-    await get(`/api/inject?q=${encodeURIComponent("tokens")}`);
+    await get(`/api/inject?preview=1&q=${encodeURIComponent("tokens")}`);
     const entry = store
       .listAudit()
       .filter((a) => a.action === "inject_preview")
@@ -1516,7 +1531,7 @@ describe("an injection records WHICH shape it was", () => {
 describe("as-of injection over HTTP", () => {
   it("records the instant in the trail, so a historical read is not mistaken for a current one", async () => {
     const out = await get(
-      `/api/inject?q=${encodeURIComponent("tokens")}&asOf=2026-07-15T00:00:00Z`,
+      `/api/inject?preview=1&q=${encodeURIComponent("tokens")}&asOf=2026-07-15T00:00:00Z`,
     );
     // Echoed back NORMALIZED: the screen banners off the SERVER's value — which clock actually
     // produced these rows — and the server canonicalizes every instant at the boundary, so the echo
@@ -1531,14 +1546,17 @@ describe("as-of injection over HTTP", () => {
 
   it("asOf is null on a normal read", async () => {
     expect(
-      (await get(`/api/inject?q=${encodeURIComponent("tokens")}`)).asOf,
+      (await get(`/api/inject?preview=1&q=${encodeURIComponent("tokens")}`))
+        .asOf,
     ).toBeNull();
   });
 
   it("rejects an unparseable instant instead of silently returning nothing", async () => {
     // Date.parse gives NaN, every comparison then fails, and the screen would show "0 records" —
     // which reads as "we knew nothing then". A 400 is the honest answer to a typo.
-    const res = await fetch(`${base}/api/inject?q=tokens&asOf=last-tuesday`);
+    const res = await fetch(
+      `${base}/api/inject?preview=1&q=tokens&asOf=last-tuesday`,
+    );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/ISO 8601 instant/);
   });
@@ -1870,8 +1888,8 @@ describe("POST /api/backfill --embeddings", () => {
 // filtering — an impossible date rolled over, a local-time string was tz-dependent, "0" became 1999.
 describe("W-INSTANT: an instant param is the gate's instant", () => {
   it.each([
-    ["asOf", "2026-02-30", "/api/inject?q=tokens"], // Feb 30 → Date.parse rolls to Mar 2
-    ["asOf", "2026-08-14 00:00:00", "/api/inject?q=tokens"], // space, local time, tz-dependent
+    ["asOf", "2026-02-30", "/api/inject?preview=1&q=tokens"], // Feb 30 → Date.parse rolls to Mar 2
+    ["asOf", "2026-08-14 00:00:00", "/api/inject?preview=1&q=tokens"], // space, local time, tz-dependent
     ["since", "0", "/api/audit"], // Date.parse("0") → year 1999/2000
   ])("400s a bad %s=%s instead of filtering by a wrong moment", async (name, bad, route) => {
     const res = await fetch(
@@ -1885,7 +1903,7 @@ describe("W-INSTANT: an instant param is the gate's instant", () => {
 
   it("still accepts a valid instant", async () => {
     const res = await fetch(
-      `${base}/api/inject?q=tokens&asOf=2026-07-15T00:00:00Z`,
+      `${base}/api/inject?preview=1&q=tokens&asOf=2026-07-15T00:00:00Z`,
     );
     expect(res.status).toBe(200);
   });
