@@ -98,6 +98,14 @@ async function fromGitHub(server: string, env: Env): Promise<Cached | null> {
     signal: AbortSignal.timeout(TIMEOUT),
   });
   if (!res.ok) {
+    // 404 is the server saying it has no exchange to offer (no YOKE_GITHUB_ORG), which is a
+    // deployment fact, not a verdict on the caller — pointing them at their GitHub account would
+    // send them to fix the one thing that is fine.
+    if (res.status === 404)
+      throw new Error(
+        `${server} does not mint credentials from GitHub (it has no YOKE_GITHUB_ORG). ` +
+          "Ask its operator for one: yoke token create --name <who> --scopes <list>, then set YOKE_TOKEN",
+      );
     const why = await res.text().catch(() => "");
     throw new Error(
       `${server} refused the GitHub credential (${res.status})${why ? `: ${why}` : ""}`,
@@ -250,6 +258,13 @@ export function resolveRemote(
 
 type Values = Record<string, unknown>;
 
+/** Print the credential announce, if this call is the one that acquired it. Stdout, ahead of
+ * whatever the command prints: a credential leaving the machine must never be discoverable-only. */
+function said(remote: Remote): void {
+  const line = remote.announce();
+  if (line) process.stdout.write(line);
+}
+
 const str = (v: unknown): string | undefined =>
   typeof v === "string" && v ? v : undefined;
 
@@ -274,9 +289,12 @@ const line = (r: Row): string =>
     .filter((c) => c !== "")
     .join("  ");
 
-function query(pairs: Record<string, string | undefined>): string {
+function query(pairs: Record<string, string | string[] | undefined>): string {
   const q = new URLSearchParams();
-  for (const [k, v] of Object.entries(pairs)) if (v) q.set(k, v);
+  for (const [k, v] of Object.entries(pairs)) {
+    if (Array.isArray(v)) for (const one of v) q.append(k, one);
+    else if (v) q.set(k, v);
+  }
   const s = q.toString();
   return s ? `?${s}` : "";
 }
@@ -504,6 +522,13 @@ export async function runRemote(
 
     case "search": {
       const q = positionals.join(" ");
+      if (!q) {
+        console.error(
+          "usage: yoke search <query> [--type t] [--status s] [--limit n]\n" +
+            '  quote a phrase: yoke search "retry budget"',
+        );
+        return 1;
+      }
       const r = await out("GET", `/api/search${query({ q, limit })}`);
       const b = r.parsed as { items: Row[] };
       emit(
@@ -765,7 +790,12 @@ export async function runRemote(
           limit,
           view,
           scope: view === "pulse" ? str(v.scope) : undefined,
-        })}${(Array.isArray(v.assume) ? v.assume : v.assume ? [v.assume] : []).map((a) => `&assume=${encodeURIComponent(String(a))}`).join("")}`,
+          assume: Array.isArray(v.assume)
+            ? v.assume.map(String)
+            : v.assume
+              ? [String(v.assume)]
+              : undefined,
+        })}`,
       );
       // A `view` answers with the report already rendered: those three read the WHOLE corpus, which
       // is a server-side walk, not something to page over HTTP.
@@ -947,9 +977,15 @@ export async function remoteOntology(remote: Remote): Promise<TypeDef[]> {
   return JSON.parse(r.text) as TypeDef[];
 }
 
-/** How many source items travel in one request. Bounded so a large sync neither buffers a whole
- * source in memory nor arrives as one request a proxy will cut off mid-flight. */
-const INGEST_BATCH = 200;
+/**
+ * How much source material travels in one request, in bytes of serialized JSON.
+ *
+ * Counted in BYTES, not items: items are source material and their sizes differ by orders of
+ * magnitude — a PR title against a meeting-note chunk — so a fixed item count sends 20 KiB one run
+ * and 30 MiB the next. Measured: 200 note chunks from a real directory came to 300 KiB. Well under
+ * the server's bulk cap, because the count is a budget and the cap is the backstop.
+ */
+const INGEST_BUDGET = 4 * 1024 * 1024;
 
 /**
  * Pull here, commit there.
@@ -970,6 +1006,7 @@ export async function remoteIngest(
     rejected: [],
   };
   let batch: SourceItem[] = [];
+  let bytes = 0;
   const flush = async () => {
     if (batch.length === 0) return;
     const r = await remote.call("POST", "/api/ingest", {
@@ -977,6 +1014,7 @@ export async function remoteIngest(
       origin: `connector:${connector.name}`,
       ...(opts.scope ? { scope: opts.scope } : {}),
     });
+    said(remote);
     const parsed = JSON.parse(r.text || "{}") as Partial<IngestResult>;
     if (r.status >= 400)
       throw new Error(
@@ -987,10 +1025,15 @@ export async function remoteIngest(
     total.skipped += parsed.skipped ?? 0;
     if (parsed.rejected) total.rejected.push(...parsed.rejected);
     batch = [];
+    bytes = 0;
   };
   for await (const item of connector.pull(opts.since)) {
+    const size = JSON.stringify(item).length;
+    // Flush BEFORE adding when this item would push the batch over, so a batch never exceeds the
+    // budget — and never on an empty batch, or an item larger than the budget could never be sent.
+    if (batch.length > 0 && bytes + size > INGEST_BUDGET) await flush();
     batch.push(item);
-    if (batch.length >= INGEST_BATCH) await flush();
+    bytes += size;
   }
   await flush();
   return {
@@ -1021,22 +1064,71 @@ export async function remoteIngestMapped(
       rows: await connector.query(`SELECT * FROM ${spec.table}`),
     })),
   );
-  const r = await remote.call("POST", "/api/ingest-mapped", {
-    mapping: connector.mapping,
-    tables,
-  });
-  const parsed = JSON.parse(r.text || "{}") as Partial<MappedResult> & {
-    error?: string;
+  const total: MappedResult = {
+    added: 0,
+    updated: 0,
+    skipped: 0,
+    errors: 0,
+    messages: [],
   };
-  if (r.status >= 400)
-    throw new Error(`${remote.base}: ${parsed.error ?? `HTTP ${r.status}`}`);
-  return {
-    added: parsed.added ?? 0,
-    updated: parsed.updated ?? 0,
-    skipped: parsed.skipped ?? 0,
-    errors: parsed.errors ?? 0,
-    messages: parsed.messages ?? [],
+  const send = async (
+    slice: { table: string; rows: Record<string, unknown>[] }[],
+    pass: "entities" | "relations",
+  ) => {
+    const r = await remote.call("POST", "/api/ingest-mapped", {
+      mapping: connector.mapping,
+      tables: slice,
+      pass,
+    });
+    said(remote);
+    const parsed = JSON.parse(r.text || "{}") as Partial<MappedResult> & {
+      error?: string;
+    };
+    if (r.status >= 400)
+      throw new Error(`${remote.base}: ${parsed.error ?? `HTTP ${r.status}`}`);
+    total.added += parsed.added ?? 0;
+    total.updated += parsed.updated ?? 0;
+    total.skipped += parsed.skipped ?? 0;
+    total.errors += parsed.errors ?? 0;
+    if (parsed.messages) total.messages.push(...parsed.messages);
   };
+  // Entities first and in slices, then the relations over the same rows. Pass 2 resolves BOTH ends
+  // of an FK from the store, so it does not matter which slice a target arrived in — only that
+  // every entity is committed before any relation looks for one.
+  for (const pass of ["entities", "relations"] as const)
+    for (const slice of sliceTables(tables)) await send(slice, pass);
+  return total;
+}
+
+/** Table rows cut into requests that fit the server's bulk cap, keeping each table's rows together
+ * with their own table name. A single row larger than the budget still goes alone — the cap above
+ * it is the backstop, and a row that big is a mapping to reconsider, not a slice to make smaller. */
+function* sliceTables(
+  tables: { table: string; rows: Record<string, unknown>[] }[],
+): Generator<{ table: string; rows: Record<string, unknown>[] }[]> {
+  let slice: { table: string; rows: Record<string, unknown>[] }[] = [];
+  let bytes = 0;
+  for (const t of tables) {
+    let rows: Record<string, unknown>[] = [];
+    for (const row of t.rows) {
+      const size = JSON.stringify(row).length;
+      if (
+        (rows.length > 0 || slice.length > 0) &&
+        bytes + size > INGEST_BUDGET
+      ) {
+        if (rows.length > 0) slice.push({ table: t.table, rows });
+        yield slice;
+        slice = [];
+        rows = [];
+        bytes = 0;
+      }
+      rows.push(row);
+      bytes += size;
+    }
+    if (rows.length > 0) slice.push({ table: t.table, rows });
+  }
+  // Always at least one request: an empty mapping still has to reach the gate for its refusals.
+  yield slice;
 }
 
 /**
@@ -1064,6 +1156,7 @@ export async function remoteRelate(
     "GET",
     `/api/relate/groups${query({ limit: opts.limit, neighbours: opts.neighbours })}`,
   );
+  said(remote);
   if (r.status >= 400)
     throw new Error(
       `${remote.base}: ${(JSON.parse(r.text || "{}") as { error?: string }).error ?? `HTTP ${r.status}`}`,

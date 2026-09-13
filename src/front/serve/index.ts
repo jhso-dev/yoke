@@ -9,7 +9,7 @@
 // OIDC RS256 JWT. Deny-by-default authorization is threaded into both the UI handler and the MCP
 // server via their `authorize` hooks.
 
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import {
   createServer,
   type IncomingMessage,
@@ -499,6 +499,22 @@ export async function runServe(
         `SPEC "GitHub exchange"); a machine actor gets ` +
         `'yoke token create --name <who> --scopes "${opts.ns ?? resolveNs(undefined, env) ?? "<namespace>"}:read"'`,
     );
+  // A store that was never `yoke init`ed is almost always a typo'd path: `serve --db ./yok.db` would
+  // otherwise start happily on an empty corpus and every client would read "nothing" from a database
+  // nobody meant to make. The check runs BEFORE openStore, which CREATES the sqlite file — refusing
+  // after opening leaves the stray database behind, which is half the defect. Only the local
+  // single-file path is judged by file existence; a sharded or remote store initializes elsewhere.
+  if (
+    !opts.shards &&
+    !env.YOKE_SHARDS &&
+    !env.YOKE_OPENSEARCH_URL &&
+    !env.YOKE_POSTGRES_URL &&
+    !existsSync(db)
+  )
+    throw new Error(
+      `not initialized: ${db} — run 'yoke init --db ${db}' first`,
+    );
+
   // A gated server has to be able to recognise somebody. Without a signing key it mints nothing, so
   // unless an external issuer is configured every request would 401 and the cause would be invisible.
   if (auth && !env.YOKE_TOKEN_SECRET && !oidcFromEnv(env))

@@ -372,3 +372,94 @@ describe("connect rdb CLI (sqlite source)", () => {
     }
   });
 });
+
+describe("a table larger than one request still maps whole", () => {
+  const logs: string[] = [];
+  beforeEach(() => {
+    logs.length = 0;
+    vi.spyOn(console, "log").mockImplementation((m?: unknown) => {
+      logs.push(String(m));
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  // Rows cross a network now, so they go in slices — entities first and only then the relations,
+  // because pass 2 resolves FK targets that may be in a slice not sent yet. Pass 2 asks the STORE
+  // for both ends, which is what makes a slice self-contained; the in-memory map is the fast path
+  // for a single local call, never the correctness.
+  it("slices rows and still builds the FK edges across slices", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "yoke-rdb-big-"));
+    const srcPath = join(dir, "source.sqlite");
+    const src = new Database(srcPath);
+    src.exec(
+      "create table people(id integer primary key, name text, bio text, manager_id integer)",
+    );
+    const ins = src.prepare("insert into people values (?,?,?,?)");
+    const pad = "x".repeat(600);
+    src.transaction(() => {
+      // Enough text that the whole table cannot ride in one request, and every person but the first
+      // reports to the one before them — so an edge must survive the slice boundary.
+      for (let i = 1; i <= 1500; i++)
+        ins.run(i, `p${i}`, `${pad}`, i === 1 ? null : i - 1);
+    })();
+    src.close();
+
+    const mapPath = join(dir, "map.json");
+    writeFileSync(
+      mapPath,
+      JSON.stringify([
+        {
+          table: "people",
+          entityType: "person",
+          idColumn: "id",
+          columns: { name: "name" },
+          relations: [{ fkColumn: "manager_id", relType: "reports_to" }],
+        },
+      ]),
+    );
+    const targetDb = join(dir, "yoke.db");
+    expect(await cli(["init", "--db", targetDb])).toBe(0);
+    const relPath = join(dir, "reports_to.json");
+    writeFileSync(
+      relPath,
+      JSON.stringify({ name: "reports_to", kind: "relation", attrs: {} }),
+    );
+    expect(await cli(["ontology", "add-type", relPath, "--db", targetDb])).toBe(
+      0,
+    );
+
+    expect(
+      await cli([
+        "connect",
+        "rdb",
+        "--mapping",
+        mapPath,
+        "--sqlite",
+        srcPath,
+        "--db",
+        targetDb,
+        "--json",
+      ]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toMatchObject({
+      added: 1500,
+      errors: 0,
+    });
+
+    const check = new SqliteStorage(targetDb);
+    await check.init();
+    const edges = await check.listRelations({
+      type: "reports_to",
+      limit: 5000,
+    });
+    // 1499 edges: everyone but the first reports to their predecessor, and none of them was lost to
+    // a slice boundary.
+    expect(edges.items).toHaveLength(1499);
+    check.close();
+    rmSync(dir, { recursive: true, force: true });
+  }, 60_000);
+});

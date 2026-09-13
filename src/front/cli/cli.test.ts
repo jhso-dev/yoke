@@ -2,6 +2,7 @@
 // Uses a temp-directory DB for one init→add→get→search round-trip plus one rejected add (exit 1).
 
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -2569,5 +2570,48 @@ describe("relate proposes edges where the model is, over a corpus it never holds
     expect(await cli(["init", "--db", db])).toBe(0);
     expect(await cli(["relate", "--db", db], NO_EMBED)).toBe(1);
     expect(errs.join("\n")).toContain("relate needs a model");
+  });
+});
+
+describe("bulk entry is sized for source material, not for a form post", () => {
+  // Both bulk routes carry captured SOURCE — note chunks, PR bodies, table pages — and the JSON API's
+  // 256 KiB body cap is about sixty note chunks. Measured: a 300-file directory of ~4 KiB notes
+  // refused outright. The client batches by BYTES under a larger per-route cap; an item count cannot
+  // do it, because item sizes differ by orders of magnitude.
+  it("ingests a directory whose chunks far exceed one request's default cap", async () => {
+    const db = newDb();
+    expect(await cli(["init", "--db", db], NO_EMBED)).toBe(0);
+    const notes = join(dir, `notes-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(notes, { recursive: true });
+    // ~1.2 MB of source in total — several times the 256 KiB the other routes accept.
+    for (let i = 0; i < 120; i++)
+      writeFileSync(
+        join(notes, `m${i}.md`),
+        `# 회의 ${i}\n\n${"결정과 근거를 길게 적은 본문이다. ".repeat(200)}`,
+      );
+    expect(await cli(["connect", "notes", notes, "--db", db], NO_EMBED)).toBe(
+      0,
+    );
+    expect(logs.join("\n")).toMatch(/added \d+/);
+    const store = new SqliteStorage(db);
+    await store.init();
+    expect(
+      (await store.listEntities({ type: "fact", limit: 1000 })).items.length,
+    ).toBeGreaterThan(100);
+    store.close();
+  }, 30_000);
+});
+
+describe("serve refuses a store nothing ever initialized", () => {
+  // `serve --db ./yok.db` on a typo would otherwise start on an empty corpus and answer every client
+  // "nothing" — from a database the typo itself created. The check runs BEFORE the store is opened,
+  // because opening it is what brings the file into existence.
+  it("names 'yoke init' and leaves no database behind", async () => {
+    const { runServe } = await import("../serve/index.js");
+    const missing = newDb();
+    await expect(runServe(missing, 0, { ...NO_EMBED }, {})).rejects.toThrow(
+      /not initialized/,
+    );
+    expect(existsSync(missing)).toBe(false);
   });
 });

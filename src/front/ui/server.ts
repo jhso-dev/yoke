@@ -335,8 +335,16 @@ function sendJson(res: ServerResponse, code: number, data: unknown): void {
 }
 
 /** 256 KiB — a bulk verify of thousands of ULIDs still fits, and an unbounded stream cannot pin
- * memory. ceiling: one cap for the one POST shape we accept; make it per-route if that changes. */
+ * memory. Every route takes this except the two bulk-entry ones below. */
 const MAX_BODY = 256 * 1024;
+
+/** 16 MiB, for `/api/ingest` and `/api/ingest-mapped` only.
+ *
+ * Those carry captured SOURCE material — note chunks, PR bodies, whole table pages — and 256 KiB is
+ * about 60 meeting-note chunks: measured, a 300-file notes directory refused at the default. The
+ * client batches under this (see `INGEST_BUDGET`), so the cap is the backstop, not the working size.
+ * It is still bounded: `ingestItems` holds the batch in memory either way. */
+const MAX_BULK_BODY = 16 * 1024 * 1024;
 
 /** How many of an audit event's referenced records get resolved to a readable summary. A bulk verify
  * can name thousands of ids; resolving all of them would turn one audit page into thousands of point
@@ -347,7 +355,10 @@ const AUDIT_REFS = 20;
 /** The bounded, content-type-checked body read every route on this server performs (SPEC "Bounded
  * input"). `undefined` on an empty body, which is what MCP's handleRequest wants; `readBody` is the
  * same read for the routes that want an object. */
-export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+export async function readJsonBody(
+  req: IncomingMessage,
+  max = MAX_BODY,
+): Promise<unknown> {
   const ct = req.headers["content-type"] ?? "";
   if (!ct.includes("application/json"))
     throw new Error("content-type must be application/json");
@@ -355,7 +366,10 @@ export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   let size = 0;
   for await (const c of req) {
     size += (c as Buffer).length;
-    if (size > MAX_BODY) throw new Error("request body too large");
+    if (size > max)
+      throw new Error(
+        `request body too large (over ${Math.round(max / 1024)} KiB)`,
+      );
     chunks.push(c as Buffer);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
@@ -364,8 +378,9 @@ export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 
 async function readBody(
   req: IncomingMessage,
+  max?: number,
 ): Promise<Record<string, unknown>> {
-  return ((await readJsonBody(req)) ?? {}) as Record<string, unknown>;
+  return ((await readJsonBody(req, max)) ?? {}) as Record<string, unknown>;
 }
 
 async function readIds(
@@ -1607,7 +1622,7 @@ export function createUiHandler(
 
     if (method === "POST" && path === "/api/ingest") {
       if (denied(res, "write")) return;
-      const body = await readBody(req);
+      const body = await readBody(req, MAX_BULK_BODY);
       const items = body.items;
       if (!Array.isArray(items)) {
         sendJson(res, 400, { error: "items must be an array of source items" });
@@ -1650,7 +1665,7 @@ export function createUiHandler(
     if (method === "POST" && path === "/api/ingest-mapped") {
       if (denied(res, "write")) return;
       if (uninitialized(res)) return;
-      const body = await readBody(req);
+      const body = await readBody(req, MAX_BULK_BODY);
       const mapping = body.mapping;
       const tables = body.tables;
       if (!Array.isArray(mapping) || !Array.isArray(tables)) {
@@ -1664,6 +1679,9 @@ export function createUiHandler(
           (t) => [t.table, t.rows],
         ),
       );
+      // `pass` lets a caller send the entity rows in slices and only then the relation ones: pass 2
+      // resolves FK targets that may be in a slice it has not sent yet, so the two cannot interleave.
+      const pass = body.pass;
       sendJson(
         res,
         200,
@@ -1677,6 +1695,7 @@ export function createUiHandler(
           now(),
           ns,
           deps.embedder,
+          pass === "entities" || pass === "relations" ? pass : "both",
         ),
       );
       return;

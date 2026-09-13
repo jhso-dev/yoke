@@ -918,8 +918,20 @@ async function relayMcp(remote: Remote): Promise<void> {
     fetch: (url, init) =>
       remote.fetch(url instanceof URL ? url.toString() : String(url), init),
   });
+  // A failed forward is answered, never thrown. `void promise` on a rejection is an unhandled
+  // rejection, which kills the process — so a server that restarts mid-session took the agent's
+  // yoke tools away entirely and said why on a stderr the client does not show. The session stays
+  // up instead, and the next call succeeds once the server is back.
   stdio.onmessage = (m) => {
-    void http.send(m);
+    http.send(m).catch((e: unknown) => {
+      const id = (m as { id?: string | number }).id;
+      if (id === undefined) return; // a notification expects no answer
+      void stdio.send({
+        jsonrpc: "2.0",
+        id,
+        error: { code: -32000, message: (e as Error).message },
+      });
+    });
   };
   http.onmessage = (m) => {
     void stdio.send(m);
