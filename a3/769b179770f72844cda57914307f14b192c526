@@ -1,0 +1,21 @@
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_afa920e66dcdab 2691-2693,2711,3116,3124
+  s_03673cb32bfdc1::t_43fde3fc623853 2764
+  s_03673cb32bfdc1::t_f04c9addccfb35 3118-3121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a3769b179770f72844cda57914307f14b192c526",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
