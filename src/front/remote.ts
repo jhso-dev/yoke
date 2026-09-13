@@ -12,7 +12,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { IngestResult } from "../connectors/ingest.js";
@@ -124,7 +124,7 @@ async function fromGitHub(server: string, env: Env): Promise<Cached | null> {
 
 export interface Remote {
   base: string;
-  /** Who this caller says they are, and which namespace they mean. An UNGATED server takes both
+  /** Who this caller says they are, which namespace they mean, and which store they expect. An UNGATED server takes the first two
    * (invariant 4: nothing authenticates them, and `--actor` still has to mean something on a
    * single-user store); a gated one ignores them and reads the credential instead. */
   identity: { actor?: string; ns?: string };
@@ -159,9 +159,17 @@ export const LOCAL_SERVER = "http://127.0.0.1:4800";
 
 export function resolveRemote(
   env: Env,
-  identity: { actor?: string; ns?: string } = {},
+  identity: { actor?: string; ns?: string; store?: string } = {},
 ): Remote {
   const base = env.YOKE_SERVER ?? LOCAL_SERVER;
+  // Which store this caller MEANT, stated only when the address was a default rather than a choice.
+  //
+  // One port for every project on a machine: standing in project B while project A's server holds
+  // 127.0.0.1:4800, a write lands in A's corpus and nothing says so — measured, and the worst thing
+  // the address default can do. A caller who set YOKE_SERVER picked that server and is not guessing;
+  // a caller who did not is asking for "the server for this store", and the server can say when it
+  // is not that. Checked server-side so the refusal arrives BEFORE the write, not after.
+  const expects = env.YOKE_SERVER ? undefined : identity.store;
   let cached: Cached | null = null;
   let minted: string | undefined;
   // An explicitly configured credential is not ours to manage: no cache, no refresh, no exchange.
@@ -212,6 +220,7 @@ export function resolveRemote(
         if (token) headers.set("authorization", `Bearer ${token}`);
         if (identity.actor) headers.set("x-yoke-actor", identity.actor);
         if (identity.ns) headers.set("x-yoke-ns", identity.ns);
+        if (expects) headers.set("x-yoke-store", expects);
         return globalThis.fetch(url, { ...init, headers });
       };
       const res = await send(held()).catch((e: unknown) => {
@@ -219,13 +228,22 @@ export function resolveRemote(
         // as a bare "fetch failed" that names neither the address nor the fix.
         const cause = (e as { cause?: { code?: string; message?: string } })
           ?.cause;
-        if (cause?.code === "ECONNREFUSED" || cause?.code === "ENOTFOUND")
+        if (cause?.code === "ECONNREFUSED" || cause?.code === "ENOTFOUND") {
+          if (env.YOKE_SERVER)
+            throw new Error(
+              `no yoke server at ${base} — start one with 'yoke serve', or point YOKE_SERVER at ` +
+                "the one you mean",
+            );
+          // The default address, so the reader is standing in a project: tell them the WHOLE
+          // sequence. Sending them to `yoke serve` alone is how a first run bounces twice — serve
+          // then refuses an uninitialized store and they come back for the step before it.
           throw new Error(
-            `no yoke server at ${base} — start one with 'yoke serve'` +
-              (env.YOKE_SERVER
-                ? ""
-                : ", or set YOKE_SERVER to the address of your team's"),
+            expects && !existsSync(expects)
+              ? `no yoke here yet — run 'yoke init', then 'yoke serve' (it holds ${base} while you work)`
+              : `no yoke server at ${base} — run 'yoke serve' to hold this store, or set ` +
+                  "YOKE_SERVER to your team's",
           );
+        }
         // Anything else still has to name the address and the cause: `fetch` on its own says
         // "fetch failed", which tells a reader neither what was unreachable nor why.
         throw new Error(

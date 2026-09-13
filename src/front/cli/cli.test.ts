@@ -2615,3 +2615,54 @@ describe("serve refuses a store nothing ever initialized", () => {
     expect(existsSync(missing)).toBe(false);
   });
 });
+
+describe("one port, many projects", () => {
+  // The address default is machine-global while a store is per-directory, so "the server on 4800"
+  // and "the server for this store" are different things. Measured before the guard: standing in one
+  // project, a write landed in another project's corpus and nothing said so.
+  it("refuses a server holding someone else's store, before it writes", async () => {
+    const mine = newDb();
+    const theirs = newDb();
+    expect(await cli(["init", "--db", mine], NO_EMBED)).toBe(0);
+    expect(await cli(["init", "--db", theirs], NO_EMBED)).toBe(0);
+
+    const { runServe } = await import("../serve/index.js");
+    const server = await runServe(theirs, 0, NO_EMBED, {});
+    const port = (server.address() as { port: number }).port;
+    try {
+      // The CLI states the store it MEANT because it did not choose the address — YOKE_SERVER is
+      // how a caller says "that one, on purpose", and then this check does not apply.
+      const { resolveRemote, runRemote } = await import("../remote.js");
+      const remote = resolveRemote({ ...NO_EMBED }, { store: mine });
+      // Point it at the other project's server the way the default would.
+      const aimed = { ...remote, base: `http://127.0.0.1:${port}` };
+      await expect(
+        runRemote(
+          {
+            ...aimed,
+            fetch: (url, init) =>
+              remote.fetch(
+                url.replace(remote.base, `http://127.0.0.1:${port}`),
+                init,
+              ),
+            call: (m, p, b) =>
+              remote.call(m, `http://127.0.0.1:${port}${p}`, b),
+          },
+          "add",
+          ["fact"],
+          { attr: ["statement=wrong corpus"] },
+        ),
+      ).rejects.toThrow(/another project's/);
+
+      // And nothing was written to either store.
+      const store = new SqliteStorage(theirs);
+      await store.init();
+      expect(
+        (await store.listEntities({ type: "fact", limit: 10 })).items,
+      ).toHaveLength(0);
+      store.close();
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+});

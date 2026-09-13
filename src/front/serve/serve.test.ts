@@ -1090,3 +1090,77 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
     }, 60_000);
   },
 );
+
+describe("a narrow credential can still use the capture path", () => {
+  // A connector credential is narrow by design — `ns:fact:write` for a Slack sync — and the bulk
+  // routes checked a bare `write`, which a type-scoped token does not hold. Measured: such a token
+  // could `add` a fact and could not `ingest` one, so the whole automatic path was closed to exactly
+  // the credentials the RBAC model exists to hand out.
+  it("ingests the types it holds, refuses the ones it does not, and writes nothing in between", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    await store.saveOntology(seedOntology());
+    const SECRET = "narrow-credential-key";
+    // biome-ignore lint/style/noNonNullAssertion: SECRET is a literal.
+    const signer = credentialSigner(SECRET)!;
+    const token = (
+      await signer.mint({
+        name: "slack-sync",
+        scopes: ["*:fact:write", "*:*:read"],
+        ns: null,
+      })
+    ).token;
+    const run = await listen(
+      createServeServer({
+        store,
+        defaultActor: "yoke:system",
+        auth: true,
+        tokenSecret: SECRET,
+      }),
+    );
+    const post = (items: unknown[]) =>
+      fetch(`${run.base}/api/ingest`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ items, origin: "connector:slack" }),
+      });
+    try {
+      const ok = await post([
+        { type: "fact", externalId: "s:1", attributes: { statement: "a" } },
+      ]);
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toMatchObject({ added: 1 });
+
+      const no = await post([
+        {
+          type: "decision",
+          externalId: "s:2",
+          attributes: { conclusion: "c", rationale: "r" },
+        },
+      ]);
+      expect(no.status).toBe(403);
+      expect((await no.json()).error).toContain("type 'decision'");
+
+      // A mixed batch is refused whole: a partial import is not how a caller should discover the
+      // limit of their credential.
+      const mixed = await post([
+        { type: "fact", externalId: "s:3", attributes: { statement: "b" } },
+        {
+          type: "decision",
+          externalId: "s:4",
+          attributes: { conclusion: "c", rationale: "r" },
+        },
+      ]);
+      expect(mixed.status).toBe(403);
+      expect(
+        (await store.listEntities({ type: "fact", limit: 10 })).items,
+      ).toHaveLength(1);
+    } finally {
+      run.close();
+      store.close();
+    }
+  });
+});

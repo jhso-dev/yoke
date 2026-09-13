@@ -17,13 +17,18 @@ import {
   type ServerResponse,
 } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import Database from "better-sqlite3";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
 import { resolveNs } from "../../core/namespace.js";
+
+/** A backend that lives somewhere other than this machine's filesystem. */
+const remoteBackend = (env: Env): boolean =>
+  !!(env.YOKE_OPENSEARCH_URL || env.YOKE_POSTGRES_URL);
+
 import { createYokeMcpServer } from "../mcp/index.js";
 import { openStore, type YokeStore } from "../store.js";
 import {
@@ -58,6 +63,10 @@ const REFRESH_MS = 30_000;
 
 interface ServeDeps {
   store: YokeStore;
+  /** The absolute path of the store this server holds, when it holds one file. A client that reached
+   * a DEFAULT address states what it expected and gets a 409 when the two differ — see the check in
+   * `handle`. Absent for a remote or sharded backend, where a caller has no local path to expect. */
+  storePath?: string;
   /** Actor used when auth is off, and audit fallback. */
   defaultActor: string;
   ns?: string | null;
@@ -111,7 +120,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
   // store is a `let`: replica mode swaps it out on each snapshot pull (see refreshNow). All the
   // closures below read the current `store` at call time, so the swap is transparent to them.
   let store = deps.store;
-  const { defaultActor, auth, embedder, readOnly } = deps;
+  const { defaultActor, auth, embedder, readOnly, storePath } = deps;
   // The server's own namespace. A request may narrow it only when nothing authenticates it.
   const serverNs = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
@@ -383,6 +392,24 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       const one = Array.isArray(raw) ? raw[0] : raw;
       return one?.trim() ? one.trim() : undefined;
     };
+    // The caller reached a DEFAULT address and named the store they meant. One port serves every
+    // project on a machine, so "the server on 4800" and "the server for this store" are not the same
+    // thing — and the difference, undetected, is a write filed in someone else's corpus. Refused
+    // here, before the body is read, so nothing is written on the way to finding out.
+    const expected = header("x-yoke-store");
+    if (expected !== undefined && expected !== storePath) {
+      res.writeHead(409, { "content-type": "application/json; charset=utf-8" });
+      res.end(
+        JSON.stringify({
+          error:
+            `this server holds ${storePath}, not ${expected} — it is another project's. ` +
+            `Start one for yours ('yoke serve --db ${expected} --port <other>'), or set ` +
+            "YOKE_SERVER to the address of the one you mean",
+        }),
+      );
+      return;
+    }
+
     let actor = (!auth && header("x-yoke-actor")) || defaultActor;
     const ns = auth ? serverNs : (header("x-yoke-ns") ?? serverNs);
     let authorize: Authorize = ALLOW_ALL;
@@ -507,8 +534,7 @@ export async function runServe(
   if (
     !opts.shards &&
     !env.YOKE_SHARDS &&
-    !env.YOKE_OPENSEARCH_URL &&
-    !env.YOKE_POSTGRES_URL &&
+    !remoteBackend(env) &&
     !existsSync(db)
   )
     throw new Error(
@@ -524,6 +550,12 @@ export async function runServe(
         "YOKE_OIDC_ISSUER/YOKE_OIDC_AUDIENCE to accept your identity provider's.",
     );
   const common = {
+    // Only a single local file has a path a caller can expect; a remote or sharded backend does not,
+    // and a client pointed at one of those set YOKE_SERVER and is not guessing.
+    storePath:
+      opts.shards || env.YOKE_SHARDS || remoteBackend(env)
+        ? undefined
+        : resolve(db),
     defaultActor: env.YOKE_ACTOR ?? "yoke:system",
     ns: opts.ns ?? resolveNs(undefined, env),
     auth,

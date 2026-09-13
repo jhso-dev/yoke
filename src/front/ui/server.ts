@@ -10,6 +10,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import { resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ingestItems } from "../../connectors/ingest.js";
 import {
@@ -84,8 +85,12 @@ type Env = Record<string, string | undefined>;
 
 interface UiDeps {
   store: YokeStore;
-  /** Resolved once from env (verify/deprecate provenance + audit actor). */
+  /** Resolved once from env (verify/deprecate provenance + audit actor). A CLI caller may name its
+   * own on an ungated server — see `createUiServer`. */
   actor: string;
+  /** The absolute path of the store this server holds, when it holds one file. A client that reached
+   * a DEFAULT address states what it expected and gets a 409 when the two differ. */
+  storePath?: string;
   /** Tenant namespace scope (ENTERPRISE "namespaces"). Omitted/null = the default shared namespace. */
   ns?: string | null;
   now?: () => string;
@@ -551,6 +556,24 @@ export function createUiHandler(
     const { asR, prefetch } = serializers();
     await prefetch(xs);
     return Promise.all(xs.map(asR));
+  };
+
+  /** Every DISTINCT type a bulk payload would write, judged the way the create route judges one.
+   * Checked before anything is written: a partial import is not how a caller should learn the
+   * limit of their credential. */
+  const deniedForTypes = (
+    res: ServerResponse,
+    items: { type?: unknown }[],
+  ): boolean => {
+    const types = new Set(
+      items
+        .map((i) => i.type)
+        .filter((t): t is string => typeof t === "string"),
+    );
+    // No type named is still a write: let the bare check answer, as it did before.
+    if (types.size === 0) return denied(res, "write");
+    for (const t of types) if (denied(res, "write", t)) return true;
+    return false;
   };
 
   /** A corpus with no schema was never `yoke init`ed, and "nothing found" is the wrong answer to
@@ -1621,13 +1644,16 @@ export function createUiHandler(
     }
 
     if (method === "POST" && path === "/api/ingest") {
-      if (denied(res, "write")) return;
       const body = await readBody(req, MAX_BULK_BODY);
       const items = body.items;
       if (!Array.isArray(items)) {
         sendJson(res, 400, { error: "items must be an array of source items" });
         return;
       }
+      // Per TYPE, like the create route — a connector credential is narrow by design
+      // (`ns:fact:write` for a Slack sync), and a bare `write` check refuses it the whole batch
+      // including the facts it is entitled to file.
+      if (deniedForTypes(res, items)) return;
       const ontology = store.loadOntology(ns);
       if (ontology.length === 0) {
         sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
@@ -1663,7 +1689,6 @@ export function createUiHandler(
     // (`SELECT *`), so this moves the same set rather than adding a limit — but a table that does not
     // fit in a request is the point at which this needs streaming.
     if (method === "POST" && path === "/api/ingest-mapped") {
-      if (denied(res, "write")) return;
       if (uninitialized(res)) return;
       const body = await readBody(req, MAX_BULK_BODY);
       const mapping = body.mapping;
@@ -1674,6 +1699,18 @@ export function createUiHandler(
         });
         return;
       }
+      // Every type the mapping can file — the entity types and the FK relation types — checked
+      // before a row is written, so a partial import cannot be the way a caller discovers the limit.
+      if (
+        deniedForTypes(
+          res,
+          (mapping as MappingSpec[]).flatMap((m) => [
+            { type: m.entityType },
+            ...(m.relations ?? []).map((r) => ({ type: r.relType })),
+          ]),
+        )
+      )
+        return;
       const rowsByTable = new Map(
         (tables as { table: string; rows: Record<string, unknown>[] }[]).map(
           (t) => [t.table, t.rows],
@@ -1833,8 +1870,34 @@ export function createUiHandler(
 }
 
 export function createUiServer(deps: UiDeps): Server {
-  const handle = createUiHandler(deps);
+  const one = (name: string, req: IncomingMessage): string | undefined => {
+    const raw = req.headers[name];
+    const v = Array.isArray(raw) ? raw[0] : raw;
+    return v?.trim() ? v.trim() : undefined;
+  };
   return createServer((req, res) => {
+    // `yoke ui` is a local server the CLI talks to as readily as the browser does, so it reads the
+    // caller's actor and namespace the way `serve` does when nothing authenticates them. Without
+    // this the two local servers behave differently and `--actor` means something only against one.
+    // Nothing authenticates here at all (invariant 4), which is why it is taken on its word.
+    const handle = createUiHandler({
+      ...deps,
+      actor: one("x-yoke-actor", req) ?? deps.actor,
+      ns: one("x-yoke-ns", req) ?? deps.ns ?? null,
+    });
+    const expected = one("x-yoke-store", req);
+    if (
+      expected !== undefined &&
+      deps.storePath &&
+      expected !== deps.storePath
+    ) {
+      sendJson(res, 409, {
+        error:
+          `this server holds ${deps.storePath}, not ${expected} — it is another project's. ` +
+          "Start one for yours, or set YOKE_SERVER to the address of the one you mean",
+      });
+      return;
+    }
     handle(req, res).catch((e) => {
       if (!res.headersSent) sendJson(res, 400, { error: (e as Error).message });
       else res.end();
@@ -1905,6 +1968,14 @@ export async function runUi(
     store,
     actor,
     ns: ns ?? null,
+    // Only a single local file has a path a caller can expect to reach.
+    storePath:
+      shards ||
+      env.YOKE_SHARDS ||
+      env.YOKE_OPENSEARCH_URL ||
+      env.YOKE_POSTGRES_URL
+        ? undefined
+        : resolvePath(db),
     embedder: makeFetchEmbedder(env),
   });
   server.on("close", () => store.close());

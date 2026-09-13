@@ -5,6 +5,7 @@
 // Time is obtained only in this front tier (core receives `now` by injection).
 
 import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
@@ -210,6 +211,7 @@ function usage(): string {
 
 getting started:
   init                      create ./yoke.db and seed the ontology
+  serve                     hold it on 127.0.0.1:4800 — every command below goes through a server
   add <type> --attr k=v     record knowledge (live immediately, signed by --actor)
   review                    the re-confirmation queue: what went stale, most-consumed first
   verify <id...>            re-confirm — refresh a record's freshness window (also revives a retired id)
@@ -405,6 +407,7 @@ async function cmdRelate(v: Values, env: Env): Promise<number> {
   const remote = resolveRemote(env, {
     actor: v.actor ?? env.YOKE_ACTOR,
     ns: resolveNs(v.ns, env) ?? undefined,
+    store: resolve(resolveDb(v, env)),
   });
   const ontology = await remoteOntology(remote);
   if (ontology.length === 0) {
@@ -475,6 +478,7 @@ async function runIngest(
   const remote = resolveRemote(env, {
     actor: v.actor ?? env.YOKE_ACTOR,
     ns: resolveNs(v.ns, env) ?? undefined,
+    store: resolve(resolveDb(v, env)),
   });
   const ontology = await remoteOntology(remote);
   if (ontology.length === 0) {
@@ -975,6 +979,7 @@ export async function runCli(
         resolveRemote(env, {
           actor: values.actor ?? env.YOKE_ACTOR,
           ns: resolveNs(values.ns, env) ?? undefined,
+          store: resolve(resolveDb(values, env)),
         }),
         command,
         rest,
