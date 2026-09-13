@@ -1,0 +1,74 @@
+README.ko.md
+  s_03673cb32bfdc1::t_05f4709fda109e 385
+src/front/ui/ui.test.ts
+  s_03673cb32bfdc1::t_a35708e0570bcb 16,19-22,227,399,405-411,414,416-417,419-422,424-425
+plugin/README.md
+  s_03673cb32bfdc1::t_05f4709fda109e 54
+src/front/serve/credential.ts
+  s_03673cb32bfdc1::t_d231d31bd8bdfb 1-99
+src/adapters/storage-sharded/index.ts
+  s_03673cb32bfdc1::t_9e057169c55854 47,50
+web/app/tokens/page.tsx
+  s_03673cb32bfdc1::t_e6abdf7699a3ec 65,68,74-76,78
+  s_03673cb32bfdc1::t_800ac9b7e57873 21
+web/lib/api.ts
+  s_03673cb32bfdc1::t_645024c7724268 7-13,64-105,114-118
+  s_03673cb32bfdc1::t_29c4e778903bc6 145-170
+docs/SPEC.md
+  s_03673cb32bfdc1::t_05f4709fda109e 923-925
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_da238f58794922 57,83-85,479
+  s_03673cb32bfdc1::t_514a4a01b35640 1124-1130,1132,1135,1142
+plugin/harness.test.ts
+  s_03673cb32bfdc1::t_08e3fba9efb104 186
+  s_03673cb32bfdc1::t_15bb3e7fdf96bb 226-230,236,259-264,279-288
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_f2929bac08b2d8 106
+  s_03673cb32bfdc1::t_54c6753b3eb910 2744-2750,2752-2754,2756-2759,2761-2796
+web/lib/i18n/en.ts
+  s_03673cb32bfdc1::t_68738433048d4c 542-543
+README.md
+  s_03673cb32bfdc1::t_05f4709fda109e 405
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_c81bae969b6875 38,1012
+  s_03673cb32bfdc1::t_ad02892661cdec 73-84,86-87,89-98,100-101,103-104,106-117
+  s_03673cb32bfdc1::t_eb34f59d1a468c 831-834,839-866,868-870,874,880-883,889-895
+  s_03673cb32bfdc1::t_3ccfa87e7fbf2b 28,30-37,141-142,148,253,305,350,443,651,657,791,921,946
+  s_03673cb32bfdc1::t_240a2a53f51035 884-888
+  s_03673cb32bfdc1::t_1e96d256bc7165 896
+web/lib/credential.ts
+  s_03673cb32bfdc1::t_7e097ca9a72a8d 10-16,21,52,58-75
+  s_03673cb32bfdc1::t_c54d7ea36e156b 76
+.env.example
+  s_03673cb32bfdc1::t_05f4709fda109e 85-90
+web/app/login/page.tsx
+  s_03673cb32bfdc1::t_29c4e778903bc6 35-39
+src/adapters/storage-composite/index.ts
+  s_03673cb32bfdc1::t_9e057169c55854 173
+src/front/serve/index.ts
+  s_03673cb32bfdc1::t_d3d58ff4ea588f 37-40,237-239,326-347,351-361
+  s_03673cb32bfdc1::t_492fe537fa63a5 348-350
+  s_03673cb32bfdc1::t_9be2a85e3c7b43 483-490,496
+  s_03673cb32bfdc1::t_c35ff14d453a01 301-309,312,317
+  s_03673cb32bfdc1::t_af0913e7354d4a 419
+  s_03673cb32bfdc1::t_d0a109bfdc80bf 67,69-72,118,160-163
+  s_03673cb32bfdc1::t_c0fda313b869f0 36,362-363
+web/lib/i18n/ko.ts
+  s_03673cb32bfdc1::t_68738433048d4c 500-501
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e0779b33879d482598d1722d6f3fd64bc860e263",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
