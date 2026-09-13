@@ -15,7 +15,7 @@ import { BRIEFING_LIMIT } from "../../core/inject.js";
 import { deprecate, downstreamOf } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
-import { runCli } from "../cli/index.js";
+import { cli } from "../cli/harness.js";
 import { createYokeMcpServer } from "./index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-mcp-"));
@@ -51,7 +51,7 @@ function text(r: unknown): string {
 }
 
 beforeAll(async () => {
-  expect(await runCli(["init", "--db", db])).toBe(0);
+  expect(await cli(["init", "--db", db])).toBe(0);
 });
 
 describe("yoke MCP server", () => {
@@ -225,7 +225,7 @@ describe("yoke MCP server", () => {
       );
     }
     port.close();
-    expect(await runCli(["verify", ...facts, "--db", db])).toBe(0);
+    expect(await cli(["verify", ...facts, "--db", db])).toBe(0);
 
     const s = await openSession();
     const realGet = s.store.getEntity.bind(s.store);
@@ -277,7 +277,7 @@ describe("yoke MCP server", () => {
     await seed.close();
     // verify is the CLI's job — keep actor as yoke:system so the provenance.actor match stays alive.
     expect(
-      await runCli(["verify", id, "--db", db, "--actor", "yoke:system"]),
+      await cli(["verify", id, "--db", db, "--actor", "yoke:system"]),
     ).toBe(0);
 
     const s = await openSession();
@@ -361,7 +361,7 @@ describe("yoke MCP server", () => {
     port.close();
     // Re-confirmed by the REVIEWER, which is what puts a different name in provenance.actor.
     expect(
-      await runCli(["verify", kept, other, "--db", db, "--actor", "reviewer"]),
+      await cli(["verify", kept, other, "--db", db, "--actor", "reviewer"]),
     ).toBe(0);
 
     const s = await openSession();
@@ -458,7 +458,7 @@ describe("yoke MCP server", () => {
     await s.close();
     // Verify both so scoped injection (verified-only) can see the decision.
     expect(
-      await runCli([
+      await cli([
         "verify",
         ws.id,
         dec.id,
@@ -513,7 +513,7 @@ describe("yoke MCP server", () => {
     );
     await s.close();
     expect(
-      await runCli([
+      await cli([
         "verify",
         ws.id,
         dec.id,
@@ -588,7 +588,7 @@ describe("yoke MCP server", () => {
     );
     await s.close();
     expect(
-      await runCli([
+      await cli([
         "verify",
         wsA.id,
         wsB.id,
@@ -651,7 +651,7 @@ describe("yoke MCP server", () => {
       ids.push(f.id);
     }
     await s.close();
-    expect(await runCli(["verify", ...ids, "--db", db], {})).toBe(0);
+    expect(await cli(["verify", ...ids, "--db", db], {})).toBe(0);
 
     const s2 = await openSession();
     // A briefing: scope set, empty query. Uncapped this returned all 54 records in full.
@@ -1078,7 +1078,7 @@ function lockedAuditStore(db: string): SqliteStorage {
 describe("tool results when the audit trail fails, and when an id is not a name", () => {
   it("a locked audit trail never turns a good read into a failed query", async () => {
     const db = join(dir, "c7.db");
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
 
     // Seed a verified fact and a person so all three reads have something to return.
     const seed = new SqliteStorage(db);
@@ -1102,9 +1102,7 @@ describe("tool results when the audit trail fails, and when an id is not a name"
       )
     ).entity.id;
     seed.close();
-    expect(await runCli(["verify", fact, "--db", db, "--actor", person])).toBe(
-      0,
-    );
+    expect(await cli(["verify", fact, "--db", db, "--actor", person])).toBe(0);
 
     // Every read tool succeeds even though logAudit throws on each call.
     const s = await openSession(lockedAuditStore(db));
@@ -1135,7 +1133,7 @@ describe("tool results when the audit trail fails, and when an id is not a name"
     // Guards against over-reaching the fix: yoke_commit's inline audit must remain part of the mutation.
     // (Kept minimal — the write path throws through commit, not a swallowed logAudit.)
     const db = join(dir, "c7w.db");
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const s = await openSession(new SqliteStorage(db));
     const bad = await s.client.callTool({
       name: "yoke_commit",
@@ -1147,7 +1145,7 @@ describe("tool results when the audit trail fails, and when an id is not a name"
 
   it("yoke_inject resolves the author id to the person's name, not a raw ULID", async () => {
     const db = join(dir, "author.db");
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const seed = new SqliteStorage(db);
     await seed.init();
     const ada = (
@@ -1173,9 +1171,9 @@ describe("tool results when the audit trail fails, and when an id is not a name"
     ).entity.id;
     seed.close();
     // Promoted by a different actor so author and confirmer differ.
-    expect(
-      await runCli(["verify", fact, "--db", db, "--actor", "reviewer"]),
-    ).toBe(0);
+    expect(await cli(["verify", fact, "--db", db, "--actor", "reviewer"])).toBe(
+      0,
+    );
 
     const s = await openSession(new SqliteStorage(db));
     const out = text(
@@ -1192,7 +1190,7 @@ describe("tool results when the audit trail fails, and when an id is not a name"
 
   it("a non-person anchor lists a one-lined roster that excludes retired persons", async () => {
     const db = join(dir, "roster.db");
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const seed = new SqliteStorage(db);
     await seed.init();
     // The P0 payload: a hostile name that must not reappear raw in model-facing output.

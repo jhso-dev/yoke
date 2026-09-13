@@ -185,15 +185,26 @@ node dist/front/cli/index.js inject "" --scope collab:pubg --db kraftonway.db  #
 PUBG 하나에 PO·PD·개발·사업 지식이 함께 붙는다(§3). 임베더가 있으면(`YOKE_EMBED_URL`/`YOKE_EMBED_MODEL`) 하이브리드 검색·중복/모순 탐지까지 켜진다. 없으면 키워드 전용으로
 로드되며, 이는 벡터 절반이 빠진 완전한 코퍼스다. 생성기 상세는 `scripts/gen-kraftonway-corpus.mjs` 헤더 참조.
 
-## 팀 배포에서 문은 하나다
+## 문은 하나다
 
-`YOKE_SERVER` 하나가 배포 전체를 가른다. 바인딩되면 CLI 는 저장소를 여는 대신 서버와 말하고,
-훅(`yoke inject`)과 에이전트(`yoke mcp` → 서버의 `/mcp` 중계)가 **같은 CLI, 같은 자격증명**을 탄다.
-actor 는 검증된 자격증명에서 읽으므로 `--actor` 로는 아무도 사칭할 수 없다.
+코퍼스에 닿는 모든 명령은 서버를 거친다. 로컬이면 루프백의 `yoke serve` 이고(무인증, 아무것도 묻지
+않음), 팀이면 팀의 서버다 — 배포가 둘이 아니라 주소가 둘이다. 훅(`yoke inject`)과 에이전트(`yoke mcp`
+→ 서버의 `/mcp` 중계)가 **같은 CLI, 같은 자격증명**을 탄다.
 
-원격 백엔드(`YOKE_OPENSEARCH_URL`·`YOKE_POSTGRES_URL`)는 **서버의 연결**이다. CLI 데이터 경로에서
-이를 직접 가리키면 거부한다 — 그 경로에는 신원을 검증하는 것이 없어서, 공용 코퍼스에 자칭 서명이
-들어간다. 혼자 규모를 키우는 경우(docs/SCALE.md)만 `YOKE_SOLO=1` 로 명시하고 빠져나간다.
+| | |
+|---|---|
+| `YOKE_SERVER` 미설정 | `http://127.0.0.1:4800` — 자기 `yoke serve` |
+| `YOKE_SERVER` 설정 | 팀 서버. 인증이 켜져 있으면 `gh` 로그인을 교환해 자격증명을 스스로 받는다 |
+
+무인증 서버에서는 `--actor`·`--ns` 가 그대로 쓰인다(불변식 4 — 혼자 쓰는 저장소에서 누가 썼는지
+기록하지 못하면 기록할 이유가 없다). 인증 서버에서는 **자격증명이 이긴다** — 헤더는 무시되고, 그래서
+`--actor` 로는 공용 코퍼스에 아무도 사칭할 수 없다.
+
+원격 백엔드(`YOKE_OPENSEARCH_URL`·`YOKE_POSTGRES_URL`)는 **서버가 여는 것**이다. DB 비밀번호가 개발자
+노트북에 복사될 이유가 없다.
+
+서버가 안 떠 있으면 CLI 는 거부하고 무엇을 실행할지 말한다. `init`·`serve`·`ui`·`mcp`·`token`·
+`backup`·`restore`·`export` 는 기계에 대고 하는 일이라 서버 없이 동작한다.
 
 ## 주간 자가점검이 비율을 최적화하지 않는 이유
 

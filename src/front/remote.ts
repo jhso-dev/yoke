@@ -15,7 +15,11 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { IngestResult } from "../connectors/ingest.js";
+import type { Connector, SourceItem } from "../connectors/types.js";
 import type { WithheldStats } from "../core/inject.js";
+import type { TypeDef } from "../core/ontology.js";
+import { safeName } from "../core/persona.js";
 import { describeWithheld } from "./display.js";
 
 type Env = Record<string, string | undefined>;
@@ -107,6 +111,10 @@ async function fromGitHub(server: string, env: Env): Promise<Cached | null> {
 
 export interface Remote {
   base: string;
+  /** Who this caller says they are, and which namespace they mean. An UNGATED server takes both
+   * (invariant 4: nothing authenticates them, and `--actor` still has to mean something on a
+   * single-user store); a gated one ignores them and reads the credential instead. */
+  identity: { actor?: string; ns?: string };
   /** An authenticated request. A 401 heals once — refresh, then re-exchange — before it is
    * reported, so a credential that expired overnight costs nobody a manual step. The caller's own
    * headers survive: the MCP relay sets content negotiation and a session id of its own. */
@@ -127,10 +135,20 @@ export interface Remote {
   announce(): string;
 }
 
-/** The remote, or null when this machine is on the local path. */
-export function resolveRemote(env: Env): Remote | null {
-  const base = env.YOKE_SERVER;
-  if (!base) return null;
+/**
+ * The server this CLI talks to. There is always one.
+ *
+ * A local yoke is a `yoke serve` on loopback, ungated and asking for nothing — the same product as
+ * a team's, bound narrower. Modelling "no server" was what let two implementations of every
+ * operation grow: one against a store the CLI opened and one behind the routes, which then drifted.
+ */
+export const LOCAL_SERVER = "http://127.0.0.1:4800";
+
+export function resolveRemote(
+  env: Env,
+  identity: { actor?: string; ns?: string } = {},
+): Remote {
+  const base = env.YOKE_SERVER ?? LOCAL_SERVER;
   let cached: Cached | null = null;
   let minted: string | undefined;
   // An explicitly configured credential is not ours to manage: no cache, no refresh, no exchange.
@@ -142,17 +160,19 @@ export function resolveRemote(env: Env): Remote | null {
     return c;
   };
 
-  const credential = async (): Promise<string> => {
+  /**
+   * Whatever credential is already at hand, or none — this never mints.
+   *
+   * A loopback `yoke serve` is ungated (invariant 4), and a client that acquired one before asking
+   * would make the local path demand a GitHub login to read its own store. So the request goes out
+   * bare, and only a 401 — the server saying it needs a credential — pays for `renew`.
+   */
+  const held = (): string | undefined => {
     if (pinned) return pinned;
     if (cached?.token) return cached.token;
     const disk = readCache(base, env);
-    if (disk.token) {
-      cached = disk;
-      return disk.token;
-    }
-    cached = (await fromRefresh(base, env, disk.refresh)) ?? (await exchange());
-    if (!cached?.token) throw new Error(`cannot authenticate to ${base}`);
-    return cached.token;
+    if (disk.token) cached = disk;
+    return cached?.token;
   };
 
   const renew = async (): Promise<string | null> => {
@@ -164,6 +184,7 @@ export function resolveRemote(env: Env): Remote | null {
 
   return {
     base,
+    identity,
     announce: () => {
       if (minted === undefined) return "";
       const who = minted;
@@ -173,12 +194,26 @@ export function resolveRemote(env: Env): Remote | null {
     async fetch(url, init) {
       // `Headers`, not a spread: the MCP transport passes a Headers instance, and spreading one
       // yields an empty object — which silently drops its content negotiation and session id.
-      const send = (token: string) => {
+      const send = (token: string | undefined) => {
         const headers = new Headers(init?.headers);
-        headers.set("authorization", `Bearer ${token}`);
+        if (token) headers.set("authorization", `Bearer ${token}`);
+        if (identity.actor) headers.set("x-yoke-actor", identity.actor);
+        if (identity.ns) headers.set("x-yoke-ns", identity.ns);
         return globalThis.fetch(url, { ...init, headers });
       };
-      const res = await send(await credential());
+      const res = await send(held()).catch((e: unknown) => {
+        // Nothing listening is the one failure with a single obvious remedy, and `fetch` reports it
+        // as a bare "fetch failed" that names neither the address nor the fix.
+        const code = (e as { cause?: { code?: string } })?.cause?.code;
+        if (code === "ECONNREFUSED" || code === "ENOTFOUND")
+          throw new Error(
+            `no yoke server at ${base} — start one with 'yoke serve'` +
+              (env.YOKE_SERVER
+                ? ""
+                : ", or set YOKE_SERVER to the address of your team's"),
+          );
+        throw e;
+      });
       if (res.status !== 401) return res;
       const fresh = await renew();
       return fresh ? send(fresh) : res;
@@ -237,7 +272,7 @@ function query(pairs: Record<string, string | undefined>): string {
 }
 
 /** Rows out of whatever shape the route returns — some answer a bare array, some an envelope. */
-function rowsOf(parsed: unknown): Row[] {
+function _rowsOf(parsed: unknown): Row[] {
   if (Array.isArray(parsed)) return parsed as Row[];
   const o = parsed as Record<string, unknown>;
   for (const k of ["items", "records", "results", "entities"]) {
@@ -260,12 +295,43 @@ function attrsOf(v: Values): Record<string, string> {
   return out;
 }
 
+/** Machine JSON with --json, human text otherwise. */
+function emit(json: boolean, human: string, data: unknown): void {
+  console.log(json ? JSON.stringify(data) : human);
+}
+
+/** The full record, the shape `yoke get` and `yoke add` have always printed. */
+function formatEntity(
+  e: Row & { version?: number; attributes?: unknown },
+): string {
+  return `${e.id}  ${e.type}  ${e.effectiveStatus ?? e.status}  v${e.version}  ${JSON.stringify(e.attributes)}`;
+}
+
+/** A record in words — a report a person acts on cannot be a list of ULIDs. */
+const label = (e: Row): string => `${e.summary ?? ""}  [${e.type} ${e.id}]`;
+
+interface Edge extends Row {
+  from: string;
+  to: string;
+  dir: "out" | "in";
+  attributes?: Record<string, unknown>;
+  other: Row & { missing?: true };
+}
+
+interface Created extends Row {
+  version: number;
+  attributes?: unknown;
+  duplicates?: { id: string }[];
+  duplicateDetection?: string;
+  unrecorded?: string[];
+}
+
 /**
- * Run `command` against the server, or return null when the server has no route for it.
+ * Run `command` against the server, or return null when there is no server work to do.
  *
- * Null is the signal that a command is LOCAL — `init`, `serve`, `ui`, `mcp`, `token`, `backup` and
- * the capture connectors act on a machine, not on a corpus, and a bound YOKE_SERVER does not change
- * that. The caller falls through to the local path for those and refuses nothing.
+ * Null is the signal that a command is LOCAL — `init`, `serve`, `ui`, `mcp`, `token` and the file
+ * commands act on a machine, not on a corpus, and no server is any help with them. The caller falls
+ * through to its own switch for those, and for nothing else.
  */
 export async function runRemote(
   remote: Remote,
@@ -280,13 +346,13 @@ export async function runRemote(
     method: string,
     path: string,
     body?: unknown,
-  ): Promise<{ ok: boolean; parsed: unknown; text: string }> => {
+  ): Promise<{ status: number; parsed: unknown; text: string }> => {
     const r = await remote.call(method, path, body);
     // Ahead of the command's own output, so it rides the same delivery the exchange paid for. Under
     // --json it goes to stderr instead: still seen by a person, never inside the parsed document.
     const said = remote.announce();
     if (said) (json ? process.stderr : process.stdout).write(said);
-    if (r.status === 204) return { ok: true, parsed: null, text: "" };
+    if (r.status === 204) return { status: 204, parsed: null, text: "" };
     let parsed: unknown = null;
     try {
       parsed = JSON.parse(r.text);
@@ -294,23 +360,257 @@ export async function runRemote(
       // A text/plain route (inject --unseen). The body is the answer.
     }
     if (r.status >= 400) {
-      const msg = (parsed as { error?: string } | null)?.error ?? r.text.trim();
-      throw new Error(`${remote.base}: ${msg || `HTTP ${r.status}`}`);
+      const b = parsed as { error?: string; reason?: string } | null;
+      const msg = b?.error ?? r.text.trim();
+      // The gate's own sentence, not an HTTP one: `rejected (ontology): …` is what a caller reads,
+      // and it means the same thing whichever tier ran the gate.
+      throw new Error(
+        b?.reason
+          ? `rejected (${b.reason}): ${msg}`
+          : `${remote.base}: ${msg || `HTTP ${r.status}`}`,
+      );
     }
-    return { ok: true, parsed, text: r.text };
-  };
-
-  const printRows = (parsed: unknown, empty: string): number => {
-    const rows = rowsOf(parsed);
-    if (json) console.log(JSON.stringify(parsed, null, 2));
-    else if (rows.length === 0) console.log(empty);
-    else for (const r of rows) console.log(line(r));
-    return 0;
+    return { status: r.status, parsed, text: r.text };
   };
 
   switch (command) {
+    case "add": {
+      const type = positionals[0];
+      if (!type) {
+        console.error(
+          "usage: yoke add <type> [--actor id] [--attr k=v ...] [--scope entity-id]",
+        );
+        return 1;
+      }
+      const r = await out("POST", "/api/entity", {
+        type,
+        attributes: attrsOf(v),
+        ...(str(v.scope) ? { scope: str(v.scope) } : {}),
+      });
+      const b = r.parsed as Created;
+      const lines = [formatEntity(b)];
+      if (b.duplicates?.length)
+        lines.push(
+          `similar knowledge (${b.duplicates.length}): ${b.duplicates.map((d) => d.id).join(" ")}`,
+        );
+      // The gate returns WHY duplicates is empty: "no similar knowledge" and "nobody looked" are
+      // different facts (SPEC gate stage 3), and with no embedder nothing was compared.
+      else if (b.duplicateDetection === "skipped")
+        lines.push(
+          // No "(see README)": a notice printed by a CLI has to be actionable from the CLI.
+          "no duplicate check ran: set YOKE_EMBED_URL and YOKE_EMBED_MODEL " +
+            "(any OpenAI-compatible /embeddings endpoint), then: yoke backfill --embeddings",
+        );
+      // The record is durable and part of what was asked for is not. Saying so beats an exit 0 that
+      // reads as "all of it landed" — a missing authorship edge is invisible afterwards.
+      if (b.unrecorded)
+        lines.push(
+          `stored, but these could not be written:\n  ${b.unrecorded.join("\n  ")}\n` +
+            "authorship is re-derivable with 'yoke backfill'; an attachment must be filed again",
+        );
+      emit(json, lines.join("\n"), b);
+      return b.unrecorded ? 1 : 0;
+    }
+
+    case "link": {
+      const [from, type, to] = positionals;
+      if (!from || !type || !to) {
+        console.error(
+          "usage: yoke link <from-id> <relation> <to-id> [--actor id] [--attr k=v ...]",
+        );
+        return 1;
+      }
+      const r = await out("POST", "/api/link", {
+        type,
+        from,
+        to,
+        attributes: attrsOf(v),
+      });
+      emit(json, formatEntity(r.parsed as Created), r.parsed);
+      return 0;
+    }
+
+    case "get": {
+      const id = positionals[0];
+      if (!id) {
+        console.error("usage: yoke get <id> [--version n] [--relations]");
+        return 1;
+      }
+      const r = await out(
+        "GET",
+        `/api/entity/${encodeURIComponent(id)}${query({ version: str(v.version), relations: v.relations ? "1" : undefined })}`,
+      );
+      const b = r.parsed as {
+        entity?: Created;
+        retirement?: { reason?: string };
+        relations?: { out: Edge[]; in: Edge[] };
+      };
+      const e = b.entity;
+      if (!e) {
+        console.error(`not found: ${id}`);
+        return 1;
+      }
+      // A retired record raises exactly one question, and the answer is on the version that retired it.
+      const head =
+        b.retirement?.reason !== undefined
+          ? `${formatEntity(e)}\n  retired: ${b.retirement.reason}`
+          : formatEntity(e);
+      if (!v.relations) {
+        emit(json, head, b.retirement ? { ...e, retired: b.retirement } : e);
+        return 0;
+      }
+      const edges = [...(b.relations?.out ?? []), ...(b.relations?.in ?? [])];
+      const lines = edges.map((rel) => {
+        // Named, with the id kept: the id is the copyable handle every other command takes, and a
+        // record from another namespace resolves to nothing here rather than leaking its text.
+        const end = rel.other.missing
+          ? rel.other.id
+          : `${rel.other.summary || rel.other.type}  ${rel.other.id}`;
+        const said = Object.entries(rel.attributes ?? {})
+          .filter(([, x]) => typeof x === "string" && x.trim())
+          .map(([k, x]) => `${k}: ${x as string}`);
+        return (
+          `  ${rel.dir === "out" ? "->" : "<-"} ${rel.type}  ${end}` +
+          said.map((x) => `\n       ${x}`).join("")
+        );
+      });
+      emit(
+        json,
+        [head, lines.length ? lines.join("\n") : "  (no relations)"].join("\n"),
+        {
+          ...e,
+          relations: edges,
+          ...(b.retirement ? { retired: b.retirement } : {}),
+        },
+      );
+      return 0;
+    }
+
+    case "list": {
+      const r = await out(
+        "GET",
+        `/api/entities${query({ type: str(v.type), status: str(v.status), limit, after: str(v.after) })}`,
+      );
+      const p = r.parsed as { items: Row[]; next: string | null };
+      if (p.items.length === 0) {
+        emit(json, "nothing to list", p);
+        return 0;
+      }
+      const lines = p.items.map(line);
+      if (p.next) lines.push(`-- more: yoke list --after ${p.next}`);
+      emit(json, lines.join("\n"), p);
+      return 0;
+    }
+
+    case "search": {
+      const q = positionals.join(" ");
+      const r = await out("GET", `/api/search${query({ q, limit })}`);
+      const b = r.parsed as { items: Row[] };
+      emit(
+        json,
+        b.items.length ? b.items.map(line).join("\n") : "no results",
+        b.items,
+      );
+      return 0;
+    }
+
+    case "review": {
+      const r = await out(
+        "GET",
+        `/api/review${query({ limit, after: str(v.after) })}`,
+      );
+      const b = r.parsed as {
+        items: (Row & { injections: number; last_confirmed: string })[];
+        next: string | null;
+        scanned: number;
+        consumptionWindow: number;
+      };
+      if (b.items.length === 0) {
+        emit(json, `no stale records (scanned ${b.scanned} verified)`, []);
+        return 0;
+      }
+      const lines = b.items.map(
+        (e) =>
+          `${e.id}  ${e.type}  ${e.summary}  ${e.actorName ?? e.actor}  injected ${e.injections}x  last confirmed ${e.last_confirmed}`,
+      );
+      // The scan is bounded, so say what it covered — "3 stale" alone reads as "3 stale in the whole
+      // corpus", which is a claim this walk did not make.
+      lines.push(
+        `-- ${b.items.length} stale among ${b.scanned} verified records scanned` +
+          `; injection counts over the last ${b.consumptionWindow.toLocaleString()} audit rows` +
+          (b.next === null ? "" : `; more to scan: --after ${b.next}`),
+      );
+      emit(json, lines.join("\n"), b.items);
+      return 0;
+    }
+
+    case "verify": {
+      if (positionals.length === 0) {
+        console.error("usage: yoke verify <id...> [--actor a]");
+        return 1;
+      }
+      const r = await out("POST", "/api/verify", { ids: positionals });
+      const promoted = r.parsed as Row[];
+      emit(
+        json,
+        `re-confirmed ${promoted.length}: ${promoted.map((e) => e.id).join(" ")}`,
+        promoted,
+      );
+      return 0;
+    }
+
+    case "deprecate": {
+      if (positionals.length === 0) {
+        console.error(
+          'usage: yoke deprecate <id...> [--actor a] [--reason "why it was retired"]',
+        );
+        return 1;
+      }
+      const r = await out("POST", "/api/deprecate", {
+        ids: positionals,
+        ...(str(v.reason) ? { reason: str(v.reason) } : {}),
+      });
+      const b = r.parsed as { deprecated: Row[]; downstream: Row[] };
+      const human = [
+        `deprecated ${b.deprecated.length}: ${b.deprecated.map((e) => e.id).join(" ")}`,
+      ];
+      // What rests on it. Retiring a record is not a repair unless the records built on it can be
+      // found, and named rather than counted — "3 records" routes nobody.
+      if (b.downstream.length > 0) {
+        human.push(
+          `${b.downstream.length} record(s) declared they rest on this — re-examine:`,
+        );
+        for (const d of b.downstream) human.push(`  ${label(d)}`);
+      }
+      emit(json, human.join("\n"), b);
+      return 0;
+    }
+
     case "inject": {
       const q = positionals.join(" ");
+      // `--unseen` asks what a working context has that THIS CLIENT was not handed yet; without an
+      // anchor there is no context to ask about. It sets `since` itself from the trail, so a
+      // caller's --since would be silently overruled, and --json has no shape for the two-part
+      // answer (skipped: add when a script needs it — the hook that calls this wants text).
+      if (v.unseen) {
+        for (const [bad, why] of [
+          [
+            v.scope === undefined,
+            "--unseen is a question about a working context: pass --scope <id>",
+          ],
+          [
+            v.since !== undefined,
+            "--unseen sets its own --since (this client's last delivery for the scope)",
+          ],
+          [json, "--unseen has no --json shape; drop one of the two"],
+          [!!q, "--unseen is a briefing: it takes no query"],
+        ] as const) {
+          if (bad) {
+            console.error(why);
+            return 1;
+          }
+        }
+      }
       const r = await out(
         "GET",
         `/api/inject${query({
@@ -318,37 +618,38 @@ export async function runRemote(
           scope: str(v.scope),
           unseen: v.unseen ? "1" : undefined,
           depth: str(v.depth),
+          asOf: str(v["as-of"]),
+          since: str(v.since),
           limit,
         })}`,
       );
-      // `--unseen` answers text/plain — the identical lines the local path prints — so it passes
-      // through untouched. Everything else is the JSON briefing.
+      // `--unseen` answers text/plain — `unseenReport`'s own lines, which is what the local path
+      // printed too — so it passes through untouched.
       if (r.parsed === null) {
-        // text/plain: `unseenReport`'s own lines, which is what the local path prints too — so the
-        // two deployments hand a session byte-identical text.
         if (r.text.trim()) console.log(r.text.trimEnd());
         return 0;
       }
-      if (json) {
-        console.log(JSON.stringify(r.parsed, null, 2));
-        return 0;
-      }
       const b = r.parsed as {
-        items?: (Row & { citation?: string; conflictsWith?: string[] })[];
+        items?: (Row & {
+          citation?: string;
+          readableCitation?: string;
+          conflictsWith?: string[];
+        })[];
         omitted?: number;
         walk?: { depth: number; nodes: number; truncated?: boolean } | null;
         withheld?: WithheldStats | null;
       };
       const items = b.items ?? [];
       // The server's row carries core's citation string and the summary already — the same two
-      // halves the local path joins — so the line is identical without a second read.
+      // halves the local path joined — so the line is identical without a second read.
       const lines = items.map(
         (it) =>
-          `${it.citation ?? it.id}  ${it.summary ?? ""}` +
+          `${it.readableCitation ?? it.citation ?? it.id}  ${it.summary ?? ""}` +
           (it.conflictsWith?.length
             ? `\n  ! contradicted by ${it.conflictsWith.join(" ")} — both are recorded, neither is settled`
             : ""),
       );
+      // Never a silent slice: the count goes in the human output only.
       if (b.omitted)
         lines.push(
           `-- ${items.length} of ${items.length + b.omitted} on this scope (freshest first); ` +
@@ -361,102 +662,393 @@ export async function runRemote(
               ? "; the walk hit its node budget, so the outermost hop is incomplete"
               : ""),
         );
-      if (b.withheld)
-        lines.push(
-          `${items.length ? "-- also held back:" : "no verified knowledge —"} ${describeWithheld(b.withheld)}`,
-        );
-      console.log(lines.length ? lines.join("\n") : "no verified knowledge");
+      // Zero hits: say why, don't imply the knowledge simply isn't there. The same sentence rides a
+      // PARTIAL answer, where it matters more — the lead-in differs because the reader's next move does.
+      const reasonLine = b.withheld
+        ? `${items.length ? "-- also held back:" : "no verified knowledge —"} ` +
+          describeWithheld(b.withheld) +
+          (b.withheld.stale > 0 ? " — re-confirm with 'yoke review'" : "")
+        : "no results";
+      if (items.length && b.withheld) lines.push(reasonLine);
+      // Under --json stdout stays the raw items array; the reason goes to stderr, where a script
+      // ignores it and the person debugging the script reads it.
+      if (json && b.withheld) console.error(reasonLine);
+      emit(json, items.length ? lines.join("\n") : reasonLine, items);
       return 0;
     }
-    case "list": {
-      const r = await out(
-        "GET",
-        `/api/entities${query({ type: str(v.type), status: str(v.status), limit, after: str(v.after) })}`,
-      );
-      return printRows(r.parsed, "nothing to list");
-    }
-    case "search": {
-      const r = await out(
-        "GET",
-        `/api/search${query({ q: positionals.join(" "), limit })}`,
-      );
-      return printRows(r.parsed, "no matches");
-    }
-    case "get": {
+
+    case "history": {
       const id = positionals[0];
-      if (!id) throw new Error("usage: yoke get <id>");
-      const r = await out("GET", `/api/entity/${encodeURIComponent(id)}`);
-      const e = (
-        r.parsed as {
-          entity?: Row & { version?: number; attributes?: unknown };
-        }
-      ).entity;
-      if (!e) throw new Error(`no such record: ${id}`);
-      console.log(
-        json
-          ? JSON.stringify(r.parsed, null, 2)
-          : `${line(e)}  v${e.version}  ${JSON.stringify(e.attributes)}`,
-      );
+      if (!id) {
+        console.error("usage: yoke history <id>");
+        return 1;
+      }
+      const r = await out("GET", `/api/history/${encodeURIComponent(id)}`);
+      const b = r.parsed as {
+        versions: (Row & {
+          version: number;
+          last_confirmed?: string;
+          reason?: string;
+        })[];
+      };
+      // The reason rides the version that IS the retirement, so each retiring version says its own.
+      const lines = b.versions.map((e) => {
+        const base = `v${e.version}  ${e.status}  ${e.actorName ?? e.actor}  ${e.last_confirmed}  ${e.summary}`;
+        return e.reason ? `${base}\n    reason: ${e.reason}` : base;
+      });
+      emit(json, lines.join("\n"), b.versions);
       return 0;
     }
-    case "review": {
-      const r = await out("GET", `/api/review${query({ limit })}`);
-      return printRows(r.parsed, "nothing to re-confirm");
-    }
+
     case "conflicts": {
       const r = await out("GET", `/api/conflicts${query({ limit })}`);
-      return printRows(r.parsed, "no conflicts");
-    }
-    case "ontology": {
-      if (positionals.length > 0) return null;
-      const r = await out("GET", "/api/ontology");
-      console.log(JSON.stringify(r.parsed, null, 2));
-      return 0;
-    }
-    case "add": {
-      const type = positionals[0];
-      if (!type) throw new Error("usage: yoke add <type> --attr k=v");
-      const r = await out("POST", "/api/entity", {
-        type,
-        attributes: attrsOf(v),
-        ...(str(v.scope) ? { scope: str(v.scope) } : {}),
-      });
-      console.log(
-        json ? JSON.stringify(r.parsed, null, 2) : line(r.parsed as Row),
+      const pairs = r.parsed as {
+        id: string;
+        from: Row & { missing?: true };
+        to: Row & { missing?: true };
+      }[];
+      if (pairs.length === 0) {
+        emit(json, "no conflicts", []);
+        return 0;
+      }
+      const side = (e: Row & { missing?: true }) =>
+        e.missing ? `${e.id} (missing)` : `${e.id} [${e.status}] ${e.summary}`;
+      emit(
+        json,
+        pairs
+          .map((p) => `${p.id}\n  ${side(p.from)}\n  <-> ${side(p.to)}`)
+          .join("\n"),
+        pairs,
       );
       return 0;
     }
-    case "link": {
-      const [from, type, to] = positionals;
-      if (!from || !type || !to)
-        throw new Error("usage: yoke link <from-id> <relation> <to-id>");
-      const r = await out("POST", "/api/link", {
-        type,
+
+    case "graph": {
+      const r = await out(
+        "GET",
+        `/api/graph${query({ limit, scope: str(v.scope), depth: str(v.depth) })}`,
+      );
+      const b = r.parsed as {
+        nodes: Row[];
+        edges: (Row & { from: string; to: string })[];
+        truncated?: boolean;
+        limit?: number;
+      };
+      const lines = [
+        `${b.nodes.length} nodes, ${b.edges.length} edges`,
+        ...b.edges.map((e) => `  ${e.from} -${e.type}-> ${e.to}`),
+      ];
+      if (b.truncated) lines.push(`-- truncated at ${b.limit} (raise --limit)`);
+      emit(json, lines.join("\n"), b);
+      return 0;
+    }
+
+    case "overview": {
+      const r = await out("GET", `/api/overview${query({ limit })}`);
+      emit(json, overviewLines(r.parsed as Overview).join("\n"), r.parsed);
+      return 0;
+    }
+
+    case "audit": {
+      const view = v.shape
+        ? "shape"
+        : v.pulse
+          ? "pulse"
+          : v.roi
+            ? "roi"
+            : undefined;
+      const r = await out(
+        "GET",
+        `/api/audit${query({
+          since: str(v.since),
+          until: str(v.until),
+          limit,
+          view,
+          scope: view === "pulse" ? str(v.scope) : undefined,
+        })}${(Array.isArray(v.assume) ? v.assume : v.assume ? [v.assume] : []).map((a) => `&assume=${encodeURIComponent(String(a))}`).join("")}`,
+      );
+      // A `view` answers with the report already rendered: those three read the WHOLE corpus, which
+      // is a server-side walk, not something to page over HTTP.
+      const b = r.parsed as {
+        items?: { at: string; actor: string; action: string; detail: string }[];
+        report?: string;
+        data?: unknown;
+      };
+      if (b.report !== undefined) {
+        emit(json, b.report, b.data);
+        return 0;
+      }
+      const items = b.items ?? [];
+      emit(
+        json,
+        items.length
+          ? items
+              .map((e) => `${e.at}  ${e.actor}  ${e.action}  ${e.detail}`)
+              .join("\n")
+          : "no audit events",
+        items,
+      );
+      return 0;
+    }
+
+    case "ontology": {
+      const [sub, file] = positionals;
+      if (sub === undefined || sub === "list") {
+        const r = await out("GET", "/api/ontology");
+        const defs = r.parsed as TypeDef[];
+        emit(
+          json,
+          defs
+            .map(
+              (d) =>
+                `${d.name}  ${d.kind}  ${Object.keys(d.attrs ?? {}).join(", ")}`,
+            )
+            .join("\n"),
+          defs,
+        );
+        return 0;
+      }
+      if (sub !== "add-type" || !file) {
+        console.error("usage: yoke ontology <list|add-type <json-file>>");
+        return 1;
+      }
+      const { readFileSync } = await import("node:fs");
+      const r = await out("POST", "/api/ontology", {
+        def: JSON.parse(readFileSync(file, "utf8")),
+      });
+      const def = r.parsed as TypeDef;
+      emit(json, `saved type: ${def.name}`, def);
+      return 0;
+    }
+
+    case "persona": {
+      // `--check <file>` reads a file on THIS machine and asks the corpus whether what it cites
+      // still stands. Non-zero exit on any moved or unreadable source: this is meant as a CI gate.
+      const check = str(v.check);
+      if (check) {
+        const { readFileSync } = await import("node:fs");
+        let md: string;
+        try {
+          md = readFileSync(check, "utf8");
+        } catch {
+          console.error(`cannot read: ${check}`);
+          return 1;
+        }
+        const r = await out("POST", "/api/persona/check", { markdown: md });
+        const b = r.parsed as { ok: boolean; report: string; data: object };
+        emit(json, b.report, { file: check, ...b.data });
+        return b.ok ? 0 : 1;
+      }
+      const id = positionals[0];
+      if (!id) {
+        console.error(
+          "usage: yoke persona <person-id> [--out dir]\n       yoke persona --check <SKILL.md>",
+        );
+        return 1;
+      }
+      const r = await out(
+        "GET",
+        `/api/persona/${encodeURIComponent(id)}?skill=1`,
+      );
+      const b = r.parsed as { markdown: string; sources: number };
+      // The document is core's; where it lands is the caller's, and fs lives only in this tier.
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const outDir = join(str(v.out) ?? ".", `persona-${safeName(id)}`);
+      mkdirSync(outDir, { recursive: true });
+      const file = join(outDir, "SKILL.md");
+      writeFileSync(file, b.markdown);
+      emit(json, `saved: ${file}\nsource knowledge: ${b.sources}`, {
+        path: file,
+        sources: b.sources,
+      });
+      return 0;
+    }
+
+    case "backfill": {
+      const r = await out("POST", "/api/backfill", {
+        embeddings: v.embeddings === true,
+        rebuild: v.rebuild === true,
+        ...(str(v.after) ? { after: str(v.after) } : {}),
+      });
+      const b = r.parsed as {
+        scanned: number;
+        embedded?: number;
+        skipped?: number;
+        next?: string | null;
+        linked?: number;
+        rebuiltFts?: number | null;
+        backend?: string;
+      };
+      if (b.embedded === undefined) {
+        emit(json, `scanned ${b.scanned} entities, linked ${b.linked ?? 0}`, b);
+        return 0;
+      }
+      const lines = [
+        `scanned ${b.scanned} entities, embedded ${b.embedded}, skipped ${b.skipped ?? 0}`,
+      ];
+      if (b.rebuiltFts !== undefined && b.rebuiltFts !== null)
+        lines.push(`rebuilt the keyword index: ${b.rebuiltFts} entities`);
+      // The warning goes to stderr so a `--json` consumer's stdout stays parseable.
+      else if (b.rebuiltFts === null)
+        console.error(
+          `warning: the keyword index was NOT re-keyed — ${b.backend} has no keyword rebuild.\n` +
+            "  The vectors above were rewritten; the keyword rows still hold the text they were " +
+            "written with.\n" +
+            "  If the index key changed (rather than the embedding model), re-index this backend " +
+            "from a source of truth — the two halves of a hybrid search now disagree.",
+        );
+      // Skipped everything means the provider is not configured — the single most likely reason
+      // someone runs this and sees nothing happen.
+      if ((b.skipped ?? 0) > 0 && b.embedded === 0)
+        lines.push(
+          "nothing was embedded: no embedding provider answered. " +
+            "Set YOKE_EMBED_URL and YOKE_EMBED_MODEL (see README) and run this again",
+        );
+      // The walk is bounded, so an unfinished scan is said rather than implied.
+      if (b.next) lines.push(`more to scan: --after ${b.next}`);
+      emit(json, lines.join("\n"), b);
+      return 0;
+    }
+
+    case "rename-type": {
+      const [from, to] = positionals;
+      if (!from || !to) {
+        console.error("usage: yoke rename-type <from> <to>");
+        return 1;
+      }
+      const r = await out("POST", "/api/rename-type", {
         from,
         to,
-        attributes: attrsOf(v),
+        force: v.force === true,
       });
-      console.log(
-        json ? JSON.stringify(r.parsed, null, 2) : line(r.parsed as Row),
+      const b = r.parsed as { rows?: number; changed?: number };
+      const rows = b.rows ?? b.changed ?? 0;
+      emit(
+        json,
+        rows === 0
+          ? `no rows carried type "${from}" — nothing to rename`
+          : `renamed type "${from}" to "${to}" — ${rows} rows rewritten`,
+        b,
       );
       return 0;
     }
-    case "verify":
-    case "deprecate": {
-      if (positionals.length === 0)
-        throw new Error(`usage: yoke ${command} <id...>`);
-      const r = await out("POST", `/api/${command}`, {
-        ids: positionals,
-        ...(str(v.reason) ? { reason: str(v.reason) } : {}),
-      });
-      console.log(
-        json
-          ? JSON.stringify(r.parsed, null, 2)
-          : `${command}d ${positionals.length}`,
-      );
-      return 0;
-    }
+
     default:
       return null;
   }
+}
+
+/** The corpus's type definitions — a connector is built from them, and only the server has them. */
+export async function remoteOntology(remote: Remote): Promise<TypeDef[]> {
+  const r = await remote.call("GET", "/api/ontology");
+  if (r.status >= 400)
+    throw new Error(`${remote.base}: cannot read the ontology (${r.status})`);
+  return JSON.parse(r.text) as TypeDef[];
+}
+
+/** How many source items travel in one request. Bounded so a large sync neither buffers a whole
+ * source in memory nor arrives as one request a proxy will cut off mid-flight. */
+const INGEST_BATCH = 200;
+
+/**
+ * Pull here, commit there.
+ *
+ * The connector runs on this machine because that is where its credentials and its files are; the
+ * gate runs on the server because that is where the corpus is, with its ontology and its embedder.
+ * Counts add up across batches, so the tally a caller prints is the tally of the whole run.
+ */
+export async function remoteIngest(
+  remote: Remote,
+  connector: Connector,
+  opts: { since?: string; scope?: string },
+): Promise<IngestResult> {
+  const total: IngestResult & { rejected: string[] } = {
+    added: 0,
+    updated: 0,
+    skipped: 0,
+    rejected: [],
+  };
+  let batch: SourceItem[] = [];
+  const flush = async () => {
+    if (batch.length === 0) return;
+    const r = await remote.call("POST", "/api/ingest", {
+      items: batch,
+      origin: `connector:${connector.name}`,
+      ...(opts.scope ? { scope: opts.scope } : {}),
+    });
+    const parsed = JSON.parse(r.text || "{}") as Partial<IngestResult>;
+    if (r.status >= 400)
+      throw new Error(
+        `${remote.base}: ${(parsed as { error?: string }).error ?? `HTTP ${r.status}`}`,
+      );
+    total.added += parsed.added ?? 0;
+    total.updated += parsed.updated ?? 0;
+    total.skipped += parsed.skipped ?? 0;
+    if (parsed.rejected) total.rejected.push(...parsed.rejected);
+    batch = [];
+  };
+  for await (const item of connector.pull(opts.since)) {
+    batch.push(item);
+    if (batch.length >= INGEST_BATCH) await flush();
+  }
+  await flush();
+  return {
+    added: total.added,
+    updated: total.updated,
+    skipped: total.skipped,
+    ...(total.rejected.length > 0 ? { rejected: total.rejected } : {}),
+  };
+}
+
+interface Overview {
+  entities: {
+    total: number;
+    byType: Record<
+      string,
+      { verified: number; stale: number; deprecated: number }
+    >;
+  };
+  relations: { total: number; byType: Record<string, number> };
+  hubs: { degree: number; entity: Row }[];
+  authors: { actor: string; verified: number }[];
+}
+
+/** The corpus shape, as lines. Types with nothing in them are noise on a report whose job is
+ * showing what IS here. */
+function overviewLines(o: Overview): string[] {
+  const typeRows = Object.entries(o.entities.byType)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([type, c]) => {
+      const parts = (["verified", "stale", "deprecated"] as const)
+        .filter((k) => c[k] > 0)
+        .map((k) => `${c[k]} ${k}`);
+      return `  ${type.padEnd(14)} ${parts.join(", ")}`;
+    });
+  return [
+    `${o.entities.total} records, ${o.relations.total} relations`,
+    "",
+    "by type",
+    ...(typeRows.length ? typeRows : ["  (none)"]),
+    "",
+    "relations",
+    ...(Object.entries(o.relations.byType).length
+      ? Object.entries(o.relations.byType)
+          .sort((a, b) => b[1] - a[1])
+          .map(([type, n]) => `  ${type.padEnd(14)} ${n}`)
+      : ["  (none)"]),
+    "",
+    "hubs",
+    ...(o.hubs.length
+      ? o.hubs.map(
+          (h) =>
+            `  ${String(h.degree).padStart(4)}  ${h.entity.type.padEnd(13)} ${h.entity.summary ?? ""}`,
+        )
+      : ["  (none)"]),
+    "",
+    "authors",
+    ...(o.authors.length
+      ? o.authors.map((a) => `  ${String(a.verified).padStart(4)}  ${a.actor}`)
+      : ["  (none)"]),
+  ];
 }

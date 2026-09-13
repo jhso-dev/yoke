@@ -24,6 +24,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { seedOntology } from "../../core/ontology.js";
+import { createServeServer } from "../serve/index.js";
 
 const run = promisify(execFile);
 const dir = mkdtempSync(join(tmpdir(), "yoke-pipe-"));
@@ -42,31 +43,45 @@ describe("--json survives a pipe", () => {
     await port.init();
     const ont = seedOntology();
     const now = "2026-08-13T00:00:00Z";
-    await commit(
+    const { entity: big } = await commit(
       port,
       ont,
       { type: "fact", attributes: { statement: "x".repeat(BIG) } },
       { actor: "tester", origin: "test", occurred_at: now },
       now,
     );
-    port.close();
+
+    // The CLI reads through a server, so one is stood up on this store for the child to talk to.
+    const server = createServeServer({
+      store: port,
+      defaultActor: "tester",
+      auth: false,
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const bound = (server.address() as { port: number }).port;
 
     // execFile gives the child a pipe for stdout — the condition under test. maxBuffer is raised so
     // that a truncation here can only come from the child.
     const { stdout } = await run(
       process.execPath,
-      ["--import", "tsx", ENTRY, "--db", db, "list", "--json"],
-      { maxBuffer: 64 * 1024 * 1024 },
-    );
+      // `get`, not `list`: a listing returns summary rows (SPEC draws the audit line at attributes),
+      // so the document that has to cross a pipe is the one read that carries a record's whole text.
+      ["--import", "tsx", ENTRY, "get", big.id, "--json"],
+      {
+        maxBuffer: 64 * 1024 * 1024,
+        env: { ...process.env, YOKE_SERVER: `http://127.0.0.1:${bound}` },
+      },
+    ).finally(() => {
+      server.close();
+      port.close();
+    });
 
     expect(stdout.length).toBeGreaterThan(BIG);
     // Parsing is the assertion that matters: a truncated document is invalid JSON, which is exactly
     // what a caller piping into `jq` or a script hits.
     const parsed = JSON.parse(stdout) as {
-      items: Array<{ attributes: { statement?: string } }>;
+      attributes: { statement?: string };
     };
-    const statement = parsed.items.find((e) => e.attributes.statement)
-      ?.attributes.statement;
-    expect(statement).toHaveLength(BIG);
+    expect(parsed.attributes.statement).toHaveLength(BIG);
   }, 30_000);
 });

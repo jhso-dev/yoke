@@ -19,7 +19,8 @@ import { deprecate, verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import { safeName } from "../../core/persona.js";
 import type { Provenance } from "../../core/types.js";
-import { loadDotEnv, runCli } from "./index.js";
+import { cli } from "./harness.js";
+import { loadDotEnv } from "./index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-cli-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -51,15 +52,15 @@ describe("runCli", () => {
   it("init → add → get → search round-trip", async () => {
     const db = newDb();
 
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
 
     // Idempotent re-run: does not re-seed.
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(logs.at(-1)).toContain("already initialized");
 
     // add (use --json to capture the id)
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -75,14 +76,14 @@ describe("runCli", () => {
     expect(added.attributes.statement).toBe("hello");
 
     // get
-    expect(await runCli(["get", added.id, "--db", db, "--json"])).toBe(0);
+    expect(await cli(["get", added.id, "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string).id).toBe(added.id);
 
     // absent get → exit 1
-    expect(await runCli(["get", "nope", "--db", db])).toBe(1);
+    expect(await cli(["get", "nope", "--db", db])).toBe(1);
 
     // search
-    expect(await runCli(["search", "hello", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["search", "hello", "--db", db, "--json"])).toBe(0);
     const found = JSON.parse(logs.at(-1) as string);
     expect(found.some((e: { id: string }) => e.id === added.id)).toBe(true);
   });
@@ -91,7 +92,7 @@ describe("runCli", () => {
   // while `--json`'s `db` stays the LOCAL sqlite path a script was already reading.
   it("init names the store it opened, and --json keeps db a path", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["init", "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toMatchObject({
       db,
       store: db,
@@ -103,8 +104,8 @@ describe("runCli", () => {
 
   it("overview writes the audit row the MCP tool writes — no silent adapter", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli(["overview", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
+    expect(await cli(["overview", "--db", db])).toBe(0);
     const store = new SqliteStorage(db);
     await store.init();
     const rows = store.listAudit().filter((a) => a.action === "overview");
@@ -115,7 +116,7 @@ describe("runCli", () => {
 
   it("review orders most-consumed first and says the count", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // Aged fixtures need a past clock, which the CLI does not have — seed through the store the way
     // the lifecycle tests do, then read through the real command against the real current clock.
     const store = new SqliteStorage(db);
@@ -153,7 +154,7 @@ describe("runCli", () => {
     });
     store.close();
 
-    expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["review", "--db", db, "--json"])).toBe(0);
     const rows = JSON.parse(logs.at(-1) as string) as Array<{
       id: string;
       injections: number;
@@ -163,7 +164,7 @@ describe("runCli", () => {
     expect(rows[1].injections).toBe(0);
 
     // The human line carries the same answer — parity is about the answer, not the format.
-    expect(await runCli(["review", "--db", db])).toBe(0);
+    expect(await cli(["review", "--db", db])).toBe(0);
     const human = logs.slice(-3).join("\n");
     expect(human).toContain("injected 2x");
   });
@@ -174,7 +175,7 @@ describe("runCli", () => {
   // best-effort, so a locked trail can never turn a successful read into a failed query.
   it("C7: a read survives a locked audit trail — answer returned, trail row best-effort", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // Seed one verified fact so the reads have something to return.
     const store = new SqliteStorage(db);
     await store.init();
@@ -197,20 +198,20 @@ describe("runCli", () => {
         throw new Error("database is locked");
       });
     try {
-      expect(await runCli(["search", "locked", "--db", db, "--json"])).toBe(0);
+      expect(await cli(["search", "locked", "--db", db, "--json"])).toBe(0);
       expect(
         (JSON.parse(logs.at(-1) as string) as unknown[]).length,
       ).toBeGreaterThan(0);
 
-      expect(await runCli(["inject", "locked", "--db", db, "--json"])).toBe(0);
+      expect(await cli(["inject", "locked", "--db", db, "--json"])).toBe(0);
       expect(
         (JSON.parse(logs.at(-1) as string) as unknown[]).length,
       ).toBeGreaterThan(0);
 
-      expect(await runCli(["get", entity.id, "--db", db, "--json"])).toBe(0);
+      expect(await cli(["get", entity.id, "--db", db, "--json"])).toBe(0);
       expect(JSON.parse(logs.at(-1) as string).id).toBe(entity.id);
 
-      expect(await runCli(["overview", "--db", db])).toBe(0);
+      expect(await cli(["overview", "--db", db])).toBe(0);
     } finally {
       spy.mockRestore();
     }
@@ -223,7 +224,7 @@ describe("runCli", () => {
   // window, and the window is named in the output — never a silent slice.
   it("F1: review bounds the consumption read to a window, not the whole trail", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // An aged verified record, so the stale queue is non-empty and reaches the consumption count.
     const store = new SqliteStorage(db);
     await store.init();
@@ -251,7 +252,7 @@ describe("runCli", () => {
         return [];
       });
     try {
-      expect(await runCli(["review", "--db", db])).toBe(0);
+      expect(await cli(["review", "--db", db])).toBe(0);
     } finally {
       spy.mockRestore();
     }
@@ -264,24 +265,24 @@ describe("runCli", () => {
   });
 
   it("bare --version prints the package version", async () => {
-    expect(await runCli(["--version"])).toBe(0);
+    expect(await cli(["--version"])).toBe(0);
     expect(logs.at(-1)).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   it("rejects invalid add with exit 1", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // decision requires conclusion/rationale → the gate rejects when they are missing.
-    expect(await runCli(["add", "decision", "--db", db])).toBe(1);
+    expect(await cli(["add", "decision", "--db", db])).toBe(1);
     expect(errs.at(-1)).toContain("rejected");
   });
 
   it("add --scope creates a relates_to link to the scope entity (v4.0)", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // a collaboration to scope to
     expect(
-      await runCli([
+      await cli([
         "add",
         "collaboration",
         "--db",
@@ -294,7 +295,7 @@ describe("runCli", () => {
     const wsId = JSON.parse(logs.at(-1) as string).id as string;
     // a fact linked to it
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -317,11 +318,11 @@ describe("runCli", () => {
 
   it("lifecycle E2E: add(born verified) → shown in inject → deprecate → excluded → verify revives", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
 
     // add → live immediately, signed by the actor
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -336,15 +337,15 @@ describe("runCli", () => {
     expect(added.status).toBe("verified");
 
     // injectable as committed, with citation
-    expect(
-      await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
-    ).toBe(0);
+    expect(await cli(["inject", "lifecycletoken", "--db", db, "--json"])).toBe(
+      0,
+    );
     const injected = JSON.parse(logs.at(-1) as string);
     expect(injected).toHaveLength(1);
     expect(injected[0].citation).toContain(id);
 
     // fresh, so the re-confirmation queue has nothing to say about it
-    expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["review", "--db", db, "--json"])).toBe(0);
     expect(
       JSON.parse(logs.at(-1) as string).some(
         (e: { id: string }) => e.id === id,
@@ -352,36 +353,36 @@ describe("runCli", () => {
     ).toBe(false);
 
     // deprecate → disappears from inject
-    expect(await runCli(["deprecate", id, "--db", db, "--json"])).toBe(0);
+    expect(await cli(["deprecate", id, "--db", db, "--json"])).toBe(0);
     // `--json` is { deprecated, downstream } rather than a bare array as of v5.8: the command now
     // answers two questions, and what rests on a retired record is the half a script needs to route.
     expect(JSON.parse(logs.at(-1) as string).deprecated[0].status).toBe(
       "deprecated",
     );
-    expect(
-      await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
-    ).toBe(0);
+    expect(await cli(["inject", "lifecycletoken", "--db", db, "--json"])).toBe(
+      0,
+    );
     expect(JSON.parse(logs.at(-1) as string)).toHaveLength(0);
 
     // verify revives: re-confirmation is the one lever that puts a retired record back in service
-    expect(await runCli(["verify", id, "--db", db, "--json"])).toBe(0);
+    expect(await cli(["verify", id, "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)[0].status).toBe("verified");
-    expect(
-      await runCli(["inject", "lifecycletoken", "--db", db, "--json"]),
-    ).toBe(0);
+    expect(await cli(["inject", "lifecycletoken", "--db", db, "--json"])).toBe(
+      0,
+    );
     expect(JSON.parse(logs.at(-1) as string)).toHaveLength(1);
   });
 
   it("verify with no ids is a usage error", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli(["verify", "--db", db])).toBe(1);
+    expect(await cli(["init", "--db", db])).toBe(0);
+    expect(await cli(["verify", "--db", db])).toBe(1);
     expect(errs.at(-1)).toContain("usage: yoke verify");
   });
 
   it("conflicts lists conflicts_with pairs with both entities", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // Seed two conflicting decisions + a conflicts_with relation directly, through the gate.
     const ont = seedOntology();
     const now = "2026-07-12T00:00:00Z";
@@ -426,7 +427,7 @@ describe("runCli", () => {
     );
     store.close();
 
-    expect(await runCli(["conflicts", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["conflicts", "--db", db, "--json"])).toBe(0);
     const out = JSON.parse(logs.at(-1) as string);
     expect(out).toHaveLength(1);
     expect(out[0].from.id).toBe(b.entity.id);
@@ -434,24 +435,24 @@ describe("runCli", () => {
 
     // a fresh DB with no conflicts
     const db2 = newDb();
-    expect(await runCli(["init", "--db", db2])).toBe(0);
-    expect(await runCli(["conflicts", "--db", db2])).toBe(0);
+    expect(await cli(["init", "--db", db2])).toBe(0);
+    expect(await cli(["conflicts", "--db", db2])).toBe(0);
     expect(logs.at(-1)).toBe("no conflicts");
 
     // The pair above lives in the default namespace, so a tenant must not see it — a global
     // listing that ignores ns hands one tenant another's decisions.
-    expect(
-      await runCli(["conflicts", "--db", db, "--ns", "acme", "--json"]),
-    ).toBe(0);
+    expect(await cli(["conflicts", "--db", db, "--ns", "acme", "--json"])).toBe(
+      0,
+    );
     expect(JSON.parse(logs.at(-1) as string)).toEqual([]);
   });
 
   it("persona writes SKILL.md for a person to --out dir", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // Record a decision with yoke:system (person, verified) as actor, then promote it with the same actor.
     expect(
-      await runCli([
+      await cli([
         "add",
         "decision",
         "--db",
@@ -467,19 +468,11 @@ describe("runCli", () => {
     ).toBe(0);
     const id = JSON.parse(logs.at(-1) as string).id as string;
     expect(
-      await runCli(["verify", id, "--db", db, "--actor", "yoke:system"]),
+      await cli(["verify", id, "--db", db, "--actor", "yoke:system"]),
     ).toBe(0);
 
     expect(
-      await runCli([
-        "persona",
-        "yoke:system",
-        "--db",
-        db,
-        "--out",
-        dir,
-        "--json",
-      ]),
+      await cli(["persona", "yoke:system", "--db", db, "--out", dir, "--json"]),
     ).toBe(0);
     const { path, sources } = JSON.parse(logs.at(-1) as string);
     expect(path).toBe(join(dir, "persona-yoke-system", "SKILL.md"));
@@ -490,7 +483,7 @@ describe("runCli", () => {
     expect(md).toContain("Do not answer without a citation");
 
     // absent person → exit 1
-    expect(await runCli(["persona", "nobody", "--db", db])).toBe(1);
+    expect(await cli(["persona", "nobody", "--db", db])).toBe(1);
   });
 
   // The export is a file that goes into someone's prompt, and the person's `name` is caller-controlled
@@ -500,9 +493,9 @@ describe("runCli", () => {
   // files a person from an IdP claim).
   it("persona: a person's name cannot inject frontmatter keys or text into the skill", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "person",
         "--db",
@@ -514,7 +507,7 @@ describe("runCli", () => {
     ).toBe(0);
     const id = JSON.parse(logs.at(-1) as string).id as string;
     const out = join(dir, `inject-${Math.random().toString(36).slice(2)}`);
-    expect(await runCli(["persona", id, "--db", db, "--out", out])).toBe(0);
+    expect(await cli(["persona", id, "--db", db, "--out", out])).toBe(0);
     const md = readFileSync(
       join(out, `persona-${safeName(id)}`, "SKILL.md"),
       "utf8",
@@ -532,9 +525,9 @@ describe("runCli", () => {
   // `--check` reads the SOURCES, so it reports "all current" about a retired person's document.
   it("persona: refuses to export for a retired person", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "person",
         "--db",
@@ -545,11 +538,11 @@ describe("runCli", () => {
       ]),
     ).toBe(0);
     const id = JSON.parse(logs.at(-1) as string).id as string;
-    expect(await runCli(["persona", id, "--db", db, "--out", dir])).toBe(0);
-    expect(
-      await runCli(["deprecate", id, "--db", db, "--actor", "admin"]),
-    ).toBe(0);
-    expect(await runCli(["persona", id, "--db", db, "--out", dir])).toBe(1);
+    expect(await cli(["persona", id, "--db", db, "--out", dir])).toBe(0);
+    expect(await cli(["deprecate", id, "--db", db, "--actor", "admin"])).toBe(
+      0,
+    );
+    expect(await cli(["persona", id, "--db", db, "--out", dir])).toBe(1);
     expect(errs.at(-1)).toContain("retired");
   });
 
@@ -558,9 +551,9 @@ describe("runCli", () => {
   // to be usable as a CI gate, so a green file must be 0 and a moved source must be 1.
   it("persona --check passes a fresh export and fails once a source is retired", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -574,25 +567,25 @@ describe("runCli", () => {
     ).toBe(0);
     const id = JSON.parse(logs.at(-1) as string).id as string;
     expect(
-      await runCli(["verify", id, "--db", db, "--actor", "yoke:system"]),
+      await cli(["verify", id, "--db", db, "--actor", "yoke:system"]),
     ).toBe(0);
     const out = join(dir, `check-${Math.random().toString(36).slice(2)}`);
     expect(
-      await runCli(["persona", "yoke:system", "--db", db, "--out", out]),
+      await cli(["persona", "yoke:system", "--db", db, "--out", out]),
     ).toBe(0);
     const file = join(out, "persona-yoke-system", "SKILL.md");
 
     // Nothing has moved yet.
-    expect(await runCli(["persona", "--check", file, "--db", db])).toBe(0);
+    expect(await cli(["persona", "--check", file, "--db", db])).toBe(0);
     expect(logs.at(-1)).toContain("all current");
 
     // Retire the one source → non-zero, and the report names the record rather than only its id.
     expect(
-      await runCli(["deprecate", id, "--db", db, "--actor", "yoke:system"]),
+      await cli(["deprecate", id, "--db", db, "--actor", "yoke:system"]),
     ).toBe(0);
-    expect(
-      await runCli(["persona", "--check", file, "--db", db, "--json"]),
-    ).toBe(1);
+    expect(await cli(["persona", "--check", file, "--db", db, "--json"])).toBe(
+      1,
+    );
     const report = JSON.parse(logs.at(-1) as string);
     expect(report.moved).toBe(1);
     expect(report.sources[0].verdict).toBe("deprecated");
@@ -601,7 +594,7 @@ describe("runCli", () => {
     );
     // ...and the human report reads as words plus the id, not as a JSON dump: one governed decision's
     // rationale is a page of prose, so a routing list built from `formatEntity` scrolls off the screen.
-    expect(await runCli(["persona", "--check", file, "--db", db])).toBe(1);
+    expect(await cli(["persona", "--check", file, "--db", db])).toBe(1);
     expect(logs.join("\n")).toContain(
       "deprecated deploys are on fridays  [fact ",
     );
@@ -612,9 +605,9 @@ describe("runCli", () => {
   // trimmed to one reported "1 of 1 sources moved", saying nothing about the two it no longer named.
   it("persona --check counts against the number the header declares", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -628,32 +621,30 @@ describe("runCli", () => {
     ).toBe(0);
     const id = JSON.parse(logs.at(-1) as string).id as string;
     expect(
-      await runCli(["verify", id, "--db", db, "--actor", "yoke:system"]),
+      await cli(["verify", id, "--db", db, "--actor", "yoke:system"]),
     ).toBe(0);
     const file = join(dir, `trimmed-${Math.random().toString(36).slice(2)}.md`);
     writeFileSync(file, `Source knowledge (3): ${id}@v2\n`);
 
-    expect(
-      await runCli(["persona", "--check", file, "--db", db, "--json"]),
-    ).toBe(1);
+    expect(await cli(["persona", "--check", file, "--db", db, "--json"])).toBe(
+      1,
+    );
     const report = JSON.parse(logs.at(-1) as string);
     expect(report.declared).toBe(3);
     expect(report.unlisted).toBe(2);
-    expect(await runCli(["persona", "--check", file, "--db", db])).toBe(1);
+    expect(await cli(["persona", "--check", file, "--db", db])).toBe(1);
     expect(logs.at(-1)).toContain("2 of 3 sources moved or unreadable");
   });
 
   it("persona --check refuses a file that is not an export, and one that does not exist", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const notAnExport = join(dir, "readme.md");
     writeFileSync(notAnExport, "# just a readme\n");
-    expect(await runCli(["persona", "--check", notAnExport, "--db", db])).toBe(
-      1,
-    );
+    expect(await cli(["persona", "--check", notAnExport, "--db", db])).toBe(1);
     expect(errs.at(-1)).toContain("not an exported persona");
     expect(
-      await runCli(["persona", "--check", join(dir, "nope.md"), "--db", db]),
+      await cli(["persona", "--check", join(dir, "nope.md"), "--db", db]),
     ).toBe(1);
     expect(errs.at(-1)).toContain("cannot read");
   });
@@ -661,10 +652,10 @@ describe("runCli", () => {
   // deprecate names what rests on the retired record (v5.8) — "3 records" routes nobody.
   it("deprecate reports the records that declared they derive from it", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const addFact = async (statement: string) => {
       expect(
-        await runCli([
+        await cli([
           "add",
           "fact",
           "--db",
@@ -679,10 +670,10 @@ describe("runCli", () => {
     const basis = await addFact("the queue is at-least-once");
     const dependent = await addFact("consumers must be idempotent");
     expect(
-      await runCli(["link", dependent, "derived_from", basis, "--db", db]),
+      await cli(["link", dependent, "derived_from", basis, "--db", db]),
     ).toBe(0);
 
-    expect(await runCli(["deprecate", basis, "--db", db, "--json"])).toBe(0);
+    expect(await cli(["deprecate", basis, "--db", db, "--json"])).toBe(0);
     const res = JSON.parse(logs.at(-1) as string);
     expect(res.deprecated[0].status).toBe("deprecated");
     expect(res.downstream.map((e: { id: string }) => e.id)).toEqual([
@@ -690,15 +681,13 @@ describe("runCli", () => {
     ]);
 
     // Retiring something nothing rests on reports an empty list, not a missing key.
-    expect(await runCli(["deprecate", dependent, "--db", db, "--json"])).toBe(
-      0,
-    );
+    expect(await cli(["deprecate", dependent, "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string).downstream).toEqual([]);
   });
 
   it("backfill derives authorship edges for pre-upgrade knowledge, idempotently", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
 
     // A database written before authorship was a graph edge: same gate, but no authored_by type to
     // derive an edge from. The person anchor cannot see this knowledge yet.
@@ -733,22 +722,22 @@ describe("runCli", () => {
     store.close();
     // Re-confirmed by someone else — the latest row's provenance actor is now the confirmer.
     expect(
-      await runCli(["verify", entity.id, "--db", db, "--actor", "admin"]),
+      await cli(["verify", entity.id, "--db", db, "--actor", "admin"]),
     ).toBe(0);
 
-    expect(await runCli(["backfill", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["backfill", "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string).created).toBe(1);
 
     // Credited to the author in the history, not to the promoter of the latest version.
     expect(
-      await runCli(["persona", "alex", "--db", db, "--out", dir, "--json"]),
+      await cli(["persona", "alex", "--db", db, "--out", dir, "--json"]),
     ).toBe(0);
     expect(
       readFileSync(join(dir, "persona-alex", "SKILL.md"), "utf8"),
     ).toContain("use postgres");
 
     // Idempotent: nothing left to derive.
-    expect(await runCli(["backfill", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["backfill", "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string).created).toBe(0);
   });
 
@@ -756,21 +745,19 @@ describe("runCli", () => {
     // `add <relation>` cannot do this: a relation needs endpoints and `add` has nowhere to put them,
     // so works_on had no creation path at all and every "people on this work" panel was empty.
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const mk = async (type: string, attr: string) => {
       expect(
-        await runCli(["add", type, "--attr", attr, "--db", db, "--json"]),
+        await cli(["add", type, "--attr", attr, "--db", db, "--json"]),
       ).toBe(0);
       return JSON.parse(logs.at(-1) as string).id as string;
     };
     const person = await mk("person", "name=Bora");
     const work = await mk("collaboration", "title=auth revamp");
-    expect(await runCli(["link", person, "works_on", work, "--db", db])).toBe(
+    expect(await cli(["link", person, "works_on", work, "--db", db])).toBe(0);
+    expect(await cli(["get", work, "--relations", "--db", db, "--json"])).toBe(
       0,
     );
-    expect(
-      await runCli(["get", work, "--relations", "--db", db, "--json"]),
-    ).toBe(0);
     const rels = JSON.parse(logs.at(-1) as string) as {
       relations: { type: string; from: string; to: string }[];
     };
@@ -782,18 +769,18 @@ describe("runCli", () => {
     );
 
     // The gate stays the only door: an undeclared relation type is refused here like anywhere else.
-    expect(
-      await runCli(["link", person, "invented_rel", work, "--db", db]),
-    ).toBe(1);
+    expect(await cli(["link", person, "invented_rel", work, "--db", db])).toBe(
+      1,
+    );
     // And both endpoints are required — a half-link is not a relation.
-    expect(await runCli(["link", person, "works_on", "--db", db])).toBe(1);
+    expect(await cli(["link", person, "works_on", "--db", db])).toBe(1);
   });
 
   it("list / graph / get --relations / inject --scope give the web tier its CLI parity", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "collaboration",
         "--db",
@@ -805,7 +792,7 @@ describe("runCli", () => {
     ).toBe(0);
     const ws = JSON.parse(logs.at(-1) as string).id as string;
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -818,77 +805,80 @@ describe("runCli", () => {
       ]),
     ).toBe(0);
     const fact = JSON.parse(logs.at(-1) as string).id as string;
+    // A second fact: the graph page spreads its budget across entity TYPES, so truncation is only
+    // observable when some type holds more than one record.
+    expect(
+      await cli([
+        "add",
+        "fact",
+        "--db",
+        db,
+        "--attr",
+        "statement=retry budget",
+        "--scope",
+        ws,
+        "--json",
+      ]),
+    ).toBe(0);
 
     // list: enumerate, filter, and page.
-    expect(await runCli(["list", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["list", "--db", db, "--json"])).toBe(0);
     const listed = JSON.parse(logs.at(-1) as string);
     expect(listed.items.length).toBeGreaterThan(1);
     expect(listed.next).toBeNull();
-    expect(await runCli(["list", "--db", db, "--type", "fact", "--json"])).toBe(
-      0,
-    );
+    expect(await cli(["list", "--db", db, "--type", "fact", "--json"])).toBe(0);
     expect(
       JSON.parse(logs.at(-1) as string).items.every(
         (e: { type: string }) => e.type === "fact",
       ),
     ).toBe(true);
-    expect(await runCli(["list", "--db", db, "--limit", "1", "--json"])).toBe(
-      0,
-    );
+    expect(await cli(["list", "--db", db, "--limit", "1", "--json"])).toBe(0);
     const page1 = JSON.parse(logs.at(-1) as string);
     expect(page1.items).toHaveLength(1);
     expect(page1.next).toBe(page1.items[0].id);
 
     // graph: nodes + edges + honest truncation.
-    expect(await runCli(["graph", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["graph", "--db", db, "--json"])).toBe(0);
     const graph = JSON.parse(logs.at(-1) as string);
     expect(graph.nodes.length).toBeGreaterThan(1);
     expect(graph.edges.some((r: { to: string }) => r.to === ws)).toBe(true);
     expect(graph.truncated).toBe(false);
-    expect(await runCli(["graph", "--db", db, "--limit", "1", "--json"])).toBe(
-      0,
-    );
+    expect(await cli(["graph", "--db", db, "--limit", "1", "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string).truncated).toBe(true);
 
     // get --relations: the only way to see an entity's edges from a terminal.
-    expect(
-      await runCli(["get", fact, "--db", db, "--relations", "--json"]),
-    ).toBe(0);
+    expect(await cli(["get", fact, "--db", db, "--relations", "--json"])).toBe(
+      0,
+    );
     const got = JSON.parse(logs.at(-1) as string);
     expect(got.id).toBe(fact);
     expect(
       got.relations.some(
-        (r: { type: string; other: string }) =>
-          r.type === "relates_to" && r.other === ws,
+        // `other` is the resolved record, not a bare id — the end of an edge is something a reader
+        // has to be able to name.
+        (r: { type: string; other: { id: string } }) =>
+          r.type === "relates_to" && r.other.id === ws,
       ),
     ).toBe(true);
 
     // inject --scope: the CLI could not pass a scope before, so it could not reproduce what MCP
     // returns for the same session.
     expect(
-      await runCli([
-        "inject",
-        "tokenizer",
-        "--db",
-        db,
-        "--scope",
-        ws,
-        "--json",
-      ]),
+      await cli(["inject", "tokenizer", "--db", db, "--scope", ws, "--json"]),
     ).toBe(0);
     expect(
       JSON.parse(logs.at(-1) as string).some(
-        (it: { entity: { id: string } }) => it.entity.id === fact,
+        (it: { id: string }) => it.id === fact,
       ),
     ).toBe(true);
   });
 
   it("ontology list + add-type (migration = new version)", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
 
     // the seed types appear in list
-    expect(await runCli(["ontology", "list", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["ontology", "list", "--db", db, "--json"])).toBe(0);
     const listed = JSON.parse(logs.at(-1) as string);
     expect(listed.some((d: { name: string }) => d.name === "decision")).toBe(
       true,
@@ -905,25 +895,25 @@ describe("runCli", () => {
         ttl_days: 90,
       }),
     );
-    expect(await runCli(["ontology", "add-type", file, "--db", db])).toBe(0);
+    expect(await cli(["ontology", "add-type", file, "--db", db])).toBe(0);
     expect(logs.at(-1)).toContain("meeting");
 
     // the new type is reflected in list
-    expect(await runCli(["ontology", "list", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["ontology", "list", "--db", db, "--json"])).toBe(0);
     const after = JSON.parse(logs.at(-1) as string);
     expect(after.some((d: { name: string }) => d.name === "meeting")).toBe(
       true,
     );
 
     // add-type with a missing file → exit 1
-    expect(await runCli(["ontology", "add-type", "--db", db])).toBe(1);
+    expect(await cli(["ontology", "add-type", "--db", db])).toBe(1);
   });
 
   it("deprecate --reason rides on the retiring version, and every read of the record says it", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -934,9 +924,9 @@ describe("runCli", () => {
       ]),
     ).toBe(0);
     const id = JSON.parse(logs.at(-1) as string).id as string;
-    expect(await runCli(["verify", id, "--db", db, "--actor", "po"])).toBe(0);
+    expect(await cli(["verify", id, "--db", db, "--actor", "po"])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "deprecate",
         id,
         "--db",
@@ -949,17 +939,17 @@ describe("runCli", () => {
     ).toBe(0);
 
     // On the record — so a second client of a shared backend, with its own trail, reads the same.
-    expect(await runCli(["get", id, "--db", db, "--json"])).toBe(0);
+    expect(await cli(["get", id, "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string).provenance.reason).toBe(
       "Toss rejected the merchant review",
     );
-    expect(await runCli(["get", id, "--db", db])).toBe(0);
+    expect(await cli(["get", id, "--db", db])).toBe(0);
     expect(logs.join("\n")).toContain(
       "retired: Toss rejected the merchant review",
     );
     // history: on the version that IS the retirement, and on no other.
     logs = [];
-    expect(await runCli(["history", id, "--db", db])).toBe(0);
+    expect(await cli(["history", id, "--db", db])).toBe(0);
     const lines = logs.join("\n").split("\n");
     expect(lines.filter((l) => l.includes("reason:"))).toHaveLength(1);
     expect(
@@ -968,7 +958,7 @@ describe("runCli", () => {
       ],
     ).toContain("v3  deprecated");
     // The trail keeps the act (who, when, which) and nothing else — the reason is not content it carries.
-    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--json"])).toBe(0);
     const rows = JSON.parse(logs.at(-1) as string) as Array<
       Record<string, unknown>
     >;
@@ -979,9 +969,9 @@ describe("runCli", () => {
 
   it("history lists all versions; audit records inject events", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -992,10 +982,10 @@ describe("runCli", () => {
       ]),
     ).toBe(0);
     const id = JSON.parse(logs.at(-1) as string).id as string;
-    expect(await runCli(["verify", id, "--db", db])).toBe(0);
+    expect(await cli(["verify", id, "--db", db])).toBe(0);
 
     // history: v1 (born verified) + v2 (the re-confirmation), ascending
-    expect(await runCli(["history", id, "--db", db, "--json"])).toBe(0);
+    expect(await cli(["history", id, "--db", db, "--json"])).toBe(0);
     const history = JSON.parse(logs.at(-1) as string);
     expect(history.map((e: { version: number }) => e.version)).toEqual([1, 2]);
     expect(history.map((e: { status: string }) => e.status)).toEqual([
@@ -1003,13 +993,13 @@ describe("runCli", () => {
       "verified",
     ]);
     // absent id → exit 1
-    expect(await runCli(["history", "nope", "--db", db])).toBe(1);
+    expect(await cli(["history", "nope", "--db", db])).toBe(1);
 
     // inject writes an audit event
     expect(
-      await runCli(["inject", "audittoken", "--db", db, "--actor", "alice"]),
+      await cli(["inject", "audittoken", "--db", db, "--actor", "alice"]),
     ).toBe(0);
-    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--json"])).toBe(0);
     const events = JSON.parse(logs.at(-1) as string) as Array<{
       actor: string;
       action: string;
@@ -1024,18 +1014,18 @@ describe("runCli", () => {
 
     // --since in the future filters it out
     expect(
-      await runCli(["audit", "--db", db, "--since", "2099-01-01T00:00:00Z"]),
+      await cli(["audit", "--db", db, "--since", "2099-01-01T00:00:00Z"]),
     ).toBe(0);
     expect(logs.at(-1)).toBe("no audit events");
 
     // --until in the past closes the window before anything happened.
     expect(
-      await runCli(["audit", "--db", db, "--until", "2000-01-01T00:00:00Z"]),
+      await cli(["audit", "--db", db, "--until", "2000-01-01T00:00:00Z"]),
     ).toBe(0);
     expect(logs.at(-1)).toBe("no audit events");
     // A window wide enough to hold everything returns it all — the two flags compose.
     expect(
-      await runCli([
+      await cli([
         "audit",
         "--db",
         db,
@@ -1054,9 +1044,9 @@ describe("runCli", () => {
     // whether graph expansion is worth building on, and it has to come out of the trail. The write
     // side recorded it from v5.2 and nothing read it — this is the read.
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "collaboration",
         "--db",
@@ -1067,17 +1057,17 @@ describe("runCli", () => {
       ]),
     ).toBe(0);
     const anchor = JSON.parse(logs.at(-1) as string).id as string;
-    expect(await runCli(["verify", anchor, "--db", db])).toBe(0);
+    expect(await cli(["verify", anchor, "--db", db])).toBe(0);
 
     // one of each shape: plain query, anchored query, briefing (anchor, no query)
-    expect(await runCli(["inject", "payments", "--db", db])).toBe(0);
+    expect(await cli(["inject", "payments", "--db", db])).toBe(0);
     expect(
-      await runCli(["inject", "payments", "--db", db, "--scope", anchor]),
+      await cli(["inject", "payments", "--db", db, "--scope", anchor]),
     ).toBe(0);
-    expect(await runCli(["inject", "--db", db, "--scope", anchor])).toBe(0);
+    expect(await cli(["inject", "--db", db, "--scope", anchor])).toBe(0);
     // and one as-of read, which is a shape PLUS a clock, not a fourth shape
     expect(
-      await runCli([
+      await cli([
         "inject",
         "payments",
         "--db",
@@ -1087,7 +1077,7 @@ describe("runCli", () => {
       ]),
     ).toBe(0);
 
-    expect(await runCli(["audit", "--db", db, "--shape", "--json"])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--shape", "--json"])).toBe(0);
     const shapes = JSON.parse(logs.at(-1) as string);
     expect(shapes).toMatchObject({
       total: 4,
@@ -1103,13 +1093,11 @@ describe("runCli", () => {
 
   it("inject --unseen hands a working context over once, then only what changed", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const add = async (type: string, attrs: string[]) => {
-      expect(await runCli(["add", type, "--db", db, ...attrs, "--json"])).toBe(
-        0,
-      );
+      expect(await cli(["add", type, "--db", db, ...attrs, "--json"])).toBe(0);
       const id = JSON.parse(logs.at(-1) as string).id as string;
-      expect(await runCli(["verify", id, "--db", db, "--actor", "po"])).toBe(0);
+      expect(await cli(["verify", id, "--db", db, "--actor", "po"])).toBe(0);
       return id;
     };
     // The trail compares instants at millisecond precision; make sure a mutation and the delivery
@@ -1118,7 +1106,7 @@ describe("runCli", () => {
     const unseen = async () => {
       logs = [];
       expect(
-        await runCli([
+        await cli([
           "inject",
           "--db",
           db,
@@ -1161,7 +1149,7 @@ describe("runCli", () => {
     // 4. A record this client was handed is retired: reported as changed, with its status.
     await tick();
     expect(
-      await runCli([
+      await cli([
         "deprecate",
         d1,
         "--db",
@@ -1190,7 +1178,7 @@ describe("runCli", () => {
       "statement=HA in phase 1 after all",
     ]);
     expect(
-      await runCli(["link", d4, "supersedes", d2, "--db", db, "--actor", "po"]),
+      await cli(["link", d4, "supersedes", d2, "--db", db, "--actor", "po"]),
     ).toBe(0);
     const sixth = await unseen();
     expect(sixth.indexOf("-- changed since")).toBeLessThan(
@@ -1210,12 +1198,12 @@ describe("runCli", () => {
       "statement=idempotency keys",
     ]);
     expect(
-      await runCli(["inject", "idempotency", "--db", db, "--actor", "fe"]),
+      await cli(["inject", "idempotency", "--db", db, "--actor", "fe"]),
     ).toBe(0);
     expect(await unseen()).toBe("");
     // ...but a client that never saw it does get it.
     expect(
-      await runCli([
+      await cli([
         "inject",
         "--db",
         db,
@@ -1242,16 +1230,16 @@ describe("runCli", () => {
         "2000-01-01T00:00:00Z",
       ],
     ])
-      expect(await runCli(args)).toBe(1);
+      expect(await cli(args)).toBe(1);
   });
 
   it("audit --pulse reads the loop's health from the trail, skipped denominators named", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const tick = () => new Promise((r) => setTimeout(r, 5));
     const add = async (type: string, attrs: string[]) => {
       expect(
-        await runCli([
+        await cli([
           "add",
           type,
           "--db",
@@ -1273,7 +1261,7 @@ describe("runCli", () => {
     ]);
     const unseen = async () => {
       logs = [];
-      return runCli([
+      return cli([
         "inject",
         "--db",
         db,
@@ -1288,7 +1276,7 @@ describe("runCli", () => {
     expect(await unseen()).toBe(0);
     await tick();
     expect(
-      await runCli([
+      await cli([
         "deprecate",
         d1,
         "--db",
@@ -1302,7 +1290,7 @@ describe("runCli", () => {
     expect(await unseen()).toBe(0);
 
     logs = [];
-    expect(await runCli(["audit", "--db", db, "--pulse", "--json"])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--pulse", "--json"])).toBe(0);
     const pulse = JSON.parse(logs.at(-1) as string);
     // Capture: both records came through the CLI under a person's hand.
     expect(pulse.capture.human).toBeGreaterThanOrEqual(2);
@@ -1318,30 +1306,22 @@ describe("runCli", () => {
     // --scope adds what an opening session actually sees.
     logs = [];
     expect(
-      await runCli([
-        "audit",
-        "--db",
-        db,
-        "--pulse",
-        "--scope",
-        scope,
-        "--json",
-      ]),
+      await cli(["audit", "--db", db, "--pulse", "--scope", scope, "--json"]),
     ).toBe(0);
     const scoped = JSON.parse(logs.at(-1) as string);
     expect(scoped.briefing.total).toBeGreaterThanOrEqual(0);
     // The human report never hides a denominator: skipped rows are named, not folded into 0%.
     logs = [];
-    expect(await runCli(["audit", "--db", db, "--pulse"])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--pulse"])).toBe(0);
     expect(logs.join("\n")).toContain("skipped");
   });
 
   it("audit --roi keeps measured and assumed apart, and an old delivery earns nothing", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const add = async (type: string, attrs: string[]) => {
       expect(
-        await runCli([
+        await cli([
           "add",
           type,
           "--db",
@@ -1385,7 +1365,7 @@ describe("runCli", () => {
     }
     // One delivery hands both over.
     expect(
-      await runCli([
+      await cli([
         "inject",
         "--db",
         db,
@@ -1398,7 +1378,7 @@ describe("runCli", () => {
     ).toBe(0);
 
     logs = [];
-    expect(await runCli(["audit", "--db", db, "--roi", "--json"])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--roi", "--json"])).toBe(0);
     const roi = JSON.parse(logs.at(-1) as string);
     // Both decisions were delivered; only the fresh one is inside the assumed window, so the
     // week-old import earns no propagation credit — the correction that keeps a backfill from
@@ -1412,7 +1392,7 @@ describe("runCli", () => {
     // An assumption the caller raises moves the answer, and only that answer.
     logs = [];
     expect(
-      await runCli([
+      await cli([
         "audit",
         "--db",
         db,
@@ -1427,13 +1407,13 @@ describe("runCli", () => {
     expect(louder.spent.total).toBe(roi.spent.total);
     // A knob that does not exist is refused rather than ignored.
     expect(
-      await runCli(["audit", "--db", db, "--roi", "--assume", "vibes=9"]),
+      await cli(["audit", "--db", db, "--roi", "--assume", "vibes=9"]),
     ).toBe(1);
   });
 
   it("connect notes ingests transcript chunks, idempotently", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const notesDir = join(dir, "notes-fixture");
     mkdirSync(notesDir, { recursive: true });
     writeFileSync(
@@ -1442,7 +1422,7 @@ describe("runCli", () => {
     );
 
     expect(
-      await runCli(["connect", "notes", notesDir, "--db", db, "--json"]),
+      await cli(["connect", "notes", notesDir, "--db", db, "--json"]),
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toEqual({
       added: 2,
@@ -1451,7 +1431,7 @@ describe("runCli", () => {
     });
     // re-run skips (external_id idempotency)
     expect(
-      await runCli(["connect", "notes", notesDir, "--db", db, "--json"]),
+      await cli(["connect", "notes", notesDir, "--db", db, "--json"]),
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toEqual({
       added: 0,
@@ -1460,15 +1440,15 @@ describe("runCli", () => {
     });
 
     // through the gate like every other commit — live and listable as soon as it lands
-    expect(await runCli(["list", "--db", db, "--type", "fact"])).toBe(0);
+    expect(await cli(["list", "--db", db, "--type", "fact"])).toBe(0);
     expect(logs.join("\n")).toContain("we chose sqlite");
 
     // missing dir arg → usage, exit 1
-    expect(await runCli(["connect", "notes", "--db", db])).toBe(1);
+    expect(await cli(["connect", "notes", "--db", db])).toBe(1);
 
     // connect slack without SLACK_TOKEN → exit 1 (no live call)
     expect(
-      await runCli(["connect", "slack", "--channel", "C123", "--db", db], {
+      await cli(["connect", "slack", "--channel", "C123", "--db", db], {
         ...process.env,
         SLACK_TOKEN: undefined,
       }),
@@ -1478,9 +1458,9 @@ describe("runCli", () => {
 
   it("backup → restore round-trip keeps data; safety refusals", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -1491,20 +1471,20 @@ describe("runCli", () => {
       ]),
     ).toBe(0);
     const id = JSON.parse(logs.at(-1) as string).id as string;
-    expect(await runCli(["verify", id, "--db", db])).toBe(0);
+    expect(await cli(["verify", id, "--db", db])).toBe(0);
 
     // backup, then restore into a fresh dest — data intact.
     const bak = newDb();
-    expect(await runCli(["backup", bak, "--db", db])).toBe(0);
+    expect(await cli(["backup", bak, "--db", db])).toBe(0);
     const dest = newDb();
-    expect(await runCli(["restore", bak, "--db", dest])).toBe(0);
-    expect(await runCli(["get", id, "--db", dest, "--json"])).toBe(0);
+    expect(await cli(["restore", bak, "--db", dest])).toBe(0);
+    expect(await cli(["get", id, "--db", dest, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string).status).toBe("verified");
 
     // refuses to clobber an existing DB without --force; --force allows it.
-    expect(await runCli(["restore", bak, "--db", dest])).toBe(1);
+    expect(await cli(["restore", bak, "--db", dest])).toBe(1);
     expect(errs.at(-1)).toContain("refusing to overwrite");
-    expect(await runCli(["restore", bak, "--db", dest, "--force"])).toBe(0);
+    expect(await cli(["restore", bak, "--db", dest, "--force"])).toBe(0);
 
     // refuses a source that is not a valid yoke DB.
     const junk = newDb();
@@ -1512,15 +1492,15 @@ describe("runCli", () => {
     j.exec("CREATE TABLE x(a)");
     j.close();
     const dest2 = newDb();
-    expect(await runCli(["restore", junk, "--db", dest2])).toBe(1);
+    expect(await cli(["restore", junk, "--db", dest2])).toBe(1);
     expect(errs.at(-1)).toContain("not a valid yoke DB");
   });
 
   it("export --until reconstructs a point-in-time DB", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -1535,7 +1515,7 @@ describe("runCli", () => {
     const out = newDb();
     // A far-future cut captures everything created so far.
     expect(
-      await runCli([
+      await cli([
         "export",
         "--db",
         db,
@@ -1551,7 +1531,7 @@ describe("runCli", () => {
     store.close();
 
     // missing flags → usage, exit 1
-    expect(await runCli(["export", "--db", db, "--out", out])).toBe(1);
+    expect(await cli(["export", "--db", db, "--out", out])).toBe(1);
   });
 
   it("cuts at the same instant however the offset is spelled", async () => {
@@ -1560,9 +1540,9 @@ describe("runCli", () => {
     // and wrote a disaster-recovery copy with ZERO records, exit 0, "exported state as of …".
     // Reproduced through this CLI: the same moment spelled Z / -09:00 gives 2 records / 0.
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -1577,7 +1557,7 @@ describe("runCli", () => {
     // 2099-01-01T00:00:00Z spelled from a -09:00 zone: the day BEFORE, lexicographically tiny.
     const out = newDb();
     expect(
-      await runCli([
+      await cli([
         "export",
         "--db",
         db,
@@ -1594,9 +1574,9 @@ describe("runCli", () => {
 
     // The audit window reads offsets the same way — `--since <before now, as +09:00>` said
     // "no audit events" for a trail with events in it.
-    expect(await runCli(["verify", id, "--db", db])).toBe(0);
+    expect(await cli(["verify", id, "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "audit",
         "--db",
         db,
@@ -1611,11 +1591,11 @@ describe("runCli", () => {
 
   it("namespace isolation: add in ns A is invisible from ns B, visible from ns A", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
 
     // add a fact into namespace "tenant-a"
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -1631,7 +1611,7 @@ describe("runCli", () => {
 
     // search in ns B → empty
     expect(
-      await runCli([
+      await cli([
         "search",
         "nstoken",
         "--db",
@@ -1644,12 +1624,12 @@ describe("runCli", () => {
     expect(JSON.parse(logs.at(-1) as string)).toEqual([]);
 
     // search in default ns → empty (isolation from the shared namespace too)
-    expect(await runCli(["search", "nstoken", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["search", "nstoken", "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toEqual([]);
 
     // search in ns A → hit
     expect(
-      await runCli([
+      await cli([
         "search",
         "nstoken",
         "--db",
@@ -1664,7 +1644,7 @@ describe("runCli", () => {
 
     // YOKE_NS env is honored when --ns is absent
     expect(
-      await runCli(["search", "nstoken", "--db", db, "--json"], {
+      await cli(["search", "nstoken", "--db", db, "--json"], {
         ...process.env,
         YOKE_NS: "tenant-a",
       }),
@@ -1678,27 +1658,27 @@ describe("runCli", () => {
 
   it("--help / no args / 'help' print grouped usage and exit 0", async () => {
     for (const argv of [["--help"], ["-h"], ["help"], []]) {
-      expect(await runCli(argv.concat(["--db", newDb()]))).toBe(0);
+      expect(await cli(argv.concat(["--db", newDb()]))).toBe(0);
       expect(logs.at(-1)).toContain("getting started");
     }
     // Unknown command shows the same usage but exits 1.
-    expect(await runCli(["frobnicate", "--db", newDb()])).toBe(1);
+    expect(await cli(["frobnicate", "--db", newDb()])).toBe(1);
     expect(errs.at(-1)).toContain("getting started");
   });
 
   it("ontology-needing commands on an uninitialized DB point at 'yoke init'", async () => {
     const db = newDb();
     expect(
-      await runCli(["add", "fact", "--db", db, "--attr", "statement=x"]),
+      await cli(["add", "fact", "--db", db, "--attr", "statement=x"]),
     ).toBe(1);
     expect(errs.at(-1)).toContain("yoke init");
-    expect(await runCli(["inject", "anything", "--db", db])).toBe(1);
+    expect(await cli(["inject", "anything", "--db", db])).toBe(1);
     expect(errs.at(-1)).toContain("yoke init");
   });
 
   it("inject with only stale matches says they were withheld (json stays raw)", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // Aged fixture: born verified in 2020, long past fact's TTL — the CLI reads the real clock.
     const store = new SqliteStorage(db);
     await store.init();
@@ -1712,18 +1692,16 @@ describe("runCli", () => {
     );
     store.close();
 
-    expect(await runCli(["inject", "quarantined", "--db", db])).toBe(0);
+    expect(await cli(["inject", "quarantined", "--db", db])).toBe(0);
     expect(logs.at(-1)).toContain("withheld");
     expect(logs.at(-1)).toContain("yoke review");
 
     // --json contract unchanged: raw (empty) items array, no hint text.
-    expect(await runCli(["inject", "quarantined", "--db", db, "--json"])).toBe(
-      0,
-    );
+    expect(await cli(["inject", "quarantined", "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toEqual([]);
 
     // A genuinely absent topic still reads "no results".
-    expect(await runCli(["inject", "nonexistent-topic", "--db", db])).toBe(0);
+    expect(await cli(["inject", "nonexistent-topic", "--db", db])).toBe(0);
     expect(logs.at(-1)).toBe("no results");
   });
 
@@ -1733,21 +1711,13 @@ describe("runCli", () => {
     // the CLI the primary interface for review/verify). Found by generating traffic and watching the
     // rows fail to appear, not by a test.
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
-        "add",
-        "person",
-        "--db",
-        db,
-        "--attr",
-        "name=Dana",
-        "--json",
-      ]),
+      await cli(["add", "person", "--db", db, "--attr", "name=Dana", "--json"]),
     ).toBe(0);
     const person = JSON.parse(logs.at(-1) as string).id as string;
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -1762,10 +1732,10 @@ describe("runCli", () => {
     const fact = JSON.parse(logs.at(-1) as string).id as string;
 
     expect(
-      await runCli(["verify", fact, person, "--db", db, "--actor", "reviewer"]),
+      await cli(["verify", fact, person, "--db", db, "--actor", "reviewer"]),
     ).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "persona",
         person,
         "--db",
@@ -1777,10 +1747,10 @@ describe("runCli", () => {
       ]),
     ).toBe(0);
     expect(
-      await runCli(["deprecate", fact, "--db", db, "--actor", "retirer"]),
+      await cli(["deprecate", fact, "--db", db, "--actor", "retirer"]),
     ).toBe(0);
 
-    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--json"])).toBe(0);
     const events = JSON.parse(logs.at(-1) as string) as Array<{
       actor: string;
       action: string;
@@ -1799,13 +1769,11 @@ describe("runCli", () => {
 
     // A read names the record whose attributes it handed over; a search names what was asked for.
     // Those are different facts, which is why they are different actions and not one `read`.
-    expect(await runCli(["get", fact, "--db", db, "--actor", "curious"])).toBe(
-      0,
-    );
+    expect(await cli(["get", fact, "--db", db, "--actor", "curious"])).toBe(0);
     expect(
-      await runCli(["search", "governed", "--db", db, "--actor", "searcher"]),
+      await cli(["search", "governed", "--db", db, "--actor", "searcher"]),
     ).toBe(0);
-    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--json"])).toBe(0);
     const after = JSON.parse(logs.at(-1) as string) as Array<{
       actor: string;
       action: string;
@@ -1824,9 +1792,9 @@ describe("runCli", () => {
     // not, and nothing compared them. Any new governance path must name an action already understood
     // by the audit viewer, whose MEANING map is keyed on exactly these.
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--db",
@@ -1837,14 +1805,12 @@ describe("runCli", () => {
       ]),
     ).toBe(0);
     const id = JSON.parse(logs.at(-1) as string).id as string;
-    expect(await runCli(["verify", id, "--db", db])).toBe(0);
-    expect(await runCli(["inject", "parity", "--db", db])).toBe(0);
-    expect(await runCli(["deprecate", id, "--db", db])).toBe(0);
+    expect(await cli(["verify", id, "--db", db])).toBe(0);
+    expect(await cli(["inject", "parity", "--db", db])).toBe(0);
+    expect(await cli(["deprecate", id, "--db", db])).toBe(0);
     // The one mutation the version history cannot record, because it rewrites those very rows.
-    expect(await runCli(["rename-type", "term", "glossary", "--db", db])).toBe(
-      0,
-    );
-    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["rename-type", "term", "glossary", "--db", db])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--json"])).toBe(0);
     const seen = new Set(
       (JSON.parse(logs.at(-1) as string) as Array<{ action: string }>).map(
         (e) => e.action,
@@ -1852,9 +1818,9 @@ describe("runCli", () => {
     );
     // Reads too, and they are the ones that were missing. SPEC has said since v5.0 opened that a
     // route returning full attributes writes a row; `yoke get` and its web twin both wrote nothing.
-    expect(await runCli(["get", id, "--db", db])).toBe(0);
-    expect(await runCli(["search", "parity", "--db", db])).toBe(0);
-    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["get", id, "--db", db])).toBe(0);
+    expect(await cli(["search", "parity", "--db", db])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--json"])).toBe(0);
     const seen2 = new Set(
       (JSON.parse(logs.at(-1) as string) as Array<{ action: string }>).map(
         (e) => e.action,
@@ -1880,7 +1846,7 @@ describe("runCli", () => {
 describe("review (the re-confirmation queue)", () => {
   it("lists verified records past their TTL and says what it examined", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
 
     // Freshness is computed from `last_confirmed` + the type's ttl_days against the wall clock, and
     // the CLI uses the real clock — so the record is seeded with an OLD confirmation rather than the
@@ -1914,20 +1880,20 @@ describe("review (the re-confirmation queue)", () => {
     );
     store.close();
 
-    expect(await runCli(["review", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["review", "--db", db, "--json"])).toBe(0);
     const rows = JSON.parse(logs.at(-1) as string) as { id: string }[];
     expect(rows.map((r) => r.id)).toContain(entity.id);
     expect(rows.map((r) => r.id)).not.toContain(term.id);
 
     // Human output states the bound: a bare count would read as a corpus-wide number.
-    expect(await runCli(["review", "--db", db])).toBe(0);
+    expect(await cli(["review", "--db", db])).toBe(0);
     expect(logs.at(-1)).toMatch(/1 stale among \d+ verified records scanned/);
   });
 
   it("says how many it scanned even when nothing aged out", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli(["review", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
+    expect(await cli(["review", "--db", db])).toBe(0);
     expect(logs.at(-1)).toMatch(/no stale records \(scanned \d+ verified\)/);
   });
 });
@@ -1935,7 +1901,7 @@ describe("review (the re-confirmation queue)", () => {
 describe("inject --as-of", () => {
   it("returns what was verified then, not what is verified now", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
 
     const store = new SqliteStorage(db);
     await store.init();
@@ -1953,12 +1919,12 @@ describe("inject --as-of", () => {
     store.close();
 
     // Now: deprecated, so nothing comes back.
-    expect(await runCli(["inject", "zqasofcli", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["inject", "zqasofcli", "--db", db, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toEqual([]);
 
     // As of the 15th: it was the answer.
     expect(
-      await runCli([
+      await cli([
         "inject",
         "zqasofcli",
         "--as-of",
@@ -1969,9 +1935,9 @@ describe("inject --as-of", () => {
       ]),
     ).toBe(0);
     const items = JSON.parse(logs.at(-1) as string) as {
-      entity: { id: string };
+      id: string;
     }[];
-    expect(items.map((i) => i.entity.id)).toEqual([entity.id]);
+    expect(items.map((i) => i.id)).toEqual([entity.id]);
 
     // The trail records WHICH clock answered — otherwise a historical read is indistinguishable from
     // a current one in the audit log, and the row would misrepresent what was injected.
@@ -1989,11 +1955,11 @@ describe("inject --as-of", () => {
 describe("the duplicate check says when it did not run", () => {
   it("yoke add reports a skipped check instead of implying a clean one", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // No YOKE_EMBED_* in this env, which is the state every CLI user is in unless they exported it —
     // `.mcp.json` only reaches the MCP server's process.
     expect(
-      await runCli(
+      await cli(
         [
           "add",
           "fact",
@@ -2014,9 +1980,9 @@ describe("the duplicate check says when it did not run", () => {
 
   it("--json output is unchanged — the notice is human text only", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli(
+      await cli(
         [
           "add",
           "fact",
@@ -2039,10 +2005,10 @@ describe("the duplicate check says when it did not run", () => {
 describe("backfill --embeddings", () => {
   it("reports what it scanned, and says so when no provider answered", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     for (const n of ["one", "two"])
       expect(
-        await runCli(
+        await cli(
           ["add", "fact", "--db", db, "--attr", `statement=${n}`],
           NO_EMBED,
         ),
@@ -2050,9 +2016,9 @@ describe("backfill --embeddings", () => {
 
     // No embedder in env: every row is skipped, and that is exit 0 — a repair that cannot run is not
     // a failure, but it must not look like success either.
-    expect(
-      await runCli(["backfill", "--embeddings", "--db", db], NO_EMBED),
-    ).toBe(0);
+    expect(await cli(["backfill", "--embeddings", "--db", db], NO_EMBED)).toBe(
+      0,
+    );
     const out = logs.join("\n");
     expect(out).toMatch(/scanned \d+ entities, embedded 0, skipped \d+/);
     expect(out).toContain("nothing was embedded");
@@ -2060,8 +2026,8 @@ describe("backfill --embeddings", () => {
 
   it("plain backfill still does authorship — the flag is what switches repairs", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli(["backfill", "--db", db, "--json"], NO_EMBED)).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
+    expect(await cli(["backfill", "--db", db, "--json"], NO_EMBED)).toBe(0);
     const r = JSON.parse(logs.at(-1) as string) as Record<string, unknown>;
     expect(r).toHaveProperty("created");
     expect(r).not.toHaveProperty("embedded");
@@ -2069,9 +2035,9 @@ describe("backfill --embeddings", () => {
 
   it("embeds for real against a configured provider, and is idempotent", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli(
+      await cli(
         ["add", "fact", "--db", db, "--attr", "statement=vector coverage"],
         NO_EMBED,
       ),
@@ -2099,7 +2065,7 @@ describe("backfill --embeddings", () => {
     };
     try {
       expect(
-        await runCli(["backfill", "--embeddings", "--db", db, "--json"], env),
+        await cli(["backfill", "--embeddings", "--db", db, "--json"], env),
       ).toBe(0);
       const first = JSON.parse(logs.at(-1) as string) as {
         embedded: number;
@@ -2125,7 +2091,7 @@ describe("backfill --embeddings", () => {
 
       // Idempotent: keyed by id, so running it again replaces rather than accumulates.
       expect(
-        await runCli(["backfill", "--embeddings", "--db", db, "--json"], env),
+        await cli(["backfill", "--embeddings", "--db", db, "--json"], env),
       ).toBe(0);
       expect(vecRows()).toBe(after);
     } finally {
@@ -2217,7 +2183,7 @@ describe("the CLI shows the status injection uses", () => {
     "search",
   ])("reports it as stale in %s", async (cmd) => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const id = await agedFact(db);
     const argv =
       cmd === "get"
@@ -2225,7 +2191,7 @@ describe("the CLI shows the status injection uses", () => {
         : cmd === "list"
           ? ["list"]
           : ["search", "pool"];
-    expect(await runCli([...argv, "--db", db])).toBe(0);
+    expect(await cli([...argv, "--db", db])).toBe(0);
     const out = logs.join("\n");
     expect(out).toContain("stale");
     // The stored column still says verified, so a surface printing it says the wrong thing.
@@ -2238,9 +2204,9 @@ describe("the CLI shows the status injection uses", () => {
 describe("a filter value that cannot match is refused", () => {
   it("points --status stale at the command that answers it", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // `stale` is computed at read time and pushed down to SQL, so no stored row can carry it.
-    expect(await runCli(["list", "--status", "stale", "--db", db])).toBe(1);
+    expect(await cli(["list", "--status", "stale", "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain("yoke review");
   });
 
@@ -2249,15 +2215,15 @@ describe("a filter value that cannot match is refused", () => {
     ["DRAFT", "must be one of"],
   ])("refuses --status %s", async (value, expected) => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli(["list", "--status", value, "--db", db])).toBe(1);
+    expect(await cli(["init", "--db", db])).toBe(0);
+    expect(await cli(["list", "--status", value, "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain(expected);
   });
 
   it("lists the declared types when --type is not one of them", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli(["list", "--type", "nosuchtype", "--db", db])).toBe(1);
+    expect(await cli(["init", "--db", db])).toBe(0);
+    expect(await cli(["list", "--type", "nosuchtype", "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain("unknown type: nosuchtype");
     expect(errs.join("\n")).toContain("fact");
   });
@@ -2265,7 +2231,7 @@ describe("a filter value that cannot match is refused", () => {
 
 describe("a near-miss command gets the correction", () => {
   it("suggests the intended command", async () => {
-    expect(await runCli(["inejct", "anything"], {})).toBe(1);
+    expect(await cli(["inejct", "anything"], {})).toBe(1);
     expect(errs.join("\n")).toContain("did you mean 'inject'");
     expect(errs.join("\n")).not.toContain("getting started");
   });
@@ -2274,17 +2240,17 @@ describe("a near-miss command gets the correction", () => {
     // `relate` dispatched while absent from COMMANDS, so `yoke relatee` got the whole help screen
     // where `yoke searh` got a correction. Four places enumerate the command set — COMMANDS,
     // usage(), COMMAND_USAGE and the dispatch switch — and they had already parted.
-    expect(await runCli(["relatee"], {})).toBe(1);
+    expect(await cli(["relatee"], {})).toBe(1);
     expect(errs.join("\n")).toContain("did you mean 'relate'");
   });
 
   it("falls back to the full usage when nothing is close", async () => {
-    expect(await runCli(["frobnicate"], {})).toBe(1);
+    expect(await cli(["frobnicate"], {})).toBe(1);
     expect(errs.join("\n")).toContain("getting started");
   });
 
   it("suggests the intended option, the way it suggests a command", async () => {
-    expect(await runCli(["inject", "x", "--dept", "2"], {})).toBe(1);
+    expect(await cli(["inject", "x", "--dept", "2"], {})).toBe(1);
     expect(errs.join("\n")).toContain("did you mean '--depth'");
   });
 });
@@ -2295,14 +2261,14 @@ describe("a near-miss command gets the correction", () => {
 describe("an argument the CLI cannot use is refused, not dropped", () => {
   it("refuses the words a query would have silently lost", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // `yoke inject cache sessions` searched for "cache" alone, returned a record the full phrase
     // excludes, and wrote "cache" into the audit trail as the question that had been asked.
-    expect(await runCli(["inject", "cache", "sessions", "--db", db])).toBe(1);
+    expect(await cli(["inject", "cache", "sessions", "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain('unexpected argument: "sessions"');
     expect(errs.join("\n")).toContain("quote a phrase");
     // The quoted form is what the reader meant, and it still works.
-    expect(await runCli(["inject", "cache sessions", "--db", db])).toBe(0);
+    expect(await cli(["inject", "cache sessions", "--db", db])).toBe(0);
   });
 
   it.each([
@@ -2312,8 +2278,8 @@ describe("an argument the CLI cannot use is refused, not dropped", () => {
     ["ontology list", ["ontology", "list", "extra"]],
   ])("refuses an extra argument to %s", async (_name, argv) => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli([...argv, "--db", db])).toBe(1);
+    expect(await cli(["init", "--db", db])).toBe(0);
+    expect(await cli([...argv, "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain("unexpected argument");
   });
 
@@ -2322,7 +2288,7 @@ describe("an argument the CLI cannot use is refused, not dropped", () => {
   // full `.backup()` disk copy of the primary, every millisecond. No usage line, no README, no doc
   // ever offered it, so it is gone rather than parsed: the replica's interval is a constant.
   it("has no --refresh-sec to hand setInterval a NaN", async () => {
-    expect(await runCli(["serve", "--refresh-sec", "abc"], {})).toBe(1);
+    expect(await cli(["serve", "--refresh-sec", "abc"], {})).toBe(1);
     expect(errs.join("\n")).toContain("unknown option: --refresh-sec");
   });
 
@@ -2339,17 +2305,17 @@ describe("an argument the CLI cannot use is refused, not dropped", () => {
     ],
   ])("refuses %s", async (_name, argv, expected) => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
-    expect(await runCli([...argv, "--db", db])).toBe(1);
+    expect(await cli(["init", "--db", db])).toBe(0);
+    expect(await cli([...argv, "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain(expected);
   });
 
   // `--depth` needs an anchor, so this one reaches the number check only with a scope to walk from.
   it("refuses a --depth that is not a number", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "inject",
         "q",
         "--scope",
@@ -2365,18 +2331,18 @@ describe("an argument the CLI cannot use is refused, not dropped", () => {
 
   it("does not claim a record is missing when only the version is", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     // yoke:system is seeded, so this id exists — "not found" would be a false claim about the corpus,
     // and the reader who believes it stops looking.
     expect(
-      await runCli(["get", "yoke:system", "--version", "99", "--db", db]),
+      await cli(["get", "yoke:system", "--version", "99", "--db", db]),
     ).toBe(1);
     expect(errs.join("\n")).toContain("has no version 99");
     expect(errs.join("\n")).not.toContain("not found");
     // An id that really is absent still says so.
     errs.length = 0;
     expect(
-      await runCli(["get", "01NOSUCHRECORD", "--version", "2", "--db", db]),
+      await cli(["get", "01NOSUCHRECORD", "--version", "2", "--db", db]),
     ).toBe(1);
     expect(errs.join("\n")).toContain("not found");
   });
@@ -2388,10 +2354,10 @@ describe("backup does not destroy what it writes over", () => {
   it("refuses an existing destination, and --force takes it", async () => {
     const source = newDb();
     const victim = newDb();
-    expect(await runCli(["init", "--db", source])).toBe(0);
-    expect(await runCli(["init", "--db", victim])).toBe(0);
+    expect(await cli(["init", "--db", source])).toBe(0);
+    expect(await cli(["init", "--db", victim])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--attr",
@@ -2401,20 +2367,20 @@ describe("backup does not destroy what it writes over", () => {
       ]),
     ).toBe(0);
 
-    expect(await runCli(["backup", victim, "--db", source])).toBe(1);
+    expect(await cli(["backup", victim, "--db", source])).toBe(1);
     expect(errs.join("\n")).toContain("refusing to overwrite existing file");
     // Still there: the refusal is the whole point.
-    expect(await runCli(["search", "victim", "--db", victim])).toBe(0);
+    expect(await cli(["search", "victim", "--db", victim])).toBe(0);
     expect(logs.join("\n")).toContain("the victim's only copy");
 
     // The same guard restore has, with the same escape hatch.
-    expect(await runCli(["backup", victim, "--force", "--db", source])).toBe(0);
+    expect(await cli(["backup", victim, "--force", "--db", source])).toBe(0);
   });
 
   it("writes a new destination without a flag", async () => {
     const source = newDb();
-    expect(await runCli(["init", "--db", source])).toBe(0);
-    expect(await runCli(["backup", newDb(), "--db", source])).toBe(0);
+    expect(await cli(["init", "--db", source])).toBe(0);
+    expect(await cli(["backup", newDb(), "--db", source])).toBe(0);
   });
 });
 
@@ -2427,9 +2393,9 @@ describe("the CLI names people instead of printing their ids", () => {
   async function authored(
     db: string,
   ): Promise<{ person: string; fact: string }> {
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "person",
         "--attr",
@@ -2440,9 +2406,9 @@ describe("the CLI names people instead of printing their ids", () => {
       ]),
     ).toBe(0);
     const person = JSON.parse(logs.at(-1) as string).id as string;
-    expect(await runCli(["verify", person, "--db", db])).toBe(0);
+    expect(await cli(["verify", person, "--db", db])).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--attr",
@@ -2465,7 +2431,7 @@ describe("the CLI names people instead of printing their ids", () => {
     const db = newDb();
     const { person, fact } = await authored(db);
     logs.length = 0;
-    expect(await runCli([...argv(person, fact), "--db", db])).toBe(0);
+    expect(await cli([...argv(person, fact), "--db", db])).toBe(0);
     const out = logs.join("\n");
     expect(out).toContain("Alice Kim");
     expect(out).not.toContain(`  ${person}`);
@@ -2487,7 +2453,7 @@ describe("the CLI names people instead of printing their ids", () => {
     );
     store.close();
     logs.length = 0;
-    expect(await runCli(["review", "--db", db])).toBe(0);
+    expect(await cli(["review", "--db", db])).toBe(0);
     const out = logs.join("\n");
     expect(out).toContain("Alice Kim");
     expect(out).not.toContain(`  ${person}  `);
@@ -2497,11 +2463,9 @@ describe("the CLI names people instead of printing their ids", () => {
     const db = newDb();
     const { person, fact } = await authored(db);
     // A different person promotes it — the case where the two names differ.
-    expect(await runCli(["verify", fact, "--actor", "bob", "--db", db])).toBe(
-      0,
-    );
+    expect(await cli(["verify", fact, "--actor", "bob", "--db", db])).toBe(0);
     logs.length = 0;
-    expect(await runCli(["inject", "retry budget", "--db", db])).toBe(0);
+    expect(await cli(["inject", "retry budget", "--db", db])).toBe(0);
     const out = logs.join("\n");
     expect(out).toContain("Alice Kim (confirmed by bob)");
     // The pointer keeps the record's id — that is what makes a citation auditable — but not the actor's.
@@ -2512,13 +2476,9 @@ describe("the CLI names people instead of printing their ids", () => {
   it("leaves --json carrying core's citation string, ids and all", async () => {
     const db = newDb();
     const { person, fact } = await authored(db);
-    expect(await runCli(["verify", fact, "--actor", "bob", "--db", db])).toBe(
-      0,
-    );
+    expect(await cli(["verify", fact, "--actor", "bob", "--db", db])).toBe(0);
     logs.length = 0;
-    expect(await runCli(["inject", "retry budget", "--json", "--db", db])).toBe(
-      0,
-    );
+    expect(await cli(["inject", "retry budget", "--json", "--db", db])).toBe(0);
     const items = JSON.parse(logs.at(-1) as string) as Array<{
       citation: string;
       author?: string;
@@ -2542,9 +2502,9 @@ describe("--help never runs the command", () => {
     "backfill",
   ])("prints usage for %s instead of running it", async (cmd) => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     logs.length = 0;
-    expect(await runCli([cmd, "--help", "--db", db])).toBe(0);
+    expect(await cli([cmd, "--help", "--db", db])).toBe(0);
     expect(logs.join("\n")).toContain(`usage: yoke ${cmd}`);
   });
 
@@ -2552,15 +2512,15 @@ describe("--help never runs the command", () => {
     // The one that mutated: `backfill --help` re-derived authorship edges and printed "scanned N
     // entities, added M authorship edges".
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
-      await runCli(["add", "fact", "--attr", "statement=x", "--db", db]),
+      await cli(["add", "fact", "--attr", "statement=x", "--db", db]),
     ).toBe(0);
     logs.length = 0;
-    expect(await runCli(["backfill", "--help", "--db", db])).toBe(0);
+    expect(await cli(["backfill", "--help", "--db", db])).toBe(0);
     expect(logs.join("\n")).not.toContain("scanned");
     // The audit trail is the check that matters: a write would be in it.
-    expect(await runCli(["audit", "--db", db, "--json"])).toBe(0);
+    expect(await cli(["audit", "--db", db, "--json"])).toBe(0);
     const trail = JSON.parse(logs.at(-1) as string) as Array<{
       action: string;
     }>;
@@ -2569,17 +2529,17 @@ describe("--help never runs the command", () => {
 
   it("documents the flags that were reachable from nowhere", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     logs.length = 0;
-    expect(await runCli(["review", "--help", "--db", db])).toBe(0);
+    expect(await cli(["review", "--help", "--db", db])).toBe(0);
     expect(logs.join("\n")).toContain("re-confirmation queue");
     logs.length = 0;
-    expect(await runCli(["audit", "--help", "--db", db])).toBe(0);
+    expect(await cli(["audit", "--help", "--db", db])).toBe(0);
     expect(logs.join("\n")).toContain("--shape");
   });
 
   it("falls back to the overview for a command with no entry", async () => {
-    expect(await runCli(["nosuchcommand", "--help"], {})).toBe(0);
+    expect(await cli(["nosuchcommand", "--help"], {})).toBe(0);
     expect(logs.join("\n")).toContain("getting started");
   });
 });
@@ -2593,7 +2553,7 @@ describe("rename-type sees both tables it is about to rewrite", () => {
     const ids: string[] = [];
     for (const s of ["alpha stands", "beta stands"]) {
       expect(
-        await runCli([
+        await cli([
           "add",
           "fact",
           "--db",
@@ -2611,21 +2571,21 @@ describe("rename-type sees both tables it is about to rewrite", () => {
   function declare(db: string, name: string): Promise<number> {
     const file = join(dir, `type-${name}.json`);
     writeFileSync(file, JSON.stringify({ name, kind: "relation", attrs: {} }));
-    return runCli(["ontology", "add-type", file, "--db", db]);
+    return cli(["ontology", "add-type", file, "--db", db]);
   }
 
   it("refuses to merge one relation type into another that has edges", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const [a, b] = await twoFacts(db);
     expect(await declare(db, "mentions")).toBe(0);
     expect(await declare(db, "blocks")).toBe(0);
-    expect(await runCli(["link", a, "blocks", b, "--db", db])).toBe(0);
-    expect(await runCli(["link", a, "mentions", b, "--db", db])).toBe(0);
+    expect(await cli(["link", a, "blocks", b, "--db", db])).toBe(0);
+    expect(await cli(["link", a, "mentions", b, "--db", db])).toBe(0);
 
-    expect(
-      await runCli(["rename-type", "mentions", "blocks", "--db", db]),
-    ).toBe(1);
+    expect(await cli(["rename-type", "mentions", "blocks", "--db", db])).toBe(
+      1,
+    );
     expect(errs.join("\n")).toMatch(/already exists and has records/);
   });
 
@@ -2634,23 +2594,21 @@ describe("rename-type sees both tables it is about to rewrite", () => {
     // whatever those edges point at — verified knowledge leaving every answer with no trace but an
     // audit line.
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const [a, b] = await twoFacts(db);
     expect(await declare(db, "notes")).toBe(0);
-    expect(await runCli(["link", b, "notes", a, "--db", db])).toBe(0);
+    expect(await cli(["link", b, "notes", a, "--db", db])).toBe(0);
 
-    expect(
-      await runCli(["rename-type", "notes", "supersedes", "--db", db]),
-    ).toBe(1);
+    expect(await cli(["rename-type", "notes", "supersedes", "--db", db])).toBe(
+      1,
+    );
     expect(errs.join("\n")).toMatch(/core acts on by name/);
 
     // And the knowledge is still there.
-    expect(await runCli(["verify", a, b, "--db", db])).toBe(0);
-    expect(await runCli(["inject", "stands", "--db", db, "--json"])).toBe(0);
-    const items = JSON.parse(logs.at(-1) as string) as Array<{
-      entity: { id: string };
-    }>;
-    expect(items.map((i) => i.entity.id).sort()).toEqual([a, b].sort());
+    expect(await cli(["verify", a, b, "--db", db])).toBe(0);
+    expect(await cli(["inject", "stands", "--db", db, "--json"])).toBe(0);
+    const items = JSON.parse(logs.at(-1) as string) as Array<{ id: string }>;
+    expect(items.map((i) => i.id).sort()).toEqual([a, b].sort());
   });
 });
 
@@ -2662,18 +2620,18 @@ describe("a kind flip sees the table its records are actually in", () => {
   // declaration and `yoke link … cites …` is refused as "an entity type".
   it("refuses turning a populated relation type into an entity type", async () => {
     const db = newDb();
-    expect(await runCli(["init", "--db", db])).toBe(0);
+    expect(await cli(["init", "--db", db])).toBe(0);
     const declare = (kind: string) => {
       const file = join(dir, `cites-${kind}.json`);
       writeFileSync(file, JSON.stringify({ name: "cites", kind, attrs: {} }));
-      return runCli(["ontology", "add-type", file, "--db", db]);
+      return cli(["ontology", "add-type", file, "--db", db]);
     };
     expect(await declare("relation")).toBe(0);
 
     const ids: string[] = [];
     for (const s of ["eta stands", "theta stands"]) {
       expect(
-        await runCli([
+        await cli([
           "add",
           "fact",
           "--db",
@@ -2685,12 +2643,12 @@ describe("a kind flip sees the table its records are actually in", () => {
       ).toBe(0);
       ids.push(JSON.parse(logs.at(-1) as string).id as string);
     }
-    expect(await runCli(["link", ids[0], "cites", ids[1], "--db", db])).toBe(0);
+    expect(await cli(["link", ids[0], "cites", ids[1], "--db", db])).toBe(0);
 
     expect(await declare("entity")).toBe(1);
     expect(errs.join("\n")).toMatch(/has records/);
     // Still a relation, so the edge and its declaration still agree.
-    expect(await runCli(["link", ids[1], "cites", ids[0], "--db", db])).toBe(0);
+    expect(await cli(["link", ids[1], "cites", ids[0], "--db", db])).toBe(0);
   });
 });
 
@@ -2702,7 +2660,7 @@ describe("the team path", () => {
   //   2. With YOKE_SERVER bound the actor comes off the verified credential, so `--actor` cannot
   //      claim to be anybody.
   it("refuses a shared backend on the ungated path, and names the way in", async () => {
-    const code = await runCli(["list"], {
+    const code = await cli(["list"], {
       ...NO_EMBED,
       YOKE_OPENSEARCH_URL: "http://opensearch.internal:9200",
     });
@@ -2711,7 +2669,7 @@ describe("the team path", () => {
     // The single-user-at-scale case still works: the refusal is about WHO is asking, not about
     // OpenSearch. Past the guard it fails on the unreachable cluster instead — a different error.
     errs.length = 0;
-    const solo = await runCli(["list"], {
+    const solo = await cli(["list"], {
       ...NO_EMBED,
       YOKE_OPENSEARCH_URL: "http://127.0.0.1:1/",
       YOKE_SOLO: "1",
@@ -2749,7 +2707,7 @@ describe("the team path", () => {
     };
     try {
       expect(
-        await runCli(
+        await cli(
           [
             "add",
             "decision",
@@ -2765,34 +2723,33 @@ describe("the team path", () => {
           env,
         ),
       ).toBe(0);
-      expect(logs.join("\n")).toContain("token:alice");
-      expect(logs.join("\n")).not.toContain("person:the-cto");
+      // The record is authored by the CREDENTIAL, whatever --actor said.
+      expect(
+        (await store.listEntities({ ns: null, type: "decision", limit: 1 }))
+          .items[0].provenance.actor,
+      ).toBe("token:alice");
 
       // And the briefing marks what it handed over, so the next unseen read is silent — the same
       // contract the local path has. Recorded as a preview it would not, which is the whole reason
       // the route separates the two.
       logs.length = 0;
       expect(
-        await runCli(["add", "collaboration", "--attr", "title=PROJ-1"], env),
+        await cli(["add", "collaboration", "--attr", "title=PROJ-1"], env),
       ).toBe(0);
       const scope = logs.join("\n").split(/\s+/)[0];
       logs.length = 0;
       expect(
-        await runCli(
+        await cli(
           ["add", "fact", "--scope", scope, "--attr", "statement=PG is Toss"],
           env,
         ),
       ).toBe(0);
 
       logs.length = 0;
-      expect(await runCli(["inject", "--scope", scope, "--unseen"], env)).toBe(
-        0,
-      );
+      expect(await cli(["inject", "--scope", scope, "--unseen"], env)).toBe(0);
       expect(logs.join("\n")).toContain("PG is Toss");
       logs.length = 0;
-      expect(await runCli(["inject", "--scope", scope, "--unseen"], env)).toBe(
-        0,
-      );
+      expect(await cli(["inject", "--scope", scope, "--unseen"], env)).toBe(0);
       expect(logs.join("\n")).toBe("");
     } finally {
       await new Promise((r) => server.close(r));

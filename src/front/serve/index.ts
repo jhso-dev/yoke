@@ -112,7 +112,8 @@ export function createServeServer(deps: ServeDeps): ServeServer {
   // closures below read the current `store` at call time, so the swap is transparent to them.
   let store = deps.store;
   const { defaultActor, auth, embedder, readOnly } = deps;
-  const ns = deps.ns ?? null;
+  // The server's own namespace. A request may narrow it only when nothing authenticates it.
+  const serverNs = deps.ns ?? null;
   const now = deps.now ?? (() => new Date().toISOString());
   const oidcVerify = deps.oidc ? makeOidcVerifier(deps.oidc) : null;
   const signer = credentialSigner(deps.tokenSecret);
@@ -148,11 +149,11 @@ export function createServeServer(deps: ServeDeps): ServeServer {
     const ts = now();
     await commit(
       store,
-      store.loadOntology(ns),
+      store.loadOntology(serverNs),
       { type: "person", attributes: { name } },
       { actor: id, origin: "oidc", occurred_at: ts },
       ts,
-      { existingId: id, ns },
+      { existingId: id, ns: serverNs },
     );
   }
 
@@ -186,6 +187,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
     res: ServerResponse,
     actor: string,
     authorize: Authorize,
+    ns: string | null,
   ): Promise<void> {
     const body = await readJsonBody(req);
     const mcp = createYokeMcpServer({
@@ -309,7 +311,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
         const { token, refresh }: Credentials = await signer.mint({
           name,
           scopes,
-          ns,
+          ns: serverNs,
         });
         res.writeHead(200, {
           "content-type": "application/json; charset=utf-8",
@@ -369,7 +371,20 @@ export function createServeServer(deps: ServeDeps): ServeServer {
     const gated =
       auth && (path === "/mcp" || path.startsWith("/api/")) && !optional;
 
-    let actor = defaultActor;
+    // Who the caller is, and which tenant they are in.
+    //
+    // UNGATED (invariant 4): the client says. `yoke add --actor alice --ns team-a` has to mean what
+    // it says against a loopback server, and there is no credential to contradict it — a single-user
+    // deployment that could not record who wrote a record would have lost the point of recording it.
+    // GATED: the credential says, and these headers are ignored entirely, which is what makes
+    // `--actor` unable to forge authorship on a shared corpus.
+    const header = (name: string): string | undefined => {
+      const raw = req.headers[name];
+      const one = Array.isArray(raw) ? raw[0] : raw;
+      return one?.trim() ? one.trim() : undefined;
+    };
+    let actor = (!auth && header("x-yoke-actor")) || defaultActor;
+    const ns = auth ? serverNs : (header("x-yoke-ns") ?? serverNs);
     let authorize: Authorize = ALLOW_ALL;
     // What this caller may put INTO a credential. Empty on the ungated path: no principal, nothing out
     // of reach (invariant 4). Under auth it is the principal's admin reach — see `ungrantable`.
@@ -405,7 +420,7 @@ export function createServeServer(deps: ServeDeps): ServeServer {
     }
 
     if (path === "/mcp") {
-      await handleMcp(req, res, actor, authorize);
+      await handleMcp(req, res, actor, authorize, ns);
       return;
     }
     // Everything else (UI shell + JSON API) goes through the exact same routes as `yoke ui`.
@@ -414,6 +429,10 @@ export function createServeServer(deps: ServeDeps): ServeServer {
       actor,
       ns,
       now,
+      // The same embedder the MCP path above gets. Without it every write through the JSON API skips
+      // the gate's duplicate and contradiction stages, and every read is keyword-only — a team server
+      // would be the one deployment where the vector half of retrieval silently does not exist.
+      embedder,
       authorize,
       grantable,
       tokenSecret: deps.tokenSecret,

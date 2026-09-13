@@ -23,7 +23,19 @@ import { commit } from "../src/core/commit.js";
 import { deprecate } from "../src/core/lifecycle.js";
 import { seedOntology } from "../src/core/ontology.js";
 // @ts-expect-error — plain .mjs, typed by its JSDoc only; imported so the scope fallback is unit-tested.
+import { createServeServer } from "../src/front/serve/index.js";
 import { resolveScope } from "./hooks/lib.mjs";
+
+/** A server on a free loopback port — what both deployments below actually talk to. */
+const listen = (srv: import("node:http").Server) =>
+  new Promise<{ base: string; close: () => void }>((resolve) =>
+    srv.listen(0, () =>
+      resolve({
+        base: `http://localhost:${(srv.address() as { port: number }).port}`,
+        close: () => srv.close(),
+      }),
+    ),
+  );
 
 const repo = fileURLToPath(new URL("..", import.meta.url));
 const pluginDir = join(repo, "plugin");
@@ -130,8 +142,15 @@ describe.skipIf(process.platform === "win32")("end to end against the real CLI",
     const d1 = (
       await commit(store, ont, { type: "fact", attributes: { statement: "PG is Toss" } }, prov, now, { attachTo: scope })
     ).entity.id;
-    store.close();
-    writeFileSync(join(cwd, ".claude/settings.json"), JSON.stringify({ env: { YOKE_SCOPE: scope } }));
+    // A local deployment is a `yoke serve` on loopback: ungated, asking for nothing, and the thing
+    // the CLI talks to. The repo binding names it beside the scope, exactly as the setup skill says.
+    const local = await listen(
+      createServeServer({ store, defaultActor: "yoke:system", auth: false }),
+    );
+    writeFileSync(
+      join(cwd, ".claude/settings.json"),
+      JSON.stringify({ env: { YOKE_SCOPE: scope, YOKE_SERVER: local.base } }),
+    );
 
     // The CLI behind YOKE_BIN, via tsx: the test must not depend on `npm run build` having run.
     const bin = join(dir, "yoke-wrapper");
@@ -140,7 +159,7 @@ describe.skipIf(process.platform === "win32")("end to end against the real CLI",
       `#!/bin/sh\nexec "${join(repo, "node_modules/.bin/tsx")}" "${join(repo, "src/front/cli/index.ts")}" "$@"\n`,
     );
     chmodSync(bin, 0o755);
-    const env = { YOKE_BIN: bin, YOKE_DB: db, YOKE_NO_AUTO_EMBED: "1", YOKE_ACTOR: "fe" };
+    const env = { YOKE_BIN: bin, YOKE_NO_AUTO_EMBED: "1", YOKE_ACTOR: "fe" };
 
     // 1. SessionStart: the briefing, plain.
     const brief = await runHook("brief.mjs", { cwd, hook_event_name: "SessionStart" }, env);
@@ -185,16 +204,6 @@ describe.skipIf(process.platform === "win32")("end to end against the real CLI",
 describe.skipIf(process.platform === "win32")("zero-action credential against a real team server", () => {
   it("first contact exchanges gh → yoke credential (announced once), delivers, heals a rotated key", async () => {
     const { createServer } = await import("node:http");
-    const { createServeServer } = await import("../src/front/serve/index.js");
-    const listen = (srv: import("node:http").Server) =>
-      new Promise<{ base: string; close: () => void }>((resolve) =>
-        srv.listen(0, () =>
-          resolve({
-            base: `http://localhost:${(srv.address() as { port: number }).port}`,
-            close: () => srv.close(),
-          }),
-        ),
-      );
 
     // api.github.com's stand-in: one known token, one login, an active member of "acme".
     const gh = await listen(

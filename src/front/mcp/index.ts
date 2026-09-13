@@ -854,7 +854,9 @@ export async function runMcp(
   // registration covers both — without this the agent files what it learns into a local file nobody
   // else reads, while the same session is briefed out of the team's corpus. The credential is the
   // CLI's, acquired the same way, so the agent's writes carry the developer's verified identity.
-  const remote = env.YOKE_SERVER ? resolveRemote(env) : null;
+  const remote = env.YOKE_SERVER
+    ? resolveRemote(env, { actor: env.YOKE_ACTOR, ns: env.YOKE_NS })
+    : null;
   if (remote) return relayMcp(remote);
   const store = await openStore({ db, shards }, env);
   await store.init();

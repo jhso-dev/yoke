@@ -11,6 +11,9 @@ import {
   type ServerResponse,
 } from "node:http";
 import { fileURLToPath } from "node:url";
+import { ingestItems } from "../../connectors/ingest.js";
+import type { SourceItem } from "../../connectors/types.js";
+import { overview } from "../../core/aggregate.js";
 import { backfillAuthorship, backfillEmbeddings } from "../../core/backfill.js";
 import { CommitRejected, commit, parseInstant } from "../../core/commit.js";
 import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
@@ -35,6 +38,7 @@ import {
   NotAPerson,
   type PersonaResult,
   personaQuery,
+  renderPersonaSkill,
 } from "../../core/persona.js";
 import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
@@ -47,6 +51,7 @@ import {
   injectDetail,
   makeActorNames,
   rankByConsumption,
+  readableCite,
   refuseKindChange,
   refuseRename,
   summarize,
@@ -54,6 +59,12 @@ import {
   unseenReport,
 } from "../display.js";
 import { declaredType, storedStatus, wholeNumber } from "../params.js";
+import {
+  personaCheckReport,
+  pulseReport,
+  roiReport,
+  shapeReport,
+} from "../reports.js";
 import { credentialSigner } from "../serve/credential.js";
 import { validateScopes } from "../serve/rbac.js";
 import { type AuditEvent, openStore, type YokeStore } from "../store.js";
@@ -465,7 +476,7 @@ export function createUiHandler(
    * uses so the trail is comparable across adapters (SPEC "HTTP API"). Called with what is about
    * to be sent, never with what was asked for, so a row cannot claim ids the response withheld. */
   const auditRead = (
-    action: "read" | "search",
+    action: "read" | "search" | "overview",
     ids: string[],
     subject?: string,
   ) =>
@@ -515,6 +526,15 @@ export function createUiHandler(
     const { asR, prefetch } = serializers();
     await prefetch(xs);
     return Promise.all(xs.map(asR));
+  };
+
+  /** A corpus with no schema was never `yoke init`ed, and "nothing found" is the wrong answer to
+   * every question asked of it — a typo'd store and an empty one must not read the same. 409 with
+   * the command that fixes it, the same refusal the create path already gives. */
+  const uninitialized = (res: ServerResponse): boolean => {
+    if (store.loadOntology(ns).length > 0) return false;
+    sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
+    return true;
   };
 
   return async function handle(
@@ -570,6 +590,7 @@ export function createUiHandler(
 
     if (method === "GET" && path === "/api/review") {
       if (denied(res, "read")) return;
+      if (uninitialized(res)) return;
       // The queue: verified records past their type's TTL. SPEC's injection filter makes viewing
       // stale review's job — otherwise stale knowledge leaves injection with nobody told, the failure
       // docs/RESEARCH.md's freshness findings all land on.
@@ -674,12 +695,26 @@ export function createUiHandler(
     // version, and the relations on both sides with the other end resolved.
     if (method === "GET" && path.startsWith("/api/entity/")) {
       const id = decodeURIComponent(path.slice("/api/entity/".length));
-      const e = await store.getEntity(id);
+      const pinned = intParam(url, "version", 0, 1_000_000) || undefined;
+      const e = await store.getEntity(id, pinned);
       // Authorize on the loaded type before answering, and 404 after — so a denied caller cannot
       // use the 404-vs-403 difference to probe which ids exist.
       if (denied(res, "read", e?.type)) return;
       if (!e || normalizeNs(e.ns) !== normalizeNs(ns)) {
-        sendJson(res, 404, { error: "not found" });
+        // "not found" is a claim about the corpus, and with a pinned version it can be false:
+        // version 99 of a record that exists at v1 is a missing VERSION, not a missing id. Ask again
+        // without the pin before answering — the two are different answers.
+        if (pinned !== undefined) {
+          const latest = await store.getEntity(id);
+          if (latest && normalizeNs(latest.ns) === normalizeNs(ns)) {
+            sendJson(res, 404, {
+              error: `${id} has no version ${pinned} — the latest is ${latest.version} (omit --version for it)`,
+              latestVersion: latest.version,
+            });
+            return;
+          }
+        }
+        sendJson(res, 404, { error: `not found: ${id}` });
         return;
       }
       const { asR, asRel, nameOf } = serializers();
@@ -695,6 +730,11 @@ export function createUiHandler(
           .filter((r) => normalizeNs(r.ns) === normalizeNs(ns))
           .map(async (r) => ({
             ...(await asRel(r)),
+            // A relation type may carry knowledge in its attributes — the seed's `relates_to`,
+            // `supersedes` and `conflicts_with` all declare `rationale` — so an edge that printed
+            // only its type would print the edge's existence while dropping what it says. This
+            // route already returns attributes and already writes the `read` row that licenses it.
+            attributes: r.attributes,
             dir: r.from === id ? ("out" as const) : ("in" as const),
             other: await side(r.from === id ? r.to : r.from),
           })),
@@ -710,6 +750,9 @@ export function createUiHandler(
           attributes: e.attributes,
           last_confirmed: e.last_confirmed,
           origin: e.provenance.origin,
+          // The whole provenance, not just its origin: it is where a retirement's `reason` lives, and
+          // a client reading a record has to be able to see why it was retired without a second call.
+          provenance: e.provenance,
           ...(e.ns != null ? { ns: e.ns } : {}),
         },
         // Core's helper, not `store.listHistory` — that extension is synchronous and therefore absent
@@ -741,6 +784,7 @@ export function createUiHandler(
 
     if (method === "GET" && path === "/api/conflicts") {
       if (denied(res, "read")) return;
+      if (uninitialized(res)) return;
       const rels = (await store.listRelations({ type: "conflicts_with", ns }))
         .items;
       const asR = asRow();
@@ -769,6 +813,7 @@ export function createUiHandler(
     // checking does not pollute the record of what an agent was actually told.
     if (method === "GET" && path === "/api/inject") {
       if (denied(res, "read")) return;
+      if (uninitialized(res)) return;
       const query = url.searchParams.get("q") ?? "";
       const scope = url.searchParams.get("scope") ?? undefined;
       if (!query && !scope)
@@ -906,6 +951,10 @@ export function createUiHandler(
               return {
                 ...r,
                 citation: it.citation,
+                // The same line the terminal prints, built once here: the id half is the audit
+                // pointer and stays an id, and who said it is rendered for a reader. `citation`
+                // above stays core's verbatim string, so the machine contract is untouched.
+                readableCitation: await readableCite(it, nameOf),
                 ...(it.author ? { author: it.author } : {}),
                 ...(authorName === undefined ? {} : { authorName }),
                 ...(it.conflictsWith
@@ -1007,6 +1056,64 @@ export function createUiHandler(
       return;
     }
 
+    // The shape of the whole corpus. Hubs come back as rows rather than raw entities, so the caller
+    // renders a name without holding the ontology — the same reason every other route returns rows.
+    if (method === "GET" && path === "/api/overview") {
+      if (denied(res, "read")) return;
+      if (uninitialized(res)) return;
+      const ontology = store.loadOntology(ns);
+      const ts = now();
+      const o = await overview(store, ontology, ts, {
+        ns,
+        top: intParam(url, "limit", 10, 200),
+      });
+      const { asR, prefetch } = serializers();
+      const hubEntities = o.hubs.map((h: { entity: Entity }) => h.entity);
+      await prefetch(hubEntities);
+      sendJson(res, 200, {
+        ...o,
+        hubs: await Promise.all(
+          o.hubs.map(async (h: { degree: number; entity: Entity }) => ({
+            degree: h.degree,
+            entity: await asR(h.entity),
+          })),
+        ),
+      });
+      // The same action the MCP tool and the CLI write, after the response (C7).
+      auditRead(
+        "overview",
+        o.hubs.map((h: { entity: Entity }) => h.entity.id),
+        "overview",
+      );
+      return;
+    }
+
+    // Every version of one record, oldest first. `listVersions` feature-detects `listHistory` and
+    // falls back to walking `getEntity(id, version)`, so a remote backend answers this too.
+    if (method === "GET" && path.startsWith("/api/history/")) {
+      if (denied(res, "read")) return;
+      const id = decodeURIComponent(path.slice("/api/history/".length));
+      const versions = await listVersions(store, id);
+      if (versions.length === 0) {
+        sendJson(res, 404, { error: `no such record: ${id}` });
+        return;
+      }
+      const rows = await rowsOf(versions);
+      sendJson(res, 200, {
+        id,
+        // `last_confirmed` and the retirement reason ride the row: a history line is the one place
+        // both are read, and the reason belongs to the version that IS the retirement, not the record.
+        versions: rows.map((r, i) => ({
+          ...r,
+          last_confirmed: versions[i].last_confirmed,
+          ...(retirementOf(versions[i])?.reason
+            ? { reason: retirementOf(versions[i])?.reason }
+            : {}),
+        })),
+      });
+      return;
+    }
+
     // Audit viewer: the append-only trail, namespace-scoped. Most-recent-N, oldest-first — the same
     // direction `yoke audit` prints, so a paging client does not have to reverse it.
     if (method === "GET" && path === "/api/audit") {
@@ -1020,6 +1127,34 @@ export function createUiHandler(
         ns,
         limit,
       });
+      // `view` is the three reports (`yoke audit --shape|--roi|--pulse`). They walk the whole corpus,
+      // so they are computed here and handed over rendered — the terminal and the browser then cannot
+      // disagree about what `--pulse` means.
+      const view = url.searchParams.get("view");
+      if (view) {
+        const report =
+          view === "shape"
+            ? shapeReport(events)
+            : view === "roi"
+              ? await roiReport(
+                  store,
+                  ns,
+                  events,
+                  url.searchParams.getAll("assume"),
+                )
+              : view === "pulse"
+                ? await pulseReport(store, ns, events, now(), {
+                    since: instantParam(url, "since"),
+                    scope: url.searchParams.get("scope") ?? undefined,
+                  })
+                : null;
+        if (!report) {
+          sendJson(res, 400, { error: `unknown view: ${view}` });
+          return;
+        }
+        sendJson(res, 200, { report: report.human, data: report.data });
+        return;
+      }
       // The trail records ids — that is the auditable fact — but an id tells a reader nothing about
       // WHAT was injected. So the actor and every id named in `detail` are resolved for reading,
       // alongside the untouched `detail` string. One batched pass over the whole page: ids repeat
@@ -1183,6 +1318,26 @@ export function createUiHandler(
         at: ts,
         ns,
       });
+      // `skill=1` is `yoke persona --out`: the SKILL.md as core renders it. The document is built
+      // here because the renderer is core's and the ontology is this corpus's; writing the file is
+      // the caller's, since only they know where it goes.
+      if (url.searchParams.get("skill") === "1") {
+        const person = await store.getEntity(id);
+        if (!person) {
+          sendJson(res, 404, { error: `not found: ${id}` });
+          return;
+        }
+        sendJson(res, 200, {
+          markdown: renderPersonaSkill(
+            person,
+            result,
+            ts,
+            store.loadOntology(ns),
+          ),
+          sources: injected.length,
+        });
+        return;
+      }
       const { asR, prefetch, nameOf } = serializers();
       // The author-aware citation, author id, and contradiction marker travel with the row, exactly as
       // on the inject preview. row() names the PROMOTER; on a persona — every row authored by the one
@@ -1319,6 +1474,7 @@ export function createUiHandler(
           // way, so `existed` is what tells the caller which of the two happened.
           sendJson(res, existed ? 200 : 201, {
             ...(await asRelRow()(entity as Relation)),
+            attributes: entity.attributes,
             existed: existed ?? false,
           });
           return;
@@ -1342,6 +1498,9 @@ export function createUiHandler(
         // neither lets someone believe their record was checked when it was not.
         sendJson(res, 201, {
           ...(await asRow()(entity)),
+          // A create returns what it created. SPEC's route table says the v1 row is what records
+          // this write, so no `read` row is owed and the attributes may travel.
+          attributes: entity.attributes,
           duplicates: await rowsOf(duplicates),
           duplicateDetection,
           // Durable record, partial commit — the screen must not render an unqualified success.
@@ -1364,6 +1523,66 @@ export function createUiHandler(
     // itself would be circular), which makes it an operating action rather than a knowledge act.
     // Append-only per name, so an existing name is a new version — a migration, exactly as it is
     // from the CLI.
+    // Bulk entry. The connector ran where its credentials and files are; the gate runs here, with
+    // this corpus's ontology and embedder, so a captured record is judged exactly like `yoke add`.
+    // `yoke persona --check`: the markdown lives on the caller's machine, the corpus it cites lives
+    // here, so the document travels and the verdicts come back. A read, not a write — it changes
+    // nothing and only reports whether what a persona cites still stands.
+    if (method === "POST" && path === "/api/persona/check") {
+      if (denied(res, "read")) return;
+      const md = (await readBody(req)).markdown;
+      if (typeof md !== "string") {
+        sendJson(res, 400, { error: "markdown is required" });
+        return;
+      }
+      const report = await personaCheckReport(store, ns, md, now());
+      if ("error" in report) {
+        sendJson(res, 400, report);
+        return;
+      }
+      sendJson(res, 200, {
+        ok: report.ok,
+        report: report.human,
+        data: report.data,
+      });
+      return;
+    }
+
+    if (method === "POST" && path === "/api/ingest") {
+      if (denied(res, "write")) return;
+      const body = await readBody(req);
+      const items = body.items;
+      if (!Array.isArray(items)) {
+        sendJson(res, 400, { error: "items must be an array of source items" });
+        return;
+      }
+      const ontology = store.loadOntology(ns);
+      if (ontology.length === 0) {
+        sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
+        return;
+      }
+      const origin =
+        typeof body.origin === "string" && body.origin
+          ? body.origin
+          : "connector:unknown";
+      const result = await ingestItems(
+        store,
+        ontology,
+        items as SourceItem[],
+        { actor, origin },
+        now(),
+        {
+          ns,
+          embedder: deps.embedder,
+          ...(typeof body.scope === "string" && body.scope
+            ? { attachTo: body.scope }
+            : {}),
+        },
+      );
+      sendJson(res, 200, result);
+      return;
+    }
+
     if (method === "POST" && path === "/api/ontology") {
       if (denied(res, "admin")) return;
       const def = (await readBody(req)).def;
@@ -1406,17 +1625,31 @@ export function createUiHandler(
       // unaudited — an embedding is a derived index, not knowledge, so there is no disclosure and no
       // trust change to record (SPEC "The vector index").
       if (body.embeddings === true) {
-        sendJson(
-          res,
-          200,
-          await backfillEmbeddings(store, {
-            embedder: deps.embedder ?? (async () => null),
-            ns,
-            limit: intParam(url, "limit", 500, 5000),
-            after: typeof body.after === "string" ? body.after : undefined,
-            rebuild: body.rebuild === true,
-          }),
-        );
+        const result = await backfillEmbeddings(store, {
+          embedder: deps.embedder ?? (async () => null),
+          ns,
+          limit: intParam(url, "limit", 500, 5000),
+          after: typeof body.after === "string" ? body.after : undefined,
+          rebuild: body.rebuild === true,
+        });
+        // `--rebuild` means "this index was built on a rule that no longer holds". That is true of
+        // the keyword half too whenever the rule was the KEY rather than the model, and rebuilding
+        // one half without the other leaves a hybrid query reading two different indexes.
+        //
+        // Feature-detected: only the backend that writes its FTS text from JS has a rebuild to call.
+        // Where it is missing this REPORTS rather than failing — a --rebuild for a changed embedding
+        // model leaves the keyword half correct, and this cannot tell that case from a re-key.
+        let rebuiltFts: number | null = null;
+        if (body.rebuild === true && "rebuildFts" in store)
+          rebuiltFts = (
+            store as unknown as { rebuildFts(o?: TypeDef[]): number }
+          ).rebuildFts(ontology);
+        sendJson(res, 200, {
+          ...result,
+          ...(body.rebuild === true
+            ? { rebuiltFts, backend: store.constructor.name }
+            : {}),
+        });
         return;
       }
       sendJson(

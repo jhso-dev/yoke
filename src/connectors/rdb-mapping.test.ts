@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { seedOntology } from "../core/ontology.js";
-import { runCli } from "../front/cli/index.js";
+import { cli } from "../front/cli/harness.js";
 import { ingestMapped, type MappingSpec } from "./rdb-mapping.js";
 
 const now = "2026-07-12T00:00:00Z";
@@ -290,7 +290,7 @@ describe("connect rdb CLI (sqlite source)", () => {
     const targetDb = join(dir, "yoke.db");
 
     try {
-      expect(await runCli(["init", "--db", targetDb])).toBe(0);
+      expect(await cli(["init", "--db", targetDb])).toBe(0);
       // The FK's relation type has to be declared, exactly as the in-process test above says: it is not
       // a seed type. This test never declared it, so the relation pass failed with
       // `unknown type: reports_to` on every run and the FK edge this fixture exists to exercise was never
@@ -302,10 +302,10 @@ describe("connect rdb CLI (sqlite source)", () => {
         JSON.stringify({ name: "reports_to", kind: "relation", attrs: {} }),
       );
       expect(
-        await runCli(["ontology", "add-type", relPath, "--db", targetDb]),
+        await cli(["ontology", "add-type", relPath, "--db", targetDb]),
       ).toBe(0);
       expect(
-        await runCli([
+        await cli([
           "connect",
           "rdb",
           "--mapping",
@@ -340,7 +340,7 @@ describe("connect rdb CLI (sqlite source)", () => {
 
       // Re-run → all skipped.
       expect(
-        await runCli([
+        await cli([
           "connect",
           "rdb",
           "--mapping",
@@ -366,7 +366,7 @@ describe("connect rdb CLI (sqlite source)", () => {
     const mapPath = join(dir, "map.json");
     writeFileSync(mapPath, JSON.stringify(EMPLOYEE_MAPPING));
     try {
-      expect(await runCli(["connect", "rdb", "--mapping", mapPath])).toBe(1);
+      expect(await cli(["connect", "rdb", "--mapping", mapPath])).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
