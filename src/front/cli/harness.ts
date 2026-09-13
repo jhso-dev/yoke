@@ -12,16 +12,7 @@ import { runCli } from "./index.js";
 type Env = Record<string, string | undefined>;
 
 /** The commands that act on a machine: they open the file themselves and need no server. */
-const LOCAL = new Set([
-  "init",
-  "serve",
-  "ui",
-  "mcp",
-  "token",
-  "backup",
-  "restore",
-  "export",
-]);
+const LOCAL = new Set(["init", "serve", "ui", "mcp", "token"]);
 
 export async function cli(argv: string[], env: Env = {}): Promise<number> {
   const i = argv.indexOf("--db");

@@ -64,15 +64,6 @@ export interface YokeStore extends StoragePort {
   renameType(from: string, to: string, ns?: string | null): Promise<number>;
   logAudit(event: AuditEvent): void;
   listAudit(q?: AuditQuery): AuditEvent[];
-  backupTo(dest: string): Promise<void>;
-  exportUntil(ts: string, destPath: string): Promise<void>;
-  /**
-   * Whether the underlying file's pages are readable — `"ok"`, or the engine's complaint.
-   *
-   * Optional, because it is a physical-storage question and a remote backend has no single file to ask
-   * about. A caller that gets `undefined` has learned nothing and must not treat that as a failure.
-   */
-  integrityCheck?(): string;
 }
 
 export interface ShardMember {
@@ -100,11 +91,6 @@ function cosine(a: Float32Array, b?: Float32Array): number {
   if (na === 0 || nb === 0) return 0;
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
-
-const PER_SHARD = (op: string) =>
-  new Error(
-    `${op} is a per-shard operation: run it against each shard's own db (see its --db path)`,
-  );
 
 export class ShardedStorage implements YokeStore {
   private readonly defaultShard: ShardMember;
@@ -338,15 +324,6 @@ export class ShardedStorage implements YokeStore {
 
   listAudit(q?: AuditQuery): AuditEvent[] {
     return (this.defaultShard.store as ExtStore).listAudit?.(q) ?? [];
-  }
-
-  // Physical durability is inherently per-file — there is no meaningful composite backup.
-  async backupTo(): Promise<void> {
-    throw PER_SHARD("backup");
-  }
-
-  async exportUntil(): Promise<void> {
-    throw PER_SHARD("export");
   }
 }
 

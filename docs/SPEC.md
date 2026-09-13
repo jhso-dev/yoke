@@ -107,9 +107,8 @@ wrong neighbours forever, and a silent wrong answer is worse than a stopped writ
 
 `StoragePort` is fully async and always was, so a network-backed backend implements it with no
 interface change. The obstacle is one layer up: the CLI, web and serve tiers hold a **`YokeStore`** —
-the port plus sqlite-shaped extensions — and **8 of those 12 extension methods are synchronous**
-(`backupTo`/`exportUntil` always returned promises; `saveOntology`/`renameType` went async in v5.2),
-because `better-sqlite3` is. A network call cannot satisfy a synchronous signature. That, not a missing
+the port plus six extensions — and **four of those six are synchronous**
+(`loadOntology`, `listHistory`, `logAudit`, `listAudit`), because `better-sqlite3` is. A network call cannot satisfy a synchronous signature. That, not a missing
 adapter, is the bar an adapter clears to be reachable from `openStore` at all: a backend whose
 `saveOntology`/`loadOntology` have to be `async` does not satisfy `YokeStore`.
 
@@ -973,9 +972,9 @@ Rules that hold for every route:
   carrying a name, history included. They change what types MEAN, which is operating the
   deployment rather than recording knowledge, and `admin` is the operating permission.
 - **Not exposed over HTTP, and why.** `init` (bootstrap: the server is already holding the
-  database it would create), `connect <source>` (needs credentials and runs long), `backup` /
-  `restore` / `export` (server-side filesystem paths — a browser form choosing where a process
-  writes is a foot-gun, not a feature), and `mcp` / `ui` / `serve` (process lifecycle, not actions).
+  database it would create), and `mcp` / `ui` / `serve` (process lifecycle, not actions). The
+  `connect` connectors ARE exposed, as `/api/ingest` and `/api/ingest-mapped`: the credentials and
+  the source stay with the caller and only what they found crosses (SPEC "Pull here, commit there").
 
   **`token` IS exposed** (the three routes in the table above). Minting from a browser is gated on
   `admin`, NOT on `write`: this is the credential surface — recording knowledge and issuing the
@@ -1122,9 +1121,7 @@ yoke relate [--limit n]    # a model proposes the links BETWEEN stored records �
 yoke mcp                   # start the MCP server (stdio)
 yoke ui [--port] [--host]  # local governance workbench (loopback, ungated, single-user)
 yoke serve [--port] [--host] [--auth] [--replica-of <path>]   # UI + JSON API + remote MCP, one port
-yoke token <create|list|revoke>            # API tokens for agents/CI (scopes: ns:type:action)
-yoke backup <dest> / yoke restore <src>    # online snapshot, WAL-safe
-yoke export --until <ts>   # PITR-lite from the append-only history
+yoke token create --name <n> --scopes <list>  # a credential for an actor with no GitHub login (CI, connectors)
 ```
 
 Common options: `--db <path>` (> `YOKE_DB` > `./yoke.db`), `--ns`, `--actor`, `--json`,

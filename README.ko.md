@@ -383,8 +383,6 @@ yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape|--pulse
 yoke connect github-pr|slack|notes|raw|rdb ... [--scope id]
 yoke relate <id...>                           # 레코드 사이의 엣지를 제안
 yoke mcp | ui | serve [--auth] [--host addr] | token create --name n --scopes s
-yoke backup <dest.db> [--force] | restore <src.db> [--force]
-yoke export --until <ts> --out <new.db>       # --shards <file> 로 백엔드 연합
 yoke backfill [--embeddings [--rebuild]]      # 저작 엣지 / 벡터 인덱스 복구
 yoke backfill --occurred-at [--dry-run]       # 이전 verify가 덮어쓴 이벤트 시각 복원
 ```

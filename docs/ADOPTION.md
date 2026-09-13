@@ -203,8 +203,13 @@ PUBG 하나에 PO·PD·개발·사업 지식이 함께 붙는다(§3). 임베더
 원격 백엔드(`YOKE_OPENSEARCH_URL`·`YOKE_POSTGRES_URL`)는 **서버가 여는 것**이다. DB 비밀번호가 개발자
 노트북에 복사될 이유가 없다.
 
-서버가 안 떠 있으면 CLI 는 거부하고 무엇을 실행할지 말한다. `init`·`serve`·`ui`·`mcp`·`token`·
-`backup`·`restore`·`export` 는 기계에 대고 하는 일이라 서버 없이 동작한다.
+서버가 안 떠 있으면 CLI 는 거부하고 무엇을 실행할지 말한다. `init`·`serve`·`ui`·`mcp`·`token` 은
+기계에 대고 하는 일이라 서버 없이 동작한다.
+
+**백업은 yoke 의 일이 아니다.** 저장소가 sqlite 파일이든 OpenSearch 든 Postgres 든, 스냅샷은 그
+데이터베이스의 도구로 뜬다 — sqlite 면 `sqlite3 yoke.db ".backup out.db"`(WAL 안전), Postgres 면
+`pg_dump`, OpenSearch 면 snapshot API. sqlite 에만 `yoke backup` 을 주면 저장소마다 할 수 있는 일이
+달라지고, 사용자는 어느 백엔드를 쓰는지에 따라 다른 명령을 외워야 한다.
 
 **바깥을 읽는 명령은 여기서 읽고 저기서 커밋한다.** `connect`(GitHub·Slack·노트·raw·rdb)와 `relate`
 는 자격증명·파일·DSN·모델이 개발자 기계에 있으므로 그 절반은 로컬에서 돌고, 게이트는 코퍼스가 있는

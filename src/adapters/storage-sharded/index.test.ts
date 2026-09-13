@@ -213,11 +213,6 @@ describe("sharded routing (2 sqlite members)", () => {
     expect(a.listAudit()).toHaveLength(0);
     expect(store.listAudit()).toHaveLength(1);
   });
-
-  it("throws a clear per-shard error for backup/export", async () => {
-    await expect(store.backupTo()).rejects.toThrow(/per-shard/);
-    await expect(store.exportUntil()).rejects.toThrow(/per-shard/);
-  });
 });
 
 // (c) config validation.
@@ -355,10 +350,6 @@ describe("CLI --shards smoke", () => {
       await cli(["search", "hello", "--ns", "b", "--shards", cfg, "--json"]),
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toHaveLength(0);
-
-    // backup with --shards errors clearly (per-shard operation).
-    expect(await cli(["backup", join(dir, "x.db"), "--shards", cfg])).toBe(1);
-    expect(errs.at(-1)).toMatch(/per-shard/);
 
     // `backfill --embeddings --rebuild` rewrites the vector half on any backend, but only the one
     // that writes its FTS text from JS has a keyword rebuild. Silently doing half the job is how an

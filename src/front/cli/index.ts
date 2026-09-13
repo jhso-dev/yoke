@@ -4,7 +4,7 @@
 // Command handlers are split out as runCli(argv, env) — testable without spawning a process; exit code is the return value.
 // Time is obtained only in this front tier (core receives `now` by injection).
 
-import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import Database from "better-sqlite3";
@@ -178,9 +178,6 @@ const COMMANDS = [
   "backfill",
   "rename-type",
   "audit",
-  "backup",
-  "restore",
-  "export",
   "mcp",
   "ui",
   "serve",
@@ -206,16 +203,7 @@ function editDistance(a: string, b: string): number {
 
 /** The commands that act on a MACHINE rather than on a corpus: they open a file, bind a port, or
  * sign a credential, and a server is no help with any of it. Everything else is a client call. */
-const LOCAL_COMMANDS = new Set([
-  "init",
-  "serve",
-  "ui",
-  "mcp",
-  "token",
-  "backup",
-  "restore",
-  "export",
-]);
+const LOCAL_COMMANDS = new Set(["init", "serve", "ui", "mcp", "token"]);
 
 function usage(): string {
   return `yoke — knowledge your AI can trust
@@ -234,7 +222,7 @@ capture:    connect github-pr|slack|notes|rdb
   connect raw <dir>         a model proposes records from unstructured material (needs YOKE_LLM_*)
   relate                    a model proposes the links BETWEEN stored records (needs YOKE_LLM_*)
 serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
-data:       backup, restore, export, audit, backfill, rename-type
+data:       audit, backfill, rename-type
   audit --shape             workload composition: anchored / briefing / plain injections
   audit --pulse             collaboration health: capture, interrupts, recall reach, relitigation
   audit --roi               efficiency: minutes saved over minutes spent, assumptions in the open
@@ -798,155 +786,6 @@ async function cmdToken(
   return 0;
 }
 
-// backup (ENTERPRISE "backup"): online WAL-safe snapshot to a fresh file.
-const BACKUP_USAGE =
-  "usage: yoke backup <dest.db>\n" +
-  "  --out belongs to 'yoke export'; backup takes the destination as its argument";
-
-async function cmdBackup(
-  positionals: string[],
-  v: Values,
-  env: Env,
-): Promise<number> {
-  const dest = positionals[0];
-  noExtra(positionals, 1, BACKUP_USAGE);
-  if (!dest) {
-    console.error(BACKUP_USAGE);
-    return 1;
-  }
-  const db = resolveDb(v, env);
-  // The same guard `restore` has, for the same destruction: overwriting an existing destination is
-  // unconfirmed and unrecoverable, so it is refused without `--force`. Named with the destination and
-  // the flag, because the ordinary case is a typo'd path rather than a change of mind.
-  if (existsSync(dest) && !v.force) {
-    console.error(
-      `refusing to overwrite existing file: ${dest} (use --force to replace it)`,
-    );
-    return 1;
-  }
-  return withStore(v, env, async (store) => {
-    // A backup of a damaged database is not a backup: a copy of corruption passes `restore`'s
-    // validation and tells the operator they are safe. Refuse to back up a file that fails
-    // integrity_check.
-    const check = store.integrityCheck?.();
-    if (check !== undefined && check !== "ok") {
-      console.error(
-        `${db} is damaged and was not backed up: ${check}\n` +
-          "a copy of a damaged database is not a backup — recover this file first",
-      );
-      return 1;
-    }
-    await store.backupTo(dest);
-    emit(v, `backed up ${db} -> ${dest}`, { db, dest });
-    return 0;
-  });
-}
-
-// restore (ENTERPRISE "backup"): safety-checked copy of a backup back over the working DB. Refuses to clobber
-// an existing DB without --force, and validates the source is a real yoke DB first. Uses .backup() to
-// write a clean consistent file (WAL-safe on both ends) rather than a raw file copy.
-async function cmdRestore(
-  positionals: string[],
-  v: Values,
-  env: Env,
-): Promise<number> {
-  const src = positionals[0];
-  noExtra(positionals, 1, "usage: yoke restore <src.db> [--force]");
-  if (!src) {
-    console.error("usage: yoke restore <src.db> [--force]");
-    return 1;
-  }
-  if (resolveShards(v, env)) {
-    console.error(
-      "restore is a per-shard operation: run it against each shard's own db",
-    );
-    return 1;
-  }
-  const dest = resolveDb(v, env);
-  if (existsSync(dest) && !v.force) {
-    console.error(
-      `refusing to overwrite existing DB: ${dest} (use --force to replace)`,
-    );
-    return 1;
-  }
-  // Validate: a real yoke DB has a seeded ontology and the yoke:system bootstrap person.
-  try {
-    const s = new Database(src, { readonly: true });
-    try {
-      // Structure first. The two checks below read `ontology_types` and one `entities` row, and on a
-      // damaged file those pages are usually intact — so without this a corrupt backup passes
-      // validation, is copied over a healthy database, and reports success.
-      //
-      // `quick_check` rather than `integrity_check`: it verifies page structure without the full index
-      // cross-check, which is the part that costs O(database) on a large file. What it catches is the
-      // class that matters here — a file that cannot be read correctly at all.
-      const check = (
-        s.pragma("quick_check", { simple: true }) as string
-      ).toLowerCase();
-      if (check !== "ok") {
-        console.error(
-          `${src} is damaged and was not restored: ${check}\n` +
-            "restoring it would destroy the database it was meant to repair",
-        );
-        return 1;
-      }
-      const { n } = s
-        .prepare("SELECT COUNT(*) AS n FROM ontology_types")
-        .get() as { n: number };
-      const sys = s
-        .prepare("SELECT 1 FROM entities WHERE id = ? LIMIT 1")
-        .get("yoke:system");
-      if (n === 0 || !sys) {
-        console.error(
-          `not a valid yoke DB: ${src} (missing ontology_types or yoke:system)`,
-        );
-        return 1;
-      }
-    } finally {
-      s.close();
-    }
-  } catch (e) {
-    console.error(`not a valid yoke DB: ${src} (${(e as Error).message})`);
-    return 1;
-  }
-  // Drop any stale WAL/SHM sidecar of the dest so the fresh copy can't be corrupted by leftover journal.
-  for (const suffix of ["-wal", "-shm"]) {
-    try {
-      rmSync(dest + suffix);
-    } catch {
-      // nothing to clean
-    }
-  }
-  const s = new Database(src, { readonly: true });
-  try {
-    await s.backup(dest);
-  } finally {
-    s.close();
-  }
-  emit(v, `restored ${src} -> ${dest}`, { src, dest });
-  return 0;
-}
-
-// export (ENTERPRISE "backup" PITR-lite): reconstruct DB state as of --until into a new file. See
-// exportUntil in storage-sqlite for the precision caveat (created_at = server-clock ingestion time).
-async function cmdExport(v: Values, env: Env): Promise<number> {
-  if (!v.until || !v.out) {
-    console.error("usage: yoke export --until <iso-ts> --out <new.db>");
-    return 1;
-  }
-  // Checked before the copy, not inside the report of it: an unparseable instant compares false
-  // against every row, so `exportUntil("yesterday")` writes a file and calls it a point in time.
-  const until = instantFlag(v.until, "until") as string;
-  return withStore(v, env, async (store) => {
-    await store.exportUntil(until, v.out as string);
-    emit(v, `exported state as of ${until} -> ${v.out}`, {
-      until,
-      out: v.out,
-    });
-    return 0;
-  });
-}
-
 /**
  * `yoke <command> --help`. Five commands take no required argument, so the "run it with missing
  * arguments" convention never fires for them and their flags need documenting somewhere a reader looks.
@@ -962,7 +801,6 @@ const COMMAND_USAGE: Record<string, string> = {
   inject: INJECT_USAGE,
   history: HISTORY_USAGE,
   ontology: ONTOLOGY_USAGE,
-  backup: BACKUP_USAGE,
   review:
     "usage: yoke review [--type t] [--limit n] [--after cursor]\n" +
     "  the re-confirmation queue: verified records past their type's TTL, most-injected first",
@@ -985,10 +823,8 @@ const COMMAND_USAGE: Record<string, string> = {
   link: "usage: yoke link <from-id> <relation> <to-id> [--actor id] [--attr k=v ...]",
   persona:
     "usage: yoke persona <person-id> [--out dir]\n       yoke persona --check <SKILL.md>",
-  restore: "usage: yoke restore <src.db> [--force]",
-  export: "usage: yoke export --until <iso-ts> --out <new.db>",
   "rename-type": "usage: yoke rename-type <from> <to>",
-  token: "usage: yoke token <create|list|revoke> ...",
+  token: TOKEN_CREATE_USAGE,
 };
 
 export async function runCli(
@@ -1159,12 +995,6 @@ export async function runCli(
         return await cmdServe(values, env);
       case "token":
         return await cmdToken(rest, values, env);
-      case "backup":
-        return await cmdBackup(rest, values, env);
-      case "restore":
-        return await cmdRestore(rest, values, env);
-      case "export":
-        return await cmdExport(values, env);
       case "mcp": {
         // Start the stdio server — does not resolve until the connection closes (keeps the process alive).
         // Imported here, not at the top: the MCP SDK is 55ms of startup (measured) and only this
@@ -1215,7 +1045,7 @@ export async function runCli(
       /malformed|not a database|file is encrypted|disk image/i.test(msg);
     console.error(
       corrupt
-        ? `${db}: ${msg}\nthis file is not a readable yoke database — restore a backup with 'yoke restore <backup.db> --force'`
+        ? `${db}: ${msg}\nthis file is not a readable yoke database — restore it from a snapshot taken with your database's own tooling`
         : `${command ?? "yoke"} failed on ${db}: ${msg}`,
     );
     return 1;

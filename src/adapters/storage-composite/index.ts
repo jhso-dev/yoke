@@ -193,22 +193,6 @@ class CompositeStorage implements YokeStore {
 
   /** A file copy of a database this process does not own. The remote backend's own snapshot tooling
    * does this, and pretending otherwise would produce a backup missing the knowledge. */
-  async backupTo(_dest: string): Promise<void> {
-    throw new Error(
-      "backup is not available on a remote backend: the knowledge lives in the remote database, " +
-        "so use that database's own snapshot tooling. The local sqlite holds only this client's " +
-        "audit trail and tokens.",
-    );
-  }
-
-  /** Same reason as backupTo — an export that silently covered only the local half would be worse
-   * than an error, because it would look like a complete one. */
-  async exportUntil(_ts: string, _destPath: string): Promise<void> {
-    throw new Error(
-      "export is not available on a remote backend: the knowledge lives in the remote database. " +
-        "Use its own tooling, or run the export against a local sqlite deployment.",
-    );
-  }
 }
 
 /** `listHistory` is optional on `YokeStore` precisely so this composite can omit it, which is why
