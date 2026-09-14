@@ -36,7 +36,7 @@ missing scope, or an unreachable store all mean "no context this round".
 | `.claude/settings.local.json` `env` | `YOKE_ACTOR` | who this client is — the audit trail records who was told what |
 | env | `YOKE_BIN` | path to the yoke CLI when it is not on PATH |
 | env / repo `.env` | `YOKE_DB`, `YOKE_POSTGRES_URL`, … | which store — the CLI's normal contract, unchanged |
-| repo `.claude/settings.json` `env` | `YOKE_SERVER` | a team `yoke serve --auth`. The CLI talks to it instead of opening a store, and the hooks and `yoke mcp` both follow — one binding, one credential, acquired by the zero-action GitHub exchange below |
+| repo `.claude/settings.json` `env` | `YOKE_SERVER` | a team `yoke serve --auth`. Unset, the CLI talks to your own `yoke serve` on 127.0.0.1:4800; either way the hooks and `yoke mcp` follow the same binding — one credential, acquired by the zero-action GitHub exchange below |
 | env | `YOKE_TOKEN` | an explicitly issued token — set, it disables the exchange entirely |
 | env | `YOKE_DEBUG` | `1` explains hook failures on stderr (the debug log) — the escape hatch from the silence rule |
 

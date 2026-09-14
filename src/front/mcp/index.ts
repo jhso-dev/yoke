@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
-// yoke MCP server — stdio transport. Started with `yoke mcp [--db path]`.
-// Six tools: yoke_inject / yoke_commit / yoke_record_decision / yoke_overview / yoke_persona / yoke_use_scope.
+// The yoke MCP server, and the stdio client that relays into it.
+//
+// `createYokeMcpServer` is where the tools live; `yoke serve` mounts it at POST /mcp and `yoke mcp`
+// is a stdio relay to that endpoint — one implementation, one store, whichever door an agent uses.
 // Governance: every commit enters verified under a signed actor — filing is the entry bar, and the
 // quality controls are downstream (TTL re-confirmation, retirement with reason, conflicts_with).
 // No verify/deprecate tool: re-confirming and retiring are a person's acts, on the CLI and the UI.
@@ -18,16 +20,15 @@ import {
 } from "../../connectors/ingest.js";
 import { overview } from "../../core/aggregate.js";
 import { CommitRejected, commit } from "../../core/commit.js";
-import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
+import type { Embedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
   entityIdCandidates,
-  envKeywordWeight,
   inject,
   injectLimit,
   WALK_BUDGET,
 } from "../../core/inject.js";
-import { normalizeNs, resolveNs } from "../../core/namespace.js";
+import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import {
   NotAPerson,
@@ -47,8 +48,7 @@ import {
   makeActorNames,
   readableCite,
 } from "../display.js";
-import { type Remote, resolveRemote } from "../remote.js";
-import { openStore } from "../store.js";
+import type { Remote } from "../remote.js";
 
 const ORIGIN = "mcp";
 
@@ -99,21 +99,17 @@ interface YokeMcpDeps {
   embedder?: Embedder;
   /** Per-deployment hybrid fusion weight (YOKE_KEYWORD_WEIGHT) — see core KEYWORD_WEIGHT's ceiling. */
   keywordWeight?: number;
-  /** Per-request RBAC hook (ENTERPRISE "RBAC"). Default allow-all — stdio `yoke mcp` is single-user
-   * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */
+  /** Per-request RBAC hook (ENTERPRISE "RBAC"). Default allow-all — a loopback `yoke serve` is
+   * single-user (invariant 4); under --auth it binds to the Bearer token's scopes. Denied calls
+   * return a tool error. */
   authorize?: (action: "read" | "write", type?: string) => boolean;
-  /** Default injection/capture scope (a collaboration/entity id) resolved at startup from YOKE_SCOPE
-   * (v4.0). The agent can also pin one at runtime via yoke_use_scope; a tool-call `scope` argument
-   * always overrides both. null = no default. */
-  defaultScope?: string | null;
 }
 
 /** Resolve a work-item key (or entity id) to an anchor entity. Exact entity id wins (getEntity);
  * otherwise search for an entity whose `key` OR `title` attribute equals the key, preferring a
  * `collaboration` since that is what a work-item key names. Any entity type may anchor an injection —
  * a collaboration is the shared working context, a person is a persona — so the fallback is not
- * restricted to one type. Front-tier only. Returns null when nothing matches. Shared by startup
- * (YOKE_SCOPE) and the yoke_use_scope tool.
+ * restricted to one type. Front-tier only. Returns null when nothing matches.
  */
 async function resolveScope(
   store: Pick<StoragePort, "getEntity" | "search">,
@@ -153,17 +149,15 @@ const err = (text: string) => ({ ...ok(text), isError: true });
 export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   const { store, ontology, defaultActor, embedder, keywordWeight } = deps;
   const ns = deps.ns ?? null;
-  const defaultScope = deps.defaultScope ?? null;
-  // Runtime scope pinned by yoke_use_scope. Mutable state in the closure is fine for stdio's
-  // long-lived process; serve mode uses a fresh server per request so it simply never persists.
+  // Runtime scope pinned by yoke_use_scope. `serve` builds one of these per request, so the pin
+  // does not outlive the call that set it — the agent passes `scope` per call, and the tool exists
+  // to hand it the id to pass.
   let sessionScope: string | null = null;
-  // Precedence: explicit per-call scope > session pin (yoke_use_scope) > startup YOKE_SCOPE.
-  // An explicit empty string opts OUT for that call — without it, a pinned session
-  // could never record or query knowledge outside its collaboration.
+  // Precedence: explicit per-call scope > session pin (yoke_use_scope). An explicit empty string
+  // opts OUT for that call — without it, a pinned session could never record or query knowledge
+  // outside its collaboration.
   const effectiveScope = (scope?: string) =>
-    scope === ""
-      ? undefined
-      : (scope ?? sessionScope ?? defaultScope ?? undefined);
+    scope === "" ? undefined : (scope ?? sessionScope ?? undefined);
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
   const forbidden = () =>
@@ -819,8 +813,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         "(e.g. 'this is ABC-12345 work'), call this once — subsequent injections and recordings default " +
         "to that scope. Resolves the key to a collaboration (by exact entity id, or a collaboration whose key " +
         "or title matches). If none matches, it says so and you can create one via yoke_commit (type " +
-        "collaboration, attributes { title, key }) then call yoke_use_scope again. In stateless deployments " +
-        "the session pin does not persist, so pass scope per call — this tool still returns the resolved id for reuse.",
+        "collaboration, attributes { title, key }) then call yoke_use_scope again. The pin does not " +
+        "persist between calls, so pass scope per call — this tool returns the resolved id to pass.",
       inputSchema: {
         key: z
           .string()
@@ -845,48 +839,44 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   return server;
 }
 
-/** Entry point for the CLI `yoke mcp` command. Opens the DB, loads the ontology, and starts the stdio server. */
-export async function runMcp(
-  db: string,
-  env: Record<string, string | undefined>,
-  shards?: string,
-): Promise<void> {
-  // The team deployment: relay to the server's own MCP endpoint instead of opening a store. One
-  // registration covers both — without this the agent files what it learns into a local file nobody
-  // else reads, while the same session is briefed out of the team's corpus. The credential is the
-  // CLI's, acquired the same way, so the agent's writes carry the developer's verified identity.
-  const remote = env.YOKE_SERVER
-    ? resolveRemote(env, { actor: env.YOKE_ACTOR, ns: env.YOKE_NS })
-    : null;
-  if (remote) return relayMcp(remote);
-  const store = await openStore({ db, shards }, env);
-  const ns = resolveNs(undefined, env);
-  // Default working-context scope (v4.0): YOKE_SCOPE, an explicit entity id or collaboration key resolved
-  // at startup (for fixed setups). At runtime the agent pins scope via the yoke_use_scope tool instead.
-  let defaultScope: string | null = null;
-  if (env.YOKE_SCOPE) {
-    const resolved = await resolveScope(store, ns, env.YOKE_SCOPE);
-    if (resolved) defaultScope = resolved.id;
-    else
-      process.stderr.write(
-        `yoke: YOKE_SCOPE "${env.YOKE_SCOPE}" did not resolve to any entity or collaboration — no default scope\n`,
-      );
+/**
+ * Entry point for the CLI `yoke mcp` command: stdio in, `yoke serve`'s `/mcp` out. Exit code back.
+ *
+ * `mcp` is a client like every other command (invariant 3). It opens nothing: on a laptop the same
+ * `yoke serve` answers the CLI and the agent, so one process owns the store, the audit ledger and
+ * the embedder, and the two doors cannot read different environments and disagree.
+ *
+ * The `Remote` is the dispatcher's own — including the store the caller's `--db` says it expects —
+ * so the server's 409 guard reaches an agent's session exactly as it reaches `yoke add`. A stdio
+ * client is the last place a write into another project's corpus would be noticed.
+ */
+export async function runMcp(remote: Remote): Promise<number> {
+  // One request before the relay, because stdio is a protocol stream: a refusal that arrived only as
+  // a JSON-RPC error would leave the agent with no yoke tools and the reason nowhere a person looks.
+  // `/api/meta` needs no credential and is the same request the store guard answers 409 to, so both
+  // "nothing is listening" and "that is another project's server" are said here, in words.
+  const probe = await remote
+    .call("GET", "/api/meta")
+    .catch((e: unknown) => ({ status: 0, text: (e as Error).message }));
+  if (probe.status !== 200) {
+    // Returned, never `process.exit()`: stderr is a pipe the client owns, and exit() discards what
+    // node has buffered for it — the line above is the whole point of failing here.
+    process.stderr.write(`yoke: ${reason(probe)}\n`);
+    return 1;
   }
-  const server = createYokeMcpServer({
-    store,
-    ontology: store.loadOntology(ns),
-    defaultActor: env.YOKE_ACTOR ?? "yoke:system",
-    ns,
-    embedder: makeFetchEmbedder(env),
-    keywordWeight: envKeywordWeight(env),
-    defaultScope,
-  });
-  await server.connect(new StdioServerTransport());
-  // Wait until the client closes stdin (until then runCli does not resolve, so the process stays alive).
-  await new Promise<void>((resolve) => {
-    server.server.onclose = resolve;
-  });
-  store.close();
+  await relayMcp(remote);
+  return 0;
+}
+
+/** The server's own sentence when it sent one, else whatever `Remote` said about not reaching it. */
+function reason(probe: { status: number; text: string }): string {
+  try {
+    const b = JSON.parse(probe.text) as { error?: string };
+    if (b.error) return b.error;
+  } catch {
+    // Not JSON — a proxy's HTML, or the connection error `Remote` already phrased for a reader.
+  }
+  return probe.text.trim() || `HTTP ${probe.status}`;
 }
 
 /**
@@ -897,7 +887,7 @@ export async function runMcp(
  * request and is re-acquired by `Remote` when it expires, which is the only reason a long-lived
  * stdio session survives a week-old access token.
  *
- * Resolves when stdin closes, like the local path — the client owns the process lifetime.
+ * Resolves when stdin closes — the client owns the process lifetime.
  */
 async function relayMcp(remote: Remote): Promise<void> {
   const stdio = new StdioServerTransport();

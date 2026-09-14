@@ -1,13 +1,9 @@
 {
-  "_comment": "Copy to .mcp.json (gitignored) to point an MCP client at this checkout's own build. Run `npm run build:cli` first, and `yoke init` once. The embedder lines are optional: without them retrieval is keyword-only, and with them they must name a model you actually serve.",
+  "_comment": "Copy to .mcp.json (gitignored) to point an MCP client at this checkout's own build. Run `npm run build:cli` first, then keep a `yoke serve --db ./yoke.db` running — `yoke mcp` opens nothing, it relays stdio to that server, and `--db` here is the store it expects the server to hold. The embedder lines belong to the SERVER, which is what embeds; set them there.",
   "mcpServers": {
     "yoke": {
       "command": "node",
-      "args": ["dist/front/cli/index.js", "mcp", "--db", "./yoke.db"],
-      "env": {
-        "YOKE_EMBED_URL": "http://localhost:11434/v1",
-        "YOKE_EMBED_MODEL": "bge-m3"
-      }
+      "args": ["dist/front/cli/index.js", "mcp", "--db", "./yoke.db"]
     }
   }
 }

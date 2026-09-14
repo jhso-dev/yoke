@@ -132,7 +132,8 @@ function emit(v: Values, human: string, data: unknown): void {
   console.log(v.json ? JSON.stringify(data) : human);
 }
 
-/** --shards <file> (or YOKE_SHARDS) if set, else undefined — the single-sqlite fast path. */
+/** --shards <file> (or YOKE_SHARDS) if set, else undefined — the single-sqlite fast path. The
+ * shards are the SERVER's, so only `serve` and `ui` read this. */
 const resolveShards = (v: Values, env: Env): string | undefined =>
   v.shards ?? env.YOKE_SHARDS;
 
@@ -181,9 +182,8 @@ function editDistance(a: string, b: string): number {
   return prev[b.length];
 }
 
-/** The commands that ARE a machine rather than a call to one: two of them are the server, and `mcp`
- * relays another protocol into it. Everything else the CLI does is a client call. */
-const LOCAL_COMMANDS = new Set(["serve", "ui", "mcp"]);
+/** The commands that ARE the server. Everything else the CLI does is a call to one. */
+export const LOCAL_COMMANDS = new Set(["serve", "ui"]);
 
 function usage(): string {
   return `yoke — knowledge your AI can trust
@@ -202,7 +202,8 @@ knowledge:  get, list, graph, search, history, conflicts, deprecate, ontology, p
 capture:    connect github-pr|slack|notes|rdb
   connect raw <dir>         a model proposes records from unstructured material (needs YOKE_LLM_*)
   relate                    a model proposes the links BETWEEN stored records (needs YOKE_LLM_*)
-serving:    mcp, ui, serve, token   (--port, --host; loopback unless --host is given)
+serving:    ui, serve, token   (--port, --host; loopback unless --host is given)
+  mcp                       stdio for an AI tool — relays to the server, opens no store
 data:       audit, backfill, rename-type
   audit --shape             workload composition: anchored / briefing / plain injections
   audit --pulse             collaboration health: capture, interrupts, recall reach, relitigation
@@ -765,25 +766,20 @@ export async function runCli(
     }
     // Everything that touches the corpus goes to a server. Locally that is a `yoke serve` on
     // loopback, ungated and asking for nothing; for a team it is theirs, and the actor is read off
-    // the verified credential so `--actor` cannot claim to be somebody. `runRemote` returns null for
-    // the three commands that ARE a machine rather than a call to one, and those, and only those,
-    // fall through to the switch.
-    {
-      const { resolveRemote, runRemote } = await import("../remote.js");
-      const code = await runRemote(
-        // Who this caller says they are. An ungated server takes it (invariant 4: `--actor` has to
-        // mean something on a single-user store); a gated one ignores it and reads the credential.
-        resolveRemote(env, {
-          actor: values.actor ?? env.YOKE_ACTOR,
-          ns: resolveNs(values.ns, env) ?? undefined,
-          store: resolve(resolveDb(values, env)),
-        }),
-        command,
-        rest,
-        values,
-      );
-      if (code !== null) return code;
-    }
+    // the verified credential so `--actor` cannot claim to be somebody. `runRemote` answers every
+    // command that IS a call to a route and returns null for the rest — `serve` and `ui` (they are
+    // the server), `mcp` (it relays another protocol into it), `connect` and `relate` (they read the
+    // outside world first, then hand what they found to these same routes) — and those fall through.
+    const { resolveRemote, runRemote } = await import("../remote.js");
+    const remote = resolveRemote(env, {
+      // Who this caller says they are. An ungated server takes it (invariant 4: `--actor` has to
+      // mean something on a single-user store); a gated one ignores it and reads the credential.
+      actor: values.actor ?? env.YOKE_ACTOR,
+      ns: resolveNs(values.ns, env) ?? undefined,
+      store: resolve(resolveDb(values, env)),
+    });
+    const code = await runRemote(remote, command, rest, values);
+    if (code !== null) return code;
     switch (command) {
       case "connect":
         return await cmdConnect(rest, values, env);
@@ -794,13 +790,12 @@ export async function runCli(
       case "serve":
         return await cmdServe(values, env);
       case "mcp": {
-        // Start the stdio server — does not resolve until the connection closes (keeps the process alive).
-        // Imported here, not at the top: the MCP SDK is 55ms of startup (measured) and only this
-        // one command needs it. Every other invocation — and a hook shelling out to one — pays it
-        // for nothing. Same reason `openStore` defers the remote adapters.
+        // Relay stdio to the server's /mcp — does not resolve until the client closes stdin (which
+        // is what keeps the process alive). Imported here, not at the top: the MCP SDK is 55ms of
+        // startup (measured) and only this one command needs it. Every other invocation — and a
+        // hook shelling out to one — pays it for nothing.
         const { runMcp } = await import("../mcp/index.js");
-        await runMcp(resolveDb(values, env), env, resolveShards(values, env));
-        return 0;
+        return await runMcp(remote);
       }
       default:
         // A near miss gets the correction instead of 25 lines of overview. Every mistyped command in a

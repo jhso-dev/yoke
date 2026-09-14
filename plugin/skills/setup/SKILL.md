@@ -58,11 +58,10 @@ server has not enabled the exchange. `YOKE_DEBUG=1` on a hook explains failures 
 
 ## 4c. The agent follows the same binding
 
-Nothing more to register. `yoke mcp` reads `YOKE_SERVER` too: with it bound the MCP adapter relays
-to the server's own endpoint instead of opening a local store, under the same credential the hooks
-use — so what the agent files lands in the team's corpus, signed with the developer's identity.
-Confirm it once: commit something through the agent's tool, then check it comes back from
-`GET $YOKE_SERVER/api/entity/<id>`.
+Nothing more to register. `yoke mcp` is a client like the hooks — it opens no store of its own, it
+relays stdio to the server's `/mcp` under the same credential the hooks use, so what the agent files
+lands in the team's corpus signed with the developer's identity. Confirm it once: commit something
+through the agent's tool, then check it comes back from `GET $YOKE_SERVER/api/entity/<id>`.
 
 ## 5. Prove it
 

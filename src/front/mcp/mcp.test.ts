@@ -2,12 +2,16 @@
 // Uses InMemoryTransport instead of spawn (allowed): server and client are connected as a linked pair,
 // but each connection opens and closes the DB file afresh, preserving the "Client A commits → close → Client B reads" scenario.
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { BRIEFING_LIMIT } from "../../core/inject.js";
@@ -16,8 +20,9 @@ import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
 import type { AuditEvent } from "../../ports/audit.js";
 import { cli } from "../cli/harness.js";
+import { type Remote, resolveRemote } from "../remote.js";
 import { openStore, type YokeStore } from "../store.js";
-import { createYokeMcpServer } from "./index.js";
+import { createYokeMcpServer, runMcp } from "./index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-mcp-"));
 const db = join(dir, "yoke.db");
@@ -1229,4 +1234,116 @@ describe("tool results when the audit trail fails, and when an id is not a name"
     expect(out).not.toContain("Retired Person");
     expect(out).not.toContain(retired);
   });
+});
+
+// `yoke mcp` is a client, like every other command. It opens no store: the agent and the CLI reach
+// the same `yoke serve`, so neither can read an environment the other does not and file into a
+// ledger the other never sees.
+describe("yoke mcp is a client", () => {
+  const stderrOf = async (run: () => Promise<number>) => {
+    const said: string[] = [];
+    const spy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk: unknown) => {
+        said.push(String(chunk));
+        return true;
+      });
+    try {
+      return { code: await run(), said: said.join("") };
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  /** An address nothing is on: bound to claim a free port, then released. */
+  async function closedPort(): Promise<number> {
+    const probe = createServer();
+    await new Promise<void>((r) => probe.listen(0, "127.0.0.1", r));
+    const { port } = probe.address() as { port: number };
+    await new Promise((r) => probe.close(r));
+    return port;
+  }
+
+  it("with no server: one line a person can act on, exit 1, and no store created", async () => {
+    const never = join(dir, "never-opened.db");
+    const remote = resolveRemote(
+      { YOKE_SERVER: `http://127.0.0.1:${await closedPort()}` },
+      { store: never },
+    );
+    const { code, said } = await stderrOf(() => runMcp(remote));
+    expect(code).toBe(1);
+    // Not a JSON-RPC error the agent swallows — the sentence, on stderr, naming the remedy.
+    expect(said).toMatch(/no yoke server at http:\/\/127\.0\.0\.1:\d+/);
+    expect(said).toContain("yoke serve");
+    expect(existsSync(never)).toBe(false);
+  });
+
+  // The same guard cli.test.ts "one port, many projects" pins, reached through the other door: the
+  // address default is machine-global while a store is per-directory, and an agent's stdio session
+  // is the last place a write into another project's corpus would be noticed.
+  it("aimed at a server holding another project's store: refused before a tool call", async () => {
+    const mine = join(dir, "mine.db");
+    const theirs = join(dir, "theirs.db");
+    const { runServe } = await import("../serve/index.js");
+    const server = await runServe(theirs, 0, {}, {});
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    try {
+      // Built with no YOKE_SERVER — that is what makes the client state the store it MEANT — then
+      // aimed here the way the default address would land it on the wrong project's server.
+      const built = resolveRemote({}, { store: mine });
+      const aimed: Remote = {
+        ...built,
+        base,
+        call: (m, path, body) =>
+          built.call(m, new URL(path, base).toString(), body),
+      };
+      const { code, said } = await stderrOf(() => runMcp(aimed));
+      expect(code).toBe(1);
+      expect(said).toContain("another project's");
+      expect(said).toContain(theirs);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+    // Neither store was touched: the one the caller meant was never created, and the one that
+    // answered holds nothing but what `serve` seeds.
+    expect(existsSync(mine)).toBe(false);
+    const store = await openStore({ db: theirs }, {});
+    expect(
+      (await store.listEntities({ type: "fact", limit: 10 })).items,
+    ).toHaveLength(0);
+    store.close();
+  });
+
+  // A real process, because stdin and stdout ARE the transport here — in-process there is no stdio
+  // to relay, so this is the only place the command's actual wiring is exercised.
+  it("with a server: an initialize round-trip over stdio", async () => {
+    const { runServe } = await import("../serve/index.js");
+    const server = await runServe(join(dir, "relayed.db"), 0, {}, {});
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    const entry = fileURLToPath(new URL("../cli/index.ts", import.meta.url));
+    const child = promisify(execFile)(
+      process.execPath,
+      ["--import", "tsx", entry, "mcp"],
+      { env: { ...process.env, YOKE_SERVER: base } },
+    );
+    child.child.stdin?.end(
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "t", version: "0" },
+        },
+      })}\n`,
+    );
+    const { stdout } = await child.finally(
+      () => new Promise((r) => server.close(r)),
+    );
+    const answer = JSON.parse(stdout.trim()) as {
+      result?: { serverInfo?: { name?: string } };
+    };
+    expect(answer.result?.serverInfo?.name).toBe("yoke");
+  }, 30_000);
 });

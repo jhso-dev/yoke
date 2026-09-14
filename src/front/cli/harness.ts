@@ -7,19 +7,16 @@
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { createServeServer } from "../serve/index.js";
 import { openStore } from "../store.js";
-import { runCli } from "./index.js";
+import { LOCAL_COMMANDS, runCli } from "./index.js";
 
 type Env = Record<string, string | undefined>;
-
-/** The commands that ARE a machine rather than a call to one. */
-const LOCAL = new Set(["serve", "ui", "mcp"]);
 
 export async function cli(argv: string[], env: Env = {}): Promise<number> {
   const i = argv.indexOf("--db");
   const db = i >= 0 ? argv[i + 1] : env.YOKE_DB;
   const j = argv.indexOf("--shards");
   const shards = j >= 0 ? argv[j + 1] : env.YOKE_SHARDS;
-  if ((!db && !shards) || LOCAL.has(argv[0]) || env.YOKE_SERVER)
+  if ((!db && !shards) || LOCAL_COMMANDS.has(argv[0]) || env.YOKE_SERVER)
     return runCli(argv, env);
   // `--shards` names a store too, and it is the server's to open — so the server opens it and the
   // call keeps its flags, exactly as it would against a `yoke serve --shards`. Opened through the

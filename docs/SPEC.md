@@ -862,9 +862,9 @@ by calling `yoke_use_scope { key }`. The key is resolved to an anchor entity: an
 pinned as the session default for subsequent injections and recordings, and the resolved `{ id, title }`
 is returned; on no match the tool returns a non-error hint to create one via `yoke_commit` (type
 `collaboration`, attributes `{ title, key }`) and call again. Precedence: a per-call `scope` argument >
-the session pin (`yoke_use_scope`) > `YOKE_SCOPE` (an entity id or collaboration key resolved at startup,
-for fixed setups). In stateless (serve) deployments the session pin does not persist, so the agent
-passes `scope` per call — `yoke_use_scope` still returns the resolved id for reuse.
+the session pin (`yoke_use_scope`). The MCP server is stateless — one instance per request inside
+`yoke serve`, which stdio `yoke mcp` relays to — so the pin does not outlive the call that set it:
+the agent passes `scope` per call, and `yoke_use_scope` returns the resolved id for reuse.
 
 We deliberately do **not** infer scope from the git branch: branch names usually carry a *child* task
 key while the shared context lives on the *parent* collaboration, so regex-from-branch systematically
@@ -1124,7 +1124,7 @@ yoke connect <github-pr|slack|notes|raw|rdb> [--scope id]   # external sources �
                            # captured knowledge reaches a briefing and not only a query
                                            # raw extracts via a model — see "Extractor contract"
 yoke relate [--limit n]    # a model proposes the links BETWEEN stored records — see "Relater contract"
-yoke mcp                   # start the MCP server (stdio)
+yoke mcp                   # relay stdio to the server's /mcp — the agent's door to the same server
 yoke ui [--port] [--host]  # local governance workbench (loopback, ungated, single-user)
 yoke serve [--port] [--host] [--auth] [--bootstrap-admin]    # UI + JSON API + remote MCP, one port
                            # creates and seeds the store if it is not there; --bootstrap-admin prints
@@ -1133,8 +1133,9 @@ yoke token create --name <n> --scopes <list>  # asks the server to sign a creden
                            # with no GitHub login (CI, connectors) — needs an 'admin' scope
 ```
 
-Common options: `--db <path>` (> `YOKE_DB` > `./yoke.db`), `--ns`, `--actor`, `--json`,
-`--shards <config.json>`.
+Common options: `--db <path>` (> `YOKE_DB` > `./yoke.db`), `--ns`, `--actor`, `--json`. On a
+client `--db` names the store the caller EXPECTS the server to hold; `--shards <config.json>` is the
+server's, so it is read by `serve` and `ui` and by nothing else.
 
 ### Configuration precedence
 
