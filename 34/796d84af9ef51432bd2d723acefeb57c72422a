@@ -1,0 +1,58 @@
+docs/SPEC.md
+  s_03673cb32bfdc1::t_15fca678be5be0 1130-1133
+src/front/serve/credential.ts
+  s_03673cb32bfdc1::t_a359548c051bfe 46-48
+  s_03673cb32bfdc1::t_dec6876d656e0d 92,94-95
+  s_03673cb32bfdc1::t_5a48a9da2bda01 15-16
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_662a432308d68f 67,81-86
+  s_03673cb32bfdc1::t_e70d28905d081b 1961-1963,1972
+  s_03673cb32bfdc1::t_365254aac4f7dd 68-72,1931-1932,1942-1944
+src/front/cli/cli.test.ts
+  s_03673cb32bfdc1::t_a70ffab5ddfbbf 2553
+  s_03673cb32bfdc1::t_1f2da6ac667cf7 2535-2552,2554-2561
+docs/ENTERPRISE.md
+  s_03673cb32bfdc1::t_15fca678be5be0 42-46
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_e695fc47489879 593-594
+  s_03673cb32bfdc1::t_80544a7650313d 823-825,832-834
+src/front/store.ts
+  s_03673cb32bfdc1::t_9a6a1980243ecd 22-23,30
+  s_03673cb32bfdc1::t_81a7e087bb7f1b 154
+  s_03673cb32bfdc1::t_152dd4bccfcae9 68-74
+  s_03673cb32bfdc1::t_999885db846ab3 180
+  s_03673cb32bfdc1::t_cffa6f50cd657d 199
+  s_03673cb32bfdc1::t_136009f2b9e027 122-128,132
+  s_03673cb32bfdc1::t_ee71adcfab34d4 50-67,75-85
+src/front/params.ts
+  s_03673cb32bfdc1::t_cbb3712de063da 78-80,83-85
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_4df28afdc81ba3 624,628-629,644,651-658,692-695,697-700
+  s_03673cb32bfdc1::t_0e44f41ce7106d 630-633
+  s_03673cb32bfdc1::t_548c4f9737cc07 7-13,696
+  s_03673cb32bfdc1::t_d672e988fddb9f 701
+src/front/serve/index.ts
+  s_03673cb32bfdc1::t_6e7632f663b158 514-516
+  s_03673cb32bfdc1::t_24beedf0267697 28-29
+  s_03673cb32bfdc1::t_e9cbbde10b8520 527-533,535-540
+  s_03673cb32bfdc1::t_d857ad2ec52ff0 432-435
+  s_03673cb32bfdc1::t_9d823bdd7aeacb 464
+  s_03673cb32bfdc1::t_96fb1479d80292 450-455
+  s_03673cb32bfdc1::t_f4783f4f373ca9 475,480-494,498
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "34796d84af9ef51432bd2d723acefeb57c72422a",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
