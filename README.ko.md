@@ -12,7 +12,7 @@
 
 온톨로지 기반 지식 데이터베이스 · AI 에이전트를 위한 거버넌스 컨텍스트 주입 · MCP 네이티브
 
-MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/artifact/09d92d76-5eee-453d-ae79-ec40616f6396)
+MIT · v7.6까지 기능 완성 · [비주얼 소개](https://claude.ai/code/artifact/09d92d76-5eee-453d-ae79-ec40616f6396)
 
 [English](README.md) | **한국어**
 
@@ -83,9 +83,8 @@ MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 그리고 주장이 아니라 측정입니다: 주입 품질 eval은 **오염률 0%**(stale·퇴출 레코드가
 주입에 닿지 않음 — 심는 것이 그것들입니다)를 보고합니다. 모순 탐지는 버티지 못하는 쪽입니다 —
 실제 임베딩으로는 심어둔 번복 5개 중 **1개만** 찾습니다. 유사도 임계가 올린 쌍만 이 단계가 보는데,
-번복은 재진술보다 덜 유사하게 읽히기 때문입니다. 아래 측정 절이 무엇을 덮고 무엇을 못 덮는지를
-보고합니다. 이 숫자들이 무엇을 덮고 무엇을 덮지 않는지는 [품질 측정](#품질-측정)에
-있습니다.
+번복은 재진술보다 덜 유사하게 읽히기 때문입니다. 이 숫자들이 무엇을 덮고 무엇을 덮지 않는지는
+[품질 측정](#품질-측정)에 있습니다.
 
 로컬·임베디드로 동작합니다 — better-sqlite3 + FTS5 + sqlite-vec, 서버 불필요.
 
@@ -95,22 +94,28 @@ MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 붙은 결정, 선호, 사실. 이미 증류된 형태라 지불하는 토큰이 주장 주변의 산문이 아니라
 주장 자체입니다.
 
-하나의 하네스에서 두 검색 베이스라인과 비교 — 같은 코퍼스, 같은 질문, 같은 답변 모델,
-두 사람의 42문항:
+2026-08-15, [agent-memory-benchmark][amb]로 측정했습니다. 데이터셋(PersonaMem)·답변 모델·판정자를
+하네스가 소유하므로 yoke는 메모리 팔 하나일 뿐이고, 비교는 같은 조건입니다. 같은 코퍼스, 같은
+42문항, 같은 답변 모델(`gemma-4-e4b`), 변수 하나:
 
-| | 주입 컨텍스트 | 정확도 |
-|---|---|---|
-| 메모리 없음 | 0 | 59.5% |
-| **yoke** | **1.2k 토큰** | 73.8% |
-| 키워드 청크 | 5.1k 토큰 | 61.9% |
-| dense+sparse 하이브리드, 상위 50청크 | 22.8k 토큰 | 71.4% |
+| | 주입 컨텍스트 | 정답 | 1k 토큰당 정답 |
+|---|---|---|---|
+| 메모리 없음 | 0 | 20/42 (47.6%) | — |
+| **yoke** | **1.2k 토큰** | 28/42 (66.7%) | **23.5** |
+| 키워드 청크(bm25) | 5.1k 토큰 | 26/42 (61.9%) | 5.1 |
+| dense+sparse 하이브리드, 상위 50청크 | 22.8k 토큰 | **30/42 (71.4%)** | 1.3 |
 
-**토큰당 정답이 청크 검색의 5.2배, 하이브리드 검색기의 20배**이고, 정확도는 둘 다보다
-높습니다 — 컨텍스트는 5분의 1에서 20분의 1만 씁니다. 하이브리드는 71.4%를 22.8k 토큰
-주입으로 삽니다. 작은 모델의 컨텍스트 창 대부분을 질문 하나에 쓰는 셈입니다.
+양쪽 다 말해야 합니다. 하이브리드가 여기서 가장 정확합니다 — yoke보다 4.7포인트 위 — 그리고 그
+대가로 컨텍스트를 19배 씁니다. 이 데이터셋에서는 작은 모델의 창 대부분을 질문 하나에 쓰는
+셈입니다. **효율은 배수로 갈리고, 정확도는 포인트로 갈립니다.**
 
-공식 평가 조건으로 환산하면 yoke는 ~87% — 최상위 공개 시스템들과 같은 구간이며, 주입
-컨텍스트는 20분의 1입니다.
+이 표가 말하지 않는 것 둘. 절대 점수는 대체로 답변 모델에 대한 진술이므로, 이 수준이 프런티어
+모델이나 공개 리더보드로 그대로 옮겨가지 않습니다. 그리고 이 실행은 born-verified 이전입니다 —
+적재를 위해 게이트를 열었으므로 측정된 것은 추출과 검색이고 거버넌스가 아닙니다. 하네스와 결과
+파일은 git의 `archive/personamem-loop`에 있습니다. `main`에는 없으니, 지금 이 저장소가 재현할 수
+있는 수치가 아니라 기록된 1회 측정으로 읽으세요.
+
+[amb]: https://github.com/vectorize-io/agent-memory-benchmark
 
 모든 레코드가 인용을 달고 온다는 점도 붙여넣은 구절은 할 수 없는 일입니다.
 
@@ -119,12 +124,12 @@ MIT · v6.1까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 | | |
 |---|---|
 | **한 줄 요약** | 지식에 최적화된 데이터베이스: 온톨로지로 구조화한 뒤, 지금 맥락에 맞는 검증된 부분집합만 인용과 함께 AI에 주입합니다. |
-| **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
-| **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `postgres`(네이티브 스코어드 FTS + pgvector, 의존성 추가 없음) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 넷 모두 하나의 conformance 스위트를 통과. |
+| **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `resolve_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
+| **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `postgres`(네이티브 스코어드 FTS + pgvector, 의존성 추가 없음) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 모두 같은 스토리지 포트 conformance 스위트를 통과하고, 감사 원장은 감사 포트의 스위트를 통과합니다. |
 | **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `raw`(비정형 자료 — 대화록·문서를 모델이 추출) — 외부 소스 → 커넥터가 서명한 지식, 원본 시각으로 기록. `rdb`(Postgres/MySQL read-mapping)는 이미 system of record인 DB를 매핑합니다. |
 | **persona** | "이 동료라면 어떻게 판단할까?" → 그 사람의 기록된 검증 판단을 인용과 함께, 실시간 생성으로. 흉내가 아니라 인용. |
 | **공유 작업 컨텍스트** | `collaboration`을 고정하면 팀이 하나의 컨텍스트를 공유 — 스코프는 전사 지식을 가리지 않고 우선순위만 부여. |
-| **엔터프라이즈** | 네임스페이스 멀티테넌시 · OIDC/SSO + API 토큰 + GitHub 교환 · RBAC(read / write / admin) · 읽기 레플리카 · 온라인 백업 + 시점 복원. |
+| **엔터프라이즈** | 네임스페이스 멀티테넌시 · OIDC/SSO + API 토큰 + GitHub 교환 · RBAC(read / write / admin) · 자기 주소(`YOKE_AUDIT_URL`)를 가진 감사 추적 · 테넌트 경계 샤딩. 복제와 백업은 포트 아래에서 데이터베이스가 알아서 합니다. |
 | **라이선스** | MIT |
 
 ## 60초 시작하기
@@ -134,7 +139,7 @@ curl -fsSL https://raw.githubusercontent.com/jhso-dev/yoke/main/scripts/install.
 # ~/.yoke/app 에 클론·빌드 후 전역 `yoke` 명령을 연결
 # (--skip-link 로 연결 생략, --dir PATH 로 위치 변경)
 
-yoke init                                    # ./yoke.db 생성 + 온톨로지 시드
+yoke serve &                                 # ./yoke.db 를 127.0.0.1:4800 에서 연다 (없으면 만든다)
 yoke add fact --attr statement="배포는 화요일 오전에만 한다"
 yoke inject "배포 언제 하는 거지"              # 유효한 지식만, 인용과 함께 — 즉시 반영
 yoke review                                  # 나중에: 지식이 낡으면 재확인 큐
@@ -246,7 +251,7 @@ claude plugin install yoke@yoke        # 이후 레포마다 /yoke:setup 한 번
 - `yoke_record_decision` — 결정 숏컷 (결론 + 근거 + 기각한 대안)
 - `yoke_persona` — 사람 스코프 주입 ("이 동료라면 어떻게 판단할까?")
 - `yoke_overview` — 코퍼스 한눈에 보기: 타입별 수, 최다 연결 레코드, 저자별 검증 지식
-- `yoke_use_scope` — 현재 collaboration을 고정해 세션 전체가 하나의 작업 컨텍스트를 공유
+- `yoke_resolve_scope` — 작업 항목 키 → collaboration의 id. 관련된 호출마다 `scope`로 넘길 값
 
 ## 임베딩 (Embeddings)
 
@@ -288,7 +293,7 @@ export YOKE_EMBED_KEY=sk-...
 | 지식 저장 | 예 | **예** — provider가 죽어도 레코드가 거절되는 일은 없습니다 |
 | commit 시 중복 후보 | 예 | **아니오, 그리고 `yoke add`가 그렇게 말합니다** — FTS 폴백은 없습니다. 모든 FTS 히트를 중복으로 치면 대부분 오탐이기 때문입니다 |
 | `conflicts_with` 자동 탐지 | 예 | 아니오 |
-| 검색 / 주입 | 예 | 키워드만 남습니다 — 문장형 질의의 recall@10이 데모 골드셋 기준 82.4%에서 52.0%로 떨어집니다 |
+| 검색 / 주입 | 예 | 키워드만 남습니다 — 문장형 질의의 recall@10이 데모 골드셋 기준 82.4%에서 52.0%로 떨어집니다 (2026-08-17 측정, `bge-m3` 대 없음) |
 
 커버리지는 언제든 복구할 수 있습니다 — 벡터는 지식이 아니라 파생 인덱스라서, 새 버전을 쓰지도
 인용을 바꾸지도 않습니다:
@@ -307,11 +312,14 @@ yoke backfill --embeddings --rebuild       # 모델을 바꾼 뒤 (차원이 다
 
 ## 회사가 이미 운영하는 서버에 연결
 
-Postgres든 OpenSearch든, 이미 운영 중인 서버를 그대로 가리킵니다. 지식은 그쪽에
-저장되고, **이 클라이언트의 감사 추적과 API 토큰은 로컬 sqlite에 남습니다**(`--db`가
-계속 그 로컬 절반을 가리킵니다 — 남의 데이터베이스에 yoke의 장부를 넣어달라고 하면
-거절당할 테니까요). 나머지는 전부 동일하게 동작합니다: `add`, `review`, `verify`,
-`inject`, `yoke ui`, MCP.
+Postgres든 OpenSearch든, 이미 운영 중인 서버를 그대로 가리킵니다. 지식이 그쪽에
+저장되고, **감사 추적도 같이 갑니다** — `YOKE_AUDIT_URL` 로 다른 데를 지정하지 않는 한.
+로컬에서 돌리든 클러스터에 올리든 규칙이 하나인 이유는, 감사가 코퍼스가 아니라 프로세스를
+따라다니면 읽는 기계마다 다른 질문에 답하게 되기 때문입니다. OpenSearch 는 장부를 들 수
+없는 유일한 백엔드입니다. 검색 엔진이고, 읽을 때마다 문서를 하나씩 붙이는 건 세그먼트를
+병합하는 인덱스가 가장 못하는 쓰기 패턴이라서요. 그래서 조용히 로컬 파일에 쓰는 대신
+부팅할 때 그 사실과 변수 이름을 말합니다. 나머지는 전부 동일하게 동작합니다: `add`,
+`review`, `verify`, `inject`, `yoke ui`, MCP.
 
 ```bash
 # Postgres — 대부분의 조직이 이미 갖고 있는 그 DB. pgvector가 있으면 `similar`까지.
@@ -322,8 +330,11 @@ export YOKE_POSTGRES_SCHEMA=team_a                 # 선택: 한 데이터베이
 export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # 보안 클러스터만
 export YOKE_OPENSEARCH_PREFIX=team_a_              # 선택: 한 클러스터에 yoke DB 두 개
+export YOKE_AUDIT_URL=postgres://…                 # OpenSearch 일 때만: 감사가 갈 곳
+                                                   # (postgres://…, dynamodb://<region>/<table>,
+                                                   #  또는 파일 경로 — docs/BACKENDS.md)
 
-yoke init                                          # 스키마/인덱스 생성, 온톨로지 시드
+yoke serve                                         # 스키마/인덱스 생성, 온톨로지 시드
 ```
 
 검색은 둘 다 네이티브 스코어드(Postgres `ts_rank` / OpenSearch BM25)이고 `similar`도
@@ -331,6 +342,18 @@ yoke init                                          # 스키마/인덱스 생성,
 이미 트리에 있었고, OpenSearch 어댑터는 순수 REST입니다.
 
 같은 줄들을 작업 디렉터리의 `.env`에 둬도 됩니다 (`cp .env.example .env`).
+
+무엇이 어디 살고 왜인지는 `docs/BACKENDS.md`에 있습니다. 요약하면 `YokeStore` 의 온톨로지
+읽기가 동기(better-sqlite3가 그 모양을 정했습니다)라서, 네트워크 백엔드는 교체되는 게 아니라
+`init()` 이 채우는 캐시와 *합성*됩니다. 감사 원장은 자기 포트(`ports/audit.ts`)를 갖고 있고
+처음부터 끝까지 비동기입니다 — 그래야 파일이 아닌 것도 원장이 될 수 있으니까요.
+
+```bash
+docker run -d --name yoke-opensearch -p 9200:9200 \
+  -e discovery.type=single-node -e DISABLE_SECURITY_PLUGIN=true \
+  -e DISABLE_INSTALL_DEMO_CONFIG=true -e "OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m" \
+  opensearchproject/opensearch:2
+```
 
 ## 웹 UI
 
@@ -344,10 +367,11 @@ yoke serve --auth --host 0.0.0.0   # 팀 공유. YOKE_GITHUB_ORG 를 설정하�
                                    # 로그인 (`yoke token create` 는 기계 액터·부트스트랩용으로 남음)
 ```
 
-화면: review 큐, conflicts, 온톨로지 브라우저, persona 미리보기, 엔티티 상세, 주입
-미리보기("이 쿼리면 내 에이전트가 실제로 뭘 받나?"), 힘기반 그래프 탐색, 감사 로그.
-정적 번들 하나, 포트 하나. `yoke serve`에서는 같은 프로세스가 `POST /mcp`도 처리해
-팀 배포에 따로 필요한 게 없고, `yoke ui`는 워크벤치만 제공합니다.
+화면: review 큐, conflicts, 힘기반 그래프 탐색, 주입 미리보기("이 쿼리면 내 에이전트가
+실제로 뭘 받나?") 등이 있습니다. 라우트 하나에 화면 하나씩, 전부
+[WEB-UI](docs/WEB-UI.md)에 근거와 함께 적혀 있습니다. 정적 번들 하나, 포트 하나.
+`yoke serve`에서는 같은 프로세스가 `POST /mcp`도 처리해 팀 배포에 따로 필요한 게 없고,
+`yoke ui`는 워크벤치만 제공합니다.
 
 서버는 기본적으로 루프백에 바인딩합니다. `yoke ui`는 인증이 없어서 개방은 명시적
 `--host`이고, 닿을 수 있는 누구나 이 DB의 지식을 읽고 만들고 폐기하고 이름을 바꿀 수
@@ -357,17 +381,16 @@ yoke serve --auth --host 0.0.0.0   # 팀 공유. YOKE_GITHUB_ORG 를 설정하�
 ## CLI
 
 ```
-yoke init | add | get | search | list | link | verify | deprecate
+yoke add | get | search | list | link | verify | deprecate
 yoke review                                   # 재확인 큐: TTL 지난 레코드
 yoke inject <query> [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--limit n]             # 코퍼스 한눈에 보기 / 엣지로 보기
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
-yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
-yoke connect github-pr|slack|notes|raw|rdb ...
-yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
-yoke backup <dest.db> [--force] | restore <src.db> [--force]
-yoke export --until <ts> --out <new.db>       # --shards <file> 로 백엔드 연합
+yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape|--pulse|--roi]
+yoke connect github-pr|slack|notes|raw|rdb ... [--scope id]
+yoke relate <id...>                           # 레코드 사이의 엣지를 제안
+yoke mcp | ui | serve [--auth] [--host addr] | token create --name n --scopes s
 yoke backfill [--embeddings [--rebuild]]      # 저작 엣지 / 벡터 인덱스 복구
 yoke backfill --occurred-at [--dry-run]       # 이전 verify가 덮어쓴 이벤트 시각 복원
 ```
@@ -384,12 +407,12 @@ yoke backfill --occurred-at [--dry-run]       # 이전 verify가 덮어쓴 이�
 ## 공유 작업 컨텍스트
 
 팀이 하나의 지식 공간을 함께, 실시간으로 쌓습니다. 사용자가 "이건 PAY-42
-작업이야"라고 하면 에이전트가 `yoke_use_scope`로 한 번 선언하고, 세션 전체가 그
-`collaboration`을 기본값으로 씁니다 — 주입은 그 지식을 앞세우고, 기록되는 것은
-자동으로 거기 연결됩니다. 한 사람이 기록한 결정은, 다음 질의부터
+작업이야"라고 하면 에이전트가 `yoke_resolve_scope`로 그 키를 `collaboration`의
+id로 바꾼 뒤, 그 작업에 속한 호출마다 `scope`로 넘깁니다 — 주입은 그 지식을
+앞세우고, 기록한 것은 거기에 연결됩니다. 한 사람이 기록한 결정은, 다음 질의부터
 다른 모든 세션의 컨텍스트에 들어 있습니다.
 
-스코프는 **우선순위일 뿐, 가두지 않습니다**: 고정한 collaboration이 앞장서지만, 쿼리에는
+스코프는 **우선순위일 뿐, 가두지 않습니다**: 지목한 collaboration이 앞장서지만, 쿼리에는
 전사 지식과 persona도 함께 흘러듭니다. 그리고 컨텍스트는 작업보다 오래 남습니다 —
 collaboration이 끝나도 그 지식은 닫힌 티켓 속으로 사라지지 않고 그래프에 조직의 기억으로
 남습니다.
@@ -410,9 +433,10 @@ yoke는 세 가지를 측정하며, 각각 다른 질문에 답합니다.
 | 오염률 | 주입 결과 중 stale·퇴출 비율 | 0% | **0.0%** (후보 40건 중 유효 20건만 주입) |
 | 모순 미탐지율 | 반대 결론 decision 쌍 중 conflicts_with 미연결 비율 | 0% | **80.0%** (bge-m3 에서 1/5 탐지) — 스텁 임베더의 0% 는 구조상 자명한 값이며, eval 이 어느 쪽으로 측정했는지 함께 출력합니다 |
 
-이 두 숫자의 범위를 그대로 읽으세요: 50건 합성 코퍼스와, 심어둔 주제어로 벡터를 만드는
-스텁 임베더입니다. 그래서 모순 수치는 게이트 4단계가 돌아 엣지를 만든다는 뜻이고, 실제
-임베딩 모델이 알아챈다는 뜻은 아닙니다. 정밀도는 어느 축에서도 측정하지 않습니다.
+이 숫자들의 범위를 그대로 읽으세요: 약 134건 합성 코퍼스와, 그때 설정돼 있던 임베더입니다 —
+어느 쪽으로 측정했는지 리포트가 밝힙니다. 주제어마다 벡터 하나를 내는 스텁으로는 탐지가 구조상
+자명해지기 때문입니다. 세 번째 지표인 gold-in-brief 는 잡음 80건 사이에서 심어둔 decision 3건이
+브리핑 첫 페이지까지 살아남는지를 봅니다. 정밀도는 어느 축에서도 측정하지 않습니다.
 
 **persona 품질**(`npm run eval:persona`) — persona가 그 사람의 유효한 판단만 돌려주는가.
 심어둔 실패 모드(같은 주제에 대한 동료의 기록, 저작이 아닌 연결, 남이 쓴 출처,
@@ -435,10 +459,10 @@ recall@10 82.4%, 한두 단어짜리는 100%입니다. 리포트는 합계만이
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | 포트/어댑터 경계 |
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | 게이트, 라이프사이클, 주입 필터 규칙 |
 | [SPEC](docs/SPEC.md) | 구현 계약 — 스키마, port, 게이트, MCP 도구, CLI |
-| [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 12개 화면과 넘지 않는 선 |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v6.1 구현 완료 — 버전 순서대로, 각 절이 기록 |
+| [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 라우트 하나에 화면 하나, 그리고 넘지 않는 선 |
+| [ROADMAP](docs/ROADMAP.md) | 출시 순서대로 정리한 버전 색인 — 각 규칙이 어느 문서에 있는지 |
 | [BACKENDS](docs/BACKENDS.md) | 어댑터 확장 + RDB read-mapping (실사용 검증 노트 포함) |
-| [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 복제, 샤딩 |
+| [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 감사 추적, 샤딩 |
 | [MARKET](docs/MARKET.md) | 경쟁 지형과 포지셔닝 |
 
 ## 라이선스

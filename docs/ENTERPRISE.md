@@ -11,8 +11,9 @@ directional decisions.
    added later. No code that parses an ID to extract meaning.
 2. **All reads/writes pass through the core path** — auth/RBAC plug into this path as
    middleware. A single adapter side door becomes a security hole in v3.
-3. **Append-only history** — the basis for the audit log and PITR. No
-   physical-delete code (tombstone instead).
+3. **Append-only history** — every version is kept, so what a record said at a past
+   instant stays answerable (`inject --as-of`). No physical-delete code (tombstone
+   instead).
 4. **provenance.actor references a person entity** — this is what later connects to
    the auth subject.
 
@@ -27,17 +28,26 @@ directional decisions.
 
 ## Auth / RBAC (v3.0)
 
-- Authentication, three doors for three kinds of caller (we store no passwords, and no
-  plaintext credentials — tokens are salted hashes; the plaintext exists only on the
-  holder's machine):
+- Authentication, three doors for three kinds of caller (we store no passwords and no
+  credentials at all — a yoke credential is a **signed** token, so a server needs the
+  signing key and no table, and any number of `serve` processes agree about it. The
+  trade, stated in `serve/credential.ts` because it cannot be undone: nothing can be
+  revoked before it expires, and cutting one holder off means rotating
+  `YOKE_TOKEN_SECRET`, which re-authenticates everybody):
   - **the GitHub exchange** (SPEC "GitHub exchange") — the developer path. A hook or MCP
     client is non-interactive, so its credential is exchanged from the `gh` login the
     machine already holds; nobody distributes tokens. Org membership is the access
     decision, and a member's token carries `read,write`.
   - **OIDC/SSO** — a human at the web UI under the company IdP.
-  - **API tokens** (`yoke token create`) — machine actors (CI, scheduled connectors),
-    the bootstrap `admin` credential (the exchange never grants admin), and a
-    deployment with no GitHub.
+  - **API tokens** (`yoke token create`, signed by the server) — machine actors (CI,
+    scheduled connectors) and a deployment with no GitHub. The client never holds the
+    signing key: the command is a request to `POST /api/tokens`, which needs `admin`.
+    The FIRST admin credential comes from `yoke serve --bootstrap-admin`, since minting
+    through the route needs one already. That flag is **one-time**: it refuses without
+    `--auth` (a credential an ungated server would ignore), the credential it prints
+    expires in an hour rather than the usual week, and it warns on stderr because left
+    in a unit file or a `Dockerfile` CMD it prints a new admin credential into the logs
+    on every restart. Mint the durable credentials with it, then remove it.
 - Authorization axes: namespace × ontology type × action (read / write / **admin**).
   **`write` is the one knowledge permission** — committing, re-confirming and retiring
   are the same trust level, because every entry is signed under a credential-bound
@@ -55,19 +65,28 @@ directional decisions.
 
 ## Audit log (staged early, in v2.0)
 
-- Targets: commit (with the accept/reject reason), re-confirmation/retirement, inject
-  (who got what knowledge injected).
-- Implementation: not a separate system, but a query view over the append-only
-  history + provenance. Keep "what the knowledge was" (entity versions) and "who saw
-  it when" (the inject log) stored separately.
+- Targets: what an agent was handed (`inject`, `persona`), what a person read
+  (`read`, `search`, `overview`, `inject_preview`), and the acts that have to stay
+  accountable (`verify`, `deprecate`, `rename_type`). An ordinary commit writes no
+  row — the version it appends already carries actor, origin and time.
+- Implementation: its own port (`ports/audit.ts`) with its own conformance suite, and
+  its own address (`YOKE_AUDIT_URL`). "What the knowledge was" (entity versions) and
+  "who saw it when" (the trail) stay separate, and may live in separate databases:
+  unset, the trail goes wherever the knowledge is — the same rule on a laptop and on
+  a cluster, so the trail never follows the process instead of the corpus.
+- A delivery's ids are written as data by the same call that appends the row, so
+  "how often has an agent been handed this record" and "what has this reader already
+  seen" are point lookups rather than a scan back through the trail.
 
 ## Distribution / HA (v3.5)
 
-- Order: read replicas first — injection (reads) is the dominant share of traffic,
-  and writes are low-frequency work that passes the gate, so a single writer holds up
-  for a long time.
-- Backup/PITR: append-only makes this fall out naturally from snapshot + history
-  replay.
+- Replication is the database's, below the storage port: Postgres and OpenSearch each
+  replicate on their own, and yoke has no replica routing of its own to configure. A
+  `serve` process keeps no session state — credentials are signed rather than stored —
+  so serving more reads is running more of them against the same backend.
+- Backup and point-in-time recovery are the database's too, for the reason invariant 2
+  gives: a command that only works on a single local file makes what yoke can do depend
+  on which database is underneath. Each backend is backed up with its own tooling.
 - Sharding: implemented in v3.6 at the tenant boundary, exactly as predicted —
   namespaces route to shards, entirely behind the storage port with no core
   change.
@@ -81,13 +100,11 @@ only the owner shard, and duplicate/contradiction bookkeeping stays with the
 entity's shard. The ontology is the one read that spans two shards: shared
 (null-ns) types live on the default shard, tenant types on the owner shard, and a
 namespaced read overlays them — the same rule §10.1 states for one database. It has
-to: `yoke init` seeds the shared base onto the default shard and a tenant shard is
-never given a copy, so reading the owner shard alone would make a namespace owned by
-one refuse every command ("not initialized"). Known ceilings are documented in `storage-sharded/index.ts`:
+to: the base ontology is seeded onto the default shard and a tenant shard is
+never given a copy, so reading the owner shard alone would leave a namespace owned by
+one with no `fact` to add. Known ceilings are documented in `storage-sharded/index.ts`:
 cross-shard `similar` fan-out can surface duplicate warnings across tenants
-(isolation-sensitive deployments should run one serve process per tenant), and
-`backup`/`export` are per-shard operations. Read replicas
-(`yoke serve --replica-of`) remain the first lever for read scale.
+(isolation-sensitive deployments should run one serve process per tenant).
 
 ## What we don't do
 

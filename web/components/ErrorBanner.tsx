@@ -6,7 +6,7 @@ import { ApiError } from "../lib/api";
 import { useT } from "../lib/i18n";
 
 /** Turns a failure into something actionable: a 403 names the scope and the command that grants it,
- * a 409 repeats the server's read-replica wording verbatim, and a transport failure says what
+ * a 409 repeats the server's own refusal verbatim as a warning, and a transport failure says what
  * actually happened instead of handing over the browser's own untranslated "Failed to fetch".
  *
  * `onRetry` is optional but should be passed wherever the caller has a `reload` to give: without it

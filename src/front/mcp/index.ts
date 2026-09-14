@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 
-// yoke MCP server (PLAN 3.1–3.3) — stdio transport. Started with `yoke mcp [--db path]`.
-// Six tools: yoke_inject / yoke_commit / yoke_record_decision / yoke_overview / yoke_persona / yoke_use_scope.
+// The yoke MCP server, and the stdio client that relays into it.
+//
+// `createYokeMcpServer` is where the tools live; `yoke serve` mounts it at POST /mcp and `yoke mcp`
+// is a stdio relay to that endpoint — one implementation, one store, whichever door an agent uses.
 // Governance: every commit enters verified under a signed actor — filing is the entry bar, and the
 // quality controls are downstream (TTL re-confirmation, retirement with reason, conflicts_with).
 // No verify/deprecate tool: re-confirming and retiring are a person's acts, on the CLI and the UI.
 // Time is obtained only in this front tier (core receives `now` by injection).
 
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import type { AuditEvent } from "../../adapters/storage-sqlite/index.js";
 import {
   findByExternalId,
   sameContent,
@@ -18,15 +20,17 @@ import {
 } from "../../connectors/ingest.js";
 import { overview } from "../../core/aggregate.js";
 import { CommitRejected, commit } from "../../core/commit.js";
-import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
+import type { Embedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
   entityIdCandidates,
-  envKeywordWeight,
+  type InjectResult,
   inject,
+  injectLimit,
+  ScopeNotFound,
   WALK_BUDGET,
 } from "../../core/inject.js";
-import { normalizeNs, resolveNs } from "../../core/namespace.js";
+import { normalizeNs } from "../../core/namespace.js";
 import type { TypeDef } from "../../core/ontology.js";
 import {
   NotAPerson,
@@ -36,15 +40,17 @@ import {
   readableName,
 } from "../../core/persona.js";
 import type { Entity, EntityInput, RelationInput } from "../../core/types.js";
+import type { AuditEvent } from "../../ports/audit.js";
 import type { StoragePort } from "../../ports/storage.js";
 import {
+  bestEffortAudit,
   citeActors,
   describeWithheld,
   injectDetail,
   makeActorNames,
   readableCite,
 } from "../display.js";
-import { openStore } from "../store.js";
+import type { Remote } from "../remote.js";
 
 const ORIGIN = "mcp";
 
@@ -58,11 +64,12 @@ const ORIGIN = "mcp";
  * noise but cannot corrupt the corpus — and noise is answered downstream: what it files is signed,
  * broadcast on retraction, and expires without re-confirmation.
  */
-export const INSTRUCTIONS =
+const INSTRUCTIONS =
   "yoke is the governed knowledge base: yoke_inject returns only standing records — signed, cited, " +
   "within their freshness window, with retirements and disputes surfaced. The knowledge loop:\n" +
-  "1. Before non-trivial work, call yoke_inject with your question (set scope when you know the " +
-  "working context).\n" +
+  "1. Before non-trivial work, call yoke_inject with your question. This server holds no session " +
+  "state: resolve the working context once with yoke_resolve_scope and pass the id it returns as " +
+  "`scope` on every later inject and commit that belongs to that work.\n" +
   "2. Also consult the live sources you can reach (Slack, wikis, databases, code) — yoke never " +
   "searches them for you, and a verified record may lag reality; judge from its last-confirmed date.\n" +
   "3. File back only the DELTA between what you learned and what yoke returned, via yoke_commit:\n" +
@@ -79,15 +86,15 @@ export const INSTRUCTIONS =
   "record is never deleted: a person retires it with a reason, and the retraction reaches " +
   "everyone who was handed it.";
 
-export interface YokeMcpDeps {
-  /** logAudit (PLAN 8.4) is optional: adapters without it simply skip injection auditing.
+interface YokeMcpDeps {
+  /** logAudit is optional: adapters without it simply skip injection auditing.
    * Everything else the tools need is the plain port — persona included, since authorship is a
    * graph edge rather than a provenance lookup outside the contract. */
-  store: StoragePort & { logAudit?(event: AuditEvent): void };
+  store: StoragePort & { logAudit?(event: AuditEvent): Promise<void> };
   ontology: TypeDef[];
   /** Default actor when a tool call omits one (resolved from env at server startup). */
   defaultActor: string;
-  /** Tenant namespace scope (PLAN-V2 10.1), read from YOKE_NS at startup. null = default shared ns. */
+  /** Tenant namespace scope (ENTERPRISE "namespaces"), read from YOKE_NS at startup. null = default shared ns. */
   ns?: string | null;
   /** Current time as ISO 8601. Defaults to new Date().toISOString() — tests inject a fixed value. */
   now?: () => string;
@@ -95,21 +102,17 @@ export interface YokeMcpDeps {
   embedder?: Embedder;
   /** Per-deployment hybrid fusion weight (YOKE_KEYWORD_WEIGHT) — see core KEYWORD_WEIGHT's ceiling. */
   keywordWeight?: number;
-  /** Per-request RBAC hook (PLAN-V2 10.4). Default allow-all — stdio `yoke mcp` is single-user
-   * (ungated); serve mode binds this to the Bearer token's scopes. Denied calls return a tool error. */
+  /** Per-request RBAC hook (ENTERPRISE "RBAC"). Default allow-all — a loopback `yoke serve` is
+   * single-user (invariant 4); under --auth it binds to the Bearer token's scopes. Denied calls
+   * return a tool error. */
   authorize?: (action: "read" | "write", type?: string) => boolean;
-  /** Default injection/capture scope (a collaboration/entity id) resolved at startup from YOKE_SCOPE
-   * (v4.0). The agent can also pin one at runtime via yoke_use_scope; a tool-call `scope` argument
-   * always overrides both. null = no default. */
-  defaultScope?: string | null;
 }
 
 /** Resolve a work-item key (or entity id) to an anchor entity. Exact entity id wins (getEntity);
  * otherwise search for an entity whose `key` OR `title` attribute equals the key, preferring a
  * `collaboration` since that is what a work-item key names. Any entity type may anchor an injection —
  * a collaboration is the shared working context, a person is a persona — so the fallback is not
- * restricted to one type. Front-tier only. Returns null when nothing matches. Shared by startup
- * (YOKE_SCOPE) and the yoke_use_scope tool.
+ * restricted to one type. Front-tier only. Returns null when nothing matches.
  */
 async function resolveScope(
   store: Pick<StoragePort, "getEntity" | "search">,
@@ -149,17 +152,6 @@ const err = (text: string) => ({ ...ok(text), isError: true });
 export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   const { store, ontology, defaultActor, embedder, keywordWeight } = deps;
   const ns = deps.ns ?? null;
-  const defaultScope = deps.defaultScope ?? null;
-  // Runtime scope pinned by yoke_use_scope. Mutable state in the closure is fine for stdio's
-  // long-lived process; serve mode uses a fresh server per request so it simply never persists.
-  let sessionScope: string | null = null;
-  // Precedence: explicit per-call scope > session pin (yoke_use_scope) > startup YOKE_SCOPE.
-  // An explicit empty string opts OUT for that call — without it, a pinned session
-  // could never record or query knowledge outside its collaboration.
-  const effectiveScope = (scope?: string) =>
-    scope === ""
-      ? undefined
-      : (scope ?? sessionScope ?? defaultScope ?? undefined);
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
   const forbidden = () =>
@@ -171,19 +163,6 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
 
   // Input actor > server startup env (defaultActor) > 'yoke:system' (already folded into defaultActor).
   const resolveActor = (actor?: string) => actor ?? defaultActor;
-
-  // A read's audit row is best-effort: on a locked DB logAudit throws, and a dropped trail row must
-  // not turn an already-computed read into a failed query. stderr, not stdout: stdout is the protocol
-  // channel. WRITE tools keep the audit inline; only reads are best-effort.
-  const bestEffortAudit = (event: AuditEvent): void => {
-    try {
-      store.logAudit?.(event);
-    } catch (e) {
-      process.stderr.write(
-        `warning: audit row not written (read succeeded): ${(e as Error).message}\n`,
-      );
-    }
-  };
 
   async function doCommit(
     input: EntityInput | RelationInput,
@@ -251,11 +230,10 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // Passed INTO the gate, not filed as a second commit — otherwise a bad endpoint refuses AFTER
       // the entity is durable, telling the agent "rejected" about a record that exists (see `attachTo`
       // in core/commit.ts).
-      const linkTo = effectiveScope(scope);
       const committed = await commit(store, ontology, input, prov, ts, {
         embedder,
         ns,
-        ...(linkTo ? { attachTo: linkTo } : {}),
+        ...(scope ? { attachTo: scope } : {}),
       });
       const { duplicates, duplicateDetection, unrecorded } = committed;
       const entity = committed.entity;
@@ -369,8 +347,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .optional()
           .describe(
             "Entity id to scope the injection to — e.g. a collaboration id to " +
-              'retrieve only the knowledge linked to that unit of work. Pass "" to query ' +
-              "without any scope when a session scope is pinned",
+              "retrieve only the knowledge linked to that unit of work. yoke_resolve_scope turns a " +
+              "work-item key into this id",
           ),
         depth: z
           .number()
@@ -388,18 +366,11 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     async ({ query, limit, scope, depth }) => {
       if (!authorize("read")) return forbidden();
       const ts = now();
-      const anchor = effectiveScope(scope);
-      // A briefing (anchored, no query) is capped: uncapped, a collaboration with 300 records attached
-      // returns all 300 in full (~15k tokens). An explicit limit overrides; a query is already
-      // narrowed by its own terms.
-      const briefing = anchor !== undefined && !query;
-      const { items, omitted, walk, withheld } = await inject(
-        store,
-        ontology,
-        query,
-        ts,
-        {
-          limit: limit ?? (briefing ? BRIEFING_LIMIT : undefined),
+      const anchor = scope || undefined;
+      let result: InjectResult;
+      try {
+        result = await inject(store, ontology, query, ts, {
+          limit: injectLimit(anchor, query, limit),
           ns,
           scope: anchor,
           depth,
@@ -407,21 +378,30 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           // be keyword-only while writes are embedded — half a vector index.
           embedder,
           keywordWeight,
-        },
-      );
-      // Injection audit (PLAN 8.4): who got what knowledge injected. Front-tier I/O — core stays pure.
+        });
+      } catch (e) {
+        // The one refusal this tool can provoke with a bad argument. Told to the agent in core's own
+        // words, like a rejected commit — yoke_resolve_scope is what turns a key into an id.
+        if (e instanceof ScopeNotFound)
+          return err(
+            `${e.message} — call yoke_resolve_scope to turn a work-item key into an id`,
+          );
+        throw e;
+      }
+      const { items, omitted, walk, withheld } = result;
+      // Injection audit: who got what knowledge injected. Front-tier I/O — core stays pure.
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
       // unscoped one, and which of the two agents actually do is the measurement that decides whether
       // graph expansion is worth investing in at all (docs/RESEARCH.md).
-      bestEffortAudit({
+      const injected = items.map((it) => it.entity.id);
+      await bestEffortAudit(store, {
         actor: defaultActor,
         action: "inject",
-        detail: injectDetail(
-          items.map((it) => it.entity.id),
-          { query, scope: anchor },
-        ),
+        detail: injectDetail(injected, { query, scope: anchor }),
         at: ts,
         ns,
+        ids: injected,
+        ...(anchor ? { anchor } : {}),
       });
       // An agent that reads "no verified knowledge" as "there is none" answers from nothing and says
       // so confidently. Knowledge gone stale, retired, or of a type that is not injectable are
@@ -541,7 +521,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .optional()
           .describe(
             "Entity id (e.g. a collaboration) to link the new knowledge to via a relates_to relation. " +
-              'Pass "" to record outside the pinned session scope',
+              "yoke_resolve_scope turns a work-item key into this id",
           ),
         derived_from: z
           .array(z.string())
@@ -596,7 +576,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .optional()
           .describe(
             "Entity id (e.g. a collaboration) to link this decision to via a relates_to relation. " +
-              'Pass "" to record outside the pinned session scope',
+              "yoke_resolve_scope turns a work-item key into this id",
           ),
         derived_from: z
           .array(z.string())
@@ -653,7 +633,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const o = await overview(store, ontology, ts, { ns, top });
       // Audited like every other read that returns knowledge attributes — a hub row carries a record's
       // own text (SPEC "Any route that returns knowledge attributes writes an audit row").
-      bestEffortAudit({
+      await bestEffortAudit(store, {
         actor: defaultActor,
         action: "overview",
         detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
@@ -742,14 +722,15 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
         );
       }
       const { decisions, facts } = persona;
-      // Persona reads are injections too (PLAN 8.4) — same audit trail as yoke_inject.
-      const injected = [...decisions, ...facts].map((i) => i.entity);
-      bestEffortAudit({
+      // Persona reads are injections too — same audit trail as yoke_inject.
+      const injected = [...decisions, ...facts].map((i) => i.entity.id);
+      await bestEffortAudit(store, {
         actor: defaultActor,
         action: "persona",
-        detail: `${person}${query ? ` ${query}` : ""} -> ${injected.map((e) => e.id).join(" ")}`,
+        detail: `${person}${query ? ` ${query}` : ""} -> ${injected.join(" ")}`,
         at: ts,
         ns,
+        ids: injected,
       });
       // The contradiction marker, in the words yoke_inject uses. Both sides of a live conflicts_with
       // are returned — contradictions are surfaced, never auto-resolved — and a persona is the one
@@ -824,15 +805,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   );
 
   server.registerTool(
-    "yoke_use_scope",
+    "yoke_resolve_scope",
     {
       description:
         "When the user states or implies which work item / collaboration the current work belongs to " +
-        "(e.g. 'this is ABC-12345 work'), call this once — subsequent injections and recordings default " +
-        "to that scope. Resolves the key to a collaboration (by exact entity id, or a collaboration whose key " +
-        "or title matches). If none matches, it says so and you can create one via yoke_commit (type " +
-        "collaboration, attributes { title, key }) then call yoke_use_scope again. In stateless deployments " +
-        "the session pin does not persist, so pass scope per call — this tool still returns the resolved id for reuse.",
+        "(e.g. 'this is ABC-12345 work'), call this to turn that key into the record's id. It matches an " +
+        "exact entity id, or a collaboration whose key or title equals the key, and returns { id, title }. " +
+        "Pass that id as `scope` to yoke_inject, yoke_commit and yoke_record_decision for the work that " +
+        "belongs to it — they anchor on what you pass and nothing else. If none matches, it says so and " +
+        "you can create one via yoke_commit (type collaboration, attributes { title, key }) then resolve " +
+        "again.",
       inputSchema: {
         key: z
           .string()
@@ -847,9 +829,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       if (!found)
         return ok(
           `no collaboration matches "${key}". Create one via yoke_commit ` +
-            `(type: collaboration, attributes: { title, key }), then call yoke_use_scope again.`,
+            `(type: collaboration, attributes: { title, key }), then call yoke_resolve_scope again.`,
         );
-      sessionScope = found.id;
       return ok(JSON.stringify({ id: found.id, title: found.title }));
     },
   );
@@ -857,52 +838,83 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   return server;
 }
 
-/** Entry point for the CLI `yoke mcp` command. Opens the DB, loads the ontology, and starts the stdio server. */
-export async function runMcp(
-  db: string,
-  env: Record<string, string | undefined>,
-  shards?: string,
-): Promise<void> {
-  const store = await openStore({ db, shards }, env);
-  await store.init();
-  // An uninitialized DB has no bootstrap actor (yoke:system) → error and exit 1.
-  if (!(await store.getEntity("yoke:system"))) {
-    store.close();
-    process.stderr.write(
-      `not initialized: ${db}\nrun 'yoke init --db ${db}' first\n`,
-    );
-    // exitCode + return, not `process.exit()`: an MCP server's stderr is a pipe the client owns, and
-    // `process.exit()` discards whatever node has buffered for it. The one message that tells the
-    // operator why the server would not start is the message most likely to be thrown away — see the
-    // measurement in the CLI's entry point.
-    process.exitCode = 1;
-    return;
+/**
+ * Entry point for the CLI `yoke mcp` command: stdio in, `yoke serve`'s `/mcp` out. Exit code back.
+ *
+ * `mcp` is a client like every other command (invariant 3). It opens nothing: on a laptop the same
+ * `yoke serve` answers the CLI and the agent, so one process owns the store, the audit ledger and
+ * the embedder, and the two doors cannot read different environments and disagree.
+ *
+ * The `Remote` is the dispatcher's own — including the store the caller's `--db` says it expects —
+ * so the server's 409 guard reaches an agent's session exactly as it reaches `yoke add`. A stdio
+ * client is the last place a write into another project's corpus would be noticed.
+ */
+export async function runMcp(remote: Remote): Promise<number> {
+  // One request before the relay, because stdio is a protocol stream: a refusal that arrived only as
+  // a JSON-RPC error would leave the agent with no yoke tools and the reason nowhere a person looks.
+  // `/api/meta` needs no credential and is the same request the store guard answers 409 to, so both
+  // "nothing is listening" and "that is another project's server" are said here, in words.
+  const probe = await remote
+    .call("GET", "/api/meta")
+    .catch((e: unknown) => ({ status: 0, text: (e as Error).message }));
+  if (probe.status !== 200) {
+    // Returned, never `process.exit()`: stderr is a pipe the client owns, and exit() discards what
+    // node has buffered for it — the line above is the whole point of failing here.
+    process.stderr.write(`yoke: ${reason(probe)}\n`);
+    return 1;
   }
-  const ns = resolveNs(undefined, env);
-  // Default working-context scope (v4.0): YOKE_SCOPE, an explicit entity id or collaboration key resolved
-  // at startup (for fixed setups). At runtime the agent pins scope via the yoke_use_scope tool instead.
-  let defaultScope: string | null = null;
-  if (env.YOKE_SCOPE) {
-    const resolved = await resolveScope(store, ns, env.YOKE_SCOPE);
-    if (resolved) defaultScope = resolved.id;
-    else
-      process.stderr.write(
-        `yoke: YOKE_SCOPE "${env.YOKE_SCOPE}" did not resolve to any entity or collaboration — no default scope\n`,
-      );
+  await relayMcp(remote);
+  return 0;
+}
+
+/** The server's own sentence when it sent one, else whatever `Remote` said about not reaching it. */
+function reason(probe: { status: number; text: string }): string {
+  try {
+    const b = JSON.parse(probe.text) as { error?: string };
+    if (b.error) return b.error;
+  } catch {
+    // Not JSON — a proxy's HTML, or the connection error `Remote` already phrased for a reader.
   }
-  const server = createYokeMcpServer({
-    store,
-    ontology: store.loadOntology(ns),
-    defaultActor: env.YOKE_ACTOR ?? "yoke:system",
-    ns,
-    embedder: makeFetchEmbedder(env),
-    keywordWeight: envKeywordWeight(env),
-    defaultScope,
+  return probe.text.trim() || `HTTP ${probe.status}`;
+}
+
+/**
+ * stdio in, the server's `/mcp` out — the whole team-mode MCP adapter.
+ *
+ * Raw JSON-RPC in both directions: this holds no tools of its own, so a tool added to the server is
+ * available here the moment it ships, with nothing to keep in step. The credential rides every
+ * request and is re-acquired by `Remote` when it expires, which is the only reason a long-lived
+ * stdio session survives a week-old access token.
+ *
+ * Resolves when stdin closes — the client owns the process lifetime.
+ */
+async function relayMcp(remote: Remote): Promise<void> {
+  const stdio = new StdioServerTransport();
+  const http = new StreamableHTTPClientTransport(new URL("/mcp", remote.base), {
+    fetch: (url, init) =>
+      remote.fetch(url instanceof URL ? url.toString() : String(url), init),
   });
-  await server.connect(new StdioServerTransport());
-  // Wait until the client closes stdin (until then runCli does not resolve, so the process stays alive).
+  // A failed forward is answered, never thrown. `void promise` on a rejection is an unhandled
+  // rejection, which kills the process — so a server that restarts mid-session took the agent's
+  // yoke tools away entirely and said why on a stderr the client does not show. The session stays
+  // up instead, and the next call succeeds once the server is back.
+  stdio.onmessage = (m) => {
+    http.send(m).catch((e: unknown) => {
+      const id = (m as { id?: string | number }).id;
+      if (id === undefined) return; // a notification expects no answer
+      void stdio.send({
+        jsonrpc: "2.0",
+        id,
+        error: { code: -32000, message: (e as Error).message },
+      });
+    });
+  };
+  http.onmessage = (m) => {
+    void stdio.send(m);
+  };
+  await http.start();
+  await stdio.start();
   await new Promise<void>((resolve) => {
-    server.server.onclose = resolve;
+    stdio.onclose = resolve;
   });
-  store.close();
 }

@@ -134,9 +134,6 @@ export const en = {
   },
   chrome: {
     connecting: "connecting…",
-    readOnly: "read-only",
-    readOnlyHint:
-      "This is a read-only replica. Changes are saved to the primary",
     namespaceHint: "tenant namespace",
     signOut: "Sign out",
     signIn: "Sign in",
@@ -292,7 +289,7 @@ export const en = {
     newOne: "New collaboration",
     all: "all collaborations",
     emptyList:
-      "No collaborations yet. Create one above or ask an agent to create one with yoke_use_scope",
+      "No collaborations yet. Create one above or ask an agent to create one with yoke_commit",
     people: "people in this collaboration",
     peopleNote:
       "The participant list is not knowledge about the collaboration, so it is not included in the briefing",
@@ -539,13 +536,14 @@ export const en = {
     } as Record<string, string>,
   },
   tokens: {
+    statelessNote:
+      "a credential is signed, not stored — this server keeps no copy and cannot revoke one. Rotate YOKE_TOKEN_SECRET to invalidate every credential at once.",
     heading: "Tokens",
     lede: "Manage API tokens for browser sharing and remote access. A secret is shown only when its token is created. Revoke the token by name to end access.",
     create: "Create token",
     newToken: "New token",
     name: "name",
     namePlaceholder: "ci-agent",
-    scopes: "scopes",
     permissions: "permissions",
     readHint: "see knowledge — briefings, injections, search",
     writeHint: "the knowledge permission — record, re-confirm, retire",
@@ -557,17 +555,11 @@ export const en = {
     recordType: "record type",
     anyPlaceholder: "any",
     grants: "this token grants",
-    revoked: (name: string) => `Revoked "${name}".`,
     created: "Token created",
     createdNote: "Save it now. yoke stores only the hash.",
     secret: "secret",
     shareUrl: "share URL",
-    empty: "no tokens",
-    revoke: "Revoke",
-    revokeTitle: "Revoke this token?",
     /** Irreversible, and the project's rule for skipping a confirmation is reversibility. */
-    revokeConfirm: (name: string) =>
-      `"${name}" stops working immediately, and the secret cannot be recovered — yoke stores only its hash. Anything using it needs a new token.`,
     allTypes: "all types",
   },
   login: {

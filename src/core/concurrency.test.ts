@@ -49,9 +49,9 @@ describe("concurrent re-version of one id (C1)", () => {
     const id = base.entity.id;
 
     // Two processes re-version the SAME id at once. Both read prev=v1 and compute version 2; one wins
-    // the (id, version) primary key and the other used to throw `UNIQUE constraint failed: entities.id,
-    // entities.version` straight to the caller. With the typed ConflictError + bounded retry, the loser
-    // re-reads and re-versions, so both land — serialized — on versions 2 and 3.
+    // the (id, version) primary key and the loser must not surface `UNIQUE constraint failed` to the
+    // caller. The typed ConflictError and its bounded retry re-read and re-version, so both land —
+    // serialized — on versions 2 and 3.
     const [r1, r2] = await Promise.all([
       commit(
         a,

@@ -1,8 +1,7 @@
-// storage-sqlite — the better-sqlite3 implementation of StoragePort (SPEC.md / PLAN 1.5).
+// storage-sqlite — the better-sqlite3 implementation of StoragePort (SPEC.md).
 // append-only: only (id, version) rows are added. FTS5 keeps just the latest version (delete+insert).
-// sqlite-vec (vec0) provides embeddings/similar (PLAN 4.2) — latest version only (same policy as FTS).
+// sqlite-vec (vec0) provides embeddings/similar — latest version only (same policy as FTS).
 
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { dimensionMismatch, serializeText } from "../../core/embedding.js";
@@ -10,6 +9,13 @@ import { normalizeNs } from "../../core/namespace.js";
 import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
+import type {
+  AuditEvent,
+  AuditPort,
+  AuditQuery,
+  AuditRow,
+  Delivered,
+} from "../../ports/audit.js";
 import {
   ConflictError,
   DEFAULT_SEARCH_LIMIT,
@@ -41,7 +47,7 @@ CREATE TABLE IF NOT EXISTS entities (
   attributes TEXT NOT NULL,          -- JSON
   provenance TEXT NOT NULL,          -- JSON
   last_confirmed TEXT NOT NULL,
-  ns TEXT,                           -- tenant namespace (PLAN-V2 10.1); NULL = default shared ns
+  ns TEXT,                           -- tenant namespace (ENTERPRISE "namespaces"); NULL = default shared ns
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
   PRIMARY KEY (id, version)
 ) WITHOUT ROWID;
@@ -54,7 +60,7 @@ CREATE TABLE IF NOT EXISTS relations (
   attributes TEXT NOT NULL,          -- JSON
   provenance TEXT NOT NULL,          -- JSON
   last_confirmed TEXT NOT NULL,
-  ns TEXT,                           -- tenant namespace (PLAN-V2 10.1); NULL = default shared ns
+  ns TEXT,                           -- tenant namespace (ENTERPRISE "namespaces"); NULL = default shared ns
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
   from_id TEXT NOT NULL,
   to_id TEXT NOT NULL,
@@ -79,11 +85,11 @@ CREATE TABLE IF NOT EXISTS ontology_types (
   name TEXT NOT NULL,
   version INTEGER NOT NULL,
   def TEXT NOT NULL,                 -- JSON (full TypeDef)
-  ns TEXT,                           -- tenant namespace (PLAN-V2 10.1); NULL = shared base ontology
+  ns TEXT,                           -- tenant namespace (ENTERPRISE "namespaces"); NULL = shared base ontology
   PRIMARY KEY (name, version)
 );
 
--- Injection audit (PLAN 8.4). Append-only, written by front tiers only (core stays pure).
+-- Injection audit. Append-only, written by front tiers only (core stays pure).
 -- Entity mutations need no row here — the append-only version history already records them.
 CREATE TABLE IF NOT EXISTS audit_log (
   actor TEXT NOT NULL,
@@ -91,15 +97,6 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail TEXT NOT NULL,
   at TEXT NOT NULL,                  -- ISO 8601
   ns TEXT                            -- tenant namespace; NULL = default shared ns
-);
-
--- API tokens (PLAN-V2 10.3). Only a salted sha256 of the secret is stored — never the plaintext.
-CREATE TABLE IF NOT EXISTS tokens (
-  name TEXT PRIMARY KEY,
-  salt TEXT NOT NULL,                -- hex, per-token
-  hash TEXT NOT NULL,                -- hex sha256(salt + secret)
-  scopes TEXT NOT NULL,              -- JSON string[] (scope grammar parsed at the RBAC tier)
-  created_at TEXT NOT NULL           -- ISO 8601
 );
 
 -- Indexes. The primary key alone is only enough while the
@@ -130,36 +127,27 @@ CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_id);
 CREATE INDEX IF NOT EXISTS idx_relations_ns_type_id ON relations(ns, type, id);
 -- The audit viewer filters by time, and the trail is the one table that only ever grows.
 CREATE INDEX IF NOT EXISTS idx_audit_ns_at ON audit_log(ns, at);
+
+-- What an agent has been handed, as data rather than as prose to be re-parsed. Maintained by the
+-- same write that appends the trail row, so the two cannot drift, and aggregated HERE so that
+-- "how often is this record read" and "does this reader already hold it" are point lookups on an
+-- index instead of a scan over the log.
+--
+-- last_at is NULL for a delivery that answered as of a past instant: it counts as consumption (an
+-- agent did receive the record) but must not advance the reader's clock, because it handed a
+-- version that is not the current one.
+CREATE TABLE IF NOT EXISTS delivery (
+  ns        TEXT    NOT NULL DEFAULT '',
+  actor     TEXT    NOT NULL,
+  anchor    TEXT    NOT NULL DEFAULT '',
+  entity_id TEXT    NOT NULL,
+  n         INTEGER NOT NULL DEFAULT 0,
+  last_at   TEXT,
+  PRIMARY KEY (ns, actor, anchor, entity_id)
+) WITHOUT ROWID;
+-- consumption(): sum over every reader and context that was handed this record.
+CREATE INDEX IF NOT EXISTS idx_delivery_ns_entity ON delivery(ns, entity_id);
 `;
-
-/** One audit_log row. 'who saw what when' (ENTERPRISE.md) — inject/persona reads at the front tier. */
-export interface AuditEvent {
-  actor: string;
-  action: string;
-  detail: string;
-  at: string;
-  /** Tenant namespace the read/action happened in. Omitted = the default shared namespace.
-   * Without it an audit viewer would show every tenant's queries to every tenant. */
-  ns?: string | null;
-}
-
-/** listAudit filter. Most-recent-N window: `limit` takes the newest rows, returned oldest-first.
- * `since`/`until` are both inclusive — a person picking an end day means through that instant. */
-export interface AuditQuery {
-  since?: string;
-  until?: string;
-  ns?: string | null;
-  limit?: number;
-}
-
-/** A stored API token, sans secret (PLAN-V2 10.3) — for `yoke token list`. */
-export interface TokenInfo {
-  name: string;
-  scopes: string[];
-  created_at: string;
-}
-
-const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 interface EntityRow {
   id: string;
@@ -196,7 +184,7 @@ function rowToRelation(r: RelationRow): Relation {
   return { ...rowToEntity(r), from: r.from_id, to: r.to_id };
 }
 
-export class SqliteStorage implements StoragePort {
+export class SqliteStorage implements StoragePort, AuditPort {
   private db: Database.Database;
 
   constructor(path: string) {
@@ -207,7 +195,7 @@ export class SqliteStorage implements StoragePort {
     this.db.pragma("journal_mode = WAL");
     sqliteVec.load(this.db);
     // Columns FIRST, then the schema — a required ordering. SCHEMA declares indexes over `ns`
-    // (`idx_entities_ns_type_id` and four more); on a database created before PLAN-V2 10.1 that column
+    // (`idx_entities_ns_type_id` and four more); on a database created before namespaces existed that column
     // does not exist yet, so `exec(SCHEMA)` throws "no such column: ns" before the ALTER TABLE loop
     // that adds it can run. Running the ALTERs first keeps SCHEMA's index DDL valid on every vintage.
     //
@@ -299,7 +287,7 @@ export class SqliteStorage implements StoragePort {
 
   /** Additive column migrations, each conditional so it runs on any vintage of database. */
   private migrateColumns(): void {
-    // Migration for DBs created before PLAN-V2 10.1: add the nullable ns column. Fresh DBs already
+    // Migration for DBs created before namespaces existed: add the nullable ns column. Fresh DBs already
     // have it (in SCHEMA), so ADD COLUMN throws "duplicate column" — caught and ignored. NULL default
     // means every pre-existing row belongs to the default shared namespace (backward compatible).
     for (const table of [
@@ -579,7 +567,7 @@ export class SqliteStorage implements StoragePort {
     // The filters sit in this WHERE, so they apply BEFORE the limit: capping first and filtering
     // afterward in JS returns fewer rows than the caller asked for.
     const limitClause = " LIMIT @limit";
-    // Namespace isolation (PLAN-V2 10.1): `IS @ns` handles NULL (default ns sees only default rows).
+    // Namespace isolation (ENTERPRISE "namespaces"): `IS @ns` handles NULL (default ns sees only default rows).
     const rows = this.db
       .prepare(
         `SELECT e.* FROM entities_fts f
@@ -724,7 +712,7 @@ export class SqliteStorage implements StoragePort {
   // --- Adapter extensions outside StoragePort: ontology seed save/load (for CLI init) ---
 
   /** Append-only save of ontology definitions. Accumulates as the next version per name.
-   * ns targets a tenant ontology (PLAN-V2 10.1); omitted = the shared base ontology.
+   * ns targets a tenant ontology (ENTERPRISE "namespaces"); omitted = the shared base ontology.
    * Version numbering stays global per name (across namespaces) so the (name, version) primary
    * key never collides between a shared def and a tenant def of the same name. */
   // `async` only to satisfy the interface — better-sqlite3 is synchronous, so the body is too.
@@ -809,7 +797,7 @@ export class SqliteStorage implements StoragePort {
         .get(to, n);
       if (declared) {
         // `to` already exists — the ordinary case when the code was renamed before the database was,
-        // so a later `yoke init` seeded the new type beside the old one. Drop the stale declaration
+        // so the next open seeded the new type beside the old one. Drop the stale declaration
         // rather than colliding with the live one; the rows above already point at the survivor.
         rows += this.db
           .prepare(`DELETE FROM ontology_types WHERE name = ? AND ns IS ?`)
@@ -836,7 +824,7 @@ export class SqliteStorage implements StoragePort {
     return tx.immediate();
   }
 
-  /** All versions of an id, ascending (outside StoragePort — for CLI history, PLAN 8.4).
+  /** All versions of an id, ascending (outside StoragePort — for CLI history).
    * getEntity returns one version; the append-only rows ARE the change audit, this just exposes them. */
   listHistory(id: string): Entity[] {
     const rows = this.db
@@ -845,25 +833,51 @@ export class SqliteStorage implements StoragePort {
     return rows.map(rowToEntity);
   }
 
-  /** Append one injection-audit event (outside StoragePort — written by front tiers, PLAN 8.4). */
-  logAudit(event: AuditEvent): void {
-    this.db
-      .prepare(
-        `INSERT INTO audit_log (actor, action, detail, at, ns) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(
-        event.actor,
-        event.action,
-        event.detail,
-        event.at,
-        normalizeNs(event.ns),
+  /** Append one injection-audit event, and the delivery it describes (AuditPort). One transaction:
+   * a trail that says an agent was handed a record while the ledger's own count disagrees is worse
+   * than no count at all. */
+  async logAudit(event: AuditEvent): Promise<void> {
+    const ns = normalizeNs(event.ns);
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO audit_log (actor, action, detail, at, ns) VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(event.actor, event.action, event.detail, event.at, ns);
+      if (!event.ids?.length) return;
+      const bump = this.db.prepare(
+        `INSERT INTO delivery (ns, actor, anchor, entity_id, n, last_at)
+         VALUES (@ns, @actor, @anchor, @id, 1, @at)
+         ON CONFLICT(ns, actor, anchor, entity_id) DO UPDATE SET
+           n = n + 1,
+           -- The LATER instant wins, and an as-of delivery (NULL) never does: it handed a version
+           -- that is not current, so it must leave an earlier real delivery's clock where it was.
+           -- By instant, never by string compare: at is stored in more than one ISO spelling.
+           last_at = CASE
+             WHEN excluded.last_at IS NULL THEN delivery.last_at
+             WHEN delivery.last_at IS NULL THEN excluded.last_at
+             WHEN julianday(excluded.last_at) > julianday(delivery.last_at)
+               THEN excluded.last_at
+             ELSE delivery.last_at
+           END`,
       );
+      for (const id of new Set(event.ids))
+        bump.run({
+          // '' not NULL: the delivery key is a PRIMARY KEY, and NULL never equals NULL in one, so a
+          // nullable column would make every upsert on the default namespace insert a new row.
+          ns: ns ?? "",
+          actor: event.actor,
+          anchor: event.anchor ?? "",
+          id,
+          at: event.asOf ? null : event.at,
+        });
+    })();
   }
 
   /** Audit events in insertion order (oldest first), filtered by ns and optionally at >= since.
    * `limit` takes the most recent N and still returns them oldest-first, so a paging viewer and
    * `yoke audit` read the same direction. */
-  listAudit(q: AuditQuery = {}): AuditEvent[] {
+  async listAudit(q: AuditQuery = {}): Promise<AuditRow[]> {
     // By instant (`julianday` parses ISO 8601, offsets included), never by string. Stored `at` values
     // are not one spelling — the DB default is whole-second `...Z`, callers write millisecond `...Z` —
     // and `Z` sorts AFTER `.`, so a string compare misses rows in the bound's own second even when
@@ -893,156 +907,89 @@ export class SqliteStorage implements StoragePort {
         since: q.since,
         until: q.until,
         limit: q.limit,
-      }) as AuditEvent[];
+      }) as AuditRow[];
     // Default ns leaves the field absent, matching how entity rows carry ns (opaque parity).
     for (const r of rows) if (r.ns == null) delete r.ns;
     return q.limit === undefined ? rows : rows.reverse();
   }
 
-  // --- API tokens (PLAN-V2 10.3) — Bearer auth for serve mode. Plaintext is never stored. ---
-
-  /** Mint a token: random 32-byte secret, store salted sha256 hash + scopes. Returns the plaintext once. */
-  createToken(spec: { name: string; scopes: string[]; created_at: string }): {
-    token: string;
-  } {
-    const secret = `yk_${randomBytes(32).toString("hex")}`;
-    const salt = randomBytes(16).toString("hex");
-    this.db
-      .prepare(
-        `INSERT INTO tokens (name, salt, hash, scopes, created_at) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(
-        spec.name,
-        salt,
-        sha256(salt + secret),
-        JSON.stringify(spec.scopes),
-        spec.created_at,
-      );
-    return { token: secret };
+  /** AuditPort. Over the whole history — see the port's note on why this has no window. */
+  async consumption(q: {
+    ns?: string | null;
+    ids: string[];
+  }): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (q.ids.length === 0) return counts;
+    // Chunked against SQLITE_MAX_VARIABLE_NUMBER (999 on older builds); the caller's page is ~1000.
+    for (let i = 0; i < q.ids.length; i += 500) {
+      const chunk = q.ids.slice(i, i + 500);
+      const rows = this.db
+        .prepare(
+          `SELECT entity_id, SUM(n) AS n FROM delivery
+           WHERE ns = ? AND entity_id IN (${chunk.map(() => "?").join(",")})
+           GROUP BY entity_id`,
+        )
+        .all(normalizeNs(q.ns) ?? "", ...chunk) as Array<{
+        entity_id: string;
+        n: number;
+      }>;
+      for (const r of rows) counts.set(r.entity_id, r.n);
+    }
+    return counts;
   }
 
-  /** Resolve a presented secret to its name+scopes, or null. Scans all rows (per-token salt) —
-   * token counts are tiny, and the timing-safe compare avoids a hash-comparison side channel. */
-  verifyToken(secret: string): { name: string; scopes: string[] } | null {
+  /** AuditPort. One context's rows — the primary key fixes ns, actor and anchor, so every row here
+   * is one entity and the newest instant is the first of them. Ordered by `julianday`, never by
+   * text: `last_at` is stored in more than one ISO spelling and `Z` collates after `.`. */
+  async delivered(q: {
+    ns?: string | null;
+    actor: string;
+    anchor: string;
+  }): Promise<Delivered> {
     const rows = this.db
-      .prepare(`SELECT name, salt, hash, scopes FROM tokens`)
-      .all() as { name: string; salt: string; hash: string; scopes: string }[];
-    for (const r of rows) {
-      const got = Buffer.from(sha256(r.salt + secret), "hex");
-      const want = Buffer.from(r.hash, "hex");
-      if (got.length === want.length && timingSafeEqual(got, want)) {
-        return { name: r.name, scopes: JSON.parse(r.scopes) as string[] };
-      }
-    }
-    return null;
+      .prepare(
+        `SELECT entity_id, last_at FROM delivery
+         WHERE ns = ? AND actor = ? AND anchor = ? AND last_at IS NOT NULL
+         ORDER BY julianday(last_at) DESC`,
+      )
+      .all(normalizeNs(q.ns) ?? "", q.actor, q.anchor) as Array<{
+      entity_id: string;
+      last_at: string;
+    }>;
+    return {
+      ...(rows.length === 0 ? {} : { last: rows[0].last_at }),
+      ids: new Set(rows.map((r) => r.entity_id)),
+    };
   }
 
-  /** Delete a token by name. Returns whether a row was removed. */
-  revokeToken(name: string): boolean {
-    return (
-      this.db.prepare(`DELETE FROM tokens WHERE name = ?`).run(name).changes > 0
-    );
-  }
-
-  /** All tokens, sans secret/hash (for `yoke token list`). */
-  listTokens(): TokenInfo[] {
-    return (
-      this.db
-        .prepare(
-          `SELECT name, scopes, created_at FROM tokens ORDER BY created_at`,
-        )
-        .all() as { name: string; scopes: string; created_at: string }[]
-    ).map((r) => ({
-      name: r.name,
-      scopes: JSON.parse(r.scopes) as string[],
-      created_at: r.created_at,
-    }));
-  }
-
-  // --- Durability (PLAN-V2 11.1): backup + PITR-lite export. ---
-
-  /** Online backup to a fresh file (11.1). better-sqlite3's `.backup()` is WAL-safe and produces a
-   * single consistent DB file — no need to checkpoint or stop writes first. */
-  async backupTo(dest: string): Promise<void> {
-    await this.db.backup(dest);
-  }
-
-  /**
-   * `"ok"`, or what sqlite says is wrong with this file.
+  /** AuditPort. Point lookups on the delivery primary key's leading columns, chunked against
+   * SQLITE_MAX_VARIABLE_NUMBER exactly like `consumption()`.
    *
-   * `quick_check`, not `integrity_check`: it verifies page structure and skips the full index
-   * cross-check, which is the part whose cost scales with the database. What it catches is the class that
-   * matters to a caller about to copy the file — pages that cannot be read correctly at all.
-   *
-   * Nothing calls this on a read path. A corrupt database currently answers `list` and `overview` with a
-   * confident short census (measured: 228 records where there were 251, exit 0), and the fix for that is
-   * a `yoke doctor` that says so, not a check on every query.
-   */
-  integrityCheck(): string {
-    return this.db.pragma("quick_check", { simple: true }) as string;
-  }
-
-  /** PITR-lite (11.1): reconstruct DB state as of `ts` into a fresh file. History is append-only, so
-   * we copy every entity/relation/ontology/audit row created at or before ts and rebuild FTS from the
-   * surviving latest versions. Embeddings/vec are NOT carried over (search falls back to FTS on the
-   * export). Precision caveat: created_at is the DB-default server clock (strftime '%Y-...Z','now'),
-   * i.e. whole-second ingestion time — not the domain occurred_at. The cut is by ingestion time.
-   * Columns are listed explicitly so a pre-10.1 source (ns appended last by migration) copies cleanly
-   * into a fresh dest (ns mid-row). */
-  async exportUntil(ts: string, destPath: string): Promise<void> {
-    // Fresh dest with the full schema, then attach and row-copy with SQL (simplest — PLAN-V2 11.1).
-    const dst = new SqliteStorage(destPath);
-    await dst.init();
-    dst.close();
-    this.db.prepare("ATTACH DATABASE ? AS bak").run(destPath);
-    try {
-      this.db
+   * One id can have a row per working context; ascending by `julianday` makes the last write per id
+   * the latest instant, so the choice is made by instant in SQL rather than by comparing text. */
+  async lastHanded(q: {
+    ns?: string | null;
+    actor: string;
+    ids: string[];
+  }): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (q.ids.length === 0) return out;
+    for (let i = 0; i < q.ids.length; i += 500) {
+      const chunk = q.ids.slice(i, i + 500);
+      const rows = this.db
         .prepare(
-          `INSERT INTO bak.entities (id, version, type, status, attributes, provenance, last_confirmed, ns, created_at)
-           SELECT id, version, type, status, attributes, provenance, last_confirmed, ns, created_at
-           FROM entities WHERE julianday(COALESCE(created_at, last_confirmed)) <= julianday(?)`,
+          `SELECT entity_id, last_at FROM delivery
+           WHERE ns = ? AND actor = ? AND last_at IS NOT NULL
+             AND entity_id IN (${chunk.map(() => "?").join(",")})
+           ORDER BY julianday(last_at)`,
         )
-        .run(ts);
-      this.db
-        .prepare(
-          `INSERT INTO bak.relations (id, version, type, status, attributes, provenance, last_confirmed, ns, created_at, from_id, to_id)
-           SELECT id, version, type, status, attributes, provenance, last_confirmed, ns, created_at, from_id, to_id
-           FROM relations WHERE julianday(COALESCE(created_at, last_confirmed)) <= julianday(?)`,
-        )
-        .run(ts);
-      // Ontology defs have no timestamp — copy them all; a reconstructed DB is unusable without them.
-      this.db.exec(
-        `INSERT INTO bak.ontology_types (name, version, def, ns)
-         SELECT name, version, def, ns FROM ontology_types`,
-      );
-      this.db
-        .prepare(
-          `INSERT INTO bak.audit_log (actor, action, detail, at, ns)
-           SELECT actor, action, detail, at, ns FROM audit_log
-           WHERE julianday(at) <= julianday(?)`,
-        )
-        .run(ts);
-      // Rebuild FTS from the copied latest versions (serializeText is JS, not SQL).
-      const latest = this.db
-        .prepare(
-          `SELECT id, type, attributes FROM bak.entities e
-           WHERE e.version = (SELECT MAX(version) FROM bak.entities WHERE id = e.id)`,
-        )
-        .all() as { id: string; type: string; attributes: string }[];
-      const ins = this.db.prepare(
-        `INSERT INTO bak.entities_fts (id, text) VALUES (?, ?)`,
-      );
-      for (const r of latest)
-        ins.run(r.id, serializeText(r.type, r.attributes));
-      // Map the rebuilt FTS rows to their rowids (C6/F2), so a write into the export is O(log n) like
-      // any other database. A later open would self-heal this via migrateFtsDocids anyway; doing it
-      // here keeps the export internally consistent the moment it is written.
-      this.db.exec(
-        `INSERT INTO bak.fts_docid (id, docid) SELECT id, rowid FROM bak.entities_fts`,
-      );
-    } finally {
-      this.db.exec("DETACH DATABASE bak");
+        .all(normalizeNs(q.ns) ?? "", q.actor, ...chunk) as Array<{
+        entity_id: string;
+        last_at: string;
+      }>;
+      for (const r of rows) out.set(r.entity_id, r.last_at);
     }
+    return out;
   }
 
   /** Latest version per name, in first-registration order, within one namespace scope. */

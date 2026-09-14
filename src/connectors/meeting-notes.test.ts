@@ -1,4 +1,4 @@
-// meeting-notes connector tests (PLAN 8.5). A temp-dir fixture with .md/.txt files (plus one ignored
+// meeting-notes connector tests. A temp-dir fixture with .md/.txt files (plus one ignored
 // extension). Verifies chunking, external_id shape, and ingest idempotency.
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

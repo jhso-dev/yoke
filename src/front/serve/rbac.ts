@@ -1,4 +1,4 @@
-// RBAC (PLAN-V2 10.4, ENTERPRISE.md) — pure authorization over the three axes:
+// RBAC (ENTERPRISE "RBAC", ENTERPRISE.md) — pure authorization over the three axes:
 // namespace × entity-type × action(read|write|admin). Deny by default. `write` is the one knowledge
 // permission: committing, re-confirming and retiring are the same trust level, because every entry
 // is signed and every retirement is broadcast — the checks live downstream of the act, not in a
@@ -31,6 +31,40 @@ interface Scope {
 }
 
 const wild = (s: string): string | null => (s === "" || s === "*" ? null : s);
+
+/** The scope grammar, spelled once: the CLI's usage text and every refusal quote this. */
+export const SCOPE_GRAMMAR =
+  "action | namespace:action | namespace:type:action";
+
+/**
+ * The scopes a credential is being minted with, or why it cannot be.
+ *
+ * Checked at issue time, because a token whose scopes are nonsense authenticates and then 403s on
+ * everything — indistinguishable from a working credential until someone tries to use it. The parser
+ * that decides what a scope MEANS is the right thing to ask what one IS, so both the CLI and the HTTP
+ * route come through here rather than each asking it their own way.
+ */
+export function validateScopes(
+  raw: string[],
+):
+  | { ok: true; scopes: string[] }
+  | { ok: false; error: string; bad: string[] } {
+  const scopes = raw.map((s) => s.trim()).filter(Boolean);
+  if (scopes.length === 0)
+    return {
+      ok: false,
+      error: "no scopes: a credential with no scope can do nothing",
+      bad: [],
+    };
+  const bad = scopes.filter((s) => parseScope(s) === null);
+  if (bad.length > 0)
+    return {
+      ok: false,
+      error: `not a scope: ${bad.join(", ")} — scope is ${SCOPE_GRAMMAR}`,
+      bad,
+    };
+  return { ok: true, scopes };
+}
 
 /** Parse one scope string, or null if malformed / unknown action. */
 export function parseScope(raw: string): Scope | null {

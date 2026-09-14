@@ -1,9 +1,8 @@
 // storage-opensearch — the OpenSearch implementation of StoragePort (v5.4).
 //
-// The remote backend, and a cheap one to own: OpenSearch speaks REST, so this takes a `fetchImpl` and
-// adds **no dependency at all** — a backend speaking a binary protocol would have to ship a driver
-// with it. Injectable fetch is also what makes it fakeable, so a company without a spare cluster is
-// not locked out of the tests.
+// OpenSearch speaks REST, so this takes a `fetchImpl` and adds no dependency — a binary protocol
+// would have to ship a driver. Injectable fetch is also what makes it fakeable, so a company without
+// a spare cluster is not locked out of the tests.
 //
 // Native BM25 and native k-NN, no native traversal: `neighbors` is a term query on from_id/to_id,
 // which is what sqlite does too (docs/BACKENDS.md capability matrix). The k-NN plugin ships inside
@@ -133,7 +132,7 @@ interface RelationDoc extends Omit<EntityDoc, "txt"> {
   to_id: string;
 }
 
-export interface OpenSearchOptions {
+interface OpenSearchOptions {
   url: string;
   /** Basic-auth credentials. A security-enabled cluster wants them; a demo container does not. */
   username?: string;
@@ -194,18 +193,14 @@ export class OpenSearchStorage implements StoragePort {
 
   /** Create an index if absent. `init()` is the upgrade path for an existing cluster, so this is
    * idempotent the way sqlite's CREATE TABLE IF NOT EXISTS is. */
-  private async ensureIndex(
-    name: string,
-    mappings: unknown,
-    extraSettings?: Record<string, unknown>,
-  ): Promise<void> {
+  private async ensureIndex(name: string, mappings: unknown): Promise<void> {
     const res = await this.fetchImpl(`${this.url}/${name}`, {
       method: "HEAD",
       headers: this.headers,
     });
     if (res.ok) return;
     await this.req("PUT", `/${name}`, {
-      settings: { ...BASE_SETTINGS, ...extraSettings },
+      settings: BASE_SETTINGS,
       mappings,
     });
   }
@@ -727,7 +722,7 @@ export class OpenSearchStorage implements StoragePort {
    * Rename an entity/relation type across the declaration and every stored row.
    *
    * Rewrites rather than appends, which is the only shape that answers the question — appending would
-   * leave the old name in every historical row (ROADMAP v4.0 note). `txt` embeds the type name, so it
+   * leave the old name in every historical row. `txt` embeds the type name, so it
    * is rebuilt — see `renameEntityDocs` for why that half cannot be a script.
    */
   async renameType(
@@ -777,7 +772,7 @@ export class OpenSearchStorage implements StoragePort {
    * Read-then-write instead of `_update_by_query`, because the key is prose — the type, the values in
    * ontology order, the `sources` span, then the identifiers — and Painless cannot build it. The
    * script that tried was a second copy of the rule that only the rename path ran, so it reverted
-   * every renamed row to whatever the key used to be, silently. One rule, one implementation.
+   * every renamed row to a stale key, silently. One rule, one implementation.
    */
   private async renameEntityDocs(
     from: string,

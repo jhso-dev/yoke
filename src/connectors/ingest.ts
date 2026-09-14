@@ -1,4 +1,4 @@
-// Shared connector ingest (PLAN 5.1). Not core but a front-tier consumer — it iterates a connector's
+// Shared connector ingest. Not core but a front-tier consumer — it iterates a connector's
 // pull and routes each item through the commit gate (no bypass). Idempotency: externalId is stored as
 // attributes.external_id, and on re-run it is looked up via FTS and skipped if already present.
 
@@ -88,7 +88,7 @@ export function unusableKey(externalId: unknown): string | null {
 }
 
 /** What the gate did with one source item, and the id of the head record it left behind. */
-export interface ItemOutcome {
+interface ItemOutcome {
   outcome: "added" | "updated" | "skipped";
   id: string;
 }
@@ -192,23 +192,50 @@ export async function ingest(
   embedder?: Embedder,
   attachTo?: string,
 ): Promise<IngestResult> {
+  return ingestItems(
+    port,
+    ontology,
+    connector.pull(since),
+    { actor, origin: `connector:${connector.name}` },
+    now,
+    { ns, embedder, attachTo },
+  );
+}
+
+/**
+ * The commit gate over a stream of source items, whoever produced them.
+ *
+ * A connector pulls where the credentials and the files are — a developer's machine — while the
+ * gate runs where the corpus is. Splitting the pull from the commit is what lets those be two
+ * places, and it is the same loop either way so the two cannot judge an item differently.
+ */
+export async function ingestItems(
+  port: StoragePort,
+  ontology: TypeDef[],
+  items: AsyncIterable<SourceItem> | Iterable<SourceItem>,
+  prov: { actor: string; origin: string },
+  now: string,
+  opts: {
+    ns?: string | null;
+    embedder?: Embedder;
+    attachTo?: string;
+  } = {},
+): Promise<IngestResult> {
+  const { ns, embedder, attachTo } = opts;
   let added = 0;
   let updated = 0;
   let skipped = 0;
   const rejected: string[] = [];
-  for await (const item of connector.pull(since)) {
+  for await (const item of items) {
     // Per item, not per run: a source item that cannot be recorded is one item's problem. Without this
     // try, one CommitRejected throws out of the loop, abandoning every later item and the next pull page
     // and losing the added/skipped tally. (The rdb path isolates per row the same way — `errors` in rdb-mapping.)
     try {
-      const { outcome } = await ingestItem(
-        port,
-        ontology,
-        item,
-        { actor, origin: `connector:${connector.name}` },
-        now,
-        { ns, embedder, ...(attachTo ? { attachTo } : {}) },
-      );
+      const { outcome } = await ingestItem(port, ontology, item, prov, now, {
+        ns,
+        embedder,
+        ...(attachTo ? { attachTo } : {}),
+      });
       if (outcome === "added") added++;
       else if (outcome === "updated") updated++;
       else skipped++;

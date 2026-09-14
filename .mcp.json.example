@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy to .mcp.json (gitignored) to point an MCP client at this checkout's own build. Run `npm run build:cli` first, then keep a `yoke serve --db ./yoke.db` running — `yoke mcp` opens nothing, it relays stdio to that server, and `--db` here is the store it expects the server to hold. The embedder lines belong to the SERVER, which is what embeds; set them there.",
+  "mcpServers": {
+    "yoke": {
+      "command": "node",
+      "args": ["dist/front/cli/index.js", "mcp", "--db", "./yoke.db"]
+    }
+  }
+}

@@ -32,7 +32,11 @@ export default function Login() {
     e.preventDefault();
     setError(null);
     setBusy(true);
-    setCredential(value.trim());
+    const pasted = value.trim();
+    // A refresh token is what someone still has a week later, so accept it here: trade it for a pair
+    // and the session never asks again. Anything else is treated as an access credential.
+    const traded = await api.exchangeRefresh(pasted);
+    if (!traded) setCredential(pasted);
     try {
       await api.ontology();
       router.replace("/review/");

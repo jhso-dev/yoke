@@ -140,20 +140,6 @@ const ATTR_TYPES: ReadonlyArray<AttrSpec["type"]> = [
 ];
 
 /**
- * Validate a type DEFINITION before it is stored. Returns a reason, or null when it is well formed.
- *
- * `add-type` is the one write that does not pass the commit gate — it changes the rules the gate applies
- * — so a malformed definition is caught nowhere downstream and must be rejected here: a missing `attrs`,
- * a `kind` that is neither entity nor relation, an `attrs` that is not an object, an attribute type no
- * value can satisfy, a name flip onto a populated type. The `ttl_days` cases cost knowledge rather than
- * crashing — a non-numeric or negative TTL makes `isFresh` permanently false, withholding a
- * human-verified record from injection forever, silent and indistinguishable from a TTL that genuinely
- * elapsed.
- *
- * A kind flip on a type that already has rows is refused by the callers, which are the ones that can
- * count them — this function judges the definition alone.
- */
-/**
  * Every key a type definition may carry. A definition is REJECTED for anything else.
  *
  * Enumerating only known keys makes a validator a spell-checker for its own vocabulary — `ttl_dayz: 30`
@@ -171,6 +157,20 @@ const TYPE_DEF_KEYS = [
   "symmetric",
 ] as const;
 
+/**
+ * Validate a type DEFINITION before it is stored. Returns a reason, or null when it is well formed.
+ *
+ * `add-type` is the one write that does not pass the commit gate — it changes the rules the gate applies
+ * — so a malformed definition is caught nowhere downstream and must be rejected here: a missing `attrs`,
+ * a `kind` that is neither entity nor relation, an `attrs` that is not an object, an attribute type no
+ * value can satisfy, a name flip onto a populated type. The `ttl_days` cases cost knowledge rather than
+ * crashing — a non-numeric or negative TTL makes `isFresh` permanently false, withholding a
+ * human-verified record from injection forever, silent and indistinguishable from a TTL that genuinely
+ * elapsed.
+ *
+ * A kind flip on a type that already has rows is refused by the callers, which are the ones that can
+ * count them — this function judges the definition alone.
+ */
 export function validateTypeDef(def: unknown): string | null {
   if (typeof def !== "object" || def === null || Array.isArray(def))
     return "a type definition must be a JSON object";
@@ -236,13 +236,13 @@ export function validateTypeDef(def: unknown): string | null {
 }
 
 /**
- * The effective ontology for a namespace (PLAN-V2 10.1): tenant defs overlaid on the shared (null-ns)
+ * The effective ontology for a namespace (ENTERPRISE "namespaces"): tenant defs overlaid on the shared (null-ns)
  * base by name. Shared order is preserved and a tenant def replaces its same-name entry IN PLACE (a Map
  * keeps insertion order and a re-set keeps the original slot); tenant-only types append.
  *
  * Every backend's `loadOntology(ns)` answers with this, and they must all answer alike: a backend that
- * returned the tenant scope ALONE would make every namespaced command on it refuse to run. `yoke init`
- * writes the seed with no ns, so a tenant that has declared nothing of its own would load an EMPTY
+ * returned the tenant scope ALONE would make every namespaced command on it refuse to run. The seed
+ * is written with no ns, so a tenant that has declared nothing of its own would load an EMPTY
  * ontology and every commit would come back "unknown type" — and a tenant holding no copy of the shared
  * types is the point of the split, not an omission. A backend answering this differently is backend
  * behaviour leaking through the store surface (invariant 2), which is why the rule is here and each

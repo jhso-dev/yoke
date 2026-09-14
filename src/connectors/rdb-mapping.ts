@@ -1,4 +1,4 @@
-// RDB read-mapping connector (PLAN 8.3, BACKENDS "Traditional-DB read-mapping") — the enterprise wedge.
+// RDB read-mapping connector (BACKENDS "Traditional-DB read-mapping") — the enterprise wedge.
 // Exposes an existing RDB as ontology entities with no migration and no bidirectional sync (read-only).
 //
 // The second pass below is the WHOLE difference from `ingest`: every row goes through `ingestItem`,
@@ -52,12 +52,10 @@ export interface MappedResult {
   updated: number;
   skipped: number;
   errors: number;
-}
-
-export function makeRdbMappingConnector(
-  opts: RdbMappingConnector,
-): RdbMappingConnector {
-  return opts;
+  /** What went wrong, in the operator's words. Returned rather than printed: the gate may run on a
+   * server while the person who wrote the mapping is at a terminal somewhere else, and a count with
+   * no reasons names nothing to fix. */
+  messages: string[];
 }
 
 const externalId = (table: string, pk: unknown): string =>
@@ -75,10 +73,57 @@ export async function ingestMapped(
   ns?: string | null,
   embedder?: Embedder,
 ): Promise<MappedResult> {
+  // Query each table once; both passes read the same rows.
+  // ceiling: `SELECT *` over an operator-supplied table name. The mapping file is trusted operator
+  // config (not end-user input), so raw identifier interpolation is acceptable here; add
+  // quoting/allowlist if the mapping ever becomes user-facing.
+  return ingestMappedRows(
+    port,
+    ontology,
+    await Promise.all(
+      connector.mapping.map(async (spec) => ({
+        spec,
+        rows: await connector.query(`SELECT * FROM ${spec.table}`),
+      })),
+    ),
+    now,
+    ns,
+    embedder,
+  );
+}
+
+/**
+ * The mapping's two passes over rows that are already in hand.
+ *
+ * Split from the query for the same reason `ingestItems` is split from `ingest`: the database being
+ * read is the CALLER's — their DSN, their network — while the gate belongs where the corpus is. Both
+ * entry points run this, so the two cannot judge a row differently.
+ */
+export async function ingestMappedRows(
+  port: StoragePort,
+  ontology: TypeDef[],
+  tables: { spec: MappingSpec; rows: Record<string, unknown>[] }[],
+  now: string,
+  ns?: string | null,
+  embedder?: Embedder,
+  /**
+   * Which pass to run. `"both"` is one call over every row, which is what a local run does.
+   *
+   * A caller that cannot send every row at once — the CLI, whose rows cross a network — sends the
+   * entity pass in slices and only then the relation pass, because pass 2 resolves FK targets that
+   * may live in a slice it has not sent yet. Pass 2 asks the STORE for both ends, so each slice is
+   * self-contained; the in-memory map is only the fast path for a single call.
+   */
+  pass: "both" | "entities" | "relations" = "both",
+): Promise<MappedResult> {
   let added = 0;
   let updated = 0;
   let skipped = 0;
   let errors = 0;
+  const messages: string[] = [];
+  const complain = (m: string) => {
+    messages.push(m);
+  };
   const idByExtId = new Map<string, string>();
 
   /** Who a mapped row is recorded as coming from. The table is in the origin, so a reader can tell
@@ -97,116 +142,60 @@ export async function ingestMapped(
     return undefined;
   };
 
-  // Query each table once; reused by both passes.
-  // ceiling: `SELECT *` over an operator-supplied table name. The mapping file is trusted operator
-  // config (not end-user input), so raw identifier interpolation is acceptable here; add quoting/allowlist
-  // if the mapping ever becomes user-facing.
-  const tables = await Promise.all(
-    connector.mapping.map(async (spec) => ({
-      spec,
-      rows: await connector.query(`SELECT * FROM ${spec.table}`),
-    })),
-  );
-
   // Pass 1 — entities. Build the external_id → yoke id map for pass 2.
-  for (const { spec, rows } of tables) {
-    // The primary key column, checked ONCE against the first row rather than per row: a typo'd `idColumn`
-    // is a mapping-file mistake, not a data one. Every row would yield the same `rdb:<table>:undefined`,
-    // and because this path re-versions on a key match, distinct rows would collapse into one entity's
-    // version chain with the last row winning. Refusing the whole spec names the fix; refusing row by row
-    // would bury it in identical errors.
-    if (rows.length > 0 && !(spec.idColumn in rows[0])) {
-      console.error(
-        `rdb: ${spec.table} has no column "${spec.idColumn}" — ` +
-          `mapped columns are ${Object.keys(rows[0]).join(", ")}. Nothing from this table was imported.`,
-      );
-      errors++;
-      continue;
-    }
-    for (const row of rows) {
-      // A NULL primary key in an actual row. Same consequence, different cause, so it is skipped rather
-      // than aborting the table.
-      if (row[spec.idColumn] === null || row[spec.idColumn] === undefined) {
-        console.error(
-          `rdb: skipped a ${spec.table} row whose ${spec.idColumn} is null — it cannot be identified`,
+  if (pass !== "relations")
+    for (const { spec, rows } of tables) {
+      // The primary key column, checked ONCE against the first row rather than per row: a typo'd `idColumn`
+      // is a mapping-file mistake, not a data one. Every row would yield the same `rdb:<table>:undefined`,
+      // and because this path re-versions on a key match, distinct rows would collapse into one entity's
+      // version chain with the last row winning. Refusing the whole spec names the fix; refusing row by row
+      // would bury it in identical errors.
+      if (rows.length > 0 && !(spec.idColumn in rows[0])) {
+        complain(
+          `rdb: ${spec.table} has no column "${spec.idColumn}" — ` +
+            `mapped columns are ${Object.keys(rows[0]).join(", ")}. Nothing from this table was imported.`,
         );
         errors++;
         continue;
       }
-      const extId = externalId(spec.table, row[spec.idColumn]);
-      const attributes: Record<string, unknown> = {};
-      for (const [col, attr] of Object.entries(spec.columns)) {
-        attributes[attr] = row[col];
-      }
-      const at = rowInstant(row, spec.occurredAtColumn);
-      try {
-        const { outcome, id } = await ingestItem(
-          port,
-          ontology,
-          {
-            type: spec.entityType,
-            attributes,
-            externalId: extId,
-            ...(at ? { occurredAt: at } : {}),
-          },
-          prov(spec.table),
-          now,
-          { ns, embedder },
-        );
-        idByExtId.set(extId, id);
-        if (outcome === "skipped") skipped++;
-        else if (outcome === "updated") updated++;
-        else added++;
-      } catch (e) {
-        if (e instanceof CommitRejected) {
-          // Ontology-invalid row: surface it, keep going (one bad row must not abort the whole sync).
-          console.error(`rdb: rejected ${extId}: ${e.message}`);
+      for (const row of rows) {
+        // A NULL primary key in an actual row. Same consequence, different cause, so it is skipped rather
+        // than aborting the table.
+        if (row[spec.idColumn] === null || row[spec.idColumn] === undefined) {
+          complain(
+            `rdb: skipped a ${spec.table} row whose ${spec.idColumn} is null — it cannot be identified`,
+          );
           errors++;
           continue;
         }
-        throw e;
-      }
-    }
-  }
-
-  // Pass 2 — FK relations (after all entities exist so targets resolve regardless of table/row order).
-  for (const { spec, rows } of tables) {
-    if (!spec.relations?.length) continue;
-    for (const row of rows) {
-      const fromId = idByExtId.get(externalId(spec.table, row[spec.idColumn]));
-      if (!fromId) continue; // source row was rejected in pass 1
-      for (const rel of spec.relations) {
-        const fkVal = row[rel.fkColumn];
-        if (fkVal === null || fkVal === undefined) continue;
-        const targetExt = externalId(rel.fkTable ?? spec.table, fkVal);
-        const toId =
-          idByExtId.get(targetExt) ??
-          (await findByExternalId(port, targetExt, ns))?.id;
-        if (!toId) {
-          console.error(
-            `rdb: skip relation ${rel.relType} from ${externalId(spec.table, row[spec.idColumn])}: target ${targetExt} not found`,
-          );
-          continue;
+        const extId = externalId(spec.table, row[spec.idColumn]);
+        const attributes: Record<string, unknown> = {};
+        for (const [col, attr] of Object.entries(spec.columns)) {
+          attributes[attr] = row[col];
         }
-        // Idempotent: skip if this exact edge already exists (commit has no dedup for relations).
-        const existingEdges = await port.neighbors(fromId, rel.relType, "out");
-        if (existingEdges.some((r) => r.to === toId)) continue;
-        // Relations pass the same gate; no read filters on an edge's status (see lifecycle.ts), so
-        // an edge is just stored — the mapped entities are the read-mapping's knowledge surface.
+        const at = rowInstant(row, spec.occurredAtColumn);
         try {
-          await commit(
+          const { outcome, id } = await ingestItem(
             port,
             ontology,
-            { type: rel.relType, attributes: {}, from: fromId, to: toId },
-            { ...prov(spec.table), occurred_at: now },
+            {
+              type: spec.entityType,
+              attributes,
+              externalId: extId,
+              ...(at ? { occurredAt: at } : {}),
+            },
+            prov(spec.table),
             now,
-            { ns },
+            { ns, embedder },
           );
+          idByExtId.set(extId, id);
+          if (outcome === "skipped") skipped++;
+          else if (outcome === "updated") updated++;
+          else added++;
         } catch (e) {
           if (e instanceof CommitRejected) {
-            console.error(
-              `rdb: rejected relation ${rel.relType}: ${e.message}`,
-            );
+            // Ontology-invalid row: surface it, keep going (one bad row must not abort the whole sync).
+            complain(`rdb: rejected ${extId}: ${e.message}`);
             errors++;
             continue;
           }
@@ -214,7 +203,55 @@ export async function ingestMapped(
         }
       }
     }
-  }
 
-  return { added, updated, skipped, errors };
+  // Pass 2 — FK relations (after all entities exist so targets resolve regardless of table/row order).
+  if (pass !== "entities")
+    for (const { spec, rows } of tables) {
+      if (!spec.relations?.length) continue;
+      for (const row of rows) {
+        const fromExt = externalId(spec.table, row[spec.idColumn]);
+        // The map is this call's fast path; the store is the answer when pass 1 ran in an earlier
+        // call. A row rejected in pass 1 is in neither, which is the case this skip is for.
+        const fromId =
+          idByExtId.get(fromExt) ??
+          (await findByExternalId(port, fromExt, ns))?.id;
+        if (!fromId) continue;
+        for (const rel of spec.relations) {
+          const fkVal = row[rel.fkColumn];
+          if (fkVal === null || fkVal === undefined) continue;
+          const targetExt = externalId(rel.fkTable ?? spec.table, fkVal);
+          const toId =
+            idByExtId.get(targetExt) ??
+            (await findByExternalId(port, targetExt, ns))?.id;
+          if (!toId) {
+            complain(
+              `rdb: skip relation ${rel.relType} from ${fromExt}: target ${targetExt} not found`,
+            );
+            continue;
+          }
+          // Idempotent through the gate: a relation's identity is (type, from, to) in a namespace, so
+          // committing an edge that is already there stores nothing and reports it (commit.ts). Asking
+          // `neighbors` first would be the same question, one read per FK per row per sync.
+          try {
+            await commit(
+              port,
+              ontology,
+              { type: rel.relType, attributes: {}, from: fromId, to: toId },
+              { ...prov(spec.table), occurred_at: now },
+              now,
+              { ns },
+            );
+          } catch (e) {
+            if (e instanceof CommitRejected) {
+              complain(`rdb: rejected relation ${rel.relType}: ${e.message}`);
+              errors++;
+              continue;
+            }
+            throw e;
+          }
+        }
+      }
+    }
+
+  return { added, updated, skipped, errors, messages };
 }

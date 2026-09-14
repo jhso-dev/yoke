@@ -44,7 +44,7 @@ export interface TextQuery {
    * injectable records sort LAST and a 4x window can miss all of them. */
   status?: string | string[];
   limit?: number;
-  /** Tenant namespace filter (PLAN-V2 10.1). Omitted/undefined = the default shared
+  /** Tenant namespace filter (ENTERPRISE "namespaces"). Omitted/undefined = the default shared
    * namespace; a value scopes results to that namespace only. Point reads (getEntity)
    * stay id-based — ids are globally unique ULIDs, so no ns check is needed there. */
   ns?: string | null;
@@ -243,8 +243,9 @@ export interface StoragePort {
    * the FIRST row of a backfill and never after, or each row would wipe the previous one.
    *
    * Optional, so a backend with no vector support is still conformant and callers feature-detect —
-   * the same shape as `similar` and the `listHistory` extension. Every backend shipping today
-   * implements it; the optionality is the extension point, not a description of the current set.
+   * the same shape as `similar` and the `listHistory` extension. Not hypothetical: the Postgres
+   * adapter assigns it in `init()` only when pgvector is present, so a managed instance without the
+   * extension is a working yoke store whose vectors are genuinely absent.
    */
   putEmbedding?(e: Entity, opts?: { rebuild?: boolean }): Promise<void>;
 

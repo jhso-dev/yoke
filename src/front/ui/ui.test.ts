@@ -1,4 +1,4 @@
-// UI API tests (PLAN 9.2 DoD) — in-process: start createUiServer on port 0, hit the JSON API with
+// UI API tests — in-process: start createUiServer on port 0, hit the JSON API with
 // fetch. No browser automation. Exercises the re-confirmation queue (stale→verify→queue-empty),
 // conflicts/ontology/persona shapes, the verify audit row, and GET / serving the four-tab HTML.
 
@@ -13,7 +13,12 @@ import { commit } from "../../core/commit.js";
 import { verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
+import { credentialSigner } from "../serve/credential.js";
 import { createUiServer, isLoopbackPeer } from "./server.js";
+
+/** This suite's signing key. A credential is signed rather than stored, so the key is all a server
+ *  needs to hand one out and all another needs to accept it. */
+const UI_SECRET = "ui-test-signing-key";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-ui-"));
 const now = "2026-07-13T00:00:00Z";
@@ -219,6 +224,7 @@ beforeAll(async () => {
     store,
     actor: "reviewer",
     now: () => now,
+    tokenSecret: UI_SECRET,
     webRoot: null,
   });
   await new Promise<void>((r) => server.listen(0, r));
@@ -245,11 +251,6 @@ const postRaw2 = (p: string, body: unknown) =>
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-const del = (p: string) =>
-  fetch(base + p, { method: "DELETE" }).then(async (r) => ({
-    status: r.status,
-    body: await r.json(),
-  }));
 
 describe("ui API", () => {
   it("review is the re-confirmation queue: an aged row with its citation, gone once verified", async () => {
@@ -273,9 +274,10 @@ describe("ui API", () => {
     expect(row.summary).toBe("the weather was fine in 2020");
     expect(row.actor).toBe("tester");
     expect(row.citation).toContain(`[fact:${agedId}@v1]`);
-    // The queue names its own bounds — a bare count would read as a corpus-wide number.
+    // The queue names its own bound — a bare count would read as a corpus-wide number. There is no
+    // second bound to name: the injection counts are totals, kept by the ledger as deliveries happen.
     expect(queue.scanned).toBeGreaterThan(0);
-    expect(queue.consumptionWindow).toBeGreaterThan(0);
+    expect(queue.consumptionWindow).toBeUndefined();
     // A fresh record is not in it.
     expect(queue.items.some((d: { id: string }) => d.id === factId)).toBe(
       false,
@@ -367,8 +369,7 @@ describe("ui API", () => {
 
   it("verify wrote an audit row", async () => {
     await post("/api/verify", { ids: [factId] });
-    const verifyEvent = store
-      .listAudit()
+    const verifyEvent = (await store.listAudit())
       .filter((e) => e.action === "verify")
       .at(-1);
     expect(verifyEvent).toBeDefined();
@@ -395,38 +396,38 @@ describe("ui API", () => {
     expect(Object.keys(decision.attrs)).toContain("conclusion");
   });
 
-  it("tokens can be created, listed without secret, and revoked", async () => {
+  it("mints a credential that verifies, and keeps no copy of it", async () => {
     const created = await post("/api/tokens", {
       name: "ui-test",
       scopes: ["read", "write"],
     });
-    expect(created.token).toMatch(/^yk_[0-9a-f]{64}$/);
     expect(created.name).toBe("ui-test");
-
-    const listed = await get("/api/tokens");
-    const row = listed.find((t: { name: string }) => t.name === "ui-test");
-    expect(row).toEqual({
+    // A signed credential, not a stored secret: it carries its own claims, so the server that minted
+    // it keeps nothing and any server sharing the key accepts it.
+    // biome-ignore lint/style/noNonNullAssertion: UI_SECRET is a literal.
+    const verified = await credentialSigner(UI_SECRET)!.verifyAccess(
+      created.token,
+    );
+    expect(verified).toEqual({
       name: "ui-test",
       scopes: ["read", "write"],
-      created_at: now,
+      ns: null,
     });
-    expect(JSON.stringify(listed)).not.toContain(created.token);
+    expect(created.refresh).toBeTruthy();
+  });
 
-    const revoked = await del("/api/tokens/ui-test");
-    expect(revoked).toEqual({
-      status: 200,
-      body: { name: "ui-test", revoked: true },
-    });
+  it("has no credential listing and no revoke, because nothing is stored", async () => {
+    // Both routes are gone rather than emptied: an endpoint that always answers "none" would read as
+    // "this deployment has issued no credentials", which is a different claim from "we do not know".
+    expect((await fetch(`${base}/api/tokens`)).status).toBe(404);
     expect(
-      (await get("/api/tokens")).some(
-        (t: { name: string }) => t.name === "ui-test",
-      ),
-    ).toBe(false);
+      (await fetch(`${base}/api/tokens/ui-test`, { method: "DELETE" })).status,
+    ).toBe(404);
   });
 
   it("persona returns decisions/facts with citations", async () => {
     // Anchored on a person RECORD, not on the bare actor string `tester`: a persona is about a person,
-    // and core refuses an anchor that is not one — a fact id used to produce a document about nobody.
+    // and core refuses an anchor that is not one, because a fact id produces a document about nobody.
     const result = await get(
       `/api/persona/${encodeURIComponent(personaAnchorId)}`,
     );
@@ -437,10 +438,39 @@ describe("ui API", () => {
     expect(f?.citation).toContain(personaFactId);
     // ...and the read is audited, like its MCP twin: a path that answers with knowledge but leaves
     // no trail would make the "who got what injected" audit claim false for the browser.
-    const audit = store.listAudit();
+    const audit = await store.listAudit();
     const entry = audit.find((a) => a.action === "persona");
     expect(entry?.actor).toBe("reviewer");
     expect(entry?.detail).toContain(personaFactId);
+  });
+
+  // The ledger, not the trail: a route that writes `persona` without ids leaves `detail` looking
+  // right while consumption silently stops counting for it. Asserted through the route, because the
+  // ids only reach the ledger if the ROUTE puts them on the event.
+  it("a persona read is a delivery the ledger counts, and a preview counts nothing", async () => {
+    const before = await store.consumption({ ids: [personaFactId] });
+    const result = await get(
+      `/api/persona/${encodeURIComponent(personaAnchorId)}`,
+    );
+    const ids = [...result.decisions, ...result.facts].map(
+      (e: { id: string }) => e.id,
+    );
+    expect(ids).toContain(personaFactId);
+    const counted = await store.consumption({ ids });
+    for (const id of ids) expect(counted.get(id) ?? 0).toBeGreaterThan(0);
+    expect(counted.get(personaFactId)).toBe(
+      (before.get(personaFactId) ?? 0) + 1,
+    );
+
+    // `preview=1` is a human looking at a screen. It hands nothing to an agent, so it moves neither
+    // the count nor the reader's clock.
+    const seen = await store.consumption({ ids: [factId] });
+    const clock = await store.lastHanded({ actor: "reviewer", ids: [factId] });
+    await get("/api/inject?preview=1&q=sky");
+    expect(await store.consumption({ ids: [factId] })).toEqual(seen);
+    expect(
+      await store.lastHanded({ actor: "reviewer", ids: [factId] }),
+    ).toEqual(clock);
   });
 
   it("a person row carries its role, so the persona roster labels a card by role not the steward", async () => {
@@ -451,6 +481,42 @@ describe("ui API", () => {
       (e: { summary: string }) => e.summary === "Bora",
     );
     expect(bora?.role).toBe("engineer");
+  });
+
+  // A value nobody can ask for is refused, never answered with an empty list. `[]` reads as "none
+  // exist", which for `status=stale` is the opposite of the truth — stale is computed at read time,
+  // so no stored filter can ever match it. The CLI has always refused these; the web tier answering
+  // them with emptiness made one product with two contracts.
+  it("refuses a status no row can carry, rather than answering with none", async () => {
+    const res = await fetch(`${base}/api/entities?status=stale`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/computed at read time/);
+    const bogus = await fetch(`${base}/api/entities?status=DRAFT`);
+    expect(bogus.status).toBe(400);
+  });
+
+  it("refuses an undeclared type, and names the ones that exist", async () => {
+    const res = await fetch(`${base}/api/search?q=x&type=nonsense`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/unknown type: nonsense/);
+  });
+
+  it("reads a limit the way the CLI does — digits, not whatever Number() accepts", async () => {
+    // `Number("0x10")` is 16 and the CLI's `/^\d+$/` refuses it, so this param meant two different
+    // things depending on which surface asked.
+    const res = await fetch(`${base}/api/entities?limit=0x10`);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/whole number/);
+    expect((await get("/api/entities?limit=10")).items).toBeDefined();
+  });
+
+  it("still answers the values that do exist", async () => {
+    expect(
+      (await get("/api/entities?status=verified")).items.length,
+    ).toBeGreaterThan(0);
+    expect(
+      (await get("/api/entities?type=person")).items.length,
+    ).toBeGreaterThan(0);
   });
 
   it("GET / says the bundle is missing, with the command that fixes it", async () => {
@@ -566,8 +632,7 @@ describe("ui API", () => {
 
   it("a search writes an audit row naming the query, not just the ids", async () => {
     await get("/api/search?q=mysql");
-    const row = store
-      .listAudit()
+    const row = (await store.listAudit())
       .filter((e) => e.action === "search")
       .at(-1);
     expect(row).toBeDefined();
@@ -578,9 +643,11 @@ describe("ui API", () => {
   });
 
   it("opening a record in full writes a read row — the rule SPEC has claimed since v5.0", async () => {
-    const before = store.listAudit().filter((e) => e.action === "read").length;
+    const before = (await store.listAudit()).filter(
+      (e) => e.action === "read",
+    ).length;
     await get(`/api/entity/${decisionBId}`);
-    const rows = store.listAudit().filter((e) => e.action === "read");
+    const rows = (await store.listAudit()).filter((e) => e.action === "read");
     expect(rows.length).toBe(before + 1);
     // Only the record whose attributes were returned. The versions and resolved ends come back as
     // summary rows, so naming them would overstate what the response disclosed.
@@ -590,9 +657,9 @@ describe("ui API", () => {
   it("a listing writes no read row — summary rows are not an attribute read", async () => {
     // The other half of the same rule, and the reason it is not "audit every route": /api/entities
     // returns truncated summaries, so auditing it would drown the governance rows in page loads.
-    const before = store.listAudit().length;
+    const before = (await store.listAudit()).length;
     await get("/api/entities");
-    expect(store.listAudit().length).toBe(before);
+    expect((await store.listAudit()).length).toBe(before);
   });
 
   it("entity detail returns full attributes, version history and both relation sides", async () => {
@@ -633,7 +700,7 @@ describe("ui API", () => {
   });
 
   it("injection preview shows exactly what an agent would receive, and audits the look", async () => {
-    const shown = await get("/api/inject?q=sky");
+    const shown = await get("/api/inject?preview=1&q=sky");
     expect(shown.items.map((r: { id: string }) => r.id)).toEqual([factId]);
     expect(shown.items[0].citation).toContain(factId);
     expect(shown.query).toBe("sky");
@@ -641,7 +708,7 @@ describe("ui API", () => {
     // The contradiction travels with the row. This screen's own claim is that it shows what an agent
     // receives; the agent receives the marker, and without it two records that flatly disagree render as
     // two ordinary rows — which is what the conflicts screen one page over was already doing.
-    const disputed = await get("/api/inject?q=mysql");
+    const disputed = await get("/api/inject?preview=1&q=mysql");
     expect(disputed.items.map((r: { id: string }) => r.id)).toEqual([
       decisionBId,
     ]);
@@ -650,7 +717,7 @@ describe("ui API", () => {
 
     // A preview is a read of knowledge, so it leaves a trail — under its own action name, so it
     // never gets mistaken for what an agent was told.
-    const events = store.listAudit();
+    const events = await store.listAudit();
     const preview = events.filter((e) => e.action === "inject_preview");
     expect(preview.length).toBeGreaterThanOrEqual(2);
     expect(preview[0].actor).toBe("reviewer");
@@ -659,12 +726,35 @@ describe("ui API", () => {
     // Neither q nor scope is a 400, not an accidental full dump.
     const bad = await fetch(`${base}/api/inject`);
     expect(bad.status).toBe(400);
+
+    // And a scope that is not a record is a 400 in core's own words — the same sentence the CLI
+    // and the MCP tool print, because all three refuse in `inject` rather than each on its own.
+    const ghost = await fetch(
+      `${base}/api/inject?preview=1&q=sky&scope=PAY-42`,
+    );
+    expect(ghost.status).toBe(400);
+    expect((await ghost.json()).error).toBe("scope is not a record: PAY-42");
   });
 
-  // C7: a read whose answer is computed must not be discarded because the trail INSERT lost the
-  // write lock. WAL guarantees readers never block; before the fix, a `database is locked` on the
-  // `inject_preview` row (written BEFORE sendJson) surfaced as a 500 and threw away a preview the
-  // human already needed. The audit write is now best-effort and happens after the response.
+  it("without preview=1 the same route is a DELIVERY — the CLI's team-mode read is not a look", async () => {
+    // `preview=1` is the browser saying it is only looking; every other caller is receiving. Only
+    // `inject` rows count in the deliveries ledger, so a team-mode `yoke inject --scope` recorded as
+    // a preview would leave nothing marked handed over and re-deliver it on the very next --unseen.
+    const before = (await store.listAudit()).filter(
+      (e) => e.action === "inject",
+    ).length;
+    const res = await fetch(`${base}/api/inject?q=mysql`);
+    expect(res.status).toBe(200);
+    const delivered = (await store.listAudit()).filter(
+      (e) => e.action === "inject",
+    );
+    expect(delivered.length).toBe(before + 1);
+  });
+
+  // C7: a read whose answer is computed must not be discarded because the trail INSERT lost the write
+  // lock. WAL guarantees readers never block, so a `database is locked` on the `inject_preview` row
+  // must not surface as a 500 and throw away a preview the human already needed. The audit write is
+  // best-effort and happens after the response.
   it("C7: /api/inject returns its answer even when the audit write fails (locked trail)", async () => {
     const s = new SqliteStorage(join(dir, "c7-inject.sqlite"));
     await s.init();
@@ -693,7 +783,7 @@ describe("ui API", () => {
     await new Promise<void>((r) => srv.listen(0, r));
     const b = `http://localhost:${(srv.address() as AddressInfo).port}`;
     try {
-      const res = await fetch(`${b}/api/inject?q=sky`);
+      const res = await fetch(`${b}/api/inject?preview=1&q=sky`);
       // 200, NOT a 500 from the trail INSERT — the read succeeded and is returned.
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -774,7 +864,6 @@ describe("ui API", () => {
     // Local `yoke ui`: ungated, writable, default namespace.
     expect(meta).toEqual({
       auth: false,
-      readOnly: false,
       ns: null,
       actor: "reviewer",
     });
@@ -824,8 +913,8 @@ describe("ui API", () => {
   });
 
   // A person id is whatever created it, so a colon does not mean "machine actor":
-  // `scripts/seed-dummy-it-company.mjs`, this repo's own corpus generator, mints exactly
-  // `person:platform-manager`. Skipping those ids renders every author in every seeded database as a
+  // `scripts/load-demo-corpus.mjs`, this repo's own corpus loader, mints exactly
+  // `person:han-seoyeon`. Skipping those ids renders every author in every seeded database as a
   // slug, on the screens that exist to keep ids away from readers.
   it("resolves a person whose id is namespaced, not just a bare ULID", async () => {
     const ont = store.loadOntology(null);
@@ -964,14 +1053,13 @@ describe("ui API namespace isolation", () => {
     // queries on another's audit screen.
     // Queried BY ns, which is also the assertion: `listAudit({})` reads the default namespace only,
     // so a row stamped with the wrong ns would simply not be here.
-    const row = tenantStore
-      .listAudit({ ns: "acme" })
+    const row = (await tenantStore.listAudit({ ns: "acme" }))
       .filter((e) => e.action === "search")
       .at(-1);
     expect(row?.ns).toBe("acme");
-    expect(tenantStore.listAudit().some((e) => e.action === "search")).toBe(
-      false,
-    );
+    expect(
+      (await tenantStore.listAudit()).some((e) => e.action === "search"),
+    ).toBe(false);
     expect(
       hits.items.every((r: { id: string }) => row?.detail.includes(r.id)),
     ).toBe(true);
@@ -983,7 +1071,7 @@ describe("ui API namespace isolation", () => {
 describe("scope-anchored injection over HTTP", () => {
   it("anchors a briefing on a collaboration and reports the anchor back", async () => {
     const out = await get(
-      `/api/inject?scope=${encodeURIComponent(collaborationId)}`,
+      `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}`,
     );
     expect(out.scope).toBe(collaborationId);
     // The attached, verified fact is in the briefing; the anchor itself never is.
@@ -995,7 +1083,7 @@ describe("scope-anchored injection over HTTP", () => {
 
   it("injects only verified knowledge, anchored or not", async () => {
     const out = await get(
-      `/api/inject?scope=${encodeURIComponent(collaborationId)}`,
+      `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}`,
     );
     // The hard rule (KNOWLEDGE-POLICY): an anchor prioritises, it never lowers the gate.
     for (const i of out.items)
@@ -1004,10 +1092,9 @@ describe("scope-anchored injection over HTTP", () => {
 
   it("audits a scoped preview like any other read", async () => {
     await get(
-      `/api/inject?scope=${encodeURIComponent(collaborationId)}&q=tokens`,
+      `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}&q=tokens`,
     );
-    const entry = store
-      .listAudit()
+    const entry = (await store.listAudit())
       .filter((a) => a.action === "inject_preview")
       .at(-1);
     expect(entry?.detail).toContain(scopedFactId);
@@ -1031,12 +1118,12 @@ describe("scope-anchored injection over HTTP", () => {
       ids.push(entity.id);
     }
     await verify(store, ids, "tester", now);
-    const out = await get(`/api/inject?q=${many}`);
+    const out = await get(`/api/inject?preview=1&q=${many}`);
     expect(out.items.length).toBe(51);
     expect(out.omitted).toBe(0);
     // An explicit limit still wins, and the response says it dropped something. Not the exact count:
     // `omitted` counts within core's over-fetched window (inject.ts documents this), not the corpus.
-    const paged = await get(`/api/inject?q=${many}&limit=10`);
+    const paged = await get(`/api/inject?preview=1&q=${many}&limit=10`);
     expect(paged.items.length).toBe(10);
     expect(paged.omitted).toBeGreaterThan(0);
   });
@@ -1108,7 +1195,7 @@ describe("audit detail resolves both of its shapes", () => {
     );
 
     // The arrow form keeps working: a read names its subject before the ids.
-    await get(`/api/inject?q=${encodeURIComponent("tokens")}`);
+    await get(`/api/inject?preview=1&q=${encodeURIComponent("tokens")}`);
     const read = (await get("/api/audit")).items
       .filter((e: { action: string }) => e.action === "inject_preview")
       .at(-1);
@@ -1152,7 +1239,7 @@ describe("creating from the browser", () => {
     expect(stored?.provenance.actor).toBe("reviewer");
 
     // And it is a real record: live to injection like any other commit.
-    const shown = await get("/api/inject?q=typed%20at%20a%20screen");
+    const shown = await get("/api/inject?preview=1&q=typed%20at%20a%20screen");
     expect(shown.items.some((i: { id: string }) => i.id === created.id)).toBe(
       true,
     );
@@ -1434,10 +1521,9 @@ describe("an injection records WHICH shape it was", () => {
 
   it("names the anchor in the subject, and resolves it for reading", async () => {
     await get(
-      `/api/inject?scope=${encodeURIComponent(collaborationId)}&q=tokens`,
+      `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}&q=tokens`,
     );
-    const entry = store
-      .listAudit()
+    const entry = (await store.listAudit())
       .filter((a) => a.action === "inject_preview")
       .at(-1);
     // The anchor leads the subject, the query follows it.
@@ -1458,18 +1544,18 @@ describe("an injection records WHICH shape it was", () => {
   });
 
   it("a briefing's subject is the anchor alone, so it is attributable too", async () => {
-    await get(`/api/inject?scope=${encodeURIComponent(collaborationId)}`);
-    const entry = store
-      .listAudit()
+    await get(
+      `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}`,
+    );
+    const entry = (await store.listAudit())
       .filter((a) => a.action === "inject_preview")
       .at(-1);
     expect(subjectOf(entry?.detail ?? "")).toBe(collaborationId);
   });
 
   it("an unscoped query still writes the query alone — the old rows stay comparable", async () => {
-    await get(`/api/inject?q=${encodeURIComponent("tokens")}`);
-    const entry = store
-      .listAudit()
+    await get(`/api/inject?preview=1&q=${encodeURIComponent("tokens")}`);
+    const entry = (await store.listAudit())
       .filter((a) => a.action === "inject_preview")
       .at(-1);
     expect(subjectOf(entry?.detail ?? "")).toBe("tokens");
@@ -1479,14 +1565,13 @@ describe("an injection records WHICH shape it was", () => {
 describe("as-of injection over HTTP", () => {
   it("records the instant in the trail, so a historical read is not mistaken for a current one", async () => {
     const out = await get(
-      `/api/inject?q=${encodeURIComponent("tokens")}&asOf=2026-07-15T00:00:00Z`,
+      `/api/inject?preview=1&q=${encodeURIComponent("tokens")}&asOf=2026-07-15T00:00:00Z`,
     );
     // Echoed back NORMALIZED: the screen banners off the SERVER's value — which clock actually
     // produced these rows — and the server canonicalizes every instant at the boundary, so the echo
     // is the canonical spelling whatever the caller typed.
     expect(out.asOf).toBe("2026-07-15T00:00:00.000Z");
-    const entry = store
-      .listAudit()
+    const entry = (await store.listAudit())
       .filter((a) => a.action === "inject_preview")
       .at(-1);
     expect(entry?.detail).toContain("@2026-07-15T00:00:00.000Z");
@@ -1494,14 +1579,17 @@ describe("as-of injection over HTTP", () => {
 
   it("asOf is null on a normal read", async () => {
     expect(
-      (await get(`/api/inject?q=${encodeURIComponent("tokens")}`)).asOf,
+      (await get(`/api/inject?preview=1&q=${encodeURIComponent("tokens")}`))
+        .asOf,
     ).toBeNull();
   });
 
   it("rejects an unparseable instant instead of silently returning nothing", async () => {
     // Date.parse gives NaN, every comparison then fails, and the screen would show "0 records" —
     // which reads as "we knew nothing then". A 400 is the honest answer to a typo.
-    const res = await fetch(`${base}/api/inject?q=tokens&asOf=last-tuesday`);
+    const res = await fetch(
+      `${base}/api/inject?preview=1&q=tokens&asOf=last-tuesday`,
+    );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/ISO 8601 instant/);
   });
@@ -1593,15 +1681,23 @@ describe("the stale queue over HTTP (SPEC's unimplemented clause)", () => {
     };
     const cold = await mk("stale but nobody reads it");
     const hot = await mk("stale and agents are fed it daily");
-    // Two agent reads for `hot`, none for `cold`; a preview names both and must not count.
-    store.logAudit({ actor: "a", action: "inject", detail: `q -> ${hot}`, at });
-    store.logAudit({
+    // Two agent reads for `hot`, none for `cold`; a preview names both and must not count — it
+    // carries no `ids`, which is what makes it not a delivery.
+    await store.logAudit({
+      actor: "a",
+      action: "inject",
+      detail: `q -> ${hot}`,
+      at,
+      ids: [hot],
+    });
+    await store.logAudit({
       actor: "a",
       action: "persona",
       detail: `p -> ${hot}`,
       at,
+      ids: [hot],
     });
-    store.logAudit({
+    await store.logAudit({
       actor: "a",
       action: "inject_preview",
       detail: `q -> ${hot} ${cold}`,
@@ -1640,10 +1736,10 @@ describe("creating from the browser says whether anything was compared", () => {
     expect(created.duplicates).toEqual([]);
   });
 
-  // The route used to accept only strings and string arrays, which made it NARROWER than the gate it
-  // fronts: a `decision`'s `rejected_alternatives` is declared string[] in the seed, so the web form
-  // (which sent every field as a string) could not fill the field the entity screen calls the
-  // most-read in the model. All four declared shapes now travel.
+  // The route must not be NARROWER than the gate it fronts. A `decision`'s `rejected_alternatives` is
+  // declared string[] in the seed, so a route taking only strings and string arrays leaves the web
+  // form unable to fill the field the entity screen calls the most-read in the model. All four
+  // declared shapes travel.
   it("carries every attribute shape the ontology can declare", async () => {
     const created = await post("/api/entity", {
       type: "decision",
@@ -1823,9 +1919,9 @@ describe("POST /api/backfill --embeddings", () => {
 
 // `yoke ui --host 0.0.0.0` warns and binds anyway, deliberately: a container cannot port-forward to a
 // loopback-bound process. What the operator did not choose is that anonymous LAN callers may mint
-// credentials — measured before the fix, `POST /api/tokens` from another machine returned a working
-// all-scopes token, and that token authenticated against a hardened `serve --auth`
-// process on the same database. The exposure escaped the server that was exposed.
+// credentials. Measured: unguarded, `POST /api/tokens` from another machine returns a working
+// all-scopes token, and that token authenticates against a hardened `serve --auth` process on the
+// same database — the exposure escapes the server that was exposed.
 //
 // The route wiring was verified against a real LAN peer (403 on all three credential routes, 200 on
 // instantParam now defers to the gate's own parseInstant (CLAUDE.md: the second place that parses
@@ -1833,8 +1929,8 @@ describe("POST /api/backfill --embeddings", () => {
 // filtering — an impossible date rolled over, a local-time string was tz-dependent, "0" became 1999.
 describe("W-INSTANT: an instant param is the gate's instant", () => {
   it.each([
-    ["asOf", "2026-02-30", "/api/inject?q=tokens"], // Feb 30 → Date.parse rolls to Mar 2
-    ["asOf", "2026-08-14 00:00:00", "/api/inject?q=tokens"], // space, local time, tz-dependent
+    ["asOf", "2026-02-30", "/api/inject?preview=1&q=tokens"], // Feb 30 → Date.parse rolls to Mar 2
+    ["asOf", "2026-08-14 00:00:00", "/api/inject?preview=1&q=tokens"], // space, local time, tz-dependent
     ["since", "0", "/api/audit"], // Date.parse("0") → year 1999/2000
   ])("400s a bad %s=%s instead of filtering by a wrong moment", async (name, bad, route) => {
     const res = await fetch(
@@ -1848,7 +1944,7 @@ describe("W-INSTANT: an instant param is the gate's instant", () => {
 
   it("still accepts a valid instant", async () => {
     const res = await fetch(
-      `${base}/api/inject?q=tokens&asOf=2026-07-15T00:00:00Z`,
+      `${base}/api/inject?preview=1&q=tokens&asOf=2026-07-15T00:00:00Z`,
     );
     expect(res.status).toBe(200);
   });
@@ -2008,7 +2104,7 @@ describe("W-PERSONA-ENVELOPE: the persona carries withheld and identities", () =
     ).then((r) => r.json());
     expect(p.decisions).toHaveLength(0);
     expect(p.facts).toHaveLength(0);
-    // The difference that used to be invisible: something IS on record, past its window.
+    // Empty is not the same answer as withheld: something IS on record, past its window.
     expect(p.withheld).toMatchObject({ stale: 1 });
     expect(p.identities).toBeUndefined();
   });

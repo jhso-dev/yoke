@@ -1,15 +1,13 @@
 // storage-postgres — the PostgreSQL implementation of StoragePort (+ the composite's `RemoteStore`).
 //
-// The third remote backend, and the one people already run. Where neo4j needed a graph and opensearch
-// needed a cluster, this asks for the database every company already has a DBA for — which is the
-// entire argument for it. It costs one dependency (`pg`, ~1 MB) and no new operational surface.
+// The backend most companies already run: one dependency (`pg`, ~1 MB) and no new operational
+// surface.
 //
 // Native BM25-ish ranking via `ts_rank`, native k-NN via pgvector, no native traversal: `neighbors` is
 // an index lookup on from_id/to_id, the same shape as sqlite and opensearch (docs/BACKENDS.md
 // capability matrix).
 //
-// Six decisions here are contract rather than implementation. Each was checked against a real 17
-// server before it was written:
+// Six decisions here are contract rather than implementation, each checked against a real server:
 //
 //  1. **Everything lives in ONE schema, named by the caller.** `new PostgresStorage({ url, schema })`
 //     defaults to `yoke` and `init()` creates it. Postgres has no "database per directory" the way
@@ -60,6 +58,13 @@ import {
 } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
+import type {
+  AuditEvent,
+  AuditPort,
+  AuditQuery,
+  AuditRow,
+  Delivered,
+} from "../../ports/audit.js";
 import {
   ConflictError,
   DEFAULT_SEARCH_LIMIT,
@@ -132,16 +137,14 @@ function fromVectorLiteral(s: string): Float32Array {
   );
 }
 
-export interface PostgresOptions {
+interface PostgresOptions {
   /** Standard DSN: `postgres://user:pass@host:port/db`. */
   url: string;
   /** Schema holding every table. Created by `init()`. Default `yoke` — see decision 1. */
   schema?: string;
-  /** Pool size. The CLI opens and closes per command, so the default is deliberately small. */
-  poolSize?: number;
 }
 
-export class PostgresStorage implements StoragePort {
+export class PostgresStorage implements StoragePort, AuditPort {
   private readonly pool: Pool;
   /** Unquoted, for catalog lookups (`pg_namespace.nspname`). */
   private readonly schemaName: string;
@@ -183,10 +186,8 @@ export class PostgresStorage implements StoragePort {
     }
     this.schemaName = name;
     this.schema = `"${name}"`;
-    this.pool = new Pool({
-      connectionString: opts.url,
-      max: opts.poolSize ?? 4,
-    });
+    // Small on purpose: the CLI opens and closes a store per command, and `serve` is one process.
+    this.pool = new Pool({ connectionString: opts.url, max: 4 });
   }
 
   /** Schema-qualified table reference. */
@@ -273,6 +274,38 @@ export class PostgresStorage implements StoragePort {
     )`);
     await this.keepDeclarationOrder();
 
+    // The audit ledger (AuditPort). Here, not in a second database, because this backend can hold a
+    // ledger and the rule is one rule: the trail follows the corpus unless YOKE_AUDIT_URL moves it.
+    // BIGSERIAL, not `at`, orders the rows — two events in the same millisecond still have an order,
+    // and it is the order they were appended in.
+    await this.q(`CREATE TABLE IF NOT EXISTS ${this.t("audit_log")} (
+      seq    BIGSERIAL PRIMARY KEY,
+      actor  TEXT NOT NULL,
+      action TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      at     TEXT NOT NULL,
+      ns     TEXT NOT NULL DEFAULT ''
+    )`);
+    await this.q(
+      `CREATE INDEX IF NOT EXISTS audit_ns_at ON ${this.t("audit_log")} (ns, at)`,
+    );
+    // What an agent has been handed, as data rather than as prose to be re-parsed — maintained by the
+    // same write that appends the trail row. `last_at` is NULL for an as-of delivery: it counts as
+    // consumption but must not advance the reader's clock, having handed a version that is not
+    // current.
+    await this.q(`CREATE TABLE IF NOT EXISTS ${this.t("delivery")} (
+      ns        TEXT   NOT NULL DEFAULT '',
+      actor     TEXT   NOT NULL,
+      anchor    TEXT   NOT NULL DEFAULT '',
+      entity_id TEXT   NOT NULL,
+      n         BIGINT NOT NULL DEFAULT 0,
+      last_at   TEXT,
+      PRIMARY KEY (ns, actor, anchor, entity_id)
+    )`);
+    await this.q(
+      `CREATE INDEX IF NOT EXISTS delivery_ns_entity ON ${this.t("delivery")} (ns, entity_id)`,
+    );
+
     // Indexes chosen from the same measurements as sqlite's (docs/SCALE.md): ns leads the composites
     // because every enumeration is namespace-scoped, from_id/to_id are SEPARATE single-column indexes
     // because neighbors asks `from_id = ? OR to_id = ?` and a composite would never be used, and the
@@ -295,6 +328,160 @@ export class PostgresStorage implements StoragePort {
     }
     // The vector TABLE is created lazily, not here: its column declares the dimension, which is not
     // known until the first vector arrives. Same lazy shape as sqlite's vec0 table.
+  }
+
+  /** AuditPort. One transaction: a trail that says an agent was handed a record while the ledger's
+   * own count disagrees is worse than no count at all. */
+  async logAudit(event: AuditEvent): Promise<void> {
+    const ns = event.ns ?? "";
+    const ids = event.ids?.length ? [...new Set(event.ids)] : [];
+    if (ids.length === 0) {
+      await this.q(
+        `INSERT INTO ${this.t("audit_log")} (actor, action, detail, at, ns) VALUES ($1, $2, $3, $4, $5)`,
+        [event.actor, event.action, event.detail, event.at, ns],
+      );
+      return;
+    }
+    const c = await this.pool.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query(
+        `INSERT INTO ${this.t("audit_log")} (actor, action, detail, at, ns) VALUES ($1, $2, $3, $4, $5)`,
+        [event.actor, event.action, event.detail, event.at, ns],
+      );
+      // The LATER instant wins, and an as-of delivery (NULL) never does: it handed a version that is
+      // not current, so it must leave an earlier real delivery's clock where it was. By instant,
+      // never by string compare: `at` is stored in more than one ISO spelling.
+      const d = this.t("delivery");
+      await c.query(
+        `INSERT INTO ${d} (ns, actor, anchor, entity_id, n, last_at)
+         SELECT $1, $2, $3, id, 1, $4 FROM UNNEST($5::text[]) AS id
+         ON CONFLICT (ns, actor, anchor, entity_id) DO UPDATE SET
+           n = ${d}.n + 1,
+           last_at = CASE
+             WHEN EXCLUDED.last_at IS NULL THEN ${d}.last_at
+             WHEN ${d}.last_at IS NULL THEN EXCLUDED.last_at
+             WHEN EXCLUDED.last_at::timestamptz > ${d}.last_at::timestamptz
+               THEN EXCLUDED.last_at
+             ELSE ${d}.last_at
+           END`,
+        [
+          ns,
+          event.actor,
+          event.anchor ?? "",
+          event.asOf ? null : event.at,
+          ids,
+        ],
+      );
+      await c.query("COMMIT");
+    } catch (e) {
+      await c.query("ROLLBACK");
+      throw e;
+    } finally {
+      c.release();
+    }
+  }
+
+  /** AuditPort. Over the whole history — see the port's note on why this has no window. */
+  async consumption(q: {
+    ns?: string | null;
+    ids: string[];
+  }): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (q.ids.length === 0) return counts;
+    const rows = await this.q<{ entity_id: string; n: string }>(
+      `SELECT entity_id, SUM(n) AS n FROM ${this.t("delivery")}
+       WHERE ns = $1 AND entity_id = ANY($2::text[]) GROUP BY entity_id`,
+      [q.ns ?? "", q.ids],
+    );
+    // SUM over BIGINT comes back as a string; the count is a count.
+    for (const r of rows) counts.set(r.entity_id, Number(r.n));
+    return counts;
+  }
+
+  /** AuditPort. One context's rows — the primary key fixes ns, actor and anchor, so every row here
+   * is one entity and the newest instant is the first of them. Ordered as a timestamp, never as
+   * text: `last_at` holds more than one ISO spelling and `Z` sorts after `.`. */
+  async delivered(q: {
+    ns?: string | null;
+    actor: string;
+    anchor: string;
+  }): Promise<Delivered> {
+    const rows = await this.q<{ entity_id: string; last_at: string }>(
+      `SELECT entity_id, last_at FROM ${this.t("delivery")}
+       WHERE ns = $1 AND actor = $2 AND anchor = $3 AND last_at IS NOT NULL
+       ORDER BY last_at::timestamptz DESC`,
+      [q.ns ?? "", q.actor, q.anchor],
+    );
+    return {
+      ...(rows.length === 0 ? {} : { last: rows[0].last_at }),
+      ids: new Set(rows.map((r) => r.entity_id)),
+    };
+  }
+
+  /** AuditPort. Point lookups for exactly the ids asked for. One id can have a row per working
+   * context; ascending by timestamp makes the last write per id the latest instant, so the choice
+   * is made by instant in SQL rather than by comparing text. */
+  async lastHanded(q: {
+    ns?: string | null;
+    actor: string;
+    ids: string[];
+  }): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (q.ids.length === 0) return out;
+    const rows = await this.q<{ entity_id: string; last_at: string }>(
+      `SELECT entity_id, last_at FROM ${this.t("delivery")}
+       WHERE ns = $1 AND actor = $2 AND last_at IS NOT NULL
+         AND entity_id = ANY($3::text[])
+       ORDER BY last_at::timestamptz`,
+      [q.ns ?? "", q.actor, q.ids],
+    );
+    for (const r of rows) out.set(r.entity_id, r.last_at);
+    return out;
+  }
+
+  /** Oldest-first, like every other implementation: `limit` takes the newest N and reverses them, so
+   * a paging viewer and `yoke audit` read the same direction.
+   *
+   * Bounds compare as timestamps, never as text — `at` holds more than one ISO spelling (whole-second
+   * and millisecond, offsets included) and `Z` sorts after `.`, so a string compare drops rows inside
+   * the bound's own second. Same rule, same reason, as the sqlite implementation's `julianday`. */
+  async listAudit(q: AuditQuery = {}): Promise<AuditRow[]> {
+    const params: unknown[] = [q.ns ?? ""];
+    let where = "ns = $1";
+    if (q.since !== undefined) {
+      params.push(q.since);
+      where += ` AND at::timestamptz >= $${params.length}::timestamptz`;
+    }
+    if (q.until !== undefined) {
+      params.push(q.until);
+      where += ` AND at::timestamptz <= $${params.length}::timestamptz`;
+    }
+    let sql = `SELECT actor, action, detail, at, ns FROM ${this.t("audit_log")} WHERE ${where} ORDER BY seq`;
+    if (q.limit !== undefined) {
+      params.push(q.limit);
+      sql = `SELECT actor, action, detail, at, ns FROM ${this.t("audit_log")} WHERE ${where} ORDER BY seq DESC LIMIT $${params.length}`;
+    }
+    const rows = await this.q<{
+      actor: string;
+      action: string;
+      detail: string;
+      at: string;
+      ns: string;
+    }>(sql, params);
+    const out: AuditRow[] = rows.map((r) =>
+      // The default namespace leaves the field absent, matching how entity rows carry ns.
+      r.ns === ""
+        ? { actor: r.actor, action: r.action, detail: r.detail, at: r.at }
+        : {
+            actor: r.actor,
+            action: r.action,
+            detail: r.detail,
+            at: r.at,
+            ns: r.ns,
+          },
+    );
+    return q.limit === undefined ? out : out.reverse();
   }
 
   /**
@@ -792,7 +979,7 @@ export class PostgresStorage implements StoragePort {
       // write path uses. The key is prose — the type, the values in ontology order, the `sources`
       // span, then the identifiers — and no SQL expression reproduces that. A transliteration here
       // would be a second copy of the rule that only the rename path exercises, so it reverts every
-      // renamed row to whatever the key used to be, silently.
+      // renamed row to a stale key, silently.
       const ents = await c.query<{
         id: string;
         version: number;
@@ -837,7 +1024,7 @@ export class PostgresStorage implements StoragePort {
       );
       if ((declared.rowCount ?? 0) > 0) {
         // `to` already exists — the ordinary case when the code was renamed before the database was,
-        // so a later `yoke init` seeded the new type beside the old one. Retire the stale declaration
+        // so the next open seeded the new type beside the old one. Retire the stale declaration
         // rather than colliding with the live one; the rows above already point at the survivor.
         const gone = await c.query(
           `DELETE FROM ${this.t("ontology_types")} WHERE name = $1 AND ns = $2`,

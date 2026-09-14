@@ -3,7 +3,7 @@
 ## One-line positioning
 
 **"Knowledge your AI can trust."**
-Competitors sell memory (automatic); yoke sells knowledge (governed). A memory layer automates what the AI remembers; yoke governs what the AI is allowed to believe — and the load-bearing case is the team's **decision flow**: memory products store what one agent saw, while yoke relays what the team settled (and un-settled) into every running session, rejected alternatives attached. The trust claim is backed by mechanism, not marketing: sourced-and-signed entry, freshness decay with a re-confirmation queue, preserved contradictions served as disputed, retirement broadcast to everyone previously handed the record, and an append-only audit trail (see README "Why you can trust it"). The Git analogy (commits/blame/merge conflicts ↔ append-only versions/signed provenance/conflicts_with) remains useful as an explanatory device, but not as the tagline.
+Competitors sell memory (automatic); yoke sells knowledge (governed). A memory layer automates what the AI remembers; yoke governs what the AI is allowed to believe — and the load-bearing case is the team's **decision flow**: memory products store what one agent saw, while yoke relays what the team settled (and un-settled) into every running session, rejected alternatives attached. The trust claim is backed by mechanism, not marketing — the five are in docs/KNOWLEDGE-POLICY.md, and README "Why you can trust it" is the short version. The Git analogy (commits/blame/merge conflicts ↔ append-only versions/signed provenance/conflicts_with) remains useful as an explanatory device, but not as the tagline.
 
 ## Competitive landscape (five categories)
 
@@ -27,7 +27,7 @@ Watch item: if Portal adds record-level governance it enters our quadrant from a
 
 ## An honest assessment
 
-Combine Cognee and Graphiti and roughly 70% of our technical design already exists. We can't differentiate on technology. **We differentiate on the trust model.**
+Combine Cognee and Graphiti and most of our technical design already exists in some form (surveyed 2026-07, by reading their docs — not a measured overlap). We can't differentiate on technology. **We differentiate on the trust model.**
 
 ## Strategy
 
@@ -36,7 +36,7 @@ Combine Cognee and Graphiti and roughly 70% of our technical design already exis
 3. **Traditional-DB read-mapping is the enterprise wedge**: "read your existing RDB as an ontology and inject it into AI, with no migration" — no one serves this segment in a lightweight, MCP-native way.
 4. **Adoption path**: individual developer (MCP server) → team (governance kicks in) → organization. Not top-down sales.
 5. **persona is the killer use case**: person-scoped continuity of judgment has no competitor within the survey's scope.
-6. **Prove it by measurement**: instead of a recall benchmark (Zep DMR 94.8%), define our own eval for injection quality (contaminated-knowledge injection rate, undetected-contradiction rate).
+6. **Prove it by measurement**: instead of a recall benchmark (Zep reports DMR 94.8%), define our own eval for injection quality (contaminated-knowledge injection rate, undetected-contradiction rate).
 
 **Don't do**: go head-to-head on conversational auto-extraction (Mem0), RAG pipelines (LlamaIndex), or document search (Glean).
 

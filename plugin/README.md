@@ -13,7 +13,7 @@ Working-context knowledge for coding agents, wired into the client so nobody has
 - **`/yoke:setup`** — binds a repository to its working context (writes `YOKE_SCOPE` into the repo's
   `.claude/settings.json` env) and proves the wiring end to end.
 
-Measured behaviour of the delta line is recorded in the repo's `docs/ROADMAP.md` (v6.2): an agent
+Measured behaviour of the delta line is recorded in the repo's `docs/RESEARCH.md` (§9b): an agent
 with work already on disk stops and asks; one with nothing sunk carries on with the new decision.
 The wording of that line is what splits the two — do not "tidy" it.
 
@@ -36,13 +36,14 @@ missing scope, or an unreachable store all mean "no context this round".
 | `.claude/settings.local.json` `env` | `YOKE_ACTOR` | who this client is — the audit trail records who was told what |
 | env | `YOKE_BIN` | path to the yoke CLI when it is not on PATH |
 | env / repo `.env` | `YOKE_DB`, `YOKE_POSTGRES_URL`, … | which store — the CLI's normal contract, unchanged |
-| repo `.claude/settings.json` `env` | `YOKE_SERVER` | a team `yoke serve --auth` — the hooks switch to its HTTP read, and the credential is acquired by the zero-action GitHub exchange below |
+| repo `.claude/settings.json` `env` | `YOKE_SERVER` | a team `yoke serve --auth`. Unset, the CLI talks to your own `yoke serve` on 127.0.0.1:4800; either way the hooks and `yoke mcp` follow the same binding — one credential, acquired by the zero-action GitHub exchange below |
 | env | `YOKE_TOKEN` | an explicitly issued token — set, it disables the exchange entirely |
 | env | `YOKE_DEBUG` | `1` explains hook failures on stderr (the debug log) — the escape hatch from the silence rule |
 
 ## Team server: nobody hands out credentials
 
-With `YOKE_SERVER` bound, the first delivery exchanges the developer's existing `gh` login for a
+Nothing in this directory speaks HTTP or holds a credential: a hook shells out to `yoke inject`, and
+the CLI is what knows about the server. With `YOKE_SERVER` bound, the first call exchanges the developer's existing `gh` login for a
 yoke token (`POST /api/login/github` — SPEC "GitHub exchange"): membership in the server's
 `YOKE_GITHUB_ORG` is the access decision, the GitHub token is spent on the exchange and never
 stored, and the minted token is cached in `~/.yoke` (0600). The one visible trace is one line, once:
@@ -51,7 +52,7 @@ stored, and the minted token is cached in `~/.yoke` (0600). The one visible trac
 yoke: authenticated as <login> via GitHub — credential cached in ~/.yoke
 ```
 
-A token revoked or rotated server-side heals itself: the next delivery re-exchanges. No `gh` on the
+A credential the server stops accepting — the signing key was rotated — heals itself: the next delivery re-exchanges. No `gh` on the
 machine, or no org membership, means what every other missing precondition means — silence, and
 `/yoke:setup` is where the wiring is checked out loud.
 

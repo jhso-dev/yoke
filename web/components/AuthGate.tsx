@@ -64,9 +64,6 @@ export function AuthGate() {
 
   return (
     <span className="topbar-right">
-      {meta.readOnly && (
-        <span title={t.chrome.readOnlyHint}>{t.chrome.readOnly}</span>
-      )}
       {meta.ns && <span title={t.chrome.namespaceHint}>ns:{meta.ns}</span>}
       {meta.actor && (
         <span title={t.chrome.authedAs(meta.actor)}>

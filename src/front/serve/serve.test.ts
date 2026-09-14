@@ -1,10 +1,16 @@
-// serve mode (PLAN-V2 10.2–10.4) — all in-process, port 0. Covers: API-token round-trip
-// (incl. hash-not-plaintext), Bearer auth (401), RBAC over the HTTP surface (read-only GET ok /
-// POST verify 403; write token 200), the remote MCP endpoint (write-only token commits but
-// yoke_inject is forbidden; unauthenticated 401), OIDC (local JWKS fixture: valid JWT passes +
-// person auto-provisioned; expired / wrong-audience rejected), and a UI+MCP smoke.
+// serve mode (ENTERPRISE "server mode"–10.4) — all in-process, port 0. Covers: signed-credential
+// round-trip (minted, verified, stored nowhere), Bearer auth (401), RBAC over the HTTP surface
+// (read-only GET ok / POST verify 403; write token 200), the remote MCP endpoint (write-only token
+// commits but yoke_inject is forbidden; unauthenticated 401), OIDC (local JWKS fixture: valid JWT
+// passes + person auto-provisioned; expired / wrong-audience rejected), and a UI+MCP smoke.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -19,13 +25,23 @@ import {
   type JWK,
   SignJWT,
 } from "jose";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { seedOntology } from "../../core/ontology.js";
-import { runCli } from "../cli/index.js";
+import { openStore } from "../store.js";
 import { isLoopback } from "../ui/server.js";
+import { credentialSigner } from "./credential.js";
 import { createServeServer, runServe } from "./index.js";
+
+/** The key these tests sign and verify with — the same one every instance would share in a real
+ *  deployment, which is the whole reason a credential needs no storage. */
+const SECRET = "test-signing-key-not-a-real-one";
+// biome-ignore lint/style/noNonNullAssertion: SECRET is a literal, so the signer is never null.
+const sign = credentialSigner(SECRET)!;
+const mint = async (name: string, scopes: string[]): Promise<string> =>
+  (await sign.mint({ name, scopes, ns: null })).token;
+
 import { makeOidcVerifier, type OidcConfig } from "./oidc.js";
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-serve-"));
@@ -56,49 +72,59 @@ function fixtureBundle(): string {
 
 async function freshDb(name: string): Promise<string> {
   const db = join(dir, `${name}.db`);
-  expect(await runCli(["init", "--db", db])).toBe(0);
+  (await openStore({ db }, {})).close();
   return db;
 }
 
-describe("SqliteStorage tokens (PLAN-V2 10.3)", () => {
-  it("create → verify → revoke round-trip; the plaintext is never stored", async () => {
-    const db = await freshDb("tokens");
-    const store = new SqliteStorage(db);
-    await store.init();
-    const { token } = store.createToken({
-      name: "ci",
-      scopes: ["read", "write"],
-      created_at: now(),
-    });
-    expect(store.verifyToken(token)).toEqual({
-      name: "ci",
-      scopes: ["read", "write"],
-    });
-    expect(store.verifyToken("yk_wrong")).toBeNull();
-    store.close();
+describe("signed credentials", () => {
+  it("mints an access/refresh pair that verifies without touching storage", async () => {
+    const cred = { name: "ci", scopes: ["read", "write"], ns: null };
+    const { token, refresh } = await sign.mint(cred);
+    expect(await sign.verifyAccess(token)).toEqual(cred);
+    expect(await sign.verifyRefresh(refresh)).toEqual(cred);
+  });
 
-    // Storage check: only a salted hash is persisted — the secret appears nowhere in the row.
-    const raw = new Database(db, { readonly: true });
-    const rowRaw = raw.prepare("SELECT * FROM tokens").get() as {
-      hash: string;
-      salt: string;
-      scopes: string;
-    };
-    raw.close();
-    expect(rowRaw.hash).not.toBe(token);
-    expect(JSON.stringify(rowRaw)).not.toContain(token);
+  it("refuses a refresh token presented as an access one, and the reverse", async () => {
+    // The substitution the `typ` claim exists to stop: a refresh token is long-lived and travels to
+    // one route, so accepting it as an access credential would hand a year's access to every route.
+    const { token, refresh } = await sign.mint({
+      name: "ci",
+      scopes: ["read"],
+      ns: null,
+    });
+    expect(await sign.verifyAccess(refresh)).toBeNull();
+    expect(await sign.verifyRefresh(token)).toBeNull();
+  });
 
-    const store2 = new SqliteStorage(db);
-    await store2.init();
-    expect(store2.listTokens().map((t) => t.name)).toEqual(["ci"]);
-    expect(store2.revokeToken("ci")).toBe(true);
-    expect(store2.verifyToken(token)).toBeNull();
-    expect(store2.revokeToken("ci")).toBe(false);
-    store2.close();
+  it("refuses a credential signed with another key", async () => {
+    // The multi-instance contract in reverse: instances agree because they share the key, so one
+    // that does not share it must agree about nothing.
+    // biome-ignore lint/style/noNonNullAssertion: a literal secret, so never null.
+    const other = credentialSigner("a-different-key")!;
+    const { token } = await other.mint({
+      name: "ci",
+      scopes: ["read"],
+      ns: null,
+    });
+    expect(await sign.verifyAccess(token)).toBeNull();
+  });
+
+  it("carries the namespace, so a tenant credential stays one", async () => {
+    const { token } = await sign.mint({
+      name: "t",
+      scopes: ["tenant-a:read"],
+      ns: "tenant-a",
+    });
+    expect((await sign.verifyAccess(token))?.ns).toBe("tenant-a");
+  });
+
+  it("mints nothing without a key", () => {
+    expect(credentialSigner(undefined)).toBeNull();
+    expect(credentialSigner("")).toBeNull();
   });
 });
 
-describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
+describe("serve auth + RBAC", () => {
   let store: SqliteStorage;
   let run: Running;
   let factId: string;
@@ -118,21 +144,14 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
       now(),
     );
     factId = fact.entity.id;
-    readToken = store.createToken({
-      name: "reader",
-      scopes: ["read"],
-      created_at: now(),
-    }).token;
-    writeToken = store.createToken({
-      name: "writer",
-      scopes: ["read", "write"],
-      created_at: now(),
-    }).token;
+    readToken = await mint("reader", ["read"]);
+    writeToken = await mint("writer", ["read", "write"]);
     run = await listen(
       createServeServer({
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         now,
         webRoot: fixtureBundle(),
       }),
@@ -237,11 +256,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
         },
       )
     ).entity.id;
-    const feToken = store.createToken({
-      name: "fe",
-      scopes: ["read"],
-      created_at: now(),
-    }).token;
+    const feToken = await mint("fe", ["read"]);
     const unseen = (tok: string) =>
       authGet(`/api/inject?scope=${scope}&unseen=1`, tok);
 
@@ -259,9 +274,9 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
     expect(po.status).toBe(200);
     expect(await po.text()).toContain(d1);
     // The rows are `inject` (a model received knowledge), one per delivery, under each token's actor.
-    const rows = store
-      .listAudit()
-      .filter((r) => r.action === "inject" && r.detail.startsWith(scope));
+    const rows = (await store.listAudit()).filter(
+      (r) => r.action === "inject" && r.detail.startsWith(scope),
+    );
     expect(rows.map((r) => r.actor).sort()).toEqual([
       "token:fe",
       "token:writer",
@@ -293,11 +308,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
         now(),
       )
     ).entity.id;
-    const beToken = store.createToken({
-      name: "be",
-      scopes: ["read", "write"],
-      created_at: now(),
-    }).token;
+    const beToken = await mint("be", ["read", "write"]);
     // BE files a fact through the server (signed token:be — the same handle the authored_by edge
     // carries), and never reads the scope.
     const created = await authPost(
@@ -342,11 +353,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
   });
 
   it("MCP endpoint: write-only token can commit, but yoke_inject is forbidden", async () => {
-    const writeToken = store.createToken({
-      name: "agent",
-      scopes: ["write"],
-      created_at: now(),
-    }).token;
+    const writeToken = await mint("agent", ["write"]);
     const client = new Client({ name: "t", version: "0" });
     await client.connect(
       new StreamableHTTPClientTransport(new URL(run.base + "/mcp"), {
@@ -408,7 +415,7 @@ describe("serve auth + RBAC (PLAN-V2 10.3/10.4)", () => {
   });
 });
 
-describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
+describe("OIDC (local JWKS fixture)", () => {
   let store: SqliteStorage;
   let run: Running;
   let sign: (claims: Record<string, unknown>, exp: string) => Promise<string>;
@@ -439,6 +446,7 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         oidc,
         now,
       }),
@@ -540,122 +548,18 @@ describe("OIDC (PLAN-V2 10.3, local JWKS fixture)", () => {
   });
 });
 
-describe("read replica (PLAN-V2 11.2)", () => {
-  it("serves reads; writes rejected (409 API / MCP tool error); refreshNow pulls new data", async () => {
-    const primary = await freshDb("replica-primary");
-    // Seed a fact on the primary — born verified, so it is injectable as committed.
-    const p = new SqliteStorage(primary);
-    await p.init();
-    const d = await commit(
-      p,
-      p.loadOntology(),
-      { type: "fact", attributes: { statement: "replicated" } },
-      { actor: "yoke:system", origin: "cli", occurred_at: now() },
-      now(),
-    );
-    p.close();
-
-    // Build the replica snapshot + read-only server directly (mirrors runServe's replica branch).
-    const snapshotPath = join(dir, "replica-snap.db");
-    const seed = new Database(primary, { readonly: true });
-    await seed.backup(snapshotPath);
-    seed.close();
-    const store = new SqliteStorage(snapshotPath);
-    await store.init();
-    const server = createServeServer({
-      store,
-      defaultActor: "yoke:system",
-      auth: false,
-      now,
-      readOnly: true,
-      replica: { primaryPath: primary, snapshotPath },
-    });
-    const run = await listen(server);
-
-    // GET read works.
-    expect((await fetch(run.base + "/api/ontology")).status).toBe(200);
-
-    // POST /api/verify → 409 with the read-only message.
-    const vres = await fetch(run.base + "/api/verify", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ids: [d.entity.id] }),
-    });
-    expect(vres.status).toBe(409);
-    expect(((await vres.json()) as { error: string }).error).toContain(
-      "read-only replica",
-    );
-
-    // MCP: commit tool rejected (write denied), inject still works (read).
-    const client = new Client({ name: "rep", version: "0" });
-    await client.connect(
-      new StreamableHTTPClientTransport(new URL(run.base + "/mcp")),
-    );
-    const commitRes = await client.callTool({
-      name: "yoke_commit",
-      arguments: { type: "fact", attributes: { title: "blocked" } },
-    });
-    expect(commitRes.isError).toBe(true);
-    expect((commitRes.content as Array<{ text: string }>)[0].text).toContain(
-      "forbidden",
-    );
-    const injectRes = await client.callTool({
-      name: "yoke_inject",
-      arguments: { query: "replicated" },
-    });
-    expect(injectRes.isError).toBeFalsy();
-    expect((injectRes.content as Array<{ text: string }>)[0].text).toContain(
-      "replicated",
-    );
-    await client.close();
-
-    // refreshNow: new verified data on the primary becomes visible after a manual pull.
-    const p2 = new SqliteStorage(primary);
-    await p2.init();
-    await commit(
-      p2,
-      p2.loadOntology(),
-      { type: "fact", attributes: { statement: "afterrefresh" } },
-      { actor: "yoke:system", origin: "cli", occurred_at: now() },
-      now(),
-    );
-    p2.close();
-
-    // biome-ignore lint/style/noNonNullAssertion: refreshNow is present in replica mode.
-    await server.refreshNow!();
-
-    const client2 = new Client({ name: "rep2", version: "0" });
-    await client2.connect(
-      new StreamableHTTPClientTransport(new URL(run.base + "/mcp")),
-    );
-    const injectRes2 = await client2.callTool({
-      name: "yoke_inject",
-      arguments: { query: "afterrefresh" },
-    });
-    expect((injectRes2.content as Array<{ text: string }>)[0].text).toContain(
-      "afterrefresh",
-    );
-    await client2.close();
-
-    run.close();
-  });
-});
-
 describe("meta under auth", () => {
   it("answers without a credential but reveals nothing, and identifies a real one", async () => {
     const db = await freshDb("meta");
     const store = new SqliteStorage(db);
     await store.init();
-    const { token } = store.createToken({
-      name: "reader",
-      scopes: ["read"],
-      created_at: now(),
-    });
+    const token = await mint("reader", ["read"]);
     const run = await listen(
       createServeServer({
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         ns: "acme",
         now,
       }),
@@ -667,7 +571,6 @@ describe("meta under auth", () => {
     expect(anon.status).toBe(200);
     expect(await anon.json()).toEqual({
       auth: true,
-      readOnly: false,
       ns: null,
       actor: null,
     });
@@ -678,7 +581,6 @@ describe("meta under auth", () => {
     });
     expect(await known.json()).toEqual({
       auth: true,
-      readOnly: false,
       ns: "acme",
       actor: "token:reader",
     });
@@ -713,6 +615,90 @@ describe("bind address", () => {
     expect(typeof addr === "object" && addr?.address).toBe("127.0.0.1");
     await new Promise<void>((r) => server.close(() => r()));
   });
+
+  // The chicken-and-egg: minting goes through POST /api/tokens, which needs an admin credential.
+  // Without this flag a gated deployment with no external issuer could never mint its first one.
+  it("--bootstrap-admin prints a credential that can mint the next one", async () => {
+    const db = await freshDb("bootstrap");
+    const logged: string[] = [];
+    const warned: string[] = [];
+    const spy = vi
+      .spyOn(console, "log")
+      .mockImplementation((m?: unknown) => void logged.push(String(m)));
+    const warn = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((m: unknown) => {
+        warned.push(String(m));
+        return true;
+      });
+    let server: Server;
+    try {
+      server = await runServe(
+        db,
+        0,
+        { YOKE_TOKEN_SECRET: SECRET },
+        { auth: true, bootstrapAdmin: true },
+      );
+    } finally {
+      spy.mockRestore();
+      warn.mockRestore();
+    }
+    const token = logged
+      .join("\n")
+      .split("\n")
+      .find((l) => l.startsWith("eyJ"));
+    expect(token).toBeTruthy();
+    // The credential on stdout, the one-time warning on stderr — an operator who pipes stdout into a
+    // secret store still sees why the flag must come back out of the unit file.
+    expect(warned.join("")).toMatch(/ONE-TIME.*restart/s);
+    // And it dies in an hour, not the usual week: a copy scraped out of a boot log is already dead.
+    const exp = JSON.parse(
+      Buffer.from((token as string).split(".")[1], "base64url").toString(),
+    ).exp as number;
+    expect(exp - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(3600);
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const minted = await fetch(`${base}/api/tokens`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: "ci", scopes: ["read", "write"] }),
+      });
+      expect(minted.status).toBe(201);
+      // And what it minted cannot mint again — admin does not propagate by being asked for.
+      const next = (await minted.json()).token;
+      const denied = await fetch(`${base}/api/tokens`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${next}`,
+        },
+        body: JSON.stringify({ name: "sneaky", scopes: ["admin"] }),
+      });
+      expect(denied.status).toBe(403);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it("--bootstrap-admin without a signing key refuses rather than printing something nothing accepts", async () => {
+    const db = await freshDb("bootstrap-nokey");
+    await expect(
+      runServe(db, 0, {}, { auth: true, bootstrapAdmin: true }),
+    ).rejects.toThrow(/YOKE_TOKEN_SECRET/);
+  });
+
+  // Ungated, the credential is not merely useless — it is a lie about what the server does. Refusing
+  // beats printing something that would be accepted nowhere, and it happens before the store exists.
+  it("--bootstrap-admin without --auth refuses, and creates nothing on the way", async () => {
+    const db = join(dir, "bootstrap-noauth.db");
+    await expect(
+      runServe(db, 0, { YOKE_TOKEN_SECRET: SECRET }, { bootstrapAdmin: true }),
+    ).rejects.toThrow(/--bootstrap-admin.*--auth/s);
+    expect(existsSync(db)).toBe(false);
+  });
 });
 
 describe("serve smoke (auth off)", () => {
@@ -744,7 +730,7 @@ describe("serve smoke (auth off)", () => {
       "yoke_overview",
       "yoke_persona",
       "yoke_record_decision",
-      "yoke_use_scope",
+      "yoke_resolve_scope",
     ]);
     await client.close();
     run.close();
@@ -789,6 +775,7 @@ describe("GitHub exchange (POST /api/login/github)", () => {
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         now,
         webRoot: fixtureBundle(),
         github: { org: "acme", api: gh.base },
@@ -828,23 +815,70 @@ describe("GitHub exchange (POST /api/login/github)", () => {
     expect(read.status).toBe(200);
   });
 
-  it("re-exchange replaces the previous token for that login", async () => {
+  it("re-exchange does NOT invalidate the credential already issued", async () => {
+    // The cost of a signed credential, pinned so nobody assumes otherwise: there is no list to remove
+    // a token from, so one already in someone's hands stands until it expires. Removing the person
+    // from the org stops the NEXT exchange, which is the durable lever (credential.ts).
     const first = (await (await login("gh_alice")).json()) as { token: string };
     const second = (await (await login("gh_alice")).json()) as {
       token: string;
     };
-    expect(second.token).not.toBe(first.token);
-    const stale = await fetch(`${run.base}/api/review`, {
-      headers: { authorization: `Bearer ${first.token}` },
-    });
-    expect(stale.status).toBe(401);
+    for (const token of [first.token, second.token]) {
+      const res = await fetch(`${run.base}/api/review`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("hands back a refresh token that buys a new access token", async () => {
+    // The browser's seamless path: a pasted credential expires, and there is nothing for a person to
+    // paste again — so the client spends the refresh token instead of showing a login form.
+    const issued = (await (await login("gh_alice")).json()) as {
+      token: string;
+      refresh: string;
+    };
+    expect(issued.refresh).toBeTruthy();
+    // The refresh token is not an access credential, whatever a client does with it.
     expect(
       (
         await fetch(`${run.base}/api/review`, {
-          headers: { authorization: `Bearer ${second.token}` },
+          headers: { authorization: `Bearer ${issued.refresh}` },
+        })
+      ).status,
+    ).toBe(401);
+
+    const refreshed = await fetch(`${run.base}/api/refresh`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${issued.refresh}` },
+    });
+    expect(refreshed.status).toBe(200);
+    const next = (await refreshed.json()) as { token: string; name: string };
+    expect(next.name).toBe("github:alice");
+    expect(
+      (
+        await fetch(`${run.base}/api/review`, {
+          headers: { authorization: `Bearer ${next.token}` },
         })
       ).status,
     ).toBe(200);
+  });
+
+  it("refuses a refresh call with no credential, or with an access token", async () => {
+    const issued = (await (await login("gh_alice")).json()) as {
+      token: string;
+    };
+    const cases: Record<string, string>[] = [
+      {},
+      { authorization: `Bearer ${issued.token}` },
+    ];
+    for (const headers of cases) {
+      const res = await fetch(`${run.base}/api/refresh`, {
+        method: "POST",
+        headers,
+      });
+      expect(res.status).toBe(401);
+    }
   });
 
   it("refuses a non-member (403 naming the org), a bad credential (401), and a bare call (401)", async () => {
@@ -871,6 +905,7 @@ describe("GitHub exchange (POST /api/login/github)", () => {
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         now,
         webRoot: fixtureBundle(),
       }),
@@ -895,6 +930,7 @@ describe("GitHub exchange (POST /api/login/github)", () => {
         store,
         defaultActor: "yoke:system",
         auth: true,
+        tokenSecret: SECRET,
         now,
         webRoot: fixtureBundle(),
         github: { org: "acme", api: "http://127.0.0.1:1" },
@@ -912,17 +948,20 @@ describe("GitHub exchange (POST /api/login/github)", () => {
   });
 });
 
-// The company-DB deployment: knowledge in OpenSearch, credentials NEVER — tokens and the audit trail
-// stay in the serve host's local sqlite (BACKENDS.md: they "do not belong in the company's graph
-// database"). Skips without a live cluster; CI's opensearch-adapter job runs it for real. Scoped to
+// The company-DB deployment: the knowledge lives in the company's OpenSearch, the read trail at the
+// address `YOKE_AUDIT_URL` names, and the credential in NEITHER — it is signed, so there is nothing
+// to store (credential.ts). The store is built by `openStore` from those variables rather than by
+// hand, because the composition they produce is as much under test as the routes are: a knowledge
+// backend that cannot hold a ledger must be given an address for one (store.test.ts pins that
+// refusal). Skips without a live cluster; CI's opensearch-adapter job runs it for real. Scoped to
 // `yoketest_*` indices like every OpenSearch suite — never widen the prefix.
 describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
-  "serve --auth over a company OpenSearch: knowledge remote, credentials local",
+  "serve --auth over a company OpenSearch: knowledge remote, trail at YOKE_AUDIT_URL, credential nowhere",
   () => {
     const OS_URL = process.env.YOKE_TEST_OPENSEARCH_URL as string;
     const PREFIX = "yoketest_serveauth_";
 
-    it("the exchange mints into sqlite, the commit lands in OpenSearch, and neither leaks into the other", async () => {
+    it("commits to OpenSearch, trails to the ledger, and writes the credential down in neither", async () => {
       await fetch(`${OS_URL}/${PREFIX}*`, { method: "DELETE" }).catch(() => {});
       const { createServer } = await import("node:http");
       const gh = await listen(
@@ -940,26 +979,24 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
           );
         }),
       );
-      const { OpenSearchStorage } = await import(
-        "../../adapters/storage-opensearch/index.js"
+      // Two local paths, neither seeded first: the ledger the trail is addressed to, and a `--db`
+      // that a remote knowledge store leaves with nothing to name.
+      const ledger = join(dir, "os-serveauth-ledger.db");
+      const unusedDb = join(dir, "os-serveauth-unused.db");
+      const store = await openStore(
+        { db: unusedDb },
+        {
+          YOKE_OPENSEARCH_URL: OS_URL,
+          YOKE_OPENSEARCH_PREFIX: PREFIX,
+          YOKE_AUDIT_URL: ledger,
+        },
       );
-      const { makeCompositeStore } = await import(
-        "../../adapters/storage-composite/index.js"
-      );
-      const localPath = await freshDb("os-serveauth");
-      const store = makeCompositeStore(
-        new OpenSearchStorage({ url: OS_URL, prefix: PREFIX }),
-        new SqliteStorage(localPath),
-      );
-      await store.init();
-      // What `yoke init` does after opening the store: composite init() creates indices, the seed is
-      // the CLI's job — and this test's store is opened by hand.
-      await store.saveOntology(seedOntology());
       const run = await listen(
         createServeServer({
           store,
           defaultActor: "yoke:system",
           auth: true,
+          tokenSecret: SECRET,
           now,
           webRoot: fixtureBundle(),
           github: { org: "acme", api: gh.base },
@@ -972,6 +1009,11 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
             headers: { authorization: "Bearer gh_alice" },
           })
         ).json()) as { token: string };
+        // The credential carries who it speaks for, which is why no store had to be asked.
+        const claims = JSON.parse(
+          Buffer.from(token.split(".")[1], "base64url").toString(),
+        ) as { sub?: string };
+        expect(claims.sub).toBe("github:alice");
         const created = (await (
           await fetch(`${run.base}/api/entity`, {
             method: "POST",
@@ -989,46 +1031,61 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
         expect((await store.getEntity(created.id))?.attributes.statement).toBe(
           "credentials stay home",
         );
-        // …and in the LOCAL sqlite there is no entity row at all, while the token lives there as a
-        // salted hash — the plaintext appears in neither store.
-        const raw = new Database(localPath, { readonly: true });
-        try {
-          // The local sqlite holds what `yoke init` seeded (the yoke:system person) and NOTHING that
-          // was committed through the server — the knowledge went to the other database.
-          expect(
-            (
-              raw.prepare("SELECT DISTINCT id FROM entities").all() as Array<{
-                id: string;
-              }>
-            ).map((r) => r.id),
-          ).toEqual(["yoke:system"]);
-          expect(
-            raw
-              .prepare("SELECT count(*) c FROM entities WHERE id = ?")
-              .get(created.id),
-          ).toMatchObject({ c: 0 });
-          const tok = raw
-            .prepare("SELECT name, hash FROM tokens WHERE name = ?")
-            .get("github:alice") as {
-            name: string;
-            hash: string;
-          };
-          expect(tok.name).toBe("github:alice");
-          expect(token).not.toContain(tok.hash);
-          expect(
-            raw
-              .prepare("SELECT count(*) c FROM tokens WHERE hash = ?")
-              .get(token),
-          ).toMatchObject({ c: 0 });
-        } finally {
-          raw.close();
-        }
-        const remote = await (
-          await fetch(`${OS_URL}/${PREFIX}*/_search?q=yk_`)
-        ).json();
+        // …and one authenticated read hands it to an agent, which is what leaves a trail.
         expect(
-          (remote as { hits: { total: { value: number } } }).hits.total.value,
-        ).toBe(0);
+          (
+            await fetch(
+              `${run.base}/api/inject?q=${encodeURIComponent("credentials stay home")}`,
+              { headers: { authorization: `Bearer ${token}` } },
+            )
+          ).status,
+        ).toBe(200);
+
+        const raw = new Database(ledger, { readonly: true });
+        const tables = (
+          raw
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .all() as Array<{ name: string }>
+        ).map((r) => r.name);
+        const entities = (
+          raw.prepare("SELECT count(*) c FROM entities").get() as { c: number }
+        ).c;
+        const injects = (
+          raw
+            .prepare("SELECT detail FROM audit_log WHERE action = 'inject'")
+            .all() as Array<{ detail: string }>
+        ).map((r) => r.detail);
+        const delivery = raw
+          .prepare("SELECT n FROM delivery WHERE entity_id = ?")
+          .get(created.id) as { n: number } | undefined;
+        raw.close();
+        // The ledger holds the trail and only the trail: no corpus — not even the bootstrap person,
+        // which was seeded into OpenSearch — and no table for credentials, because a signed one is
+        // never written down.
+        expect(tables).toContain("audit_log");
+        expect(tables).not.toContain("tokens");
+        expect(entities).toBe(0);
+        expect(injects).toHaveLength(1);
+        expect(injects[0]).toContain(created.id);
+        expect(delivery).toMatchObject({ n: 1 });
+        // The same delivery read back through the store, which is how the stale queue asks.
+        expect(
+          (await store.consumption({ ids: [created.id] })).get(created.id),
+        ).toBe(1);
+        // Nothing went to the file `--db` named: a remote knowledge store leaves it meaningless, and
+        // the trail had an address of its own.
+        expect(existsSync(unusedDb)).toBe(false);
+
+        // The remote half read as documents rather than through the adapter. The two positive checks
+        // are what stop the two negative ones from passing over an empty dump.
+        await fetch(`${OS_URL}/${PREFIX}*/_refresh`, { method: "POST" });
+        const docs = JSON.stringify(
+          await (await fetch(`${OS_URL}/${PREFIX}*/_search?size=1000`)).json(),
+        );
+        expect(docs).toContain(created.id);
+        expect(docs).toContain("yoke:system");
+        expect(docs).not.toContain(token);
+        expect(docs).not.toContain(injects[0]);
       } finally {
         run.close();
         gh.close();
@@ -1040,3 +1097,77 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
     }, 60_000);
   },
 );
+
+describe("a narrow credential can still use the capture path", () => {
+  // A connector credential is narrow by design — `ns:fact:write` for a Slack sync — and the bulk
+  // routes checked a bare `write`, which a type-scoped token does not hold. Measured: such a token
+  // could `add` a fact and could not `ingest` one, so the whole automatic path was closed to exactly
+  // the credentials the RBAC model exists to hand out.
+  it("ingests the types it holds, refuses the ones it does not, and writes nothing in between", async () => {
+    const store = new SqliteStorage(":memory:");
+    await store.init();
+    await store.saveOntology(seedOntology());
+    const SECRET = "narrow-credential-key";
+    // biome-ignore lint/style/noNonNullAssertion: SECRET is a literal.
+    const signer = credentialSigner(SECRET)!;
+    const token = (
+      await signer.mint({
+        name: "slack-sync",
+        scopes: ["*:fact:write", "*:*:read"],
+        ns: null,
+      })
+    ).token;
+    const run = await listen(
+      createServeServer({
+        store,
+        defaultActor: "yoke:system",
+        auth: true,
+        tokenSecret: SECRET,
+      }),
+    );
+    const post = (items: unknown[]) =>
+      fetch(`${run.base}/api/ingest`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ items, origin: "connector:slack" }),
+      });
+    try {
+      const ok = await post([
+        { type: "fact", externalId: "s:1", attributes: { statement: "a" } },
+      ]);
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toMatchObject({ added: 1 });
+
+      const no = await post([
+        {
+          type: "decision",
+          externalId: "s:2",
+          attributes: { conclusion: "c", rationale: "r" },
+        },
+      ]);
+      expect(no.status).toBe(403);
+      expect((await no.json()).error).toContain("type 'decision'");
+
+      // A mixed batch is refused whole: a partial import is not how a caller should discover the
+      // limit of their credential.
+      const mixed = await post([
+        { type: "fact", externalId: "s:3", attributes: { statement: "b" } },
+        {
+          type: "decision",
+          externalId: "s:4",
+          attributes: { conclusion: "c", rationale: "r" },
+        },
+      ]);
+      expect(mixed.status).toBe(403);
+      expect(
+        (await store.listEntities({ type: "fact", limit: 10 })).items,
+      ).toHaveLength(1);
+    } finally {
+      run.close();
+      store.close();
+    }
+  });
+});

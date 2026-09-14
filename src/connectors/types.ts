@@ -1,4 +1,4 @@
-// Connector contract (PLAN 5.1). A connector is only a producer of EntityInput — storage must always
+// Connector contract. A connector is only a producer of EntityInput — storage must always
 // go through the commit gate (ingest). Not a framework: one type plus one shared ingest function (ingest.ts) is all of it.
 
 import type { EntityInput } from "../core/types.js";

@@ -37,9 +37,17 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 
 - entity types: `person` (attributes: name (required) — a person is referred to by name on every surface, and the ontology-driven create form offers exactly the declared fields), `fact` (attributes: title, statement (required); `ttl_days: 180` — `statement` is the required one and `title` is not, because the capture connectors turn a message into a statement and have no honest title to give), `decision` (attributes: conclusion, rationale, rejected_alternatives[]; `ttl_days: 365`), `term` (attributes: title (required), statement (required) — a name with no meaning explains nothing and a meaning with no name cannot be looked up), `resource` (attributes: title (required), statement, url), `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). Those two `ttl_days` are the seed's only ones; everything else is unlimited, and their absence from this list left the freshness rule below with no stated starting point. `collaboration` declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature. `person` and `collaboration` are marked `structural: true` — they name what knowledge is attached to rather than asserting anything, so injection never returns them as knowledge (see "A roster is not knowledge"). `decision` and `term` are marked `leads: true` — they lead a briefing (see "A briefing has a defined order"): conclusions and vocabulary ahead of recency, because the record a session must not miss is the one a noisy capture week evicts first. Like `structural`, it is ontology data — an org whose spine is `incident` marks it and gets the behaviour with no core change
 - relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (created by the gate at stage 4), `works_on` (person → collaboration, v4.0), `same_as` (person → person, v5.6 — see "Identity across sources"), `derived_from` (record → the knowledge it rests on, v5.8 — see "Derivation")
-- **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
+- **Seed applies to new stores only**: the CLI/MCP load the ontology from the store, not from the seed. A store created before a seed type was added does not gain it when a server next opens it (seeding is idempotent and does not re-seed). Migrate an existing store with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
-- **Bootstrap**: `yoke init` seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself). All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
+- **Bootstrap**: a server seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself) the first time it opens a store. All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
+
+`collaboration`, not `workstream`: neutral is not the same as recognizable. `workstream` is
+vendor-free, which is why it was chosen first, but a first-time reader does not know it and the
+definition has always read "a unit of **collaborative** work" — a type name that is a different word
+from its own definition is a name nobody can guess. `shared context` and `shared memory` were
+rejected because `context` and `memory` are yoke's two most loaded words (context injection; "we sell
+knowledge, competitors sell memory"), and both imply containment, which this entity does not do —
+knowledge and people point AT it.
 
 ## Storage Port
 
@@ -99,20 +107,29 @@ wrong neighbours forever, and a silent wrong answer is worse than a stopped writ
 
 `StoragePort` is fully async and always was, so a network-backed backend implements it with no
 interface change. The obstacle is one layer up: the CLI, web and serve tiers hold a **`YokeStore`** —
-the port plus sqlite-shaped extensions — and **8 of those 12 extension methods are synchronous**
-(`backupTo`/`exportUntil` always returned promises; `saveOntology`/`renameType` went async in v5.2),
-because `better-sqlite3` is. A network call cannot satisfy a synchronous signature. That, not a missing
-adapter, is the bar an adapter clears to be reachable from `openStore` at all: a backend whose
-`saveOntology`/`loadOntology` have to be `async` does not satisfy `YokeStore`.
+the port plus its extensions, and two of them are **synchronous** (`loadOntology`, `listHistory`)
+because `better-sqlite3` is. A network call cannot satisfy a synchronous signature. That, not a
+missing adapter, is the bar an adapter clears to be reachable from `openStore` at all.
 
 **A remote backend is therefore composed, not substituted.** `storage-composite` delegates the port to
-the remote store and the synchronous extensions to a local sqlite. The split is deliberate:
+the knowledge backend and serves `loadOntology` from a cache its async `init()` fills. The ontology is
+remote because a shared graph with per-client schemas means two clients validating against different
+schemas.
 
-- **Remote:** entities, relations, search, neighbors, the ontology, and embedding vectors. The ontology
-  is remote because a shared graph with per-client schemas means two clients validating against
-  different schemas.
-- **Local:** the audit trail (what THIS client was told) and API tokens (yoke's own credentials, which
-  do not belong in someone else's database). Centralising them is the v3.0 `serve --auth` story.
+**The audit trail has its own port and its own address** (`ports/audit.ts`, asynchronous throughout).
+`YOKE_AUDIT_URL` names where it goes — a file path, `postgres://…` or `dynamodb://…`; unset, it goes to
+the knowledge store. One rule on a laptop and on a cluster, because a trail that follows the process
+rather than the corpus answers a different question on every machine that reads it. sqlite, Postgres
+and DynamoDB hold their own; OpenSearch does not implement the port (a document appended per read is
+the write pattern a segment-merging index is worst at) and refuses at boot naming the variable.
+
+The ledger also keeps what the trail IMPLIES, written by the same call that appends it, and read back
+by three point-lookup methods: `consumption` (how often each record was handed to an agent),
+`delivered` (one working context's delivery clock and held set) and `lastHanded` (when this reader was
+last handed each of the ids asked for). None of them scans the log, and none of them reads a reader's
+whole held set. `AuditEvent` is a union discriminated on `action`: `inject` and `persona` carry the
+ids they handed over and nothing else may, so a delivery route cannot be written that counts nothing —
+see "The stale queue" and "Since, and unseen".
 
 Two methods became async because they touch remote rows — **`renameType`** (it rewrites entity rows)
 and **`saveOntology`** (a synchronous fire-and-forget would discard the error). `loadOntology` stays
@@ -296,7 +313,9 @@ filter is the caller's and still runs after, so front adapters over-fetch — se
 `status`/`type`/`ns` filters, and the default bound, apply identically under either rule.
 
 Every implementation must pass the shared conformance suite (`src/ports/conformance-cases.ts`,
-runner-neutral data; `src/ports/conformance.ts` is the vitest wrapper).
+runner-neutral data; `src/ports/conformance.ts` is the vitest wrapper). The audit ledger has its own —
+`src/ports/audit-conformance.ts` — for the same reason: the trail is a user-facing capability, so no
+backend gets a version of it that answers differently.
 v1 implementation: `storage-sqlite` (better-sqlite3 + FTS5 + sqlite-vec).
 
 **The supported set is `sqlite`, `sharded`, `opensearch` and `postgres`, and all four must pass.** A
@@ -388,8 +407,8 @@ Why it exists: **deprecating a record is not a fix unless what rests on it can b
 stale queue's rule one surface over — flagging decay does not repair it, routing it to the thing that
 has to change does. The audit trail already records both halves (`inject` logs the ids it returned,
 `persona` logs the ids it exported) and cannot answer the question: the two events share no join key,
-and the trail is per-client local sqlite rather than knowledge, so it is not traversable by
-`neighbors` and does not move with the record between backends. An edge is.
+and the trail is a ledger rather than knowledge, so it is not traversable by `neighbors` and does not
+move with the record between backends. An edge is.
 
 - **Written at the front tier**, as an ordinary gate-passing commit — the same place and mechanism as
   the `relates_to` that `scope` files. The distinction this repo already draws: `conflicts_with` lives
@@ -568,9 +587,11 @@ the second built on the first:
   record does not pass the status filter — that half is `--unseen`'s.
 - **`yoke inject --scope <id> --unseen`** is the read a hook makes on every tool call: what this
   context has that **this client** has not been handed yet. Front-tier, because the answer is in the
-  client's own audit trail — every `inject`/`persona` row names the ids it handed over
-  (`deliveries` in `src/front/display.ts`, the same rows `consumptionCounts` reads, over
-  `DELIVERY_WINDOW` recent rows). Two halves, in this order:
+  client's own ledger — an `inject`/`persona` delivery carries the ids it handed over as data (the
+  port's `AuditEvent` is a union on `action`, so a delivery cannot be written without them). Two
+  reads give the two halves: `AuditPort.delivered` returns one working context's delivery clock and
+  held set, and `AuditPort.lastHanded` answers, for exactly the ids about to be judged, when this
+  reader was last handed each — never the reader's whole held set. Two halves, in this order:
   1. **changed since handed to you** — records a row anchored on this scope handed over that have
      since been retired (with the reason, when one was given) or rewritten (their version time passed
      the delivery), **replaced** or
@@ -592,9 +613,7 @@ the second built on the first:
   moves, or a newcomer carries the edge — those are the two signals read. A `supersedes` or
   `conflicts_with` link recorded later between two records both handed earlier versions neither and
   arrives on no newcomer; reporting it costs one relation read per handed id, so add it when a hook
-  shows the gap. A delivery older than
-  `DELIVERY_WINDOW` rows reads as never having happened — the record is handed over once more, which
-  writes a fresh row and heals it. And **the ledger is the client's, not the session's**: two sessions
+  shows the gap. And **the ledger is the client's, not the session's**: two sessions
   on one machine in the same context share it, so the one that reads a change first consumes it. The
   fix, when a team needs it, is a session column on the audit row (the hook's stdin carries
   `session_id`) — not a second ledger.
@@ -636,14 +655,17 @@ yoke API token.
 - **Scopes**: `read,write` — the whole knowledge permission (commit, re-confirm, retire; see the
   action table). Membership is the only tier: what a member files is signed and answerable, which is
   the accountability this policy runs on. `admin` is never minted here.
-- **Re-exchange replaces** the previous token for that login, which is what makes revocation
-  self-healing on the client: a 401 clears the cache and exchanges again. The durable revocation
-  lever is therefore GitHub's own — remove the person from the org.
+- Credentials are **signed, not stored**: nothing is written down to revoke, and a re-exchange does
+  not invalidate what came before. The two levers are the signing key (`YOKE_TOKEN_SECRET`, rotating
+  it retires every credential at once) and GitHub's own — remove the person from the org and the
+  next exchange fails. A client heals into both on its own: a 401 refreshes, then re-exchanges.
 - A GitHub outage is a **502**, not a 401: an upstream failure is not a verdict on the caller.
-- The plugin's `auth.mjs` is the zero-action client: cache in `~/.yoke` (0600, keyed by server),
-  `gh auth token` → exchange on miss, one announce line when a credential actually moved
-  (`YOKE_TOKEN` set explicitly disables all of it). `YOKE_DEBUG=1` explains failures on stderr —
-  the one escape hatch from the hooks' silence rule.
+- `src/front/remote.ts` is the zero-action client, and the CLI is its only caller — so the hooks and
+  the MCP adapter inherit it rather than each holding a credential. Cache in `~/.yoke` (0600, keyed
+  by server) holding both halves; on a miss, the refresh token first and `gh auth token` → exchange
+  only when that is gone too; one announce line when a credential actually moved (`YOKE_TOKEN` set
+  explicitly disables all of it). `YOKE_DEBUG=1` on a hook forwards the CLI's stderr — the one
+  escape hatch from the hooks' silence rule.
 
 ### The stale queue (v5.2)
 
@@ -680,11 +702,11 @@ so the stale queue is where a person's attention is actually spent (KNOWLEDGE-PO
 - Exposed as `yoke review` and `GET /api/review` — review IS this queue; there is no other.
   `--type` narrows it.
 - **The page is ordered by consumption, and each row says its count.** The count is the number of
-  `inject` and `persona` audit rows naming the record — what AGENTS have been fed, not what humans
-  looked at (`inject_preview`/`read`/`search` do not count) — so re-confirmation effort meets the
-  records still reaching agents first. This is an aggregation over the audit trail the front tier
-  already writes, computed at the front tier (the trail is not a port concern), and it inherits the
-  trail's scope: under `serve` it is the team's central count; a client pointed straight at a shared
+  times an agent was handed the record — what AGENTS have been fed, not what humans looked at
+  (`inject_preview`/`read`/`search` carry no ids and are not deliveries) — so re-confirmation effort
+  meets the records still reaching agents first. The ledger keeps the count as deliveries happen
+  (`AuditPort.consumption`), so it is a total over all of history rather than an aggregation
+  re-derived per read, and it inherits the ledger's scope: under `serve` it is the team's central count; a client pointed straight at a shared
   remote backend counts only its own reads. Ordering applies WITHIN the returned page — the cursor
   resumes the scan by position, unaffected by rank.
 
@@ -693,8 +715,14 @@ so the stale queue is where a person's attention is actually spent (KNOWLEDGE-PO
 `inject(query, { scope })` where `scope` is an entity id to anchor on. **One mechanism, two named
 entry points**: a `collaboration` anchor is the shared working context, a `person` anchor is a persona.
 
-- **Scope prioritizes, it does not imprison.** A pinned working context must never hide
+- **Scope prioritizes, it does not imprison.** An anchored working context must never hide
   org-wide knowledge (or personas — `yoke_persona` is a separate entry point, unaffected by scope).
+- **A scope that is not a record is refused, not emptied.** `inject` reads the anchor first and
+  throws `ScopeNotFound` (`scope is not a record[ in namespace <ns>]: <id>`) when it does not exist
+  in this namespace. Because scope prioritizes rather than imprisons, the alternative is worse than
+  an empty answer: with a query, an unresolvable anchor falls through to the org-wide result set,
+  which the caller asked for anchored and reads as that context's knowledge. Refused in core, so the
+  CLI (exit 1), the MCP tool (a tool error) and `GET /api/inject` (400) all say the one sentence.
 - With a non-empty `query`: the **full query results** are returned, with knowledge one relation
   hop from the scope entity (both directions via `neighbors(scope)`) **ordered first** — the
   working context leads, org-wide matches still flow in. `limit` applies after ordering.
@@ -837,17 +865,18 @@ records, and who the verified knowledge came from. Exposed as `yoke overview` an
 `yoke_record_decision`, link new knowledge to a scope entity via a `relates_to` relation created
 through a second gate-passing commit at the front tier (core `commit` is untouched).
 
-**Declared scope (MCP server)**: scope is stated, not guessed. The agent declares which work item the
-current work belongs to — when the user says so or the agent infers it ("this is `ABC-12345` work") —
-by calling `yoke_use_scope { key }`. The key is resolved to an anchor entity: an exact entity id
-(`getEntity`), else an entity whose `key` OR `title` attribute equals the key, preferring a
-`collaboration` since that is what a work-item key names — any entity type may anchor a session. On a match it is
-pinned as the session default for subsequent injections and recordings, and the resolved `{ id, title }`
-is returned; on no match the tool returns a non-error hint to create one via `yoke_commit` (type
-`collaboration`, attributes `{ title, key }`) and call again. Precedence: a per-call `scope` argument >
-the session pin (`yoke_use_scope`) > `YOKE_SCOPE` (an entity id or collaboration key resolved at startup,
-for fixed setups). In stateless (serve) deployments the session pin does not persist, so the agent
-passes `scope` per call — `yoke_use_scope` still returns the resolved id for reuse.
+**Declared scope (MCP server)**: scope is stated, not guessed — and stated on every call. The agent
+turns the work item the user named ("this is `ABC-12345` work") into an anchor id by calling
+`yoke_resolve_scope { key }`. The key resolves to an exact entity id (`getEntity`), else to an entity
+whose `key` OR `title` attribute equals the key, preferring a `collaboration` since that is what a
+work-item key names — any entity type may anchor an injection. On a match it returns
+`{ id, title }`; on no match it returns a non-error hint to create one via `yoke_commit` (type
+`collaboration`, attributes `{ title, key }`) and resolve again. It resolves and returns, nothing
+more: the id is what the agent then passes as the `scope` argument of `yoke_inject`, `yoke_commit`
+and `yoke_record_decision`, and a call that omits `scope` is unanchored however recently one was
+resolved. The MCP server holds no session state — `yoke serve` builds one instance per request and
+discards it, and stdio `yoke mcp` relays to that endpoint — which is why the anchor rides the call
+rather than the connection.
 
 We deliberately do **not** infer scope from the git branch: branch names usually carry a *child* task
 key while the shared context lives on the *parent* collaboration, so regex-from-branch systematically
@@ -862,7 +891,7 @@ picks the wrong scope.
 | `yoke_record_decision` | a commit shortcut dedicated to decision entities — conclusion, rationale, rejected alternatives, in the wording the decision's owner used. Live at birth like every commit, so it reaches every agent on the scope at once; a reversal is a new decision plus a `supersedes` edge, never an edit |
 | ↳ both take `derived_from: string[]` | the citation ids this record rests on (see "Derivation") — optional, caller-asserted, never inferred |
 | `yoke_persona` | person-anchored injection ("what would Alex do") |
-| `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
+| `yoke_resolve_scope` | a work-item key or id → the anchor record's `{ id, title }`, for the agent to pass as `scope` on the calls that belong to it |
 | `yoke_overview` | the shape of the whole corpus — structure, never a summary (see "Global aggregation") |
 
 ### The knowledge loop (demand-driven capture)
@@ -912,10 +941,9 @@ endpoint shares it at `POST /mcp`.
 | `POST /api/backfill` | `backfillAuthorship`, or `backfillEmbeddings` with `{embeddings:true, rebuild?}` | write | no — the edges it creates record it, and a vector is not knowledge |
 | `POST /api/ontology` | `saveOntology([def], ns)` | **admin** | no |
 | `POST /api/rename-type` | `renameType(from, to, ns)` | **admin** | **yes** (`rename_type`) |
-| `GET /api/tokens` | `listTokens` (names + scopes, never secrets) | **admin** | no |
-| `POST /api/login/github` | GitHub token in, yoke token out (see "GitHub exchange") | none — it is the door | no |
-| `POST /api/tokens` | `createToken` — 201 with the plaintext secret, shown once | **admin** | no |
-| `DELETE /api/tokens/:name` | `revokeToken` | **admin** | no |
+| `POST /api/login/github` | GitHub token in, a signed yoke credential out (see "GitHub exchange") | none — it is the door | no |
+| `POST /api/refresh` | refresh credential in, a fresh access credential out | none — the refresh credential IS the authentication | no |
+| `POST /api/tokens` | signs a credential — 201 with the access and refresh halves, shown once | **admin** | no |
 
 Rules that hold for every route:
 
@@ -963,9 +991,9 @@ Rules that hold for every route:
   carrying a name, history included. They change what types MEAN, which is operating the
   deployment rather than recording knowledge, and `admin` is the operating permission.
 - **Not exposed over HTTP, and why.** `init` (bootstrap: the server is already holding the
-  database it would create), `connect <source>` (needs credentials and runs long), `backup` /
-  `restore` / `export` (server-side filesystem paths — a browser form choosing where a process
-  writes is a foot-gun, not a feature), and `mcp` / `ui` / `serve` (process lifecycle, not actions).
+  database it would create), and `mcp` / `ui` / `serve` (process lifecycle, not actions). The
+  `connect` connectors ARE exposed, as `/api/ingest` and `/api/ingest-mapped`: the credentials and
+  the source stay with the caller and only what they found crosses (SPEC "Pull here, commit there").
 
   **`token` IS exposed** (the three routes in the table above). Minting from a browser is gated on
   `admin`, NOT on `write`: this is the credential surface — recording knowledge and issuing the
@@ -1073,7 +1101,6 @@ the web UI under an IdP). No cookie session, therefore no CSRF surface.
 ## CLI commands
 
 ```
-yoke init                  # create the DB + seed the default ontology
 yoke add                   # commit one entity through the gate
 yoke get <id> [--relations]  # one record; --relations adds its in/out edges
 yoke search <text> [--type t] [--status s] [--limit n]   # the port's FTS; what /api/search exposes
@@ -1109,22 +1136,20 @@ yoke connect <github-pr|slack|notes|raw|rdb> [--scope id]   # external sources �
                            # captured knowledge reaches a briefing and not only a query
                                            # raw extracts via a model — see "Extractor contract"
 yoke relate [--limit n]    # a model proposes the links BETWEEN stored records — see "Relater contract"
-yoke mcp                   # start the MCP server (stdio)
+yoke mcp                   # relay stdio to the server's /mcp — the agent's door to the same server
 yoke ui [--port] [--host]  # local governance workbench (loopback, ungated, single-user)
-yoke serve [--port] [--host] [--auth] [--replica-of <path>]   # UI + JSON API + remote MCP, one port
-yoke token <create|list|revoke>            # API tokens for agents/CI (scopes: ns:type:action)
-yoke backup <dest> / yoke restore <src>    # online snapshot, WAL-safe
-yoke export --until <ts>   # PITR-lite from the append-only history
+yoke serve [--port] [--host] [--auth] [--bootstrap-admin]    # UI + JSON API + remote MCP, one port
+                           # creates and seeds the store if it is not there (and says so, as does 'ui')
+                           # --bootstrap-admin prints the first admin credential, which 'token create'
+                           # then needs. ONE-TIME: refused without --auth, expires in an hour, and
+                           # warns that it reprints on every restart until the flag is removed
+yoke token create --name <n> --scopes <list>  # asks the server to sign a credential for an actor
+                           # with no GitHub login (CI, connectors) — needs an 'admin' scope
 ```
 
-Common options: `--db <path>` (> `YOKE_DB` > `./yoke.db`), `--ns`, `--actor`, `--json`,
-`--shards <config.json>`.
-
-**A command reports the store it actually opened, not `--db`.** `--db` names the local sqlite
-whatever the backend is, so the human line names the resolved store instead: `shards cfg.json`, or
-`http://…:9200 (audit + tokens: ./yoke.db)` on a remote backend, where both halves are true. `--json` keeps
-`db` as the local path — a script reading it wants a path — and adds `store` with the label. Same rule
-for the "not initialized" refusal.
+Common options: `--db <path>` (> `YOKE_DB` > `./yoke.db`), `--ns`, `--actor`, `--json`. On a
+client `--db` names the store the caller EXPECTS the server to hold; `--shards <config.json>` is the
+server's, so it is read by `serve` and `ui` and by nothing else.
 
 ### Configuration precedence
 
@@ -1150,6 +1175,10 @@ ours. Three clauses:
 because five of those variables are secrets.
 
 Requires Node **>= 20.12** (`process.loadEnvFile`), which is the package's `engines` floor.
+
+`--env-file` is rejected, not overlooked: Node 20 hard-errors on a missing file while
+`--env-file-if-exists` needs 22.9. `node:process.loadEnvFile` costs neither, and `engines >=20.12`
+is what that API costs.
 
 ## persona
 
@@ -1271,7 +1300,7 @@ type Embedder = (text: string) => Promise<Float32Array | null>
   verbatim `sources` span, then the identifiers (`external_id`, `key`). The measured gain is from the
   prose expansion *concatenated with* the original value, not from the expansion alone, which is why
   `sources` stays and stays last. The identifiers stay because they are looked up THROUGH the index:
-  connector idempotency (`findByExternalId`) and `yoke_use_scope` search for the literal string and
+  connector idempotency (`findByExternalId`) and `yoke_resolve_scope` search for the literal string and
   match exactly, so a key without them makes every re-ingest store a second copy. `author`, `topic`
   and `status` are dropped — nothing searches them, and `status` has a structured filter. A malformed
   (non-object) attributes blob degrades to `type + the raw text` rather than throwing: an index that
@@ -1469,6 +1498,10 @@ Any core function that needs time (commit, verify, isFresh, persona export) take
 ## Tech stack
 
 TypeScript, Node ≥ 20, better-sqlite3, sqlite-vec, the MCP SDK (@modelcontextprotocol/sdk).
+Remote backends add nothing: `pg` was already in the tree for the RDB connector, and the OpenSearch
+and DynamoDB adapters are plain REST — DynamoDB's SigV4 signing is `node:crypto` in
+`adapters/audit-dynamodb/sigv4.ts`, verified against `@aws-sdk/signature-v4` and pinned, rather than
+16 MB of SDK paid for by every install.
 Embedding: **no model ships with yoke, and none will.** One provider configuration — an
 OpenAI-compatible `/embeddings` endpoint — which is why a single implementation reaches OpenAI, Azure,
 Ollama, vLLM, TEI and LiteLLM. An in-process ONNX runtime was considered and rejected in v5.2:

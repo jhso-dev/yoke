@@ -12,7 +12,7 @@
 
 ontology-based knowledge database · governed context injection for AI agents · MCP-native
 
-MIT · feature-complete through v6.1 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
+MIT · feature-complete through v7.6 · [visual overview](https://claude.ai/code/artifact/5bdddc2e-a8f7-48ba-93b7-261b8b7a26b7)
 
 **English** | [한국어](README.ko.md)
 
@@ -98,24 +98,29 @@ Memory layers retrieve passages and paste them in. yoke injects **records** — 
 decision with its rationale, a preference, a fact — already distilled, so every
 token you spend is a claim rather than the prose around one.
 
-Measured against two retrieval baselines in one harness — same corpus, same
-questions, same answering model, 42 questions over two people:
+Measured 2026-08-15 through [agent-memory-benchmark][amb], which owns the dataset (PersonaMem), the
+answering model and the judge — so yoke is only the memory arm and the comparison is like for like.
+Same corpus, same 42 questions, same answerer (`gemma-4-e4b`), one variable:
 
-| | injected context | accuracy |
-|---|---|---|
-| no memory | 0 | 59.5% |
-| **yoke** | **1.2k tokens** | 73.8% |
-| keyword chunks | 5.1k tokens | 61.9% |
-| dense + sparse hybrid, top-50 chunks | 22.8k tokens | 71.4% |
+| | injected context | correct | correct per 1k tokens |
+|---|---|---|---|
+| no memory | 0 | 20/42 (47.6%) | — |
+| **yoke** | **1.2k tokens** | 28/42 (66.7%) | **23.5** |
+| keyword chunks (bm25) | 5.1k tokens | 26/42 (61.9%) | 5.1 |
+| dense + sparse hybrid, top-50 | 22.8k tokens | **30/42 (71.4%)** | 1.3 |
 
-**5.2× the answers per token of chunk retrieval, 20× that of the hybrid
-retriever** — and higher accuracy than both, on a fifth to a twentieth of the
-context. The hybrid buys its 71.4% with a 22.8k-token injection, most of a
-small model's context window spent on one question.
+State both halves. The hybrid is the most accurate thing measured here — 4.7 points above yoke — and
+it spends 19× the context to get there, which on this dataset is most of a small model's window for
+one question. **Efficiency differs by multiples; accuracy differs by points.**
 
-Translated to the benchmark's official evaluation conditions, yoke lands at
-~87% — the range of the top published systems, on a twentieth of the injected
-context.
+Two things this does not say. An absolute score is mostly a statement about the answering model, so
+these levels do not transfer to a frontier answerer or compare against a published leaderboard. And
+the run predates born-verified: the provider opened the gate to ingest, so what is measured is
+extraction and retrieval, never governance. The harness and its result files are in git at
+`archive/personamem-loop`; they are not on `main`, so treat the table as a dated run rather than a
+number this repository can currently reproduce.
+
+[amb]: https://github.com/vectorize-io/agent-memory-benchmark
 
 Every record also arrives with its citation, which a pasted passage cannot do.
 
@@ -124,12 +129,12 @@ Every record also arrives with its citation, which a pasted passage cannot do.
 | | |
 |---|---|
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
-| **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
-| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
+| **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `resolve_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
+| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). Every one of them passes the same storage-port conformance suite, and every audit ledger passes the audit port's. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → knowledge signed by the connector, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
-| **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens + the GitHub exchange · RBAC (read / write / admin) · read replicas · online backup + point-in-time export. |
+| **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens + the GitHub exchange · RBAC (read / write / admin) · an audit trail with its own address (`YOKE_AUDIT_URL`) · tenant-boundary sharding. Replication and backup are the database's own, below the port. |
 | **License** | MIT |
 
 ## 60-second quickstart
@@ -139,7 +144,7 @@ curl -fsSL https://raw.githubusercontent.com/jhso-dev/yoke/main/scripts/install.
 # clones to ~/.yoke/app, builds, and links the global `yoke` command
 # (--skip-link to skip the link, --dir PATH to change the location)
 
-yoke init                                    # create ./yoke.db + seed the ontology
+yoke serve &                                 # holds ./yoke.db on 127.0.0.1:4800, creating it
 yoke add fact --attr statement="Deployments only happen Tuesday mornings"
 yoke inject "when do we deploy"              # standing knowledge, with citations — live immediately
 yoke review                                  # later: the re-confirmation queue, when knowledge ages
@@ -257,7 +262,7 @@ Tools exposed:
 - `yoke_record_decision` — decision shortcut (conclusion + rationale + rejected alternatives)
 - `yoke_persona` — person-scoped injection ("how would a teammate decide?")
 - `yoke_overview` — the corpus at a glance: counts by type, the most-connected records, who authored what
-- `yoke_use_scope` — pin the current collaboration so the whole session shares one working context
+- `yoke_resolve_scope` — a work-item key → the collaboration's id, to pass as `scope` on the calls that belong to it
 
 ## Embeddings
 
@@ -300,7 +305,7 @@ vector — measured at 1 of 3 entities in this repo's own database before it was
 | Knowledge is stored | yes | **yes** — a provider being down never rejects a record |
 | Duplicate candidates on commit | yes | **no, and `yoke add` says so** — there is no keyword fallback for this, because treating every FTS hit as a duplicate is mostly false positives |
 | `conflicts_with` auto-detection | yes | no |
-| Search / injection | yes | keyword only — a question-shaped query drops from recall@10 82.4% to 52.0% on the demo gold set |
+| Search / injection | yes | keyword only — a question-shaped query drops from recall@10 82.4% to 52.0% on the demo gold set (measured 2026-08-17, `bge-m3` vs none) |
 
 Coverage is repairable at any time — the vector is a derived index, not knowledge, so this writes no
 new version and changes no citation:
@@ -320,9 +325,12 @@ instead.
 
 ## Using a server your company already runs
 
-Point yoke at a Postgres or an OpenSearch you already operate. The knowledge goes there; **this client's audit
-trail and API tokens stay in a local sqlite** — yoke's own bookkeeping does not belong in someone else's
-database, and asking for a place to put it would get a no.
+Point yoke at a Postgres or an OpenSearch you already operate. The knowledge goes there, and so does
+the audit trail unless `YOKE_AUDIT_URL` says otherwise — one rule wherever yoke runs, because a trail
+that follows the process instead of the corpus answers a different question on every machine that
+reads it. OpenSearch is the one backend that cannot hold a ledger: it is a search engine, and a
+document appended per read is the write pattern a segment-merging index is worst at. It says so at
+boot and names the variable, rather than quietly writing beside the process.
 
 ```bash
 # Postgres — the database most orgs already have. pgvector gives `similar` when present.
@@ -333,8 +341,11 @@ export YOKE_POSTGRES_SCHEMA=team_a               # optional: two yoke DBs in one
 export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # a secured cluster only
 export YOKE_OPENSEARCH_PREFIX=team_a_            # optional: two yoke DBs in one cluster
+export YOKE_AUDIT_URL=postgres://…               # OpenSearch only: where the trail goes
+                                                 # (postgres://…, dynamodb://<region>/<table>,
+                                                 #  or a file path — see docs/BACKENDS.md)
 
-yoke init                                        # creates the schema/indices, seeds the ontology
+yoke serve                                       # creates the schema/indices, seeds the ontology
 ```
 
 Or put the same lines in a **`.env`** in the working directory — `cp .env.example .env` and uncomment.
@@ -342,15 +353,16 @@ Node's own parser reads it, so there is no dependency and no format of ours, and
 variable still wins over the file, which keeps a CI secret ahead of anything left on disk. `.env` is
 gitignored; `.env.example` is committed and lists every `YOKE_*` variable yoke itself reads.
 
-`--db` still names the local sqlite. Everything else is unchanged — `add`, `review`, `verify`,
+Everything else is unchanged — `add`, `review`, `verify`,
 `inject`, `yoke ui`, MCP. Both backends rank search **natively and scored** (Postgres `ts_rank`,
 OpenSearch BM25) and both serve `similar` from the engine (pgvector / k-NN), so retrieval needs no
 second service. Neither adds a dependency: `pg` was already in the tree for the RDB connector, and
-the OpenSearch adapter is plain REST.
+the OpenSearch adapter is plain REST. So is the DynamoDB audit ledger — SigV4 over `node:crypto`
+rather than 16 MB of AWS SDK paid for by every install.
 
-What lives where, and why: `docs/BACKENDS.md`. The short version is that `YokeStore`'s extension
-surface is synchronous (better-sqlite3 shaped it), so a networked backend is *composed* with a local
-sqlite rather than swapped in — and an adapter that cannot satisfy those synchronous signatures is not
+What lives where, and why: `docs/BACKENDS.md`. The short version is that `YokeStore`'s ontology read
+is synchronous (better-sqlite3 shaped it), so a networked backend is *composed* with a cache its
+async `init()` fills rather than swapped in — and an adapter that cannot satisfy those signatures is not
 selectable at all.
 
 ```bash
@@ -373,9 +385,9 @@ yoke serve --auth --host 0.0.0.0   # a team; set YOKE_GITHUB_ORG and people log 
                                    # for machine actors and bootstrap)
 ```
 
-Screens: the review queue, conflicts, the ontology browser, persona preview, entity
-detail, injection preview ("what would my agent actually receive for this query?"), a
-force-directed graph explorer, and the audit log. One static bundle, one port. Under
+Screens: the review queue, conflicts, the force-directed graph explorer, injection
+preview ("what would my agent actually receive for this query?") and the rest — one per
+route, every one argued in [WEB-UI](docs/WEB-UI.md). One static bundle, one port. Under
 `yoke serve` the same process also answers `POST /mcp`, so a team deployment needs
 nothing extra; `yoke ui` serves the workbench only.
 
@@ -388,17 +400,16 @@ authenticate and therefore has no reason not to.
 ## CLI
 
 ```
-yoke init | add | get | search | list | link | verify | deprecate
+yoke add | get | search | list | link | verify | deprecate
 yoke review                                   # the re-confirmation queue: records past their TTL
 yoke inject <query> [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--limit n]             # the corpus at a glance / as edges
 yoke conflicts | ontology <list|add-type> | rename-type <from> <to>
 yoke persona <person-id> [--out dir] | persona --check <SKILL.md>
-yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape]
-yoke connect github-pr|slack|notes|raw|rdb ...
-yoke mcp | ui | serve [--auth] [--host addr] | token <create|list|revoke>
-yoke backup <dest.db> [--force] | restore <src.db> [--force]
-yoke export --until <ts> --out <new.db>       # --shards <file> federates backends
+yoke history <id> | audit [--since ts] [--until ts] [--limit n] [--shape|--pulse|--roi]
+yoke connect github-pr|slack|notes|raw|rdb ... [--scope id]
+yoke relate <id...>                           # propose edges between records
+yoke mcp | ui | serve [--auth] [--host addr] | token create --name n --scopes s
 yoke backfill [--embeddings [--rebuild]]      # repair authorship edges / the vector index
 yoke backfill --occurred-at [--dry-run]       # restore event times a pre-fix verify overwrote
 ```
@@ -409,12 +420,12 @@ Common options: `--db` (> `YOKE_DB` env > `./yoke.db`), `--actor`
 ## Shared working context
 
 A team builds one knowledge space together, in real time. When the user says
-"this is PAY-42 work", the agent declares it once with `yoke_use_scope`, and the
-whole session defaults to that `collaboration` — injections lead with its knowledge,
-and anything recorded links to it automatically. A decision one person records
-is in every other session's context the next time they ask.
+"this is PAY-42 work", the agent turns that key into the `collaboration`'s id with
+`yoke_resolve_scope` and passes it as `scope` on the calls that belong to it —
+injections lead with its knowledge, and what it records links back to it. A decision
+one person records is in every other session's context the next time they ask.
 
-Scope **prioritizes, it doesn't imprison**: a pinned collaboration leads, but
+Scope **prioritizes, it doesn't imprison**: the named collaboration leads, but
 org-wide facts and personas still flow in on a query. And the context outlives
 the work — when the collaboration wraps, its knowledge stays in the graph as org
 memory rather than vanishing into a closed ticket.
@@ -437,10 +448,10 @@ wired up:
 | Contamination rate | Share of stale or retired entries among inject results | 0% | **0.0%** (only the 20 standing of 40 candidates were injected) |
 | Missed-contradiction rate | Share of opposing-conclusion decision pairs with no conflicts_with edge | 0% | **80.0%** (1/5 detected, bge-m3) — the stub embedder's 0% is true by construction; the eval prints which one ran |
 
-Read those two numbers for what they cover: a 50-record synthetic corpus and a stub
-embedder whose vectors are built from the planted topic word, so the contradiction
-figure measures that stage 4 runs and files the edge — not that a real embedding model
-would notice. Precision is not measured on either axis.
+Read those numbers for what they cover: a ~134-record synthetic corpus, and whichever embedder was
+configured — the report names it, because a stub that emits one vector per topic makes detection true
+by construction. A third metric, gold-in-brief, checks that three planted decisions survive 80 noise
+records into the opening page. Precision is not measured on any axis.
 
 **Persona quality** (`npm run eval:persona`) — does a persona return that person's
 standing judgment and nothing else. Planted failure modes (a colleague's records on
@@ -465,10 +476,10 @@ totals.
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | The ports-and-adapters boundary |
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
-| [WEB-UI](docs/WEB-UI.md) | The governance workbench — the twelve screens and the line we don't cross |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v6.1 built, in order, each section a record |
+| [WEB-UI](docs/WEB-UI.md) | The governance workbench — one screen per route, and the line we don't cross |
+| [ROADMAP](docs/ROADMAP.md) | every version in the order it shipped, and which doc owns each rule |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
-| [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
+| [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, the audit trail, sharding |
 | [MARKET](docs/MARKET.md) | Competitive landscape and positioning |
 
 ## License

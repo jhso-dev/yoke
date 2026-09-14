@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { commit } from "./commit.js";
 import type { Embedder } from "./embedding.js";
-import { inject, WALK_BUDGET } from "./inject.js";
+import { inject, ScopeNotFound, WALK_BUDGET } from "./inject.js";
 import { deprecate, verify } from "./lifecycle.js";
 import { seedOntology } from "./ontology.js";
 import type { Provenance } from "./types.js";
@@ -206,10 +206,25 @@ describe("inject scoped (v4.0)", () => {
     expect(items.map((i) => i.entity.id)).not.toContain(s.ws);
   });
 
-  it("unknown scope id yields no results", async () => {
+  it("unknown scope id is refused, not answered unanchored", async () => {
     await scene();
-    const { items } = await inject(port, ont, "", now, { scope: "no-such-id" });
-    expect(items).toEqual([]);
+    // Emptiness was the old answer and it is the wrong one: WITH a query the same fall-through
+    // returns the org-wide result set, which the caller reads as this context's knowledge.
+    await expect(
+      inject(port, ont, "", now, { scope: "no-such-id" }),
+    ).rejects.toBeInstanceOf(ScopeNotFound);
+    await expect(
+      inject(port, ont, "alpha", now, { scope: "no-such-id" }),
+    ).rejects.toThrow("scope is not a record: no-such-id");
+  });
+
+  it("an anchor in another namespace is not an anchor here", async () => {
+    const s = await scene();
+    // `getEntity` takes no ns, so without the check the id resolves and the walk runs across the
+    // tenant boundary. Named with the namespace, like the commit gate's refusal.
+    await expect(
+      inject(port, ont, "", now, { scope: s.ws, ns: "tenant-a" }),
+    ).rejects.toThrow(`scope is not a record in namespace tenant-a: ${s.ws}`);
   });
 
   it("limit applies after filtering", async () => {
@@ -330,8 +345,8 @@ describe("inject scoped: multi-hop", () => {
   });
 
   it("does not hand over the author of every neighbour", async () => {
-    // v4.0 dropped `authored_by` leaving the ANCHOR. Generalised in v5.7: at depth 2 the old rule
-    // walked the hop-1 record's own authored_by edge and delivered its author as knowledge — the
+    // Dropping `authored_by` only where it leaves the ANCHOR is not enough: at depth 2 the walk
+    // reaches the hop-1 record's own authored_by edge and delivers its author as knowledge — the
     // roster problem `membership: true` exists to prevent, arriving through an unmarked relation type.
     await commit(
       port,
@@ -502,8 +517,8 @@ describe("inject scoped: a briefing is knowledge, in a defined order", () => {
       scope: s.ws,
       limit: 2,
     });
-    // Two slots, and both go to knowledge — this is the assertion that fails on the old behaviour,
-    // where the three people were written first and took every slot.
+    // Two slots, and both go to knowledge. The three people were written first, so a walk that
+    // ordered by write time rather than by kind would take every slot with the roster.
     expect(items).toHaveLength(2);
     expect(items.map((i) => i.entity.id).sort()).toEqual(
       [...s.knowledge].sort(),

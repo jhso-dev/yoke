@@ -7,10 +7,12 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
 import { seedOntology } from "../../core/ontology.js";
+import { describeAuditPort } from "../../ports/audit-conformance.js";
 import { describeStoragePort } from "../../ports/conformance.js";
 import { SqliteStorage } from "./index.js";
 
 describeStoragePort(":memory:", async () => new SqliteStorage(":memory:"));
+describeAuditPort("sqlite", async () => new SqliteStorage(":memory:"));
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-sqlite-"));
 describeStoragePort("temp file", async () => {
@@ -328,7 +330,7 @@ describe("sqlite-vec similar", () => {
       // row rather than only the ones it thinks are missing) and the new width is queryable.
       const hits = await store.similar(emb([1, 0, 0, 0]), 3);
       expect(hits.map((h) => h.id)).toEqual(["a"]);
-      // ...and the 3-wide query that used to work is now the one that is refused.
+      // ...and the 3-wide query the old index answered is the one now refused.
       await expect(store.similar(emb([1, 0, 0]), 3)).rejects.toThrow(
         /dimension changed/,
       );
@@ -337,7 +339,7 @@ describe("sqlite-vec similar", () => {
   });
 });
 
-describe("audit extensions (PLAN 8.4)", () => {
+describe("audit extensions", () => {
   const base = {
     type: "fact",
     status: "verified" as const,
@@ -365,68 +367,6 @@ describe("audit extensions (PLAN 8.4)", () => {
     expect(history.map((e) => e.version)).toEqual([1, 2]);
     expect(history.map((e) => e.status)).toEqual(["verified", "deprecated"]);
     expect(store.listHistory("nope")).toEqual([]);
-    store.close();
-  });
-
-  it("logAudit/listAudit round-trip with since filter", async () => {
-    const store = new SqliteStorage(":memory:");
-    await store.init();
-    const a = {
-      actor: "alice",
-      action: "inject",
-      detail: "cache -> id1 id2",
-      at: "2026-01-01T00:00:00Z",
-    };
-    const b = {
-      actor: "bob",
-      action: "persona",
-      detail: "p1 -> id3",
-      at: "2026-02-01T00:00:00Z",
-    };
-    const tenant = {
-      actor: "carol",
-      action: "inject",
-      detail: "tenant query -> id4",
-      at: "2026-03-01T00:00:00Z",
-      ns: "acme",
-    };
-    store.logAudit(a);
-    store.logAudit(b);
-    store.logAudit(tenant);
-    expect(store.listAudit()).toEqual([a, b]);
-    expect(store.listAudit({ since: "2026-01-15T00:00:00Z" })).toEqual([b]);
-    // Both bounds inclusive — a person picking an end day means through that instant.
-    expect(store.listAudit({ until: "2026-01-15T00:00:00Z" })).toEqual([a]);
-    expect(store.listAudit({ until: b.at })).toEqual([a, b]);
-    expect(store.listAudit({ since: a.at, until: a.at })).toEqual([a]);
-    // Namespace isolation: an audit viewer must not show one tenant's queries to another, and the
-    // default namespace is not a wildcard over tenants.
-    expect(store.listAudit({ ns: "acme" })).toEqual([tenant]);
-    expect(store.listAudit({ ns: "globex" })).toEqual([]);
-    // limit takes the most recent N but still returns them oldest-first.
-    expect(store.listAudit({ limit: 1 })).toEqual([b]);
-    expect(store.listAudit({ limit: 5 })).toEqual([a, b]);
-    // The bound is compared BY INSTANT (`julianday`), never as text. The text compare this replaced
-    // was pinned right here as a caller hazard — "a second-precision `since` sorts AFTER a row inside
-    // its own second (`Z` > `.`), silently dropping it" — which is a defect described as a contract:
-    // the same hazard, reached through an offset spelling, made `export --until` write an empty
-    // disaster-recovery copy with exit 0. A row half a second after the bound is after the bound in
-    // every spelling of it.
-    const ms = {
-      actor: "dave",
-      action: "verify",
-      detail: "id5",
-      at: "2026-04-01T00:00:00.500Z",
-    };
-    store.logAudit(ms);
-    expect(store.listAudit({ since: "2026-04-01T00:00:00.000Z" })).toEqual([
-      ms,
-    ]);
-    expect(store.listAudit({ since: "2026-04-01T00:00:00Z" })).toEqual([ms]);
-    expect(store.listAudit({ since: "2026-04-01T09:00:00.500+09:00" })).toEqual(
-      [ms],
-    );
-    expect(store.listAudit({ since: "2026-04-01T00:00:00.501Z" })).toEqual([]);
     store.close();
   });
 });
@@ -512,8 +452,8 @@ describe("renameType", () => {
   });
 
   it("drops the stale declaration when the new name is already declared", async () => {
-    // The ordinary case: the code was renamed first, so a later `yoke init` seeded the new type
-    // beside the old one. Rewriting the old row's name would collide with the live one.
+    // The ordinary case: the code was renamed first, so the next open seeded the new type beside
+    // the old one. Rewriting the old row's name would collide with the live one.
     const store = new SqliteStorage(":memory:");
     await store.init();
     await store.saveOntology([{ name: "old", kind: "entity", attrs: {} }]);
@@ -533,98 +473,8 @@ describe("renameType", () => {
   });
 });
 
-describe("durability (PLAN-V2 11.1)", () => {
-  const prov = {
-    actor: "yoke:system",
-    origin: "cli",
-    occurred_at: "2026-01-01T00:00:00Z",
-  };
-
-  it("exportUntil reconstructs state as of the cut, dropping later versions", async () => {
-    const srcPath = join(dir, `pitr-${Math.random().toString(36).slice(2)}.db`);
-    const store = new SqliteStorage(srcPath);
-    await store.init();
-    await store.saveOntology(seedOntology());
-    // v1 verified, v2 deprecated (retired) — same id, append-only.
-    await store.putEntity({
-      id: "e",
-      version: 1,
-      type: "fact",
-      status: "verified",
-      attributes: { title: "v1" },
-      provenance: prov,
-      last_confirmed: "2026-01-01T00:00:00Z",
-    });
-    await store.putEntity({
-      id: "e",
-      version: 2,
-      type: "fact",
-      status: "deprecated",
-      attributes: { title: "v2" },
-      provenance: prov,
-      last_confirmed: "2026-01-02T00:00:00Z",
-    });
-    // created_at is a DB-default server clock (whole-second) — set it deterministically for the test
-    // via a side connection so the cut lands cleanly between the two versions.
-    const raw = new Database(srcPath);
-    const setAt = raw.prepare(
-      "UPDATE entities SET created_at = ? WHERE id = ? AND version = ?",
-    );
-    setAt.run("2026-01-01T00:00:00Z", "e", 1);
-    setAt.run("2026-01-02T00:00:00Z", "e", 2);
-    raw.close();
-
-    const outPath = join(
-      dir,
-      `pitr-out-${Math.random().toString(36).slice(2)}.db`,
-    );
-    await store.exportUntil("2026-01-01T12:00:00Z", outPath);
-    store.close();
-
-    const ex = new SqliteStorage(outPath);
-    await ex.init();
-    // Only v1 survived the cut — the later retirement had not happened yet.
-    expect(ex.listHistory("e").map((e) => e.version)).toEqual([1]);
-    const latest = await ex.getEntity("e");
-    expect(latest?.status).toBe("verified");
-    expect(latest?.attributes).toEqual({ title: "v1" });
-    // Ontology carried over (a reconstructed DB must be usable) and FTS was rebuilt from v1.
-    expect(ex.loadOntology().length).toBeGreaterThan(0);
-    expect((await ex.search({ text: "v1" })).map((e) => e.id)).toContain("e");
-    expect(await ex.search({ text: "v2" })).toEqual([]);
-    ex.close();
-  });
-
-  it("backupTo produces a standalone consistent copy", async () => {
-    const srcPath = join(dir, `bak-${Math.random().toString(36).slice(2)}.db`);
-    const store = new SqliteStorage(srcPath);
-    await store.init();
-    await store.saveOntology(seedOntology());
-    await store.putEntity({
-      id: "k",
-      version: 1,
-      type: "fact",
-      status: "verified",
-      attributes: { title: "keep" },
-      provenance: prov,
-      last_confirmed: "2026-01-01T00:00:00Z",
-    });
-    const dest = join(dir, `bak-out-${Math.random().toString(36).slice(2)}.db`);
-    await store.backupTo(dest);
-    store.close();
-
-    const copy = new SqliteStorage(dest);
-    await copy.init();
-    expect((await copy.getEntity("k"))?.attributes).toEqual({ title: "keep" });
-    copy.close();
-  });
-});
-
-// A pre-10.1 database on the current binary. Every command died on a bare "no such column: ns", and
-// `yoke init` — the one repair the migration's own comment promises — died at the same line, because
-// SCHEMA declares indexes over `ns` and ran BEFORE the ALTER TABLE that adds it. `restore` then
-// reported exit 0 for a file that could not be opened. Git dates it: the ns migration landed
-// 2026-07-13, the ns indexes joined SCHEMA on 2026-08-03.
+// A pre-10.1 database on the current binary: SCHEMA declares indexes over `ns`, so they must run
+// AFTER the ALTER TABLE that adds the column, or opening the file dies on "no such column: ns".
 describe("opening a database from before the ns migration", () => {
   /** A current database with the 10.1+ columns and indexes stripped back off. */
   function pre101(): string {
@@ -809,8 +659,8 @@ describe("FTS deletes by an indexed rowid, not a full scan (C6/F2)", () => {
     ]);
     expect(await store.search({ text: "one" })).toEqual([]);
 
-    // The delete the adapter now issues is a rowid equality lookup (constraint passed to fts5),
-    // whereas delete-by-id passes none — the plan the O(N) scan used to take.
+    // The delete has to be a rowid equality lookup (constraint passed to fts5). Delete-by-id passes
+    // no constraint, which is the plan an O(N) scan takes.
     const byRowid = db
       .prepare("EXPLAIN QUERY PLAN DELETE FROM entities_fts WHERE rowid = ?")
       .all(first?.docid)

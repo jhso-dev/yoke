@@ -229,11 +229,10 @@ describe("backfillAuthorship on a database older than the rules", () => {
   });
 });
 
-// backfillOccurredAt — the repair for records whose event time a pre-fix verify overwrote.
-// The rows here are written the way the old `transition` wrote them (origin 'lifecycle',
-// occurred_at restamped to the verify instant, no `transitioned_at`), because that is the state
-// every store written before the fix is in — a store repaired by code that only understands the
-// post-fix shape would repair nothing.
+// backfillOccurredAt — the repair for records whose event time a lifecycle row overwrote. The rows
+// here are written in the shape that needs repairing (origin 'lifecycle', occurred_at restamped to
+// the verify instant, no `transitioned_at`), because a repair exercised only against well-formed rows
+// repairs nothing in the stores that have the problem.
 describe("backfillOccurredAt", () => {
   const said = "2026-01-05T09:00:00Z";
   const verifiedAt = "2026-08-13T15:26:41Z";

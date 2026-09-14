@@ -1,4 +1,4 @@
-// RBAC unit table (PLAN-V2 10.4). Scope grammar × requests. Key invariants: deny-by-default,
+// RBAC unit table (ENTERPRISE "RBAC"). Scope grammar × requests. Key invariants: deny-by-default,
 // read/write/admin are disjoint (no action implies another), ns mismatch denies, wildcards match
 // narrower requests.
 

@@ -70,6 +70,9 @@ export function getStartedBlock(): string {
     `${CYAN}│${RESET} ${cmd.padEnd(24)}${DIM}${desc}${RESET}`;
   return [
     `${CYAN}┌ get started ${bar.slice(13)}${RESET}`,
+    // First, because nothing below it works without one: every command that touches the corpus goes
+    // through a server, and a first run that omits this bounces off "no yoke server" instead.
+    row("yoke serve", "hold this store (leave it running)"),
     row("yoke add fact --attr …", "record knowledge (live at once)"),
     row("yoke review", "what aged out and needs a look"),
     row("yoke verify <id>", "re-confirm: still true"),

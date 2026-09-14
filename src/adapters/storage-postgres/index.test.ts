@@ -25,6 +25,7 @@ import assert from "node:assert/strict";
 import { Client } from "pg";
 import { beforeAll, describe, expect, it } from "vitest";
 import { seedOntology, type TypeDef } from "../../core/ontology.js";
+import { describeAuditPort } from "../../ports/audit-conformance.js";
 import { conformanceCases, makeEntity } from "../../ports/conformance-cases.js";
 import type { RemoteStore } from "../storage-composite/index.js";
 import { PostgresStorage } from "./index.js";
@@ -133,6 +134,17 @@ suite("StoragePort conformance: postgres (live)", () => {
       await withStore(URL_ as string, schemaFor(c.name), (port) => c.run(port));
     }, 120_000);
   }
+});
+
+// The trail is a user-facing capability, so it gets the same conformance every backend gets. Its own
+// schema per case, like the StoragePort suite above.
+suite("audit ledger (live)", () => {
+  let n = 0;
+  describeAuditPort("postgres", async () => {
+    const schema = schemaFor(`audit_${++n}`);
+    await wipe(URL_ as string, schema);
+    return new PostgresStorage({ url: URL_ as string, schema });
+  });
 });
 
 suite("postgres policies that are contract, not implementation", () => {

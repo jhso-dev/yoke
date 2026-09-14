@@ -21,9 +21,9 @@ import type { TypeDef } from "./ontology.js";
 import type { Entity, Status } from "./types.js";
 
 /** Per-type counts, keyed by the status a reader actually cares about — the computed one. */
-export type StatusCounts = Record<Status, number>;
+type StatusCounts = Record<Status, number>;
 
-export interface Hub {
+interface Hub {
   /** The whole record, not an id and a title: front adapters already know how to summarize an Entity,
    * and core has no business deciding how a person reads one (no opaque ids in human surfaces). */
   entity: Entity;
@@ -31,7 +31,7 @@ export interface Hub {
   degree: number;
 }
 
-export interface Overview {
+interface Overview {
   entities: {
     total: number;
     /** type -> counts by effective status. `stale` is computed here, so this is the only place the

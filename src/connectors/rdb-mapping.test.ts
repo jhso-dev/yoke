@@ -1,4 +1,4 @@
-// RDB read-mapping tests (PLAN 8.3). Source RDB = an in-memory better-sqlite3 (CREATE/INSERT), target =
+// RDB read-mapping tests. Source RDB = an in-memory better-sqlite3 (CREATE/INSERT), target =
 // an in-memory SqliteStorage. No Postgres. Covers: verified mapping + provenance, idempotent skip,
 // change → new version, ontology-invalid row rejected (run continues), FK relation emitted, CLI smoke.
 
@@ -6,12 +6,9 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { seedOntology } from "../core/ontology.js";
-import { runCli } from "../front/cli/index.js";
-import {
-  ingestMapped,
-  type MappingSpec,
-  makeRdbMappingConnector,
-} from "./rdb-mapping.js";
+import { cli } from "../front/cli/harness.js";
+import { openStore } from "../front/store.js";
+import { ingestMapped, type MappingSpec } from "./rdb-mapping.js";
 
 const now = "2026-07-12T00:00:00Z";
 
@@ -60,10 +57,10 @@ describe("ingestMapped", () => {
   ];
 
   it("maps rows to verified entities with rdb provenance", async () => {
-    const connector = makeRdbMappingConnector({
+    const connector = {
       query: query(src),
       mapping: EMPLOYEE_MAPPING,
-    });
+    };
     const res = await ingestMapped(port, ont, connector, now);
     expect(res).toMatchObject({ added: 3, updated: 0, skipped: 0, errors: 0 });
 
@@ -82,10 +79,10 @@ describe("ingestMapped", () => {
   });
 
   it("is idempotent — an unchanged re-run skips every row", async () => {
-    const connector = makeRdbMappingConnector({
+    const connector = {
       query: query(src),
       mapping: EMPLOYEE_MAPPING,
-    });
+    };
     expect(await ingestMapped(port, ont, connector, now)).toMatchObject({
       added: 3,
       skipped: 0,
@@ -98,10 +95,10 @@ describe("ingestMapped", () => {
   });
 
   it("re-versions a changed row (head advances, still verified)", async () => {
-    const connector = makeRdbMappingConnector({
+    const connector = {
       query: query(src),
       mapping: EMPLOYEE_MAPPING,
-    });
+    };
     await ingestMapped(port, ont, connector, now);
     const before = (await port.search({ text: "rdb:employees:2" })).find(
       (e) => e.attributes.external_id === "rdb:employees:2",
@@ -132,7 +129,7 @@ describe("ingestMapped", () => {
       },
     ];
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const connector = makeRdbMappingConnector({ query: query(src), mapping });
+    const connector = { query: query(src), mapping };
     const res = await ingestMapped(port, ont, connector, now);
     errSpy.mockRestore();
     expect(res).toMatchObject({ added: 0, errors: 3 });
@@ -152,7 +149,7 @@ describe("ingestMapped", () => {
     await ingestMapped(
       port,
       ont,
-      makeRdbMappingConnector({ query: query(src), mapping: withNote }),
+      { query: query(src), mapping: withNote },
       now,
     );
 
@@ -166,7 +163,7 @@ describe("ingestMapped", () => {
     const res = await ingestMapped(
       port,
       ont,
-      makeRdbMappingConnector({ query: query(src), mapping: narrowed }),
+      { query: query(src), mapping: narrowed },
       now,
     );
     expect(res).toMatchObject({ updated: 1, errors: 0 });
@@ -206,7 +203,7 @@ describe("ingestMapped", () => {
     await ingestMapped(
       port,
       ont,
-      makeRdbMappingConnector({ query: query(src), mapping: EMPLOYEE_MAPPING }),
+      { query: query(src), mapping: EMPLOYEE_MAPPING },
       now,
     );
     vi.restoreAllMocks();
@@ -229,7 +226,7 @@ describe("ingestMapped", () => {
     await ingestMapped(
       port,
       ont,
-      makeRdbMappingConnector({ query: query(src), mapping: EMPLOYEE_MAPPING }),
+      { query: query(src), mapping: EMPLOYEE_MAPPING },
       now,
     );
     vi.restoreAllMocks();
@@ -238,10 +235,10 @@ describe("ingestMapped", () => {
   });
 
   it("emits FK relations to the mapped target entity", async () => {
-    const connector = makeRdbMappingConnector({
+    const connector = {
       query: query(src),
       mapping: EMPLOYEE_MAPPING,
-    });
+    };
     await ingestMapped(port, ont, connector, now);
 
     const bob = (await port.search({ text: "rdb:employees:2" })).find(
@@ -294,7 +291,6 @@ describe("connect rdb CLI (sqlite source)", () => {
     const targetDb = join(dir, "yoke.db");
 
     try {
-      expect(await runCli(["init", "--db", targetDb])).toBe(0);
       // The FK's relation type has to be declared, exactly as the in-process test above says: it is not
       // a seed type. This test never declared it, so the relation pass failed with
       // `unknown type: reports_to` on every run and the FK edge this fixture exists to exercise was never
@@ -306,10 +302,10 @@ describe("connect rdb CLI (sqlite source)", () => {
         JSON.stringify({ name: "reports_to", kind: "relation", attrs: {} }),
       );
       expect(
-        await runCli(["ontology", "add-type", relPath, "--db", targetDb]),
+        await cli(["ontology", "add-type", relPath, "--db", targetDb]),
       ).toBe(0);
       expect(
-        await runCli([
+        await cli([
           "connect",
           "rdb",
           "--mapping",
@@ -332,8 +328,7 @@ describe("connect rdb CLI (sqlite source)", () => {
 
       // The FK edge, which is the whole reason the mapping declares `relations` — and which this test
       // did not check, so it went missing for as long as `errors` went unread.
-      const check = new SqliteStorage(targetDb);
-      await check.init();
+      const check = await openStore({ db: targetDb }, {});
       const people = (await check.listEntities({ type: "person" })).items;
       const bob = people.find((p) => p.attributes.name === "Bob");
       const ada = people.find((p) => p.attributes.name === "Ada");
@@ -344,7 +339,7 @@ describe("connect rdb CLI (sqlite source)", () => {
 
       // Re-run → all skipped.
       expect(
-        await runCli([
+        await cli([
           "connect",
           "rdb",
           "--mapping",
@@ -370,9 +365,105 @@ describe("connect rdb CLI (sqlite source)", () => {
     const mapPath = join(dir, "map.json");
     writeFileSync(mapPath, JSON.stringify(EMPLOYEE_MAPPING));
     try {
-      expect(await runCli(["connect", "rdb", "--mapping", mapPath])).toBe(1);
+      expect(await cli(["connect", "rdb", "--mapping", mapPath])).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+describe("a table larger than one request still maps whole", () => {
+  const logs: string[] = [];
+  beforeEach(() => {
+    logs.length = 0;
+    vi.spyOn(console, "log").mockImplementation((m?: unknown) => {
+      logs.push(String(m));
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  // Rows cross a network now, so they go in slices — entities first and only then the relations,
+  // because pass 2 resolves FK targets that may be in a slice not sent yet. Pass 2 asks the STORE
+  // for both ends, which is what makes a slice self-contained; the in-memory map is the fast path
+  // for a single local call, never the correctness.
+  it("slices rows and still builds the FK edges across slices", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "yoke-rdb-big-"));
+    const srcPath = join(dir, "source.sqlite");
+    const src = new Database(srcPath);
+    src.exec(
+      "create table people(id integer primary key, name text, bio text, manager_id integer)",
+    );
+    const ins = src.prepare("insert into people values (?,?,?,?)");
+    // 40 rows of 150 KB is 6 MB of source against a 4 MiB request budget, so the table cannot ride
+    // in one request; the bio is unmapped, so only the wire carries it. Every person but the first
+    // reports to the one before them — an edge has to survive the slice boundary.
+    const pad = "x".repeat(150_000);
+    src.transaction(() => {
+      for (let i = 1; i <= 40; i++)
+        ins.run(i, `p${i}`, `${pad}`, i === 1 ? null : i - 1);
+    })();
+    src.close();
+
+    const mapPath = join(dir, "map.json");
+    writeFileSync(
+      mapPath,
+      JSON.stringify([
+        {
+          table: "people",
+          entityType: "person",
+          idColumn: "id",
+          columns: { name: "name" },
+          relations: [{ fkColumn: "manager_id", relType: "reports_to" }],
+        },
+      ]),
+    );
+    const targetDb = join(dir, "yoke.db");
+    const relPath = join(dir, "reports_to.json");
+    writeFileSync(
+      relPath,
+      JSON.stringify({ name: "reports_to", kind: "relation", attrs: {} }),
+    );
+    expect(await cli(["ontology", "add-type", relPath, "--db", targetDb])).toBe(
+      0,
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    expect(
+      await cli([
+        "connect",
+        "rdb",
+        "--mapping",
+        mapPath,
+        "--sqlite",
+        srcPath,
+        "--db",
+        targetDb,
+        "--json",
+      ]),
+    ).toBe(0);
+    expect(JSON.parse(logs.at(-1) as string)).toMatchObject({
+      added: 40,
+      errors: 0,
+    });
+    // Two slices, each sent once per pass.
+    expect(
+      fetchSpy.mock.calls.filter(([url]) =>
+        String(url).endsWith("/api/ingest-mapped"),
+      ),
+    ).toHaveLength(4);
+
+    const check = await openStore({ db: targetDb }, {});
+    const edges = await check.listRelations({
+      type: "reports_to",
+      limit: 5000,
+    });
+    // Everyone but the first reports to their predecessor, and none was lost to a slice boundary.
+    expect(edges.items).toHaveLength(39);
+    check.close();
+    rmSync(dir, { recursive: true, force: true });
+  }, 60_000);
 });

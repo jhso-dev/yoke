@@ -1,4 +1,4 @@
-// storage-sharded tests (PLAN-V2 12.1/12.2).
+// storage-sharded tests (ENTERPRISE "sharding"/12.2).
 //   (a) full StoragePort conformance against a single-sqlite-member ShardedStorage;
 //   (b) routing across TWO sqlite members (ns isolation, fan-out, merge, per-shard ontology, audit);
 //   (c) config validation rejections;
@@ -18,7 +18,7 @@ import {
   vi,
 } from "vitest";
 import type { Entity } from "../../core/types.js";
-import { runCli } from "../../front/cli/index.js";
+import { cli } from "../../front/cli/harness.js";
 import { describeStoragePort } from "../../ports/conformance.js";
 import { SqliteStorage } from "../storage-sqlite/index.js";
 import { parseShardConfig } from "./config.js";
@@ -202,21 +202,17 @@ describe("sharded routing (2 sqlite members)", () => {
     );
   });
 
-  it("writes audit to the default shard only", () => {
-    store.logAudit({
+  it("writes audit to the default shard only", async () => {
+    await store.logAudit({
       actor: "u",
       action: "inject",
-      detail: "x",
+      detail: "q -> x",
       at: "2026-01-01T00:00:00Z",
+      ids: ["x"],
     });
-    expect(d.listAudit()).toHaveLength(1);
-    expect(a.listAudit()).toHaveLength(0);
-    expect(store.listAudit()).toHaveLength(1);
-  });
-
-  it("throws a clear per-shard error for backup/export", async () => {
-    await expect(store.backupTo()).rejects.toThrow(/per-shard/);
-    await expect(store.exportUntil()).rejects.toThrow(/per-shard/);
+    expect(await d.listAudit()).toHaveLength(1);
+    expect(await a.listAudit()).toHaveLength(0);
+    expect(await store.listAudit()).toHaveLength(1);
   });
 });
 
@@ -317,12 +313,11 @@ describe("CLI --shards smoke", () => {
       JSON.stringify({ name: "fact", kind: "entity", attrs: {} }),
     );
 
-    // `yoke init` writes the seed with NO ns, so it lands on the default shard — and that is all a
-    // tenant shard ever gets. Run init here rather than hand-seeding the "a" shard: the flow a real
-    // user takes is init, then work in a namespace, and that is the flow worth exercising.
-    expect(await runCli(["init", "--shards", cfg])).toBe(0);
+    // The seed is written with NO ns, so it lands on the default shard — and that is all a tenant
+    // shard ever gets. Reached through the CLI rather than by hand-seeding the "a" shard: the flow a
+    // real user takes is a server's boot seed, then work in a namespace.
     expect(
-      await runCli([
+      await cli([
         "ontology",
         "add-type",
         typeFile,
@@ -333,7 +328,7 @@ describe("CLI --shards smoke", () => {
       ]),
     ).toBe(0);
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--ns",
@@ -348,19 +343,13 @@ describe("CLI --shards smoke", () => {
 
     // search --ns a hits; --ns b (unclaimed → default) is empty.
     expect(
-      await runCli(["search", "hello", "--ns", "a", "--shards", cfg, "--json"]),
+      await cli(["search", "hello", "--ns", "a", "--shards", cfg, "--json"]),
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toHaveLength(1);
     expect(
-      await runCli(["search", "hello", "--ns", "b", "--shards", cfg, "--json"]),
+      await cli(["search", "hello", "--ns", "b", "--shards", cfg, "--json"]),
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toHaveLength(0);
-
-    // backup with --shards errors clearly (per-shard operation).
-    expect(await runCli(["backup", join(dir, "x.db"), "--shards", cfg])).toBe(
-      1,
-    );
-    expect(errs.at(-1)).toMatch(/per-shard/);
 
     // `backfill --embeddings --rebuild` rewrites the vector half on any backend, but only the one
     // that writes its FTS text from JS has a keyword rebuild. Silently doing half the job is how an
@@ -368,16 +357,16 @@ describe("CLI --shards smoke", () => {
     // naming the backend. Not exit 1: a rebuild for a changed embedding model leaves the keyword half
     // correct, and this command cannot tell that case from a re-key.
     expect(
-      await runCli(["backfill", "--embeddings", "--rebuild", "--shards", cfg]),
+      await cli(["backfill", "--embeddings", "--rebuild", "--shards", cfg]),
     ).toBe(0);
     expect(errs.at(-1)).toMatch(
       /keyword index was NOT re-keyed — ShardedStorage/,
     );
   });
 
-  // The flow that was broken, with nothing hand-seeded: `yoke init`, then work in a namespace owned
-  // by a NON-default shard, using only the seed ontology. Every command below failed with
-  // "not initialized: … — run 'yoke init' first" while the identical commands worked on plain sqlite.
+  // Nothing hand-seeded: the boot seed, then work in a namespace owned by a NON-default shard, using
+  // only the seed ontology. A tenant shard never gets a copy of the shared types, so every command
+  // here depends on `loadOntology` reading both shards.
   it("a namespace on a non-default shard works off the seed ontology alone", async () => {
     const tag = Math.random().toString(36).slice(2);
     const cfg = join(dir, `seedflow-${tag}.json`);
@@ -400,16 +389,9 @@ describe("CLI --shards smoke", () => {
         ],
       }),
     );
-
-    expect(await runCli(["init", "--shards", cfg, "--json"])).toBe(0);
-    // It reports the store it opened, not `--db` — naming the local sqlite here would name a file it
-    // never touched (SPEC "A command reports the store it actually opened").
-    const out = JSON.parse(logs.at(-1) as string);
-    expect(out.store).toBe(`shards ${cfg}`);
-    expect(out.db).toBe("./yoke.db"); // the local half stays a path for scripts
     // No `ontology add-type`: `fact` comes from the seed, which lives on the default shard.
     expect(
-      await runCli([
+      await cli([
         "add",
         "fact",
         "--ns",
@@ -425,11 +407,11 @@ describe("CLI --shards smoke", () => {
 
     // Readable in its namespace, and the whole lifecycle works there.
     expect(
-      await runCli(["verify", id, "--ns", "teamb", "--shards", cfg, "--json"]),
+      await cli(["verify", id, "--ns", "teamb", "--shards", cfg, "--json"]),
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)[0].status).toBe("verified");
     expect(
-      await runCli([
+      await cli([
         "inject",
         "tenant",
         "--ns",
@@ -442,9 +424,7 @@ describe("CLI --shards smoke", () => {
     expect(JSON.parse(logs.at(-1) as string)).toHaveLength(1);
 
     // Still isolated: the shared namespace cannot see it.
-    expect(await runCli(["search", "tenant", "--shards", cfg, "--json"])).toBe(
-      0,
-    );
+    expect(await cli(["search", "tenant", "--shards", cfg, "--json"])).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toHaveLength(0);
   });
 });

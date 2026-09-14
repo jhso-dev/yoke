@@ -227,12 +227,12 @@ export function carried(p: Provenance): Provenance {
  * Namespace-filtered on the relation, for the reason `identitySet` is: `neighbors` takes no `ns`, so
  * without it an edge filed by one tenant reports a dependent in another.
  *
- * ceiling: one hop, not the transitive closure — measured, not provisional
- * (eval/derivation-closure): across three simulated team corpora with chains to depth 4, not one
- * truly-invalidated record sat at graph distance >= 2, so the closure's entire target population was
- * empty while it added the only noise in the experiment. What limits this report is citation
- * coverage (over half the genuinely-affected records had no edge at all), which no walk depth fixes.
- * A dependent's own dependents still surface when THAT record is retired in turn.
+ * ceiling: one hop, not the transitive closure — measured, not provisional (docs/RESEARCH.md §9):
+ * across three simulated team corpora with chains to depth 4, not one truly-invalidated record sat
+ * at graph distance >= 2, so the closure's entire target population was empty while it added the
+ * only noise in the experiment. What limits this report is citation coverage (over half the
+ * genuinely-affected records had no edge at all), which no walk depth fixes. A dependent's own
+ * dependents still surface when THAT record is retired in turn.
  */
 export async function downstreamOf(
   port: StoragePort,
@@ -314,21 +314,6 @@ export async function listVersions(
 }
 
 /**
- * The version of `id` that was current at `at` — the highest whose `versionTime` is at or before it.
- * null when the record did not exist yet.
- *
- * `versionTime`, not `occurred_at`: the rewind asks when a VERSION came into being, and since the
- * two times were separated a transition no longer answers that with `occurred_at`. Reading
- * `occurred_at` here after the split would give every version of a record the same timestamp and
- * collapse the rewind to "always the latest version" — the whole feature.
- *
- * This is the whole of "what was true then". Rows are append-only and a transition writes a new
- * version (see `transition` above), so the status a record had at any past instant is already stored;
- * nothing but this lookup was missing. Reading the LATEST version and judging its freshness against a
- * past date gets the important case exactly backwards — a decision retired last week would report as
- * deprecated for a question about last month, when it was the answer.
- */
-/**
  * Whether `stamp` is at or before `at` — the comparison the TS as-of reads share.
  *
  * NOT the only one in the product: `exportUntil` and `listAudit` compare inside SQL, where this
@@ -346,6 +331,20 @@ export function atOrBefore(stamp: string, at: string): boolean {
   return Date.parse(stamp) <= Date.parse(at);
 }
 
+/**
+ * The version of `id` that was current at `at` — the highest whose `versionTime` is at or before it.
+ * null when the record did not exist yet.
+ *
+ * `versionTime`, not `occurred_at`: the rewind asks when a VERSION came into being, and a transition
+ * does not answer that with `occurred_at`. Reading `occurred_at` here gives every version of a record
+ * the same timestamp and collapses the rewind to "always the latest version" — the whole feature.
+ *
+ * This is the whole of "what was true then": rows are append-only and a transition writes a new
+ * version, so the status a record had at any past instant is already stored. Reading the LATEST
+ * version and judging its freshness against a past date gets the important case exactly backwards —
+ * a decision retired last week reports as deprecated for a question about last month, when it was
+ * the answer.
+ */
 export async function versionAsOf(
   port: StoragePort,
   id: string,
@@ -364,9 +363,15 @@ export async function versionAsOf(
  * numbers are not the same size. */
 const STALE_SCAN_PAGE = 500;
 
+/** Whether `edges` — already filtered to the caller's namespace (and instant) — record a replacement
+ * of `id`: a `supersedes` edge pointing AT it. The one predicate behind both readers that must agree
+ * on "replaced": injection (which withholds such a record) and the stale queue (which must not ask
+ * anyone to re-confirm it). */
+export const supersededIn = (edges: Relation[], id: string): boolean =>
+  edges.some((r) => r.type === "supersedes" && r.to === id);
+
 /**
- * The verified records that have aged past their type's TTL — the queue SPEC promised from v1 and
- * nothing ever built ("Viewing stale is the job of review/CLI").
+ * The verified records that have aged past their type's TTL — the re-confirmation queue.
  *
  * `stale` is computed, never stored, so this cannot be `listEntities({status:'stale'})`: the walk has
  * to look at verified rows and apply `effectiveStatus` to each. That makes it the one governance
@@ -381,13 +386,6 @@ const STALE_SCAN_PAGE = 500;
  * and freshness moves with the clock. If a corpus ever makes this too slow, the fix is a materialized
  * `expires_at` per row maintained by verify, not a smarter walk.
  */
-/** Whether `edges` — already filtered to the caller's namespace (and instant) — record a replacement
- * of `id`: a `supersedes` edge pointing AT it. The one predicate behind both readers that must agree
- * on "replaced": injection (which withholds such a record) and the stale queue (which must not ask
- * anyone to re-confirm it). */
-export const supersededIn = (edges: Relation[], id: string): boolean =>
-  edges.some((r) => r.type === "supersedes" && r.to === id);
-
 export async function staleEntities(
   port: StoragePort,
   ontology: TypeDef[],

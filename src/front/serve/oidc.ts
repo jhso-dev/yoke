@@ -1,4 +1,4 @@
-// OIDC verification (PLAN-V2 10.3) — RS256 Bearer JWTs via `jose`. Config from env
+// OIDC verification (ENTERPRISE "auth") — RS256 Bearer JWTs via `jose`. Config from env
 // YOKE_OIDC_ISSUER / YOKE_OIDC_AUDIENCE. A verified subject (email > sub) maps to an actor;
 // serve auto-provisions a person entity on first sight (see serve/index.ts). We never store
 // passwords or run our own IdP (ENTERPRISE.md) — trust is delegated to the issuer's JWKS.

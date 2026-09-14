@@ -1,4 +1,4 @@
-// storage-sharded (PLAN-V2 12.1) — ShardedStorage composes member StoragePorts behind ONE port.
+// storage-sharded (ENTERPRISE "sharding") — ShardedStorage composes member StoragePorts behind ONE port.
 // Core is untouched: sharding lives entirely behind the storage port (the ARCHITECTURE bet paying off).
 //
 // Routing:
@@ -18,13 +18,11 @@
 //
 // The remaining extension surface (listHistory/ontology/audit/tokens) is the sqlite-shaped surface
 // used by CLI/UI/serve. Audit + tokens live on the default shard (a single audit/token stream).
-// ceiling: that surface assumes the default shard (and any ns owner it targets) is a sqlite
-// backend. `ShardKind` is `"sqlite"` only, so the assumption cannot currently be violated — the note
-// stays because it is the constraint a second shard kind would have to meet: a
-// non-sqlite member participates in the core port, which since v5.0 includes enumeration, so the
-// review queue and conflicts view work there too — but not in the sqlite-only extensions (no
-// tokens, and its ontology methods are async). Give a tenant on a non-sqlite backend
-// its own serve process if it needs audit/token features.
+// ceiling: that surface assumes the default shard (and any ns owner it targets) is a sqlite backend.
+// `ShardKind` is `"sqlite"` only, so this is what a second kind must meet: a non-sqlite member
+// participates in the core port, enumeration included, so the review queue and conflicts view work
+// there — but not in the sqlite-only extensions (no tokens, async ontology methods). A tenant on a
+// non-sqlite backend needs its own serve process for audit/token features.
 //
 // Duplicate/contradiction detection stays intra-shard automatically: commit() calls this.similar,
 // which here fans out across ALL capable shards — so a duplicate WARNING can cross shard boundaries
@@ -40,20 +38,21 @@ import { normalizeNs } from "../../core/namespace.js";
 import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
 import type {
+  AuditEvent,
+  AuditQuery,
+  AuditRow,
+  Delivered,
+} from "../../ports/audit.js";
+import type {
   ListQuery,
   Page,
   StoragePort,
   TextQuery,
 } from "../../ports/storage.js";
 import { DEFAULT_SEARCH_LIMIT } from "../../ports/storage.js";
-import type {
-  AuditEvent,
-  AuditQuery,
-  TokenInfo,
-} from "../storage-sqlite/index.js";
 import { loadShardConfig, makeShard } from "./config.js";
 
-export type { AuditEvent, AuditQuery, TokenInfo };
+export type { AuditEvent, AuditQuery };
 
 /** The full storage surface CLI/UI/serve rely on: the port plus the sqlite-shaped extension methods.
  *  SqliteStorage satisfies it structurally; ShardedStorage implements it by delegation. */
@@ -68,23 +67,22 @@ export interface YokeStore extends StoragePort {
   listHistory?(id: string): Entity[];
   /** async since v5.2: it rewrites entity rows, and on a remote backend those are across a network. */
   renameType(from: string, to: string, ns?: string | null): Promise<number>;
-  logAudit(event: AuditEvent): void;
-  listAudit(q?: AuditQuery): AuditEvent[];
-  createToken(spec: { name: string; scopes: string[]; created_at: string }): {
-    token: string;
-  };
-  verifyToken(secret: string): { name: string; scopes: string[] } | null;
-  revokeToken(name: string): boolean;
-  listTokens(): TokenInfo[];
-  backupTo(dest: string): Promise<void>;
-  exportUntil(ts: string, destPath: string): Promise<void>;
-  /**
-   * Whether the underlying file's pages are readable — `"ok"`, or the engine's complaint.
-   *
-   * Optional, because it is a physical-storage question and a remote backend has no single file to ask
-   * about. A caller that gets `undefined` has learned nothing and must not treat that as a failure.
-   */
-  integrityCheck?(): string;
+  logAudit(event: AuditEvent): Promise<void>;
+  listAudit(q?: AuditQuery): Promise<AuditRow[]>;
+  consumption(q: {
+    ns?: string | null;
+    ids: string[];
+  }): Promise<Map<string, number>>;
+  delivered(q: {
+    ns?: string | null;
+    actor: string;
+    anchor: string;
+  }): Promise<Delivered>;
+  lastHanded(q: {
+    ns?: string | null;
+    actor: string;
+    ids: string[];
+  }): Promise<Map<string, string>>;
 }
 
 export interface ShardMember {
@@ -112,11 +110,6 @@ function cosine(a: Float32Array, b?: Float32Array): number {
   if (na === 0 || nb === 0) return 0;
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
-
-const PER_SHARD = (op: string) =>
-  new Error(
-    `${op} is a per-shard operation: run it against each shard's own db (see its --db path)`,
-  );
 
 export class ShardedStorage implements YokeStore {
   private readonly defaultShard: ShardMember;
@@ -307,7 +300,7 @@ export class ShardedStorage implements YokeStore {
   /**
    * The effective ontology for a namespace — core's `overlayOntology`, with the two halves read from
    * two different shards: the DEFAULT shard holds the shared (null-ns) base, the owner shard holds the
-   * tenant's own defs. The overlay belongs here rather than in `yoke init` for the reason core's doc
+   * tenant's own defs. The overlay belongs here rather than in the seed, for the reason core's doc
    * gives: a backend answering `loadOntology(ns)` its own way leaks through the store surface.
    *
    * When the owner IS the default shard, its own overlay already returned both halves and re-setting
@@ -343,40 +336,46 @@ export class ShardedStorage implements YokeStore {
     return counts.reduce((n, c) => n + c, 0);
   }
 
-  // Audit + tokens: a single stream on the default shard.
-  logAudit(event: AuditEvent): void {
-    (this.defaultShard.store as ExtStore).logAudit?.(event);
+  // The ledger: a single stream on the default shard, so the trail reads the same whichever
+  // namespace's knowledge a request touched.
+  async logAudit(event: AuditEvent): Promise<void> {
+    await (this.defaultShard.store as ExtStore).logAudit?.(event);
   }
 
-  listAudit(q?: AuditQuery): AuditEvent[] {
-    return (this.defaultShard.store as ExtStore).listAudit?.(q) ?? [];
+  async listAudit(q?: AuditQuery): Promise<AuditRow[]> {
+    return (await (this.defaultShard.store as ExtStore).listAudit?.(q)) ?? [];
   }
 
-  createToken(spec: { name: string; scopes: string[]; created_at: string }): {
-    token: string;
-  } {
-    return (this.defaultShard.store as YokeStore).createToken(spec);
+  async consumption(q: {
+    ns?: string | null;
+    ids: string[];
+  }): Promise<Map<string, number>> {
+    return (
+      (await (this.defaultShard.store as ExtStore).consumption?.(q)) ??
+      new Map()
+    );
   }
 
-  verifyToken(secret: string): { name: string; scopes: string[] } | null {
-    return (this.defaultShard.store as ExtStore).verifyToken?.(secret) ?? null;
+  async delivered(q: {
+    ns?: string | null;
+    actor: string;
+    anchor: string;
+  }): Promise<Delivered> {
+    return (
+      (await (this.defaultShard.store as ExtStore).delivered?.(q)) ?? {
+        ids: new Set(),
+      }
+    );
   }
 
-  revokeToken(name: string): boolean {
-    return (this.defaultShard.store as ExtStore).revokeToken?.(name) ?? false;
-  }
-
-  listTokens(): TokenInfo[] {
-    return (this.defaultShard.store as ExtStore).listTokens?.() ?? [];
-  }
-
-  // Physical durability is inherently per-file — there is no meaningful composite backup.
-  async backupTo(): Promise<void> {
-    throw PER_SHARD("backup");
-  }
-
-  async exportUntil(): Promise<void> {
-    throw PER_SHARD("export");
+  async lastHanded(q: {
+    ns?: string | null;
+    actor: string;
+    ids: string[];
+  }): Promise<Map<string, string>> {
+    return (
+      (await (this.defaultShard.store as ExtStore).lastHanded?.(q)) ?? new Map()
+    );
   }
 }
 

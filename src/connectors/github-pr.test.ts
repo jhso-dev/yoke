@@ -1,4 +1,4 @@
-// github-pr connector + ingest tests (PLAN 5.2). No real GitHub API calls — a fetchImpl stub returns
+// github-pr connector + ingest tests. No real GitHub API calls — a fetchImpl stub returns
 // a fixture (1 PR + 2 comments). Verifies mapping accuracy and ingest idempotency (a re-run skips).
 
 import { beforeEach, describe, expect, it } from "vitest";

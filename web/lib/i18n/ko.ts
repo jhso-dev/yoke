@@ -132,8 +132,6 @@ export const ko: typeof en = {
   },
   chrome: {
     connecting: "연결 중…",
-    readOnly: "읽기 전용",
-    readOnlyHint: "읽기 전용 복제본입니다. 변경 내용은 원본에 저장합니다",
     namespaceHint: "테넌트 네임스페이스",
     signOut: "로그아웃",
     signIn: "로그인",
@@ -270,7 +268,7 @@ export const ko: typeof en = {
     newOne: "새 협업",
     all: "전체 협업 목록",
     emptyList:
-      "등록된 협업이 없습니다. 직접 만들거나 에이전트가 yoke_use_scope로 만들도록 요청하세요",
+      "등록된 협업이 없습니다. 직접 만들거나 에이전트가 yoke_commit으로 만들도록 요청하세요",
     people: "이 협업에 참여하는 사람",
     peopleNote:
       "참여자 명단은 협업에 관한 지식이 아니므로 브리핑에는 포함하지 않습니다",
@@ -497,13 +495,14 @@ export const ko: typeof en = {
     } as Record<string, string>,
   },
   tokens: {
+    statelessNote:
+      "자격증명은 저장되지 않고 서명됩니다 — 이 서버는 사본을 갖지 않으며 개별 폐기도 할 수 없습니다. 전체를 무효화하려면 YOKE_TOKEN_SECRET 을 교체하세요.",
     heading: "토큰",
     lede: "브라우저 공유와 원격 접근에 사용할 API 토큰을 관리합니다. secret은 토큰을 만들 때 한 번만 표시됩니다. 접근을 차단하려면 토큰 이름으로 폐기하세요.",
     create: "토큰 생성",
     newToken: "새 토큰",
     name: "이름",
     namePlaceholder: "ci-agent",
-    scopes: "스코프",
     permissions: "권한",
     readHint: "지식 읽기 — 브리핑·주입·검색",
     writeHint: "지식 권한 — 기록·재확인·폐기",
@@ -513,16 +512,10 @@ export const ko: typeof en = {
     recordType: "레코드 타입",
     anyPlaceholder: "전체",
     grants: "부여되는 권한",
-    revoked: (name: string) => `"${name}" 폐기됨.`,
     created: "토큰 생성됨",
     createdNote: "지금 저장하세요. yoke에는 해시만 저장됩니다.",
     secret: "비밀 토큰",
     shareUrl: "공유 URL",
-    empty: "토큰 없음",
-    revoke: "폐기",
-    revokeTitle: "이 토큰을 폐기할까요?",
-    revokeConfirm: (name: string) =>
-      `"${name}"은 즉시 동작을 멈추고, secret은 복구할 수 없습니다 — yoke는 해시만 저장합니다. 이 토큰을 쓰던 것에는 새 토큰이 필요합니다.`,
     allTypes: "모든 타입",
   },
   login: {

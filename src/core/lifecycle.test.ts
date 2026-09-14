@@ -52,8 +52,8 @@ describe("lifecycle", () => {
     expect(v.version).toBe(2);
     expect(v.last_confirmed).toBe(new Date(later).toISOString());
     // The promotion is recorded (who, that it was a transition, when) WITHOUT restamping when the
-    // knowledge itself happened. This assertion used to read `occurred_at: later`, which is the bug:
-    // it pinned "verifying a record moves its event time to the verify instant".
+    // knowledge itself happened. `occurred_at: later` here would pin the opposite rule — that
+    // verifying a record moves its event time to the verify instant.
     expect(v.provenance).toEqual({
       actor: "alice",
       origin: "lifecycle",

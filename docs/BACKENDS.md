@@ -5,7 +5,8 @@ traditional-DB compatibility. Detailed when work starts (v2.0).
 
 ## Principles
 
-- Every backend passes the same storage port + conformance suite (invariant 2).
+- Every backend passes the same storage port + conformance suite (invariant 2), and every
+  audit ledger passes `ports/audit-conformance.ts`.
 - Backend-specific features are declared as optional capabilities (`similar`, etc.);
   core keeps a fallback.
 - Adding a backend = one adapter directory + passing conformance. No core changes.
@@ -66,8 +67,59 @@ design decision, not a limitation to route around:
 | entities, relations, search, neighbors | **remote** | the knowledge itself. `StoragePort` is already fully async, so no interface change |
 | ontology | **remote**, cached in memory at `init()` | a shared graph with per-client schemas means two people validating against different schemas |
 | embedding vectors | **remote** | `similar` is meaningless anywhere other than beside the knowledge |
-| audit log | **local sqlite** | the record of what THIS client was told. Centralising it is the v3.0 `serve --auth` story and needs 30 call sites to go async |
-| API tokens | **local sqlite** | yoke's own credentials. They do not belong in the company's graph database, and asking would get a no |
+| audit log | **`YOKE_AUDIT_URL`**, else the knowledge backend | its own port (`ports/audit.ts`), asynchronous. One rule everywhere: a trail that follows the process rather than the corpus answers a different question on every machine that reads it |
+
+### The audit ledger
+
+`YOKE_AUDIT_URL` picks it, independently of where the knowledge is:
+
+| | holds a ledger | note |
+|---|---|---|
+| sqlite (`./audit.db`, or `sqlite:<path>`) | yes | also the default when nothing is set and the knowledge is sqlite |
+| `postgres://…` | yes | its own `audit_log` and `delivery` tables; `YOKE_AUDIT_SCHEMA` to separate them |
+| `dynamodb://<table>` or `dynamodb://<region>/<table>` | yes | one table, created on first boot if missing |
+| OpenSearch | **no** | a document appended per read is the write pattern a segment-merging index is worst at. It refuses at boot and names the variable |
+
+Every ledger passes `ports/audit-conformance.ts` — the trail reads oldest-first with both bounds
+inclusive and compared by instant, and the ledger's own reads (`consumption`, `delivered`,
+`lastHanded`) mean the same thing on all three.
+
+**DynamoDB adds no dependency.** `@aws-sdk/client-dynamodb` is 16 MB across 7 packages, and DynamoDB's
+API is a signed JSON POST — so the adapter is plain REST like the OpenSearch one, with SigV4 over
+`node:crypto` (`adapters/audit-dynamodb/sigv4.ts`, verified byte-for-byte against
+`@aws-sdk/signature-v4` and pinned). Credentials come from `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`; **instance and pod roles are not read** — an EC2 role or
+an EKS service account needs a token fetched first, which is a documented ceiling, not a silent gap.
+
+One table, four item shapes, chosen so every read is a Query or a BatchGet on the primary key:
+
+```
+trail     pk = T#<ns>          sk = <epoch ms, padded>#<ulid>   the append-only rows
+delivery  pk = D#<ns>#<actor>  sk = <anchor>#<entity id>        one working context's held set
+counter   pk = C#<ns>          sk = <entity id>                 how often agents were fed it
+held      pk = L#<ns>#<actor>  sk = <entity id>                 the reader's clock for that record
+```
+
+`delivered` is a Query over the delivery key range `<anchor>#`, so it reads one working context and
+never the reader's whole history. The counter and held shapes are keyed by entity id because
+`consumption` and `lastHanded` ask about a known set of ids at once: on the delivery shape, whose sort
+key leads with the anchor, one entity across every context is not a key range and would cost a Query
+per id; keyed this way both are a BatchGetItem in chunks of 100.
+
+The sort key is a padded epoch rather than the `at` string because DynamoDB compares sort keys
+byte-lexicographically and `at` is stored in more than one ISO spelling. Created `PAY_PER_REQUEST`, so
+there is no capacity to plan; an operator who wants the perpetual free tier's 25/25 provisioned units
+switches the table over, and yoke leaves an existing table exactly as it found it. A delivery's writes
+go out eight at a time and every request retries throttles, 5xx and dead sockets with full-jitter
+backoff, so a briefing against a provisioned table is not a 500 for the mutation that logged it.
+
+```bash
+docker run -d --rm --name yoke-ddb -p 8100:8000 amazon/dynamodb-local   # to try it locally
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1
+export YOKE_AUDIT_ENDPOINT=http://localhost:8100
+export YOKE_AUDIT_URL=dynamodb://us-east-1/yoke_audit
+yoke serve
+```
 
 Two interface methods had to become async because they touch remote rows: `renameType` (rewrites
 entity rows) and `saveOntology` (writes remotely, and a synchronous fire-and-forget would lose the
@@ -88,16 +140,17 @@ docker run -d --name yoke-opensearch -p 9200:9200 \
 export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=...   # a secured cluster only
 export YOKE_OPENSEARCH_PREFIX=team_a_                            # optional: two yoke DBs, one cluster
-yoke init                                                        # creates the indices, seeds the ontology
+yoke serve                                                       # creates the indices, seeds the ontology
 ```
 
 The same exports work in a `.env` in the working directory (`cp .env.example .env`; SPEC
 "Configuration precedence"). An actual environment variable overrides the file, so the export form
 above still wins wherever both exist.
 
-`--db` still names the **local** sqlite that holds this client's audit trail and tokens; the knowledge
-goes to OpenSearch. Everything else is unchanged: `yoke add`, `review`, `verify`, `inject`, `yoke ui`,
-MCP.
+OpenSearch holds the knowledge and **cannot hold the ledger** — a document appended per read is the
+write pattern a segment-merging index is worst at — so this backend requires `YOKE_AUDIT_URL`
+(`postgres://…` for a shared trail, a file path for one machine) and refuses at boot without it.
+Everything else is unchanged: `yoke add`, `review`, `verify`, `inject`, `yoke ui`, MCP.
 
 **The test suite is scoped by index prefix.** It creates and deletes `yoketest_*` indices only, so it
 can run against the same cluster a demo is using — verified by running its whole suite — the 23 shared
@@ -124,12 +177,12 @@ docker run -d --name yoke-pg -e POSTGRES_PASSWORD=... -p 5432:5432 pgvector/pgve
 
 export YOKE_POSTGRES_URL=postgres://postgres:...@localhost:5432/postgres
 export YOKE_POSTGRES_SCHEMA=team_a               # optional: two yoke DBs in one database
-yoke init                                        # creates the schema + tables, seeds the ontology
+yoke serve                                       # creates the schema + tables, seeds the ontology
 ```
 
-Same split: `--db` still names the local sqlite holding this client's audit trail and tokens; the
-knowledge goes to Postgres. **No new dependency** — `pg` was already in the tree for the RDB
-read-mapping connector.
+Postgres holds the ledger too, in its own `audit_log` table, so nothing else is configured — the
+trail follows the corpus. `YOKE_AUDIT_URL` moves it elsewhere if a deployment wants that. **No new
+dependency** — `pg` was already in the tree for the RDB read-mapping connector.
 
 Ontology defs are stored as `json`, not `jsonb`: JSONB re-sorts an object's keys (length, then
 bytes), and a def's attrs must come back in declaration order on every backend — `summarize` reads the
@@ -156,7 +209,7 @@ no-extension path is never only skipped).
 Expose an existing RDB as an ontology, with no migration. It's a **connector**, not
 an adapter (a read-only entity source, not a storage port implementation).
 
-- A mapping declaration file (yaml): tables/views → entity types, columns →
+- A mapping declaration file (JSON — there is no yaml dependency): tables/views → entity types, columns →
   attributes, FKs → relations. e.g. `employees` → `person`, `employees.manager_id`
   → `reports_to`.
 - Mapped entities land `status: verified` like everything else, distinguished by
@@ -197,3 +250,15 @@ came out of it: 429 rate-limit retry honoring Retry-After (a busy channel trips
 the replies limit fast) and skipping `subtype` system events (join notices were
 landing in the corpus as noise). Note: a full-history first sync of a
 large channel is rate-limit-bound and slow by nature — scope with `--since`.
+
+## Why there is no graph-DB adapter
+
+storage-neo4j was built and removed. The pitch was native FTS + vectors + graph in one engine, and
+the adapter never traversed natively — it stored relations as nodes, so the graph half was an indexed
+lookup structurally identical to sqlite's. What remained (native scored FTS + native vectors)
+OpenSearch already provides with no dependency, where neo4j cost a 3.8 MB Bolt driver.
+
+**A graph-DB adapter that is not graph-native is a promise the codebase cannot keep.** Keeping it
+honest would mean a storage-format migration — real Cypher relationships plus a `walk` port
+capability — and no deployment has asked for one. That migration, not a fresh adapter, is what a
+re-proposal has to cost out.

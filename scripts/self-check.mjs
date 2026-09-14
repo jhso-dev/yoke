@@ -2,15 +2,11 @@
 // Weekly self-check: read the loop's own numbers, compare them to last week's, and say what moved
 // the wrong way. Proposes, never decides — it files a finding and stops.
 //
-// WHY THIS IS NOT AN OPTIMIZER. `audit --roi` ends in a ratio, and a loop that maximized that ratio
-// would find three shortcuts before it found any improvement: deliver more (propagation scales with
-// deliveries — the noise flood measured in the S10 scenario), route filing through connectors
-// (drops the cost term, touches nothing real), and stop weeding (re-confirmations and retirements
-// ARE the cost, so letting the corpus rot reads as efficiency). So the ratio is not a target here.
-// What this checks are the terms no assumption enters and no volume improves: delivery lag, the
-// share arriving while still news, attention paid per decision delivered, hands-free capture, and
-// whether the queue is being worked. Each tripwire fires on a WORSENING against the team's own
-// previous week, not against a number someone invented.
+// The ratio `audit --roi` ends in is deliberately NOT a target: maximizing it rewards delivering more
+// (propagation scales with deliveries), routing filing through connectors (drops the cost term,
+// touches nothing real), and not weeding (re-confirmations ARE the cost, so a rotting corpus reads as
+// efficiency). The five terms below are the ones no assumption enters and no volume improves, and each
+// fires on a WORSENING against the team's own previous week rather than an invented number.
 //
 // Schedule it however the machine schedules things — a launchd agent on a laptop, cron on a box:
 //   node scripts/self-check.mjs --db <store> --baseline ~/.yoke-team/baseline.json --issue
@@ -188,11 +184,10 @@ function main() {
     `  efficiency (assumption-bound) ${now.efficiency === null ? "—" : `${Math.round(now.efficiency * 10) / 10}x`}`,
   ];
   const tripped = prev ? evaluate(prev, now) : [];
-  // The one shortcut the trail cannot see: routing junk in through a connector drops the cost term
-  // (nobody typed it) and leaves every measured term looking fine until the noise reaches a briefing.
-  // The quality gate is what refuses it — `npm run eval` exits non-zero on a contamination or
-  // gold-in-brief regression — so a week that captured more by capturing worse cannot read as a good
-  // one. Only from a checkout: a scheduled job on a machine that has the repo passes --eval.
+  // The one shortcut the trail cannot see: junk routed in through a connector costs nobody a keystroke
+  // and leaves every measured term fine until the noise reaches a briefing. `npm run eval` exits
+  // non-zero on a contamination or gold-in-brief regression, so capturing more by capturing worse
+  // cannot read as a good week. Needs a checkout, so only a job on a machine with the repo passes it.
   if (has("eval")) {
     try {
       execFileSync("npm", ["run", "--silent", "eval"], {

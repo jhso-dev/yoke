@@ -17,7 +17,7 @@
 | 단계 | 무엇 | 도구 |
 |---|---|---|
 | **캡처** | 결정·사실·용어를 남긴다 — 행위자의 서명과 함께 즉시 살아 있다 | MCP `yoke_commit` / `yoke_record_decision`(에이전트 대화 중) · CLI `yoke add` / `yoke link` · 커넥터 |
-| **주입** | AI가 작업 맥락으로 스코프해 **유효한 지식만** 받는다 (stale·퇴출 제외) | `yoke_inject` · `yoke_use_scope` · `yoke_persona` |
+| **주입** | AI가 작업 맥락으로 스코프해 **유효한 지식만** 받는다 (stale·퇴출 제외) | `yoke_inject` · `yoke_resolve_scope` · `yoke_persona` |
 | **김매기** | TTL 만료 지식을 담당자가 재확인하거나 사유와 함께 퇴출 — 퇴출 사유는 받았던 모든 세션에 방송된다 (fact 180일, decision 365일) | `yoke review` → `yoke verify` / `yoke deprecate --reason` |
 
 **불변 규칙 두 가지** (yoke가 강제):
@@ -121,18 +121,15 @@ jobs:
   개발자 id로 두면 감사 행이 누가 받았는지를 기록한다. 다른 MCP 클라이언트는 각자의 훅에 같은 명령을 건다 — yoke 쪽은
   CLI 하나고, 봉투는 클라이언트 것이다.
 
-  **팀 서버(`yoke serve`)에 붙는 경우** 배달 기록은 서버에 있으므로 `yoke inject … --unseen` 자리에 서버를 묻는다 — 같은
-  줄, 같은 봉투, 실측 1–5ms(조용할 때 ~1ms). 자격증명은 아래 GitHub 교환이 알아서 받는다 —
-  `yoke token create` 는 GitHub 계정이 없는 기계 액터(CI·야간 커넥터)용으로만 남는다:
+  **팀 서버(`yoke serve`)에 붙는 경우에도 명령은 같다.** `YOKE_SERVER` 가 바인딩되면 CLI 가 저장소 대신 서버와
+  말하므로 훅은 달라질 것이 없다 — 같은 줄, 같은 봉투. 배달 기록은 서버에 토큰 단위로 남고, 자격증명은 아래
+  GitHub 교환이 알아서 받는다. `yoke token create` 는 GitHub 계정이 없는 기계 액터(CI·야간 커넥터)용으로만 남는다.
 
-  ```
-  curl -s -H "Authorization: Bearer $YOKE_TOKEN" "$YOKE_SERVER/api/inject?scope=<initiative>&unseen=1"
-  ```
-
-  **토큰은 아무도 배포하지 않는다** — 플러그인이 개발자의 `gh` 로그인을 1회 교환해 스스로 받는다
+  **토큰은 아무도 배포하지 않는다** — CLI 가 개발자의 `gh` 로그인을 1회 교환해 스스로 받는다
   (SPEC "GitHub exchange"): 서버에 `YOKE_GITHUB_ORG`를 설정하고, 레포
   `.claude/settings.json`에 `YOKE_SERVER`를 두면 끝. 첫 배달에 `yoke: authenticated as <login> via
-  GitHub` 한 줄이 공지되고, 서버가 토큰을 회수해도 다음 훅이 알아서 재교환한다. 수동 경로:
+  GitHub` 한 줄이 공지되고, 서명 키가 회전해도 다음 호출이 알아서 재교환한다. 만료는 refresh 토큰으로
+  조용히 갱신된다(access 7일 / refresh 1년). 수동 경로:
   `curl -X POST $YOKE_SERVER/api/login/github -H "Authorization: Bearer $(gh auth token)"`.
 
   서버는 **그 토큰이 받은 것만** 기준으로 답한다 — PO가 결정을 읽었다고 FE의 훅이 조용해지지 않는다. **ceiling**: 장부는
@@ -154,8 +151,8 @@ jobs:
 
 위에서 강제로 깔지 않는다. 지식은 격리, 온톨로지(어휘)는 공유한다.
 
-1. **개별 개발자** — 로컬 `yoke mcp`(단일 사용자·무인증). 자기 결정을 남기고 자기 에이전트가 즉시 주입받는다.
-   여기서 가치를 체감해야 다음이 붙는다.
+1. **개별 개발자** — 루프백 `yoke serve` 하나(단일 사용자·무인증)에 CLI 와 `yoke mcp` 가 함께 붙는다.
+   자기 결정을 남기고 자기 에이전트가 즉시 주입받는다. 여기서 가치를 체감해야 다음이 붙는다.
 2. **스쿼드** — 스쿼드별 네임스페이스(`--ns <squad>`) + 김매기 오너. `yoke serve --auth`로 팀 접근을 연다. 이때부터
    거버넌스(재확인 큐, RBAC의 read/write/admin 분리)가 실제로 작동한다.
 3. **조직** — 스쿼드들이 온톨로지(공통 어휘)를 공유하되 각자의 지식은 네임스페이스로 격리. 크로스-스쿼드 지식 공유는
@@ -187,3 +184,54 @@ node dist/front/cli/index.js inject "" --scope collab:pubg --db kraftonway.db  #
 코퍼스는 부서 collab 4개 위에 **cross-role 이니셔티브**(`collab:pubg`·`tera-launch`·`portfolio-pivot`·`ipo-2021`)를 얹어,
 PUBG 하나에 PO·PD·개발·사업 지식이 함께 붙는다(§3). 임베더가 있으면(`YOKE_EMBED_URL`/`YOKE_EMBED_MODEL`) 하이브리드 검색·중복/모순 탐지까지 켜진다. 없으면 키워드 전용으로
 로드되며, 이는 벡터 절반이 빠진 완전한 코퍼스다. 생성기 상세는 `scripts/gen-kraftonway-corpus.mjs` 헤더 참조.
+
+## 문은 하나다
+
+코퍼스에 닿는 모든 명령은 서버를 거친다. 로컬이면 루프백의 `yoke serve` 이고(무인증, 아무것도 묻지
+않음), 팀이면 팀의 서버다 — 배포가 둘이 아니라 주소가 둘이다. 훅(`yoke inject`)과 에이전트(`yoke mcp`
+→ 서버의 `/mcp` 중계)가 **같은 CLI, 같은 자격증명**을 탄다.
+
+| | |
+|---|---|
+| `YOKE_SERVER` 미설정 | `http://127.0.0.1:4800` — 자기 `yoke serve`(또는 `yoke ui`, 같은 서버다) |
+| `YOKE_SERVER` 설정 | 팀 서버. 인증이 켜져 있으면 `gh` 로그인을 교환해 자격증명을 스스로 받는다 |
+
+무인증 서버에서는 `--actor`·`--ns` 가 그대로 쓰인다(불변식 4 — 혼자 쓰는 저장소에서 누가 썼는지
+기록하지 못하면 기록할 이유가 없다). 인증 서버에서는 **자격증명이 이긴다** — 헤더는 무시되고, 그래서
+`--actor` 로는 공용 코퍼스에 아무도 사칭할 수 없다.
+
+원격 백엔드(`YOKE_OPENSEARCH_URL`·`YOKE_POSTGRES_URL`)는 **서버가 여는 것**이다. DB 비밀번호가 개발자
+노트북에 복사될 이유가 없다.
+
+서버가 안 떠 있으면 CLI 는 거부하고 무엇을 실행할지 말한다. 서버를 여는 `serve`·`ui` 만 저장소를
+연다 — `mcp` 도 예외가 아니어서, 서버가 없으면 stderr 한 줄을 남기고 0 이 아닌 코드로 끝난다.
+
+**포트 하나에 프로젝트가 여럿일 때.** 주소 기본값은 머신 전역인데 저장소는 디렉터리마다 다르다 —
+그래서 "4800 의 서버"와 "이 저장소의 서버"는 같은 것이 아니다. `YOKE_SERVER` 를 직접 설정하지 않은
+호출은 자기가 뜻한 저장소를 요청에 실어 보내고, 서버가 다른 저장소를 들고 있으면 **쓰기 전에** 409
+로 거부한다. 프로젝트를 여럿 동시에 열어 두려면 각자 `--port` 를 주고 `YOKE_SERVER` 로 가리킨다.
+
+**백업은 yoke 의 일이 아니다.** 저장소가 sqlite 파일이든 OpenSearch 든 Postgres 든, 스냅샷은 그
+데이터베이스의 도구로 뜬다 — sqlite 면 `sqlite3 yoke.db ".backup out.db"`(WAL 안전), Postgres 면
+`pg_dump`, OpenSearch 면 snapshot API. sqlite 에만 `yoke backup` 을 주면 저장소마다 할 수 있는 일이
+달라지고, 사용자는 어느 백엔드를 쓰는지에 따라 다른 명령을 외워야 한다.
+
+**바깥을 읽는 명령은 여기서 읽고 저기서 커밋한다.** `connect`(GitHub·Slack·노트·raw·rdb)와 `relate`
+는 자격증명·파일·DSN·모델이 개발자 기계에 있으므로 그 절반은 로컬에서 돌고, 게이트는 코퍼스가 있는
+쪽에서 돈다 — 같은 루프이므로 두 곳이 한 항목을 다르게 판정할 수 없다.
+
+| 명령 | 여기서 | 저기서 |
+|---|---|---|
+| `connect github-pr\|slack\|notes\|raw` | 원본을 당김 | `POST /api/ingest` — 게이트 |
+| `connect rdb` | 자기 DB 를 쿼리 | `POST /api/ingest-mapped` — 매핑 2패스 + 게이트 |
+| `relate` | 모델 호출 | `GET /api/relate/groups` (후보·이웃) + `POST /api/link` |
+
+## 주간 자가점검이 비율을 최적화하지 않는 이유
+
+`audit --roi` 는 비율로 끝나고, 그 비율을 극대화하는 루프는 개선을 찾기 전에 지름길 셋을 먼저
+찾는다 — 더 많이 배달하기(전파는 배달 수에 비례한다), 커넥터로 적재를 우회하기(비용 항을 없애지만
+실제로는 아무것도 하지 않는다), 김매기를 멈추기(재확인과 폐기가 비용이므로 코퍼스를 썩히면
+효율로 읽힌다). 그래서 주간 점검은 어떤 가정도 들어가지 않고 물량으로 나아지지 않는 항목만 본다.
+
+ceiling: 저장된 직전 1회 측정과의 비교다. 계절성이 있는 코퍼스(릴리스 주간, 연휴)는 회귀가 아니라
+모양 때문에 트립한다. 1년치 측정이 쌓여 이동 중앙값을 뽑을 수 있게 되면 그때 넓힌다.
