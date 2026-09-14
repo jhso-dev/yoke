@@ -109,7 +109,9 @@ per id; keyed this way both are a BatchGetItem in chunks of 100.
 The sort key is a padded epoch rather than the `at` string because DynamoDB compares sort keys
 byte-lexicographically and `at` is stored in more than one ISO spelling. Created `PAY_PER_REQUEST`, so
 there is no capacity to plan; an operator who wants the perpetual free tier's 25/25 provisioned units
-switches the table over, and yoke leaves an existing table exactly as it found it.
+switches the table over, and yoke leaves an existing table exactly as it found it. A delivery's writes
+go out eight at a time and every request retries throttles, 5xx and dead sockets with full-jitter
+backoff, so a briefing against a provisioned table is not a 500 for the mutation that logged it.
 
 ```bash
 docker run -d --rm --name yoke-ddb -p 8100:8000 amazon/dynamodb-local   # to try it locally

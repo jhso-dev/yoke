@@ -28,6 +28,12 @@
 // TransactWriteItems caps at 100 items, which a large briefing would exceed, and the failure mode of
 // a partial write here is a count that is low, not a trail that lies. The trail row goes LAST, so a
 // crash mid-write leaves counters ahead of the log rather than a logged delivery nobody counted.
+//
+// Those writes go out at most WRITE_FANOUT at a time, and every request retries throttling and
+// transient faults with full-jitter backoff (`call`). Without both, a 20-record briefing is ~60
+// simultaneous writes that a provisioned table answers with ProvisionedThroughputExceededException,
+// and one rejection fails the whole `logAudit` — which on a `verify` or `deprecate` means a committed
+// change answered with a 500.
 
 import { monotonicFactory } from "ulid";
 import type {
@@ -63,14 +69,50 @@ const ULID = monotonicFactory();
 
 const nsKey = (ns?: string | null): string => ns ?? "";
 
+/** Faults, not answers: the table was busy or the service was. Everything else DynamoDB names — a
+ * failed condition, a bad value, a missing table, a denied call — is a reply, and repeating the
+ * request gets the same reply more slowly. */
+const RETRYABLE = new Set([
+  "ProvisionedThroughputExceededException",
+  "ThrottlingException",
+  "RequestLimitExceeded",
+  "InternalServerError",
+  "ServiceUnavailable",
+  "TransactionConflictException",
+]);
+
+/** Full jitter: sleep uniformly in [0, min(cap, base·2^n)). Uniform rather than the whole interval
+ * because every write of one delivery backs off together, and equal waits re-collide. */
+const BACKOFF_BASE_MS = 50;
+const BACKOFF_CAP_MS = 1000;
+
+/** How many of a delivery's writes are in flight at once. */
+const WRITE_FANOUT = 8;
+
 export interface DynamoAuditOptions {
   table: string;
   region: string;
   credentials: AwsCredentials;
   /** Override for DynamoDB Local, or a VPC endpoint. Default: the public regional endpoint. */
   endpoint?: string;
+  /** Tries per request, backoff included. Default 5. */
+  maxAttempts?: number;
   /** Injectable for the test; the product passes nothing. */
   now?: () => Date;
+  /** Injectable for the test; the product passes nothing. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/** Run every thunk, at most `WRITE_FANOUT` at a time. No result is collected: these are writes, and
+ * a rejection propagates out of `Promise.all` exactly as it did when they all went out at once. */
+async function bounded(tasks: Array<() => Promise<unknown>>): Promise<void> {
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < tasks.length) await tasks[next++]();
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(WRITE_FANOUT, tasks.length) }, worker),
+  );
 }
 
 /**
@@ -122,17 +164,57 @@ export function dynamoAuditFromUrl(url: string, env: Env): DynamoAuditOptions {
 export class DynamoAudit implements AuditPort {
   private readonly url: URL;
   private readonly now: () => Date;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(private readonly opts: DynamoAuditOptions) {
     this.url = new URL(
       opts.endpoint ?? `https://dynamodb.${opts.region}.amazonaws.com/`,
     );
     this.now = opts.now ?? (() => new Date());
+    this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  }
+
+  /** One DynamoDB request, retried while it is a fault rather than an answer: a throttle, a 5xx, or
+   * a fetch that never reached the service (which rejects with a TypeError). Anything else — a
+   * failed condition, a validation error, a missing table, a denial — is thrown on the first try.
+   *
+   * Every attempt re-signs, so a request that waited out a backoff carries its own `x-amz-date` and
+   * is a valid request in its own right rather than one aging toward the 15-minute skew limit. */
+  private async call<R>(target: string, body: unknown): Promise<R> {
+    const payload = JSON.stringify(body);
+    const attempts = this.opts.maxAttempts ?? 5;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.send<R>(target, payload);
+      } catch (e) {
+        const err = e as {
+          awsType?: string;
+          status?: number;
+          message?: string;
+        };
+        const fault =
+          e instanceof TypeError ||
+          RETRYABLE.has(err.awsType ?? "") ||
+          (err.status ?? 0) >= 500;
+        if (!fault) throw e;
+        if (attempt >= attempts)
+          throw Object.assign(
+            new Error(
+              `dynamodb ${target}: gave up after ${attempts} attempts — ` +
+                `${err.awsType || "fetch failed"}: ${err.message}`,
+            ),
+            { awsType: err.awsType ?? "" },
+          );
+        await this.sleep(
+          Math.random() *
+            Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** (attempt - 1)),
+        );
+      }
+    }
   }
 
   /** One signed POST. DynamoDB's whole API is this call with a different target and body. */
-  private async call<R>(target: string, body: unknown): Promise<R> {
-    const payload = JSON.stringify(body);
+  private async send<R>(target: string, payload: string): Promise<R> {
     const res = await fetch(this.url, {
       method: "POST",
       headers: signRequest({
@@ -165,7 +247,7 @@ export class DynamoAudit implements AuditPort {
       }
       throw Object.assign(
         new Error(`dynamodb ${target}: ${type || res.status} ${message}`),
-        { awsType: type },
+        { awsType: type, status: res.status },
       );
     }
     return JSON.parse(text) as R;
@@ -222,17 +304,20 @@ export class DynamoAudit implements AuditPort {
     if (ids.length > 0) {
       const anchor = event.anchor ?? "";
       const at = event.asOf ? undefined : event.at;
-      await Promise.all(
+      await bounded(
         ids.flatMap((id) => [
-          this.call("UpdateItem", {
-            TableName: this.opts.table,
-            Key: { pk: s(`C#${ns}`), sk: s(id) },
-            UpdateExpression: "ADD #n :one",
-            ExpressionAttributeNames: { "#n": "n" },
-            ExpressionAttributeValues: { ":one": { N: "1" } },
-          }),
-          this.bumpDelivery(ns, event.actor, anchor, id, at),
-          ...(at === undefined ? [] : [this.bumpHeld(ns, event.actor, id, at)]),
+          () =>
+            this.call("UpdateItem", {
+              TableName: this.opts.table,
+              Key: { pk: s(`C#${ns}`), sk: s(id) },
+              UpdateExpression: "ADD #n :one",
+              ExpressionAttributeNames: { "#n": "n" },
+              ExpressionAttributeValues: { ":one": { N: "1" } },
+            }),
+          () => this.bumpDelivery(ns, event.actor, anchor, id, at),
+          ...(at === undefined
+            ? []
+            : [() => this.bumpHeld(ns, event.actor, id, at)]),
         ]),
       );
     }
