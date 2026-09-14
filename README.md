@@ -385,9 +385,9 @@ yoke serve --auth --host 0.0.0.0   # a team; set YOKE_GITHUB_ORG and people log 
                                    # for machine actors and bootstrap)
 ```
 
-Screens: the review queue, conflicts, the ontology browser, persona preview, entity
-detail, injection preview ("what would my agent actually receive for this query?"), a
-force-directed graph explorer, and the audit log. One static bundle, one port. Under
+Screens: the review queue, conflicts, the force-directed graph explorer, injection
+preview ("what would my agent actually receive for this query?") and the rest — one per
+route, every one argued in [WEB-UI](docs/WEB-UI.md). One static bundle, one port. Under
 `yoke serve` the same process also answers `POST /mcp`, so a team deployment needs
 nothing extra; `yoke ui` serves the workbench only.
 
