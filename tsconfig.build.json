@@ -1,0 +1,13 @@
+{
+  // What ships in dist/: the product, and not the scaffolding that tests it. `npm run typecheck`
+  // still runs on tsconfig.json, so the tests, the CLI harness and the conformance suites stay
+  // type-checked — just unemitted. Nothing outside a `*.test.ts` imports any of them.
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/front/cli/harness.ts",
+    "src/ports/conformance.ts",
+    "src/ports/conformance-cases.ts",
+    "src/ports/audit-conformance.ts"
+  ]
+}
