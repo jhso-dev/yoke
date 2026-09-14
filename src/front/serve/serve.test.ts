@@ -1,8 +1,8 @@
-// serve mode (ENTERPRISE "server mode"–10.4) — all in-process, port 0. Covers: API-token round-trip
-// (incl. hash-not-plaintext), Bearer auth (401), RBAC over the HTTP surface (read-only GET ok /
-// POST verify 403; write token 200), the remote MCP endpoint (write-only token commits but
-// yoke_inject is forbidden; unauthenticated 401), OIDC (local JWKS fixture: valid JWT passes +
-// person auto-provisioned; expired / wrong-audience rejected), and a UI+MCP smoke.
+// serve mode (ENTERPRISE "server mode"–10.4) — all in-process, port 0. Covers: signed-credential
+// round-trip (minted, verified, stored nowhere), Bearer auth (401), RBAC over the HTTP surface
+// (read-only GET ok / POST verify 403; write token 200), the remote MCP endpoint (write-only token
+// commits but yoke_inject is forbidden; unauthenticated 401), OIDC (local JWKS fixture: valid JWT
+// passes + person auto-provisioned; expired / wrong-audience rejected), and a UI+MCP smoke.
 
 import {
   existsSync,
@@ -948,17 +948,20 @@ describe("GitHub exchange (POST /api/login/github)", () => {
   });
 });
 
-// The company-DB deployment: knowledge in OpenSearch, credentials NEVER — tokens and the audit trail
-// stay in the serve host's local sqlite (BACKENDS.md: they "do not belong in the company's graph
-// database"). Skips without a live cluster; CI's opensearch-adapter job runs it for real. Scoped to
+// The company-DB deployment: the knowledge lives in the company's OpenSearch, the read trail at the
+// address `YOKE_AUDIT_URL` names, and the credential in NEITHER — it is signed, so there is nothing
+// to store (credential.ts). The store is built by `openStore` from those variables rather than by
+// hand, because the composition they produce is as much under test as the routes are: a knowledge
+// backend that cannot hold a ledger must be given an address for one (store.test.ts pins that
+// refusal). Skips without a live cluster; CI's opensearch-adapter job runs it for real. Scoped to
 // `yoketest_*` indices like every OpenSearch suite — never widen the prefix.
 describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
-  "serve --auth over a company OpenSearch: knowledge remote, credentials local",
+  "serve --auth over a company OpenSearch: knowledge remote, trail at YOKE_AUDIT_URL, credential nowhere",
   () => {
     const OS_URL = process.env.YOKE_TEST_OPENSEARCH_URL as string;
     const PREFIX = "yoketest_serveauth_";
 
-    it("the exchange mints into sqlite, the commit lands in OpenSearch, and neither leaks into the other", async () => {
+    it("commits to OpenSearch, trails to the ledger, and writes the credential down in neither", async () => {
       await fetch(`${OS_URL}/${PREFIX}*`, { method: "DELETE" }).catch(() => {});
       const { createServer } = await import("node:http");
       const gh = await listen(
@@ -976,21 +979,18 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
           );
         }),
       );
-      const { OpenSearchStorage } = await import(
-        "../../adapters/storage-opensearch/index.js"
+      // Two local paths, neither seeded first: the ledger the trail is addressed to, and a `--db`
+      // that a remote knowledge store leaves with nothing to name.
+      const ledger = join(dir, "os-serveauth-ledger.db");
+      const unusedDb = join(dir, "os-serveauth-unused.db");
+      const store = await openStore(
+        { db: unusedDb },
+        {
+          YOKE_OPENSEARCH_URL: OS_URL,
+          YOKE_OPENSEARCH_PREFIX: PREFIX,
+          YOKE_AUDIT_URL: ledger,
+        },
       );
-      const { makeCompositeStore } = await import(
-        "../../adapters/storage-composite/index.js"
-      );
-      const localPath = await freshDb("os-serveauth");
-      const store = makeCompositeStore(
-        new OpenSearchStorage({ url: OS_URL, prefix: PREFIX }),
-        new SqliteStorage(localPath),
-      );
-      await store.init();
-      // What `openStore` does after opening: composite init() creates the indices, then the seed.
-      // This test's store is opened by hand, so it seeds by hand too.
-      await store.saveOntology(seedOntology());
       const run = await listen(
         createServeServer({
           store,
@@ -1009,6 +1009,11 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
             headers: { authorization: "Bearer gh_alice" },
           })
         ).json()) as { token: string };
+        // The credential carries who it speaks for, which is why no store had to be asked.
+        const claims = JSON.parse(
+          Buffer.from(token.split(".")[1], "base64url").toString(),
+        ) as { sub?: string };
+        expect(claims.sub).toBe("github:alice");
         const created = (await (
           await fetch(`${run.base}/api/entity`, {
             method: "POST",
@@ -1026,46 +1031,61 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
         expect((await store.getEntity(created.id))?.attributes.statement).toBe(
           "credentials stay home",
         );
-        // …and in the LOCAL sqlite there is no entity row at all, while the token lives there as a
-        // salted hash — the plaintext appears in neither store.
-        const raw = new Database(localPath, { readonly: true });
-        try {
-          // The local sqlite holds the bootstrap person and NOTHING that was committed through the
-          // server — the knowledge went to the other database.
-          expect(
-            (
-              raw.prepare("SELECT DISTINCT id FROM entities").all() as Array<{
-                id: string;
-              }>
-            ).map((r) => r.id),
-          ).toEqual(["yoke:system"]);
-          expect(
-            raw
-              .prepare("SELECT count(*) c FROM entities WHERE id = ?")
-              .get(created.id),
-          ).toMatchObject({ c: 0 });
-          const tok = raw
-            .prepare("SELECT name, hash FROM tokens WHERE name = ?")
-            .get("github:alice") as {
-            name: string;
-            hash: string;
-          };
-          expect(tok.name).toBe("github:alice");
-          expect(token).not.toContain(tok.hash);
-          expect(
-            raw
-              .prepare("SELECT count(*) c FROM tokens WHERE hash = ?")
-              .get(token),
-          ).toMatchObject({ c: 0 });
-        } finally {
-          raw.close();
-        }
-        const remote = await (
-          await fetch(`${OS_URL}/${PREFIX}*/_search?q=yk_`)
-        ).json();
+        // …and one authenticated read hands it to an agent, which is what leaves a trail.
         expect(
-          (remote as { hits: { total: { value: number } } }).hits.total.value,
-        ).toBe(0);
+          (
+            await fetch(
+              `${run.base}/api/inject?q=${encodeURIComponent("credentials stay home")}`,
+              { headers: { authorization: `Bearer ${token}` } },
+            )
+          ).status,
+        ).toBe(200);
+
+        const raw = new Database(ledger, { readonly: true });
+        const tables = (
+          raw
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .all() as Array<{ name: string }>
+        ).map((r) => r.name);
+        const entities = (
+          raw.prepare("SELECT count(*) c FROM entities").get() as { c: number }
+        ).c;
+        const injects = (
+          raw
+            .prepare("SELECT detail FROM audit_log WHERE action = 'inject'")
+            .all() as Array<{ detail: string }>
+        ).map((r) => r.detail);
+        const delivery = raw
+          .prepare("SELECT n FROM delivery WHERE entity_id = ?")
+          .get(created.id) as { n: number } | undefined;
+        raw.close();
+        // The ledger holds the trail and only the trail: no corpus — not even the bootstrap person,
+        // which was seeded into OpenSearch — and no table for credentials, because a signed one is
+        // never written down.
+        expect(tables).toContain("audit_log");
+        expect(tables).not.toContain("tokens");
+        expect(entities).toBe(0);
+        expect(injects).toHaveLength(1);
+        expect(injects[0]).toContain(created.id);
+        expect(delivery).toMatchObject({ n: 1 });
+        // The same delivery read back through the store, which is how the stale queue asks.
+        expect(
+          (await store.consumption({ ids: [created.id] })).get(created.id),
+        ).toBe(1);
+        // Nothing went to the file `--db` named: a remote knowledge store leaves it meaningless, and
+        // the trail had an address of its own.
+        expect(existsSync(unusedDb)).toBe(false);
+
+        // The remote half read as documents rather than through the adapter. The two positive checks
+        // are what stop the two negative ones from passing over an empty dump.
+        await fetch(`${OS_URL}/${PREFIX}*/_refresh`, { method: "POST" });
+        const docs = JSON.stringify(
+          await (await fetch(`${OS_URL}/${PREFIX}*/_search?size=1000`)).json(),
+        );
+        expect(docs).toContain(created.id);
+        expect(docs).toContain("yoke:system");
+        expect(docs).not.toContain(token);
+        expect(docs).not.toContain(injects[0]);
       } finally {
         run.close();
         gh.close();
