@@ -134,7 +134,15 @@ The viewing set — reading what is already stored, never adding to it:
     a browser can present a token or OIDC identity. Exists because 401 has to land
     somewhere ungated.
 
-A further screen requires the three tests to be argued here first.
+And the route that is in neither set:
+
+13. **Home** — the entry page: the hero and the nav tiles, and no record on it. The three
+    tests are about screens that show knowledge; this one shows none, and it exists because
+    `/` has to resolve to something.
+
+**One screen per route under `web/app/`** — this list is the enumeration, so a route with no
+entry here is a screen nobody argued. A further screen requires the three tests to be argued
+here first.
 
 ## Design decisions
 

@@ -458,7 +458,7 @@ recall@10 82.4%, 한두 단어짜리는 100%입니다. 리포트는 합계만이
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | 포트/어댑터 경계 |
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | 게이트, 라이프사이클, 주입 필터 규칙 |
 | [SPEC](docs/SPEC.md) | 구현 계약 — 스키마, port, 게이트, MCP 도구, CLI |
-| [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 12개 화면과 넘지 않는 선 |
+| [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 라우트 하나에 화면 하나, 그리고 넘지 않는 선 |
 | [ROADMAP](docs/ROADMAP.md) | 출시 순서대로 정리한 버전 색인 — 각 규칙이 어느 문서에 있는지 |
 | [BACKENDS](docs/BACKENDS.md) | 어댑터 확장 + RDB read-mapping (실사용 검증 노트 포함) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 감사 추적, 샤딩 |

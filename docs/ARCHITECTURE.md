@@ -3,25 +3,31 @@
 Ports and adapters (hexagonal). The core is pure TypeScript, with no I/O.
 
 ```
-        AI tools (Claude, Codex, Cursor, …)
-                    │ MCP protocol
-   ┌────────────────┼────────────────┐
-   │  front adapters│                │
-   │  ┌───────────┐ │ ┌───────────┐  │
-   │  │ MCP server│ │ │ thin CLI  │  │
-   │  └─────┬─────┘ │ └─────┬─────┘  │
-   │        └───────┴───────┘        │
-   │                ▼                │
-   │      ┌──────────────────┐       │
-   │      │       core       │       │
-   │      │ ontology · query │       │
-   │      │ context injection│       │
-   │      └────────┬─────────┘       │
-   │               ▼ storage port    │
-   │  ┌────────┐ ┌────────┐ ┌─────┐  │
-   │  │ sqlite │ │ vector │ │ ... │  │  ← sqlite, opensearch, postgres
-   │  └────────┘ └────────┘ └─────┘  │
-   └─────────────────────────────────┘
+AI tools (Claude, Codex, …)    a terminal             a browser
+              │ MCP over stdio      │                     │
+     ┌────────┴────────┐   ┌────────┴────────┐   ┌────────┴────────┐
+     │    yoke mcp     │   │    thin CLI     │   │      web/       │
+     │   stdio relay   │   │ front/remote.ts │   │  static bundle  │
+     └────────┬────────┘   └────────┬────────┘   └────────┬────────┘
+              └─────────────────────┴─────────────────────┘
+                                    │ HTTP
+                 ┌──────────────────┴──────────────────┐
+                 │  yoke serve — POST /mcp + JSON API  │   ← the only two
+                 │  yoke ui    —             JSON API  │     that open a store
+                 └──────────────────┬──────────────────┘
+                                    ▼
+            ┌───────────────────────────────────────────────┐
+            │                     core                      │
+            │     ontology · query · context injection      │
+            └──────┬─────────────────────────────────┬──────┘
+                   │                                 │
+             storage port                       audit port
+                   │                                 │
+   ┌───────────────┴────────────────┐ ┌──────────────┴───────────────┐
+   │ sqlite · postgres · opensearch │ │ sqlite · postgres · dynamodb │
+   └────────────────────────────────┘ └──────────────────────────────┘
+
+   sharded and composite are adapters too: they compose these behind one store
 ```
 
 ## Key decisions

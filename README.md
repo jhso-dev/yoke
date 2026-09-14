@@ -476,7 +476,7 @@ totals.
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | The ports-and-adapters boundary |
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
-| [WEB-UI](docs/WEB-UI.md) | The governance workbench — the twelve screens and the line we don't cross |
+| [WEB-UI](docs/WEB-UI.md) | The governance workbench — one screen per route, and the line we don't cross |
 | [ROADMAP](docs/ROADMAP.md) | every version in the order it shipped, and which doc owns each rule |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
 | [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, the audit trail, sharding |
