@@ -206,8 +206,9 @@ describe("sharded routing (2 sqlite members)", () => {
     await store.logAudit({
       actor: "u",
       action: "inject",
-      detail: "x",
+      detail: "q -> x",
       at: "2026-01-01T00:00:00Z",
+      ids: ["x"],
     });
     expect(await d.listAudit()).toHaveLength(1);
     expect(await a.listAudit()).toHaveLength(0);

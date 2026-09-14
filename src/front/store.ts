@@ -29,7 +29,7 @@ import { seedOntology } from "../core/ontology.js";
 import type { AuditPort } from "../ports/audit.js";
 import { UsageError } from "./params.js";
 
-export type { AuditEvent } from "../ports/audit.js";
+export type { AuditEvent, AuditRow } from "../ports/audit.js";
 export type { YokeStore };
 
 type Env = Record<string, string | undefined>;

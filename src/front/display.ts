@@ -25,7 +25,7 @@ import {
 } from "../core/ontology.js";
 import { readableName } from "../core/persona.js";
 import type { Entity, Relation, Status } from "../core/types.js";
-import type { Delivered } from "../ports/audit.js";
+import type { AuditEvent, Delivered } from "../ports/audit.js";
 import { readEntities, type StoragePort } from "../ports/storage.js";
 import type { YokeStore } from "./store.js";
 
@@ -217,11 +217,12 @@ export const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
  * failure goes to stderr — the only safe channel under MCP, where stdout is the protocol. Write paths
  * keep their audit inline; only reads come through here.
  *
- * Generic over the event so this file keeps importing only core, never an adapter's AuditEvent.
+ * `AuditEvent` and not a generic: inferring the event type from the call site would let a route hand
+ * this an `inject` with no ids, which is the one shape the port's union exists to refuse.
  */
-export async function bestEffortAudit<E>(
-  store: { logAudit?: (event: E) => Promise<void> },
-  event: E,
+export async function bestEffortAudit(
+  store: { logAudit?: (event: AuditEvent) => Promise<void> },
+  event: AuditEvent,
 ): Promise<void> {
   try {
     await store.logAudit?.(event);
@@ -304,7 +305,11 @@ export function injectShape(detail: string): {
  * `yoke inject --unseen` and `GET /api/inject?unseen=1` so a hook reads the same lines whichever
  * ledger holds its deliveries — the CLI's local trail, or the server's rows for this actor.
  *
- * Two answers, both read against `handed`. First: records this reader was handed IN THIS CONTEXT that
+ * `handed` is this context's held set and its clock; the reader's clock per record is fetched here,
+ * once, for the ids the two answers actually judge — the held set, the anchor's one-hop neighbours
+ * and the briefing — so this never asks the ledger for everything the reader holds.
+ *
+ * Two answers. First: records this reader was handed IN THIS CONTEXT that
  * have since changed — a decision it may be building on is dead, and that outranks anything new. A
  * held record changes three ways and its version moves in only one: retired or rewritten (its own
  * version time passed the delivery); replaced or contradicted (an edge on a NEWCOMER points at it, and
@@ -328,7 +333,7 @@ export function injectShape(detail: string): {
  * from saying this again.
  */
 export async function unseenReport(
-  store: StoragePort,
+  store: YokeStore,
   ontology: TypeDef[],
   ns: string | null | undefined,
   now: string,
@@ -337,14 +342,35 @@ export async function unseenReport(
   result: { items: InjectItem[]; omitted: number },
   reader: string,
 ): Promise<{ lines: string[]; delivered: string[]; changed: number }> {
-  const unseenOf = (e: Entity) => {
-    const at = handed.lastHanded.get(e.id);
-    return at === undefined || !atOrBefore(versionTime(e), at);
-  };
-  const held = (await readEntities(store, handed.anchored.ids)).filter(
+  const held = (await readEntities(store, handed.ids)).filter(
     (e) => normalizeNs(e.ns) === normalizeNs(ns),
   );
   const heldById = new Map(held.map((e) => [e.id, e]));
+  // Author recall: retired records on this context that `reader` wrote and someone else retired.
+  const hop = await store.neighbors(anchor.id);
+  const hopIds = [
+    ...new Set(hop.map((r) => (r.from === anchor.id ? r.to : r.from))),
+  ].filter((id) => id !== anchor.id && !heldById.has(id));
+  const attached = (await readEntities(store, hopIds)).filter(
+    (e) => normalizeNs(e.ns) === normalizeNs(ns),
+  );
+  // Three known sets — held, attached, and the briefing — so the reader's clock is one point lookup
+  // over exactly the ids about to be judged, never their whole held set.
+  const lastHanded = await store.lastHanded({
+    ns,
+    actor: reader,
+    ids: [
+      ...new Set([
+        ...held.map((e) => e.id),
+        ...attached.map((e) => e.id),
+        ...result.items.map((it) => it.entity.id),
+      ]),
+    ],
+  });
+  const unseenOf = (e: Entity) => {
+    const at = lastHanded.get(e.id);
+    return at === undefined || !atOrBefore(versionTime(e), at);
+  };
   const changed = new Map<string, string>();
   // A retirement says why when someone said (the reason rides on the retiring version), because "your
   // decision is dead" without the why leaves the agent nothing to reason from.
@@ -356,14 +382,6 @@ export async function unseenReport(
         `-> ${effectiveStatus(e, ontology, now)}${reason ? `: ${reason}` : ""}`,
       );
     }
-  // Author recall: retired records on this context that `reader` wrote and someone else retired.
-  const hop = await store.neighbors(anchor.id);
-  const hopIds = [
-    ...new Set(hop.map((r) => (r.from === anchor.id ? r.to : r.from))),
-  ].filter((id) => id !== anchor.id && !heldById.has(id));
-  const attached = (await readEntities(store, hopIds)).filter(
-    (e) => normalizeNs(e.ns) === normalizeNs(ns),
-  );
   for (const e of attached) {
     if (e.status !== "deprecated") continue;
     // The retiring version names the retirer; the author lives on the authored_by edge the gate

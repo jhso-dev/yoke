@@ -898,7 +898,7 @@ export function createUiHandler(
           limit: injectLimit(scope, query, explicitLimit),
           ns,
           scope,
-          since: handed?.anchored.last,
+          since: handed?.last,
           // Relation hops the anchor walk takes (SPEC "Multi-hop", default 1) — the MCP tool takes
           // this, so a preview without it could not reproduce a depth-2 agent call. Bounded like the
           // graph route's; core's WALK_BUDGET caps the blast radius regardless.
@@ -949,18 +949,23 @@ export function createUiHandler(
       // Built here, written AFTER the response is sent (C7): before sendJson, a held write lock would
       // turn a preview the human already needed into a `database is locked` 500.
       const injected = items.map((it) => it.entity.id);
-      const previewEvent: AuditEvent = {
-        actor,
-        // `preview=1` is the BROWSER saying it is only looking. Everything else asking this route is
-        // receiving knowledge — without the distinction the CLI's team-mode read would never mark
-        // anything handed over, so the very next `--unseen` would re-deliver what the session was
-        // just given. Only a real delivery carries `ids`, which is what the ledger counts.
-        action: preview ? "inject_preview" : "inject",
-        detail: injectDetail(injected, { query, scope, asOf: asOfParam }),
-        at: ts,
-        ns,
-        ...(preview ? {} : { ids: injected, anchor: scope, asOf: asOfParam }),
-      };
+      const detail = injectDetail(injected, { query, scope, asOf: asOfParam });
+      // `preview=1` is the BROWSER saying it is only looking. Everything else asking this route is
+      // receiving knowledge — without the distinction the CLI's team-mode read would never mark
+      // anything handed over, so the very next `--unseen` would re-deliver what the session was
+      // just given. Only a real delivery carries `ids`, which is what the ledger counts.
+      const previewEvent: AuditEvent = preview
+        ? { actor, action: "inject_preview", detail, at: ts, ns }
+        : {
+            actor,
+            action: "inject",
+            detail,
+            at: ts,
+            ns,
+            ids: injected,
+            ...(scope ? { anchor: scope } : {}),
+            ...(asOfParam ? { asOf: asOfParam } : {}),
+          };
       const { asR, prefetch, nameOf } = serializers();
       sendJson(res, 200, {
         query,

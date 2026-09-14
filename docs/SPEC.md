@@ -123,10 +123,13 @@ rather than the corpus answers a different question on every machine that reads 
 and DynamoDB hold their own; OpenSearch does not implement the port (a document appended per read is
 the write pattern a segment-merging index is worst at) and refuses at boot naming the variable.
 
-The ledger also keeps what the trail IMPLIES, written by the same call that appends it: how often each
-record was handed to an agent, and what each reader already holds. A delivery carries its ids as data
-(`AuditEvent.ids`), so nothing re-derives either fact by scanning the log — see "The stale queue" and
-"Since, and unseen".
+The ledger also keeps what the trail IMPLIES, written by the same call that appends it, and read back
+by three point-lookup methods: `consumption` (how often each record was handed to an agent),
+`delivered` (one working context's delivery clock and held set) and `lastHanded` (when this reader was
+last handed each of the ids asked for). None of them scans the log, and none of them reads a reader's
+whole held set. `AuditEvent` is a union discriminated on `action`: `inject` and `persona` carry the
+ids they handed over and nothing else may, so a delivery route cannot be written that counts nothing —
+see "The stale queue" and "Since, and unseen".
 
 Two methods became async because they touch remote rows — **`renameType`** (it rewrites entity rows)
 and **`saveOntology`** (a synchronous fire-and-forget would discard the error). `loadOntology` stays
@@ -584,9 +587,11 @@ the second built on the first:
   record does not pass the status filter — that half is `--unseen`'s.
 - **`yoke inject --scope <id> --unseen`** is the read a hook makes on every tool call: what this
   context has that **this client** has not been handed yet. Front-tier, because the answer is in the
-  client's own ledger — an `inject`/`persona` delivery carries the ids it handed over as data, and
-  `AuditPort.delivered` reads back what this reader holds and the context's own delivery clock. Two
-  halves, in this order:
+  client's own ledger — an `inject`/`persona` delivery carries the ids it handed over as data (the
+  port's `AuditEvent` is a union on `action`, so a delivery cannot be written without them). Two
+  reads give the two halves: `AuditPort.delivered` returns one working context's delivery clock and
+  held set, and `AuditPort.lastHanded` answers, for exactly the ids about to be judged, when this
+  reader was last handed each — never the reader's whole held set. Two halves, in this order:
   1. **changed since handed to you** — records a row anchored on this scope handed over that have
      since been retired (with the reason, when one was given) or rewritten (their version time passed
      the delivery), **replaced** or

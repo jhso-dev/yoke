@@ -444,6 +444,35 @@ describe("ui API", () => {
     expect(entry?.detail).toContain(personaFactId);
   });
 
+  // The ledger, not the trail: a route that writes `persona` without ids leaves `detail` looking
+  // right while consumption silently stops counting for it. Asserted through the route, because the
+  // ids only reach the ledger if the ROUTE puts them on the event.
+  it("a persona read is a delivery the ledger counts, and a preview counts nothing", async () => {
+    const before = await store.consumption({ ids: [personaFactId] });
+    const result = await get(
+      `/api/persona/${encodeURIComponent(personaAnchorId)}`,
+    );
+    const ids = [...result.decisions, ...result.facts].map(
+      (e: { id: string }) => e.id,
+    );
+    expect(ids).toContain(personaFactId);
+    const counted = await store.consumption({ ids });
+    for (const id of ids) expect(counted.get(id) ?? 0).toBeGreaterThan(0);
+    expect(counted.get(personaFactId)).toBe(
+      (before.get(personaFactId) ?? 0) + 1,
+    );
+
+    // `preview=1` is a human looking at a screen. It hands nothing to an agent, so it moves neither
+    // the count nor the reader's clock.
+    const seen = await store.consumption({ ids: [factId] });
+    const clock = await store.lastHanded({ actor: "reviewer", ids: [factId] });
+    await get("/api/inject?preview=1&q=sky");
+    expect(await store.consumption({ ids: [factId] })).toEqual(seen);
+    expect(
+      await store.lastHanded({ actor: "reviewer", ids: [factId] }),
+    ).toEqual(clock);
+  });
+
   it("a person row carries its role, so the persona roster labels a card by role not the steward", async () => {
     // The roster is seeded by one steward, so every person's citation reads the same and says nothing
     // about who the card is. The role attribute travels on the row for the persona roster to show instead.

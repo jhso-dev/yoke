@@ -313,6 +313,48 @@ describe("yoke MCP server", () => {
     await s.close();
   });
 
+  // The ledger, not the trail. An `inject`/`persona` row written without ids renders an identical
+  // `detail` and counts nothing, so this is asserted through the TOOLS — only they can put the ids
+  // on the event, and `logAudit` called directly would prove the adapter, not the route.
+  it("yoke_inject and yoke_persona are deliveries the ledger counts", async () => {
+    const seed = await openSession();
+    const rec = await seed.client.callTool({
+      name: "yoke_record_decision",
+      arguments: {
+        conclusion: "count zqledger deliveries per record",
+        rationale: "a trail nobody can total is not a governance signal",
+      },
+    });
+    const id = JSON.parse(text(rec)).id as string;
+    await seed.close();
+    expect(
+      await cli(["verify", id, "--db", db, "--actor", "yoke:system"]),
+    ).toBe(0);
+
+    const s = await openSession();
+    const count = async () =>
+      (await s.store.consumption({ ids: [id] })).get(id) ?? 0;
+    const before = await count();
+    const injected = await s.client.callTool({
+      name: "yoke_inject",
+      arguments: { query: "zqledger" },
+    });
+    expect(text(injected)).toContain(id);
+    expect(await count()).toBe(before + 1);
+    // And the reader's clock moved onto that record — the bound the next `--unseen` reads against.
+    expect(
+      (await s.store.lastHanded({ actor: "yoke:system", ids: [id] })).get(id),
+    ).toBeTypeOf("string");
+
+    const persona = await s.client.callTool({
+      name: "yoke_persona",
+      arguments: { person: "yoke:system", query: "zqledger" },
+    });
+    expect(text(persona)).toContain(id);
+    expect(await count()).toBe(before + 2);
+    await s.close();
+  });
+
   // yoke_persona is the SPEC-designated PRIMARY consumption path, and it was the poorest of the three:
   // it rebuilt the citation without the author, dropped what a decision rejected, said "no recorded
   // knowledge" about a review backlog, and handed both sides of a live contradiction over as equals.

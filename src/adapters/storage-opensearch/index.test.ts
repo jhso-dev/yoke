@@ -393,6 +393,7 @@ suite("composite: knowledge in opensearch, bookkeeping local", () => {
       action: "inject",
       detail: `q -> ${entity.id}`,
       at: "2026-08-04T00:00:00Z",
+      ids: [entity.id],
     });
 
     expect((await store.getEntity(entity.id))?.id).toBe(entity.id);

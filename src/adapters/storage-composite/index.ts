@@ -31,6 +31,7 @@ import type {
   AuditEvent,
   AuditPort,
   AuditQuery,
+  AuditRow,
   Delivered,
 } from "../../ports/audit.js";
 import type {
@@ -181,7 +182,7 @@ class CompositeStorage implements YokeStore {
   async logAudit(event: AuditEvent): Promise<void> {
     await this.local.logAudit(event);
   }
-  async listAudit(q?: AuditQuery): Promise<AuditEvent[]> {
+  async listAudit(q?: AuditQuery): Promise<AuditRow[]> {
     return this.local.listAudit(q);
   }
   consumption(q: {
@@ -196,6 +197,13 @@ class CompositeStorage implements YokeStore {
     anchor: string;
   }): Promise<Delivered> {
     return this.local.delivered(q);
+  }
+  lastHanded(q: {
+    ns?: string | null;
+    actor: string;
+    ids: string[];
+  }): Promise<Map<string, string>> {
+    return this.local.lastHanded(q);
   }
   // --- deliberately absent / refused --------------------------------------------------------------
 

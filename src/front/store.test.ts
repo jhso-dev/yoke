@@ -12,9 +12,10 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 const event = (detail: string) => ({
   actor: "a",
-  action: "inject",
+  action: "inject" as const,
   detail,
   at: "2026-01-01T00:00:00Z",
+  ids: [detail],
 });
 
 describe("YOKE_AUDIT_URL", () => {

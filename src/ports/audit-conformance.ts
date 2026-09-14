@@ -23,14 +23,14 @@ export function describeAuditPort(
 
     const a = {
       actor: "alice",
-      action: "inject",
-      detail: "cache -> id1",
+      action: "read" as const,
+      detail: "id1",
       at: "2026-01-01T00:00:00Z",
     };
     const b = {
       actor: "bob",
-      action: "persona",
-      detail: "p1 -> id3",
+      action: "search" as const,
+      detail: "cache -> id3",
       at: "2026-02-01T00:00:00Z",
     };
     const tenant = {
@@ -70,7 +70,7 @@ export function describeAuditPort(
     it("compares a bound by instant, not as text", async () => {
       const ms = {
         actor: "dave",
-        action: "verify",
+        action: "verify" as const,
         detail: "id5",
         at: "2026-04-01T00:00:00.500Z",
       };
@@ -108,7 +108,7 @@ export function describeAuditPort(
       extra: Partial<{ actor: string; anchor: string; asOf: string }> = {},
     ) => ({
       actor: extra.actor ?? "agent",
-      action: "inject",
+      action: "inject" as const,
       detail: `x -> ${ids.join(" ")}`,
       at,
       ids,
@@ -139,7 +139,12 @@ export function describeAuditPort(
     it("an event with no ids is not a delivery", async () => {
       // A human governing — `inject_preview`, `read`, `search`, `verify`. The question consumption
       // answers is what AGENTS are being fed.
-      for (const action of ["inject_preview", "read", "search", "verify"])
+      for (const action of [
+        "inject_preview",
+        "read",
+        "search",
+        "verify",
+      ] as const)
         await port.logAudit({
           actor: "human",
           action,
@@ -147,36 +152,71 @@ export function describeAuditPort(
           at: "2026-09-01T00:00:00Z",
         });
       expect(await port.consumption({ ids: ["A"] })).toEqual(new Map());
+      expect(await port.lastHanded({ actor: "human", ids: ["A"] })).toEqual(
+        new Map(),
+      );
       expect(
-        (await port.delivered({ actor: "human", anchor: "S1" })).lastHanded
-          .size,
+        (await port.delivered({ actor: "human", anchor: "S1" })).ids.size,
       ).toBe(0);
     });
 
-    it("per id the latest handing, and for one anchor its last row and every id it handed", async () => {
+    it("per id the latest handing, over every working context", async () => {
       await port.logAudit(handed("2026-09-01T00:00:00Z", ["A", "B"]));
       await port.logAudit(
         handed("2026-09-02T00:00:00Z", ["B", "C"], { anchor: "S1" }),
       );
       await port.logAudit({
         ...handed("2026-09-03T00:00:00Z", ["C"]),
-        action: "persona",
+        action: "persona" as const,
       });
+      await port.logAudit(
+        handed("2026-09-04T00:00:00Z", ["D"], { anchor: "S2" }),
+      );
+      expect(
+        await port.lastHanded({ actor: "agent", ids: ["A", "B", "C", "D"] }),
+      ).toEqual(
+        new Map([
+          ["A", "2026-09-01T00:00:00Z"],
+          ["B", "2026-09-02T00:00:00Z"],
+          ["C", "2026-09-03T00:00:00Z"],
+          ["D", "2026-09-04T00:00:00Z"],
+        ]),
+      );
+      // One reader's deliveries are not another's.
+      expect(
+        await port.lastHanded({ actor: "other", ids: ["A", "B", "C", "D"] }),
+      ).toEqual(new Map());
+    });
+
+    it("answers for the ids asked for and no others", async () => {
+      await port.logAudit(handed("2026-09-01T00:00:00Z", ["A", "B"]));
+      // Not a scan of the held set: B was handed over and is still absent, because nobody asked.
+      expect(await port.lastHanded({ actor: "agent", ids: ["A"] })).toEqual(
+        new Map([["A", "2026-09-01T00:00:00Z"]]),
+      );
+      // An id never delivered is absent, not present with an empty clock.
+      expect(
+        await port.lastHanded({ actor: "agent", ids: ["A", "Z"] }),
+      ).toEqual(new Map([["A", "2026-09-01T00:00:00Z"]]));
+      expect(await port.lastHanded({ actor: "agent", ids: [] })).toEqual(
+        new Map(),
+      );
+    });
+
+    it("one anchor's last row and every id it handed, and nothing from another", async () => {
+      await port.logAudit(
+        handed("2026-09-02T00:00:00Z", ["B", "C"], { anchor: "S1" }),
+      );
       // Another context's briefing: its ids count as handed, its instant is not this anchor's.
       await port.logAudit(
         handed("2026-09-04T00:00:00Z", ["D"], { anchor: "S2" }),
       );
       const d = await port.delivered({ actor: "agent", anchor: "S1" });
-      expect(d.anchored.last).toBe("2026-09-02T00:00:00Z");
-      expect([...d.anchored.ids].sort()).toEqual(["B", "C"]);
-      expect(d.lastHanded.get("A")).toBe("2026-09-01T00:00:00Z");
-      expect(d.lastHanded.get("B")).toBe("2026-09-02T00:00:00Z");
-      expect(d.lastHanded.get("C")).toBe("2026-09-03T00:00:00Z");
-      expect(d.lastHanded.get("D")).toBe("2026-09-04T00:00:00Z");
+      expect(d.last).toBe("2026-09-02T00:00:00Z");
+      expect([...d.ids].sort()).toEqual(["B", "C"]);
       // One reader's deliveries are not another's.
       expect(
-        (await port.delivered({ actor: "other", anchor: "S1" })).lastHanded
-          .size,
+        (await port.delivered({ actor: "other", anchor: "S1" })).ids.size,
       ).toBe(0);
     });
 
@@ -192,17 +232,20 @@ export function describeAuditPort(
       expect(await port.consumption({ ids: ["F"] })).toEqual(
         new Map([["F", 1]]),
       );
+      expect(await port.lastHanded({ actor: "agent", ids: ["F"] })).toEqual(
+        new Map(),
+      );
       const d = await port.delivered({ actor: "agent", anchor: "S1" });
-      expect(d.lastHanded.has("F")).toBe(false);
-      expect(d.anchored.ids.has("F")).toBe(false);
-      expect(d.anchored.last).toBeUndefined();
+      expect(d.ids.has("F")).toBe(false);
+      expect(d.last).toBeUndefined();
 
       // And a real delivery afterwards does advance it, over the same row.
       await port.logAudit(
         handed("2026-09-07T00:00:00Z", ["F"], { anchor: "S1" }),
       );
-      const after = await port.delivered({ actor: "agent", anchor: "S1" });
-      expect(after.lastHanded.get("F")).toBe("2026-09-07T00:00:00Z");
+      expect(await port.lastHanded({ actor: "agent", ids: ["F"] })).toEqual(
+        new Map([["F", "2026-09-07T00:00:00Z"]]),
+      );
       expect(await port.consumption({ ids: ["F"] })).toEqual(
         new Map([["F", 2]]),
       );
@@ -213,10 +256,11 @@ export function describeAuditPort(
           asOf: "2026-01-01T00:00:00Z",
         }),
       );
+      expect(await port.lastHanded({ actor: "agent", ids: ["F"] })).toEqual(
+        new Map([["F", "2026-09-07T00:00:00Z"]]),
+      );
       expect(
-        (await port.delivered({ actor: "agent", anchor: "S1" })).lastHanded.get(
-          "F",
-        ),
+        (await port.delivered({ actor: "agent", anchor: "S1" })).last,
       ).toBe("2026-09-07T00:00:00Z");
     });
 
@@ -229,9 +273,25 @@ export function describeAuditPort(
       await port.logAudit(
         handed("2026-09-01T00:00:00Z", ["A"], { anchor: "S" }),
       );
-      const d = await port.delivered({ actor: "agent", anchor: "S" });
-      expect(d.lastHanded.get("A")).toBe("2026-09-01T00:00:00.500Z");
-      expect(d.anchored.last).toBe("2026-09-01T00:00:00.500Z");
+      // The same two instants across two contexts, so `lastHanded` chooses across rows rather than
+      // reading one row's winner back.
+      await port.logAudit(
+        handed("2026-09-01T00:00:00.500Z", ["B"], { anchor: "S" }),
+      );
+      await port.logAudit(
+        handed("2026-09-01T00:00:00Z", ["B"], { anchor: "T" }),
+      );
+      expect(
+        await port.lastHanded({ actor: "agent", ids: ["A", "B"] }),
+      ).toEqual(
+        new Map([
+          ["A", "2026-09-01T00:00:00.500Z"],
+          ["B", "2026-09-01T00:00:00.500Z"],
+        ]),
+      );
+      expect((await port.delivered({ actor: "agent", anchor: "S" })).last).toBe(
+        "2026-09-01T00:00:00.500Z",
+      );
     });
 
     it("an anchor with no deliveries has no bound", async () => {
@@ -239,10 +299,12 @@ export function describeAuditPort(
         handed("2026-09-01T00:00:00Z", ["A"], { anchor: "other" }),
       );
       const d = await port.delivered({ actor: "agent", anchor: "S" });
-      expect(d.anchored.last).toBeUndefined();
-      expect(d.anchored.ids.size).toBe(0);
+      expect(d.last).toBeUndefined();
+      expect(d.ids.size).toBe(0);
       // Still held, though: what a reader holds is not a per-context fact.
-      expect(d.lastHanded.get("A")).toBe("2026-09-01T00:00:00Z");
+      expect(await port.lastHanded({ actor: "agent", ids: ["A"] })).toEqual(
+        new Map([["A", "2026-09-01T00:00:00Z"]]),
+      );
     });
 
     it("a namespace's deliveries are its own", async () => {
@@ -260,6 +322,16 @@ export function describeAuditPort(
       expect(await port.consumption({ ns: "globex", ids: ["A"] })).toEqual(
         new Map(),
       );
+      // And so is the clock: the same id, handed in two namespaces, keeps two.
+      expect(await port.lastHanded({ actor: "agent", ids: ["A"] })).toEqual(
+        new Map([["A", "2026-09-01T00:00:00Z"]]),
+      );
+      expect(
+        await port.lastHanded({ ns: "acme", actor: "agent", ids: ["A"] }),
+      ).toEqual(new Map([["A", "2026-09-02T00:00:00Z"]]));
+      expect(
+        await port.lastHanded({ ns: "globex", actor: "agent", ids: ["A"] }),
+      ).toEqual(new Map());
     });
   });
 }

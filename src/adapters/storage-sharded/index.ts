@@ -37,7 +37,12 @@
 import { normalizeNs } from "../../core/namespace.js";
 import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
-import type { AuditEvent, AuditQuery, Delivered } from "../../ports/audit.js";
+import type {
+  AuditEvent,
+  AuditQuery,
+  AuditRow,
+  Delivered,
+} from "../../ports/audit.js";
 import type {
   ListQuery,
   Page,
@@ -63,7 +68,7 @@ export interface YokeStore extends StoragePort {
   /** async since v5.2: it rewrites entity rows, and on a remote backend those are across a network. */
   renameType(from: string, to: string, ns?: string | null): Promise<number>;
   logAudit(event: AuditEvent): Promise<void>;
-  listAudit(q?: AuditQuery): Promise<AuditEvent[]>;
+  listAudit(q?: AuditQuery): Promise<AuditRow[]>;
   consumption(q: {
     ns?: string | null;
     ids: string[];
@@ -73,6 +78,11 @@ export interface YokeStore extends StoragePort {
     actor: string;
     anchor: string;
   }): Promise<Delivered>;
+  lastHanded(q: {
+    ns?: string | null;
+    actor: string;
+    ids: string[];
+  }): Promise<Map<string, string>>;
 }
 
 export interface ShardMember {
@@ -332,7 +342,7 @@ export class ShardedStorage implements YokeStore {
     await (this.defaultShard.store as ExtStore).logAudit?.(event);
   }
 
-  async listAudit(q?: AuditQuery): Promise<AuditEvent[]> {
+  async listAudit(q?: AuditQuery): Promise<AuditRow[]> {
     return (await (this.defaultShard.store as ExtStore).listAudit?.(q)) ?? [];
   }
 
@@ -353,9 +363,18 @@ export class ShardedStorage implements YokeStore {
   }): Promise<Delivered> {
     return (
       (await (this.defaultShard.store as ExtStore).delivered?.(q)) ?? {
-        lastHanded: new Map(),
-        anchored: { ids: new Set() },
+        ids: new Set(),
       }
+    );
+  }
+
+  async lastHanded(q: {
+    ns?: string | null;
+    actor: string;
+    ids: string[];
+  }): Promise<Map<string, string>> {
+    return (
+      (await (this.defaultShard.store as ExtStore).lastHanded?.(q)) ?? new Map()
     );
   }
 }

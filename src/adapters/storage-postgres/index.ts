@@ -62,6 +62,7 @@ import type {
   AuditEvent,
   AuditPort,
   AuditQuery,
+  AuditRow,
   Delivered,
 } from "../../ports/audit.js";
 import {
@@ -398,39 +399,45 @@ export class PostgresStorage implements StoragePort, AuditPort {
     return counts;
   }
 
-  /** AuditPort. */
+  /** AuditPort. One context's rows — the primary key fixes ns, actor and anchor, so every row here
+   * is one entity and the newest instant is the first of them. Ordered as a timestamp, never as
+   * text: `last_at` holds more than one ISO spelling and `Z` sorts after `.`. */
   async delivered(q: {
     ns?: string | null;
     actor: string;
     anchor: string;
   }): Promise<Delivered> {
-    // Every context, because "does this reader hold the current version" is not a per-context fact.
-    const rows = await this.q<{
-      entity_id: string;
-      anchor: string;
-      last_at: string;
-    }>(
-      `SELECT entity_id, anchor, MAX(last_at) AS last_at FROM ${this.t("delivery")}
-       WHERE ns = $1 AND actor = $2 AND last_at IS NOT NULL
-       GROUP BY entity_id, anchor`,
-      [q.ns ?? "", q.actor],
+    const rows = await this.q<{ entity_id: string; last_at: string }>(
+      `SELECT entity_id, last_at FROM ${this.t("delivery")}
+       WHERE ns = $1 AND actor = $2 AND anchor = $3 AND last_at IS NOT NULL
+       ORDER BY last_at::timestamptz DESC`,
+      [q.ns ?? "", q.actor, q.anchor],
     );
-    const lastHanded = new Map<string, string>();
-    const anchored: Delivered["anchored"] = { ids: new Set() };
-    for (const r of rows) {
-      const seen = lastHanded.get(r.entity_id);
-      // By instant, not by string order: `at` is stored in more than one ISO spelling.
-      if (seen === undefined || Date.parse(r.last_at) > Date.parse(seen))
-        lastHanded.set(r.entity_id, r.last_at);
-      if (r.anchor !== q.anchor) continue;
-      anchored.ids.add(r.entity_id);
-      if (
-        anchored.last === undefined ||
-        Date.parse(r.last_at) > Date.parse(anchored.last)
-      )
-        anchored.last = r.last_at;
-    }
-    return { lastHanded, anchored };
+    return {
+      ...(rows.length === 0 ? {} : { last: rows[0].last_at }),
+      ids: new Set(rows.map((r) => r.entity_id)),
+    };
+  }
+
+  /** AuditPort. Point lookups for exactly the ids asked for. One id can have a row per working
+   * context; ascending by timestamp makes the last write per id the latest instant, so the choice
+   * is made by instant in SQL rather than by comparing text. */
+  async lastHanded(q: {
+    ns?: string | null;
+    actor: string;
+    ids: string[];
+  }): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (q.ids.length === 0) return out;
+    const rows = await this.q<{ entity_id: string; last_at: string }>(
+      `SELECT entity_id, last_at FROM ${this.t("delivery")}
+       WHERE ns = $1 AND actor = $2 AND last_at IS NOT NULL
+         AND entity_id = ANY($3::text[])
+       ORDER BY last_at::timestamptz`,
+      [q.ns ?? "", q.actor, q.ids],
+    );
+    for (const r of rows) out.set(r.entity_id, r.last_at);
+    return out;
   }
 
   /** Oldest-first, like every other implementation: `limit` takes the newest N and reverses them, so
@@ -439,7 +446,7 @@ export class PostgresStorage implements StoragePort, AuditPort {
    * Bounds compare as timestamps, never as text — `at` holds more than one ISO spelling (whole-second
    * and millisecond, offsets included) and `Z` sorts after `.`, so a string compare drops rows inside
    * the bound's own second. Same rule, same reason, as the sqlite implementation's `julianday`. */
-  async listAudit(q: AuditQuery = {}): Promise<AuditEvent[]> {
+  async listAudit(q: AuditQuery = {}): Promise<AuditRow[]> {
     const params: unknown[] = [q.ns ?? ""];
     let where = "ns = $1";
     if (q.since !== undefined) {
@@ -462,7 +469,7 @@ export class PostgresStorage implements StoragePort, AuditPort {
       at: string;
       ns: string;
     }>(sql, params);
-    const out: AuditEvent[] = rows.map((r) =>
+    const out: AuditRow[] = rows.map((r) =>
       // The default namespace leaves the field absent, matching how entity rows carry ns.
       r.ns === ""
         ? { actor: r.actor, action: r.action, detail: r.detail, at: r.at }

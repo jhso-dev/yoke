@@ -13,6 +13,7 @@ import type {
   AuditEvent,
   AuditPort,
   AuditQuery,
+  AuditRow,
   Delivered,
 } from "../../ports/audit.js";
 import {
@@ -876,7 +877,7 @@ export class SqliteStorage implements StoragePort, AuditPort {
   /** Audit events in insertion order (oldest first), filtered by ns and optionally at >= since.
    * `limit` takes the most recent N and still returns them oldest-first, so a paging viewer and
    * `yoke audit` read the same direction. */
-  async listAudit(q: AuditQuery = {}): Promise<AuditEvent[]> {
+  async listAudit(q: AuditQuery = {}): Promise<AuditRow[]> {
     // By instant (`julianday` parses ISO 8601, offsets included), never by string. Stored `at` values
     // are not one spelling — the DB default is whole-second `...Z`, callers write millisecond `...Z` —
     // and `Z` sorts AFTER `.`, so a string compare misses rows in the bound's own second even when
@@ -906,7 +907,7 @@ export class SqliteStorage implements StoragePort, AuditPort {
         since: q.since,
         until: q.until,
         limit: q.limit,
-      }) as AuditEvent[];
+      }) as AuditRow[];
     // Default ns leaves the field absent, matching how entity rows carry ns (opaque parity).
     for (const r of rows) if (r.ns == null) delete r.ns;
     return q.limit === undefined ? rows : rows.reverse();
@@ -937,42 +938,58 @@ export class SqliteStorage implements StoragePort, AuditPort {
     return counts;
   }
 
-  /** AuditPort. */
+  /** AuditPort. One context's rows — the primary key fixes ns, actor and anchor, so every row here
+   * is one entity and the newest instant is the first of them. Ordered by `julianday`, never by
+   * text: `last_at` is stored in more than one ISO spelling and `Z` collates after `.`. */
   async delivered(q: {
     ns?: string | null;
     actor: string;
     anchor: string;
   }): Promise<Delivered> {
-    const ns = normalizeNs(q.ns);
-    // Every context, because "does this reader hold the current version" is not a per-context fact:
-    // a record handed over on one working context is held whichever context asks next.
-    const mine = this.db
+    const rows = this.db
       .prepare(
-        `SELECT entity_id, anchor, MAX(last_at) AS last_at FROM delivery
-         WHERE ns = ? AND actor = ? AND last_at IS NOT NULL
-         GROUP BY entity_id, anchor`,
+        `SELECT entity_id, last_at FROM delivery
+         WHERE ns = ? AND actor = ? AND anchor = ? AND last_at IS NOT NULL
+         ORDER BY julianday(last_at) DESC`,
       )
-      .all(ns ?? "", q.actor) as Array<{
+      .all(normalizeNs(q.ns) ?? "", q.actor, q.anchor) as Array<{
       entity_id: string;
-      anchor: string;
       last_at: string;
     }>;
-    const lastHanded = new Map<string, string>();
-    const anchored: Delivered["anchored"] = { ids: new Set() };
-    for (const r of mine) {
-      const seen = lastHanded.get(r.entity_id);
-      // By instant, not by string order: `at` is stored in more than one ISO spelling.
-      if (seen === undefined || Date.parse(r.last_at) > Date.parse(seen))
-        lastHanded.set(r.entity_id, r.last_at);
-      if (r.anchor !== q.anchor) continue;
-      anchored.ids.add(r.entity_id);
-      if (
-        anchored.last === undefined ||
-        Date.parse(r.last_at) > Date.parse(anchored.last)
-      )
-        anchored.last = r.last_at;
+    return {
+      ...(rows.length === 0 ? {} : { last: rows[0].last_at }),
+      ids: new Set(rows.map((r) => r.entity_id)),
+    };
+  }
+
+  /** AuditPort. Point lookups on the delivery primary key's leading columns, chunked against
+   * SQLITE_MAX_VARIABLE_NUMBER exactly like `consumption()`.
+   *
+   * One id can have a row per working context; ascending by `julianday` makes the last write per id
+   * the latest instant, so the choice is made by instant in SQL rather than by comparing text. */
+  async lastHanded(q: {
+    ns?: string | null;
+    actor: string;
+    ids: string[];
+  }): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (q.ids.length === 0) return out;
+    for (let i = 0; i < q.ids.length; i += 500) {
+      const chunk = q.ids.slice(i, i + 500);
+      const rows = this.db
+        .prepare(
+          `SELECT entity_id, last_at FROM delivery
+           WHERE ns = ? AND actor = ? AND last_at IS NOT NULL
+             AND entity_id IN (${chunk.map(() => "?").join(",")})
+           ORDER BY julianday(last_at)`,
+        )
+        .all(normalizeNs(q.ns) ?? "", q.actor, ...chunk) as Array<{
+        entity_id: string;
+        last_at: string;
+      }>;
+      for (const r of rows) out.set(r.entity_id, r.last_at);
     }
-    return { lastHanded, anchored };
+    return out;
   }
 
   /** Latest version per name, in first-registration order, within one namespace scope. */

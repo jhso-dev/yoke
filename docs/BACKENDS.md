@@ -81,8 +81,8 @@ design decision, not a limitation to route around:
 | OpenSearch | **no** | a document appended per read is the write pattern a segment-merging index is worst at. It refuses at boot and names the variable |
 
 Every ledger passes `ports/audit-conformance.ts` — the trail reads oldest-first with both bounds
-inclusive and compared by instant, and the ledger's own counts (`consumption`, `delivered`) mean the
-same thing on all three.
+inclusive and compared by instant, and the ledger's own reads (`consumption`, `delivered`,
+`lastHanded`) mean the same thing on all three.
 
 **DynamoDB adds no dependency.** `@aws-sdk/client-dynamodb` is 16 MB across 7 packages, and DynamoDB's
 API is a signed JSON POST — so the adapter is plain REST like the OpenSearch one, with SigV4 over
@@ -91,13 +91,20 @@ API is a signed JSON POST — so the adapter is plain REST like the OpenSearch o
 `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`; **instance and pod roles are not read** — an EC2 role or
 an EKS service account needs a token fetched first, which is a documented ceiling, not a silent gap.
 
-One table, three item shapes, chosen so every read is a Query or a BatchGet on the primary key:
+One table, four item shapes, chosen so every read is a Query or a BatchGet on the primary key:
 
 ```
 trail     pk = T#<ns>          sk = <epoch ms, padded>#<ulid>   the append-only rows
-delivery  pk = D#<ns>#<actor>  sk = <anchor>#<entity id>        what a reader holds
+delivery  pk = D#<ns>#<actor>  sk = <anchor>#<entity id>        one working context's held set
 counter   pk = C#<ns>          sk = <entity id>                 how often agents were fed it
+held      pk = L#<ns>#<actor>  sk = <entity id>                 the reader's clock for that record
 ```
+
+`delivered` is a Query over the delivery key range `<anchor>#`, so it reads one working context and
+never the reader's whole history. The counter and held shapes are keyed by entity id because
+`consumption` and `lastHanded` ask about a known set of ids at once: on the delivery shape, whose sort
+key leads with the anchor, one entity across every context is not a key range and would cost a Query
+per id; keyed this way both are a BatchGetItem in chunks of 100.
 
 The sort key is a padded epoch rather than the `at` string because DynamoDB compares sort keys
 byte-lexicographically and `at` is stored in more than one ISO spelling. Created `PAY_PER_REQUEST`, so

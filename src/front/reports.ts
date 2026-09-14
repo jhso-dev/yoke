@@ -15,7 +15,7 @@ import {
   parsePersonaSources,
 } from "../core/persona.js";
 import { changedOf, injectShape, summarize } from "./display.js";
-import type { AuditEvent, YokeStore } from "./store.js";
+import type { AuditRow, YokeStore } from "./store.js";
 
 /** Both shapes of one report: the lines a person reads, and the numbers `--json` carries. */
 export interface Report {
@@ -28,7 +28,7 @@ export interface Report {
  * Counts `inject` only: `inject_preview` is a human looking at a screen, and mixing the two would
  * answer "what do people click" when the question is "what do agents ask" (docs/RESEARCH.md §5).
  * The other actions are counted too but only as a skipped total, so the denominator is never silent. */
-export function shapeReport(events: AuditEvent[]): Report {
+export function shapeReport(events: AuditRow[]): Report {
   const counts = { anchored: 0, briefing: 0, plain: 0 };
   let asOf = 0;
   let previews = 0;
@@ -124,7 +124,7 @@ function roiAssumptions(raw: string[] | undefined): Record<string, number> {
 export async function roiReport(
   store: YokeStore,
   ns: string | null | undefined,
-  events: AuditEvent[],
+  events: AuditRow[],
   assume: string[] | undefined,
 ): Promise<Report> {
   const a = roiAssumptions(assume);
@@ -286,7 +286,7 @@ export async function roiReport(
 export async function pulseReport(
   store: YokeStore,
   ns: string | null | undefined,
-  events: AuditEvent[],
+  events: AuditRow[],
   at: string,
   opts: { since?: string; scope?: string } = {},
 ): Promise<Report> {

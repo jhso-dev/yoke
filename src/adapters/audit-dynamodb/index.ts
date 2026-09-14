@@ -5,23 +5,26 @@
 // knowledge stays wherever the knowledge store is, which is the whole point of the trail having its
 // own address.
 //
-// One table, three item shapes, chosen so that every read this port owes is a Query or a BatchGet on
+// One table, four item shapes, chosen so that every read this port owes is a Query or a BatchGet on
 // the primary key — never a Scan, and never an aggregation over the log:
 //
 //   trail     pk = T#<ns>            sk = <epoch ms, padded>#<ulid>   the append-only rows
-//   delivery  pk = D#<ns>#<actor>    sk = <anchor>#<entity id>        n, last_at — what a reader holds
+//   delivery  pk = D#<ns>#<actor>    sk = <anchor>#<entity id>        n, last_at — one context's set
 //   counter   pk = C#<ns>            sk = <entity id>                 n — how often agents were fed it
+//   held      pk = L#<ns>#<actor>    sk = <entity id>                 last_at — the reader's clock
 //
 // The trail's sort key is a PADDED EPOCH, not the `at` string: DynamoDB compares sort keys
 // byte-lexicographically, and `at` is stored in more than one ISO spelling (`Z` sorts after `.`), so
 // a range over the raw string would drop rows inside the bound's own second. The original `at` rides
 // on the item unchanged; the key is derived from it.
 //
-// The counter item exists because consumption asks for up to a page of ids at once. Keyed by entity
-// it would be one Query per id — a thousand round trips for one review screen; keyed this way it is
-// BatchGetItem in chunks of 100.
+// The counter and held items exist because `consumption` and `lastHanded` ask about a known set of
+// ids at once. Reached through the delivery item they would be a Query per id — the delivery sort key
+// leads with the anchor, so one entity across every context is not a key range; keyed by entity they
+// are BatchGetItem in chunks of 100. `last_ms` rides beside `last_at` on both writable shapes so the
+// "later instant wins" conditional compares numbers, never the ISO text.
 //
-// ceiling: a delivery of N records costs 1 + 2N writes, and they are not one transaction —
+// ceiling: a delivery of N records costs 1 + 3N writes, and they are not one transaction —
 // TransactWriteItems caps at 100 items, which a large briefing would exceed, and the failure mode of
 // a partial write here is a count that is low, not a trail that lies. The trail row goes LAST, so a
 // crash mid-write leaves counters ahead of the log rather than a logged delivery nobody counted.
@@ -31,13 +34,14 @@ import type {
   AuditEvent,
   AuditPort,
   AuditQuery,
+  AuditRow,
   Delivered,
 } from "../../ports/audit.js";
 import { type AwsCredentials, signRequest } from "./sigv4.js";
 
 type Env = Record<string, string | undefined>;
 
-/** DynamoDB's JSON, which types every scalar. Only the three shapes this adapter writes. */
+/** DynamoDB's JSON, which types every scalar. Strings and numbers are all these items hold. */
 type Attr = { S: string } | { N: string };
 type Item = Record<string, Attr>;
 
@@ -228,6 +232,7 @@ export class DynamoAudit implements AuditPort {
             ExpressionAttributeValues: { ":one": { N: "1" } },
           }),
           this.bumpDelivery(ns, event.actor, anchor, id, at),
+          ...(at === undefined ? [] : [this.bumpHeld(ns, event.actor, id, at)]),
         ]),
       );
     }
@@ -296,7 +301,36 @@ export class DynamoAudit implements AuditPort {
     }
   }
 
-  async listAudit(q: AuditQuery = {}): Promise<AuditEvent[]> {
+  /** The reader's clock for one record, across every working context — the held item `lastHanded`
+   * reads. Same later-instant-wins conditional as `bumpDelivery`; nothing else rides on this shape,
+   * so a delivery that arrives out of order simply leaves it alone. */
+  private async bumpHeld(
+    ns: string,
+    actor: string,
+    id: string,
+    at: string,
+  ): Promise<void> {
+    try {
+      await this.call("UpdateItem", {
+        TableName: this.opts.table,
+        Key: { pk: s(`L#${ns}#${actor}`), sk: s(id) },
+        UpdateExpression: "SET last_at = :at, last_ms = :ms",
+        ExpressionAttributeValues: {
+          ":at": s(at),
+          ":ms": { N: String(Date.parse(at) || 0) },
+        },
+        ConditionExpression: "attribute_not_exists(last_ms) OR last_ms < :ms",
+      });
+    } catch (e) {
+      if (
+        (e as { awsType?: string }).awsType !==
+        "ConditionalCheckFailedException"
+      )
+        throw e;
+    }
+  }
+
+  async listAudit(q: AuditQuery = {}): Promise<AuditRow[]> {
     const ns = nsKey(q.ns);
     // Both bounds inclusive. The upper bound's suffix is above every ULID, so the whole millisecond
     // is included; the lower bound's is below every one, so none of it is lost.
@@ -328,7 +362,7 @@ export class DynamoAudit implements AuditPort {
     } while (start && (q.limit === undefined || rows.length < q.limit));
 
     const events = rows.map((r) => {
-      const ev: AuditEvent = {
+      const ev: AuditRow = {
         actor: str(r.actor),
         action: str(r.action),
         detail: str(r.detail),
@@ -373,22 +407,26 @@ export class DynamoAudit implements AuditPort {
     return counts;
   }
 
+  /** One context's delivery items, as a key range: the sort key leads with the anchor, so this is a
+   * Query over `<anchor>#` and never reads another context's rows. An anchor is a record id and
+   * holds no `#`, so the prefix cannot reach a longer anchor that starts with the same characters. */
   async delivered(q: {
     ns?: string | null;
     actor: string;
     anchor: string;
   }): Promise<Delivered> {
-    const lastHanded = new Map<string, string>();
-    const anchored: Delivered["anchored"] = { ids: new Set() };
+    const out: Delivered = { ids: new Set() };
+    let latest = Number.NEGATIVE_INFINITY;
     let start: Item | undefined;
     do {
       const page = await this.call<{ Items?: Item[]; LastEvaluatedKey?: Item }>(
         "Query",
         {
           TableName: this.opts.table,
-          KeyConditionExpression: "pk = :pk",
+          KeyConditionExpression: "pk = :pk AND begins_with(sk, :sk)",
           ExpressionAttributeValues: {
             ":pk": s(`D#${nsKey(q.ns)}#${q.actor}`),
+            ":sk": s(`${q.anchor}#`),
           },
           ...(start ? { ExclusiveStartKey: start } : {}),
         },
@@ -397,22 +435,52 @@ export class DynamoAudit implements AuditPort {
         const at = item.last_at ? str(item.last_at) : "";
         // No clock means every delivery of it was as-of: counted, but not held.
         if (!at) continue;
-        const id = str(item.entity_id);
-        const seen = lastHanded.get(id);
-        // By instant, not by string order: `at` is stored in more than one ISO spelling.
-        if (seen === undefined || Date.parse(at) > Date.parse(seen))
-          lastHanded.set(id, at);
-        if (str(item.anchor) !== q.anchor) continue;
-        anchored.ids.add(id);
-        if (
-          anchored.last === undefined ||
-          Date.parse(at) > Date.parse(anchored.last)
-        )
-          anchored.last = at;
+        out.ids.add(str(item.entity_id));
+        // By instant — `last_ms` is written beside `last_at` for exactly this comparison.
+        const ms = num(item.last_ms);
+        if (ms > latest) {
+          latest = ms;
+          out.last = at;
+        }
       }
       start = page.LastEvaluatedKey;
     } while (start);
-    return { lastHanded, anchored };
+    return out;
+  }
+
+  /** The held items, by entity id — the shape that makes this a BatchGet rather than one Query per
+   * id. An as-of delivery never writes one, so an id absent here was never handed current. */
+  async lastHanded(q: {
+    ns?: string | null;
+    actor: string;
+    ids: string[];
+  }): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const ids = [...new Set(q.ids)];
+    if (ids.length === 0) return out;
+    const pk = `L#${nsKey(q.ns)}#${q.actor}`;
+    // Same chunking and UnprocessedKeys handling as consumption(): BatchGetItem takes 100 keys and
+    // may answer with fewer than it was asked for.
+    for (let i = 0; i < ids.length; i += 100) {
+      let keys = ids.slice(i, i + 100).map((id) => ({ pk: s(pk), sk: s(id) }));
+      while (keys.length > 0) {
+        const r = await this.call<{
+          Responses?: Record<string, Item[]>;
+          UnprocessedKeys?: Record<string, { Keys?: Item[] }>;
+        }>("BatchGetItem", {
+          RequestItems: { [this.opts.table]: { Keys: keys } },
+        });
+        for (const item of r.Responses?.[this.opts.table] ?? []) {
+          const at = item.last_at ? str(item.last_at) : "";
+          if (at) out.set(str(item.sk), at);
+        }
+        keys = (r.UnprocessedKeys?.[this.opts.table]?.Keys ?? []) as Array<{
+          pk: Attr;
+          sk: Attr;
+        }>;
+      }
+    }
+    return out;
   }
 
   close(): void {
