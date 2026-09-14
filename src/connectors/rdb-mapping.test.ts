@@ -398,11 +398,12 @@ describe("a table larger than one request still maps whole", () => {
       "create table people(id integer primary key, name text, bio text, manager_id integer)",
     );
     const ins = src.prepare("insert into people values (?,?,?,?)");
-    const pad = "x".repeat(600);
+    // 40 rows of 150 KB is 6 MB of source against a 4 MiB request budget, so the table cannot ride
+    // in one request; the bio is unmapped, so only the wire carries it. Every person but the first
+    // reports to the one before them — an edge has to survive the slice boundary.
+    const pad = "x".repeat(150_000);
     src.transaction(() => {
-      // Enough text that the whole table cannot ride in one request, and every person but the first
-      // reports to the one before them — so an edge must survive the slice boundary.
-      for (let i = 1; i <= 1500; i++)
+      for (let i = 1; i <= 40; i++)
         ins.run(i, `p${i}`, `${pad}`, i === 1 ? null : i - 1);
     })();
     src.close();
@@ -430,6 +431,7 @@ describe("a table larger than one request still maps whole", () => {
       0,
     );
 
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
     expect(
       await cli([
         "connect",
@@ -444,18 +446,23 @@ describe("a table larger than one request still maps whole", () => {
       ]),
     ).toBe(0);
     expect(JSON.parse(logs.at(-1) as string)).toMatchObject({
-      added: 1500,
+      added: 40,
       errors: 0,
     });
+    // Two slices, each sent once per pass.
+    expect(
+      fetchSpy.mock.calls.filter(([url]) =>
+        String(url).endsWith("/api/ingest-mapped"),
+      ),
+    ).toHaveLength(4);
 
     const check = await openStore({ db: targetDb }, {});
     const edges = await check.listRelations({
       type: "reports_to",
       limit: 5000,
     });
-    // 1499 edges: everyone but the first reports to their predecessor, and none of them was lost to
-    // a slice boundary.
-    expect(edges.items).toHaveLength(1499);
+    // Everyone but the first reports to their predecessor, and none was lost to a slice boundary.
+    expect(edges.items).toHaveLength(39);
     check.close();
     rmSync(dir, { recursive: true, force: true });
   }, 60_000);

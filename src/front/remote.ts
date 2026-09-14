@@ -58,6 +58,10 @@ function writeCache(server: string, env: Env, c: Cached): void {
 }
 
 const TIMEOUT = 8000;
+/** For the two bulk routes, whose server side commits a slice row by row. ceiling: measured 7.6 s
+ * for 1,500 rows (976 KB) on a Windows CI runner, so the 8 s above aborts a real ingest on a slow
+ * disk; a 4 MiB slice of small rows is several times that. */
+const BULK_TIMEOUT = 120_000;
 
 /** Mint from the refresh token the cache holds. Null when there is none or it has expired. */
 async function fromRefresh(
@@ -137,6 +141,7 @@ export interface Remote {
     method: string,
     path: string,
     body?: unknown,
+    timeout?: number,
   ): Promise<{ status: number; text: string }>;
   /**
    * The line announcing that a credential just left this machine, or "".
@@ -249,13 +254,13 @@ export function resolveRemote(
       const fresh = await renew();
       return fresh ? send(fresh) : res;
     },
-    async call(method, path, body) {
+    async call(method, path, body, timeout = TIMEOUT) {
       const res = await this.fetch(new URL(path, base).toString(), {
         method,
         headers:
           body === undefined ? {} : { "content-type": "application/json" },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(TIMEOUT),
+        signal: AbortSignal.timeout(timeout),
       });
       return { status: res.status, text: await res.text() };
     },
@@ -1047,11 +1052,16 @@ export async function remoteIngest(
   let bytes = 0;
   const flush = async () => {
     if (batch.length === 0) return;
-    const r = await remote.call("POST", "/api/ingest", {
-      items: batch,
-      origin: `connector:${connector.name}`,
-      ...(opts.scope ? { scope: opts.scope } : {}),
-    });
+    const r = await remote.call(
+      "POST",
+      "/api/ingest",
+      {
+        items: batch,
+        origin: `connector:${connector.name}`,
+        ...(opts.scope ? { scope: opts.scope } : {}),
+      },
+      BULK_TIMEOUT,
+    );
     said(remote);
     const parsed = JSON.parse(r.text || "{}") as Partial<IngestResult>;
     if (r.status >= 400)
@@ -1113,11 +1123,12 @@ export async function remoteIngestMapped(
     slice: { table: string; rows: Record<string, unknown>[] }[],
     pass: "entities" | "relations",
   ) => {
-    const r = await remote.call("POST", "/api/ingest-mapped", {
-      mapping: connector.mapping,
-      tables: slice,
-      pass,
-    });
+    const r = await remote.call(
+      "POST",
+      "/api/ingest-mapped",
+      { mapping: connector.mapping, tables: slice, pass },
+      BULK_TIMEOUT,
+    );
     said(remote);
     const parsed = JSON.parse(r.text || "{}") as Partial<MappedResult> & {
       error?: string;
