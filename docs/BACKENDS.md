@@ -5,7 +5,8 @@ traditional-DB compatibility. Detailed when work starts (v2.0).
 
 ## Principles
 
-- Every backend passes the same storage port + conformance suite (invariant 2).
+- Every backend passes the same storage port + conformance suite (invariant 2), and every
+  audit ledger passes `ports/audit-conformance.ts`.
 - Backend-specific features are declared as optional capabilities (`similar`, etc.);
   core keeps a fallback.
 - Adding a backend = one adapter directory + passing conformance. No core changes.

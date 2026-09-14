@@ -305,7 +305,9 @@ filter is the caller's and still runs after, so front adapters over-fetch — se
 `status`/`type`/`ns` filters, and the default bound, apply identically under either rule.
 
 Every implementation must pass the shared conformance suite (`src/ports/conformance-cases.ts`,
-runner-neutral data; `src/ports/conformance.ts` is the vitest wrapper).
+runner-neutral data; `src/ports/conformance.ts` is the vitest wrapper). The audit ledger has its own —
+`src/ports/audit-conformance.ts` — for the same reason: the trail is a user-facing capability, so no
+backend gets a version of it that answers differently.
 v1 implementation: `storage-sqlite` (better-sqlite3 + FTS5 + sqlite-vec).
 
 **The supported set is `sqlite`, `sharded`, `opensearch` and `postgres`, and all four must pass.** A

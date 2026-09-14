@@ -7,10 +7,12 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
 import { seedOntology } from "../../core/ontology.js";
+import { describeAuditPort } from "../../ports/audit-conformance.js";
 import { describeStoragePort } from "../../ports/conformance.js";
 import { SqliteStorage } from "./index.js";
 
 describeStoragePort(":memory:", async () => new SqliteStorage(":memory:"));
+describeAuditPort("sqlite", async () => new SqliteStorage(":memory:"));
 
 const dir = mkdtempSync(join(tmpdir(), "yoke-sqlite-"));
 describeStoragePort("temp file", async () => {
@@ -365,76 +367,6 @@ describe("audit extensions", () => {
     expect(history.map((e) => e.version)).toEqual([1, 2]);
     expect(history.map((e) => e.status)).toEqual(["verified", "deprecated"]);
     expect(store.listHistory("nope")).toEqual([]);
-    store.close();
-  });
-
-  it("logAudit/listAudit round-trip with since filter", async () => {
-    const store = new SqliteStorage(":memory:");
-    await store.init();
-    const a = {
-      actor: "alice",
-      action: "inject",
-      detail: "cache -> id1 id2",
-      at: "2026-01-01T00:00:00Z",
-    };
-    const b = {
-      actor: "bob",
-      action: "persona",
-      detail: "p1 -> id3",
-      at: "2026-02-01T00:00:00Z",
-    };
-    const tenant = {
-      actor: "carol",
-      action: "inject",
-      detail: "tenant query -> id4",
-      at: "2026-03-01T00:00:00Z",
-      ns: "acme",
-    };
-    await store.logAudit(a);
-    await store.logAudit(b);
-    await store.logAudit(tenant);
-    expect(await store.listAudit()).toEqual([a, b]);
-    expect(await store.listAudit({ since: "2026-01-15T00:00:00Z" })).toEqual([
-      b,
-    ]);
-    // Both bounds inclusive — a person picking an end day means through that instant.
-    expect(await store.listAudit({ until: "2026-01-15T00:00:00Z" })).toEqual([
-      a,
-    ]);
-    expect(await store.listAudit({ until: b.at })).toEqual([a, b]);
-    expect(await store.listAudit({ since: a.at, until: a.at })).toEqual([a]);
-    // Namespace isolation: an audit viewer must not show one tenant's queries to another, and the
-    // default namespace is not a wildcard over tenants.
-    expect(await store.listAudit({ ns: "acme" })).toEqual([tenant]);
-    expect(await store.listAudit({ ns: "globex" })).toEqual([]);
-    // limit takes the most recent N but still returns them oldest-first.
-    expect(await store.listAudit({ limit: 1 })).toEqual([b]);
-    expect(await store.listAudit({ limit: 5 })).toEqual([a, b]);
-    // The bound is compared BY INSTANT (`julianday`), never as text. The text compare this replaced
-    // was pinned right here as a caller hazard — "a second-precision `since` sorts AFTER a row inside
-    // its own second (`Z` > `.`), silently dropping it" — which is a defect described as a contract:
-    // the same hazard, reached through an offset spelling, made `export --until` write an empty
-    // disaster-recovery copy with exit 0. A row half a second after the bound is after the bound in
-    // every spelling of it.
-    const ms = {
-      actor: "dave",
-      action: "verify",
-      detail: "id5",
-      at: "2026-04-01T00:00:00.500Z",
-    };
-    await store.logAudit(ms);
-    expect(
-      await store.listAudit({ since: "2026-04-01T00:00:00.000Z" }),
-    ).toEqual([ms]);
-    expect(await store.listAudit({ since: "2026-04-01T00:00:00Z" })).toEqual([
-      ms,
-    ]);
-    expect(
-      await store.listAudit({ since: "2026-04-01T09:00:00.500+09:00" }),
-    ).toEqual([ms]);
-    expect(
-      await store.listAudit({ since: "2026-04-01T00:00:00.501Z" }),
-    ).toEqual([]);
     store.close();
   });
 });
