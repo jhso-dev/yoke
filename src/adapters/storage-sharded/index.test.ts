@@ -315,7 +315,6 @@ describe("CLI --shards smoke", () => {
     // `yoke init` writes the seed with NO ns, so it lands on the default shard — and that is all a
     // tenant shard ever gets. Run init here rather than hand-seeding the "a" shard: the flow a real
     // user takes is init, then work in a namespace, and that is the flow worth exercising.
-    expect(await cli(["init", "--shards", cfg])).toBe(0);
     expect(
       await cli([
         "ontology",
@@ -389,13 +388,6 @@ describe("CLI --shards smoke", () => {
         ],
       }),
     );
-
-    expect(await cli(["init", "--shards", cfg, "--json"])).toBe(0);
-    // It reports the store it opened, not `--db` — naming the local sqlite here would name a file it
-    // never touched (SPEC "A command reports the store it actually opened").
-    const out = JSON.parse(logs.at(-1) as string);
-    expect(out.store).toBe(`shards ${cfg}`);
-    expect(out.db).toBe("./yoke.db"); // the local half stays a path for scripts
     // No `ontology add-type`: `fact` comes from the seed, which lives on the default shard.
     expect(
       await cli([

@@ -139,7 +139,7 @@ curl -fsSL https://raw.githubusercontent.com/jhso-dev/yoke/main/scripts/install.
 # ~/.yoke/app 에 클론·빌드 후 전역 `yoke` 명령을 연결
 # (--skip-link 로 연결 생략, --dir PATH 로 위치 변경)
 
-yoke init                                    # ./yoke.db 생성 + 온톨로지 시드
+yoke serve &                                 # ./yoke.db 를 127.0.0.1:4800 에서 연다 (없으면 만든다)
 yoke add fact --attr statement="배포는 화요일 오전에만 한다"
 yoke inject "배포 언제 하는 거지"              # 유효한 지식만, 인용과 함께 — 즉시 반영
 yoke review                                  # 나중에: 지식이 낡으면 재확인 큐
@@ -328,7 +328,7 @@ export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # 보안 클러스터만
 export YOKE_OPENSEARCH_PREFIX=team_a_              # 선택: 한 클러스터에 yoke DB 두 개
 
-yoke init                                          # 스키마/인덱스 생성, 온톨로지 시드
+yoke serve                                         # 스키마/인덱스 생성, 온톨로지 시드
 ```
 
 검색은 둘 다 네이티브 스코어드(Postgres `ts_rank` / OpenSearch BM25)이고 `similar`도
@@ -373,7 +373,7 @@ yoke serve --auth --host 0.0.0.0   # 팀 공유. YOKE_GITHUB_ORG 를 설정하�
 ## CLI
 
 ```
-yoke init | add | get | search | list | link | verify | deprecate
+yoke add | get | search | list | link | verify | deprecate
 yoke review                                   # 재확인 큐: TTL 지난 레코드
 yoke inject <query> [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--limit n]             # 코퍼스 한눈에 보기 / 엣지로 보기

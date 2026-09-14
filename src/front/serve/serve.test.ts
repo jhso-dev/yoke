@@ -19,11 +19,11 @@ import {
   type JWK,
   SignJWT,
 } from "jose";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { seedOntology } from "../../core/ontology.js";
-import { runCli } from "../cli/index.js";
+import { openStore } from "../store.js";
 import { isLoopback } from "../ui/server.js";
 import { credentialSigner } from "./credential.js";
 import { createServeServer, runServe } from "./index.js";
@@ -66,7 +66,7 @@ function fixtureBundle(): string {
 
 async function freshDb(name: string): Promise<string> {
   const db = join(dir, `${name}.db`);
-  expect(await runCli(["init", "--db", db])).toBe(0);
+  (await openStore({ db }, {})).close();
   return db;
 }
 
@@ -608,6 +608,64 @@ describe("bind address", () => {
     const addr = server.address();
     expect(typeof addr === "object" && addr?.address).toBe("127.0.0.1");
     await new Promise<void>((r) => server.close(() => r()));
+  });
+
+  // The chicken-and-egg: minting goes through POST /api/tokens, which needs an admin credential.
+  // Without this flag a gated deployment with no external issuer could never mint its first one.
+  it("--bootstrap-admin prints a credential that can mint the next one", async () => {
+    const db = await freshDb("bootstrap");
+    const logged: string[] = [];
+    const spy = vi
+      .spyOn(console, "log")
+      .mockImplementation((m?: unknown) => void logged.push(String(m)));
+    let server: Server;
+    try {
+      server = await runServe(
+        db,
+        0,
+        { YOKE_TOKEN_SECRET: SECRET },
+        { auth: true, bootstrapAdmin: true },
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    const token = logged
+      .join("\n")
+      .split("\n")
+      .find((l) => l.startsWith("eyJ"));
+    expect(token).toBeTruthy();
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const minted = await fetch(`${base}/api/tokens`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: "ci", scopes: ["read", "write"] }),
+      });
+      expect(minted.status).toBe(201);
+      // And what it minted cannot mint again — admin does not propagate by being asked for.
+      const next = (await minted.json()).token;
+      const denied = await fetch(`${base}/api/tokens`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${next}`,
+        },
+        body: JSON.stringify({ name: "sneaky", scopes: ["admin"] }),
+      });
+      expect(denied.status).toBe(403);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it("--bootstrap-admin without a signing key refuses rather than printing something nothing accepts", async () => {
+    const db = await freshDb("bootstrap-nokey");
+    await expect(
+      runServe(db, 0, {}, { auth: true, bootstrapAdmin: true }),
+    ).rejects.toThrow(/YOKE_TOKEN_SECRET/);
   });
 });
 

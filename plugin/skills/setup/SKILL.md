@@ -20,7 +20,7 @@ name — `yoke` on npm is an unrelated package.
 `yoke inject --scope x` against the intended store must fail on the SCOPE, not on the store. Which
 store this repo uses is the CLI's normal environment contract, in the repo's `.env` or exported:
 nothing set means `./yoke.db` in the repo; a team store is `YOKE_POSTGRES_URL`/`YOKE_OPENSEARCH_URL`
-(knowledge remote, this client's trail local). If the local file does not exist yet, `yoke init`.
+(knowledge remote, this client's trail local). The server creates the store it is pointed at.
 
 ## 3. The working context
 

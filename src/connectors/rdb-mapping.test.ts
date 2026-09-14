@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { seedOntology } from "../core/ontology.js";
 import { cli } from "../front/cli/harness.js";
+import { openStore } from "../front/store.js";
 import { ingestMapped, type MappingSpec } from "./rdb-mapping.js";
 
 const now = "2026-07-12T00:00:00Z";
@@ -290,7 +291,6 @@ describe("connect rdb CLI (sqlite source)", () => {
     const targetDb = join(dir, "yoke.db");
 
     try {
-      expect(await cli(["init", "--db", targetDb])).toBe(0);
       // The FK's relation type has to be declared, exactly as the in-process test above says: it is not
       // a seed type. This test never declared it, so the relation pass failed with
       // `unknown type: reports_to` on every run and the FK edge this fixture exists to exercise was never
@@ -328,8 +328,7 @@ describe("connect rdb CLI (sqlite source)", () => {
 
       // The FK edge, which is the whole reason the mapping declares `relations` — and which this test
       // did not check, so it went missing for as long as `errors` went unread.
-      const check = new SqliteStorage(targetDb);
-      await check.init();
+      const check = await openStore({ db: targetDb }, {});
       const people = (await check.listEntities({ type: "person" })).items;
       const bob = people.find((p) => p.attributes.name === "Bob");
       const ada = people.find((p) => p.attributes.name === "Ada");
@@ -422,7 +421,6 @@ describe("a table larger than one request still maps whole", () => {
       ]),
     );
     const targetDb = join(dir, "yoke.db");
-    expect(await cli(["init", "--db", targetDb])).toBe(0);
     const relPath = join(dir, "reports_to.json");
     writeFileSync(
       relPath,
@@ -450,8 +448,7 @@ describe("a table larger than one request still maps whole", () => {
       errors: 0,
     });
 
-    const check = new SqliteStorage(targetDb);
-    await check.init();
+    const check = await openStore({ db: targetDb }, {});
     const edges = await check.listRelations({
       type: "reports_to",
       limit: 5000,

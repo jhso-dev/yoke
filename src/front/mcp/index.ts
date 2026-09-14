@@ -859,20 +859,6 @@ export async function runMcp(
     : null;
   if (remote) return relayMcp(remote);
   const store = await openStore({ db, shards }, env);
-  await store.init();
-  // An uninitialized DB has no bootstrap actor (yoke:system) → error and exit 1.
-  if (!(await store.getEntity("yoke:system"))) {
-    store.close();
-    process.stderr.write(
-      `not initialized: ${db}\nrun 'yoke init --db ${db}' first\n`,
-    );
-    // exitCode + return, not `process.exit()`: an MCP server's stderr is a pipe the client owns, and
-    // `process.exit()` discards whatever node has buffered for it. The one message that tells the
-    // operator why the server would not start is the message most likely to be thrown away — see the
-    // measurement in the CLI's entry point.
-    process.exitCode = 1;
-    return;
-  }
   const ns = resolveNs(undefined, env);
   // Default working-context scope (v4.0): YOKE_SCOPE, an explicit entity id or collaboration key resolved
   // at startup (for fixed setups). At runtime the agent pins scope via the yoke_use_scope tool instead.

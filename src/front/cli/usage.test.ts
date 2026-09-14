@@ -76,7 +76,7 @@ describe("CLI surface", () => {
     }
 
     // Non-vacuity: two empty sets would satisfy the comparison below and guard nothing.
-    for (const known of ["init", "add", "inject", "list", "graph", "serve"]) {
+    for (const known of ["add", "inject", "list", "graph", "serve"]) {
       expect(documented.has(known), `SPEC parse lost ${known}`).toBe(true);
       expect(listed.has(known), `usage() parse lost ${known}`).toBe(true);
     }

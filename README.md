@@ -144,7 +144,7 @@ curl -fsSL https://raw.githubusercontent.com/jhso-dev/yoke/main/scripts/install.
 # clones to ~/.yoke/app, builds, and links the global `yoke` command
 # (--skip-link to skip the link, --dir PATH to change the location)
 
-yoke init                                    # create ./yoke.db + seed the ontology
+yoke serve &                                 # holds ./yoke.db on 127.0.0.1:4800, creating it
 yoke add fact --attr statement="Deployments only happen Tuesday mornings"
 yoke inject "when do we deploy"              # standing knowledge, with citations — live immediately
 yoke review                                  # later: the re-confirmation queue, when knowledge ages
@@ -339,7 +339,7 @@ export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # a secured cluster only
 export YOKE_OPENSEARCH_PREFIX=team_a_            # optional: two yoke DBs in one cluster
 
-yoke init                                        # creates the schema/indices, seeds the ontology
+yoke serve                                       # creates the schema/indices, seeds the ontology
 ```
 
 Or put the same lines in a **`.env`** in the working directory — `cp .env.example .env` and uncomment.
@@ -393,7 +393,7 @@ authenticate and therefore has no reason not to.
 ## CLI
 
 ```
-yoke init | add | get | search | list | link | verify | deprecate
+yoke add | get | search | list | link | verify | deprecate
 yoke review                                   # the re-confirmation queue: records past their TTL
 yoke inject <query> [--limit n] [--scope <id>] [--depth n] [--as-of ts]
 yoke overview | graph [--limit n]             # the corpus at a glance / as edges

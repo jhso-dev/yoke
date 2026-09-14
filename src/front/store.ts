@@ -18,13 +18,46 @@ import type {
   YokeStore,
 } from "../adapters/storage-sharded/index.js";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
+import { commit } from "../core/commit.js";
+import { seedOntology } from "../core/ontology.js";
 
 export type { AuditEvent, YokeStore };
 
 type Env = Record<string, string | undefined>;
 
-/** Resolve and build the store (unopened — the caller awaits init()). */
+/** Resolve, open and seed the store. A server owns its store's lifecycle: creating it, migrating it
+ * and seeding the base ontology are what every one of these backends does at boot, so there is no
+ * command a person runs first — and no way for a backend to need a ceremony the others do not. */
 export async function openStore(
+  opts: { db?: string; shards?: string },
+  env: Env,
+): Promise<YokeStore> {
+  const store = await resolveStore(opts, env);
+  await store.init();
+  await seed(store);
+  return store;
+}
+
+/** Idempotent: a store that already holds `yoke:system` is left alone. Answers whether it seeded. */
+export async function seed(store: YokeStore): Promise<boolean> {
+  if (await store.getEntity("yoke:system")) return false;
+  const ontology = seedOntology();
+  await store.saveOntology(ontology);
+  // Through the gate, not `putEntity`. A nonexistent id creates version 1, so the bootstrap person is
+  // committed the same way every later record is.
+  const ts = new Date().toISOString();
+  await commit(
+    store,
+    ontology,
+    { type: "person", attributes: { name: "system" } },
+    { actor: "yoke:system", origin: "cli", occurred_at: ts },
+    ts,
+    { existingId: "yoke:system" },
+  );
+  return true;
+}
+
+async function resolveStore(
   opts: { db?: string; shards?: string },
   env: Env,
 ): Promise<YokeStore> {

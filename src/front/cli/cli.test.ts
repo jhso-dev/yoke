@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
@@ -20,6 +20,7 @@ import { deprecate, verify } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import { safeName } from "../../core/persona.js";
 import type { Provenance } from "../../core/types.js";
+import { openStore } from "../store.js";
 import { cli } from "./harness.js";
 import { loadDotEnv } from "./index.js";
 
@@ -50,14 +51,8 @@ function newDb(): string {
 }
 
 describe("runCli", () => {
-  it("init → add → get → search round-trip", async () => {
+  it("add → get → search round-trip", async () => {
     const db = newDb();
-
-    expect(await cli(["init", "--db", db])).toBe(0);
-
-    // Idempotent re-run: does not re-seed.
-    expect(await cli(["init", "--db", db])).toBe(0);
-    expect(logs.at(-1)).toContain("already initialized");
 
     // add (use --json to capture the id)
     expect(
@@ -89,26 +84,10 @@ describe("runCli", () => {
     expect(found.some((e: { id: string }) => e.id === added.id)).toBe(true);
   });
 
-  // SPEC "A command reports the store it actually opened": the human line names the resolved store,
-  // while `--json`'s `db` stays the LOCAL sqlite path a script was already reading.
-  it("init names the store it opened, and --json keeps db a path", async () => {
-    const db = newDb();
-    expect(await cli(["init", "--db", db, "--json"])).toBe(0);
-    expect(JSON.parse(logs.at(-1) as string)).toMatchObject({
-      db,
-      store: db,
-      seeded: true,
-    });
-    // The plain-sqlite label IS the db path — the two only diverge under --shards or a remote
-    // backend, which storage-sharded's CLI test covers for the case that was actually wrong.
-  });
-
   it("overview writes the audit row the MCP tool writes — no silent adapter", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(await cli(["overview", "--db", db])).toBe(0);
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     const rows = store.listAudit().filter((a) => a.action === "overview");
     store.close();
     expect(rows).toHaveLength(1);
@@ -117,11 +96,9 @@ describe("runCli", () => {
 
   it("review orders most-consumed first and says the count", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // Aged fixtures need a past clock, which the CLI does not have — seed through the store the way
     // the lifecycle tests do, then read through the real command against the real current clock.
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     const ont = store.loadOntology(null);
     const then = "2020-06-01T00:00:00Z";
     const past: Provenance = {
@@ -176,10 +153,8 @@ describe("runCli", () => {
   // best-effort, so a locked trail can never turn a successful read into a failed query.
   it("C7: a read survives a locked audit trail — answer returned, trail row best-effort", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // Seed one verified fact so the reads have something to return.
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     const ont = store.loadOntology(null);
     const at = "2026-07-13T00:00:00Z";
     const prov: Provenance = { actor: "seed", origin: "cli", occurred_at: at };
@@ -225,10 +200,8 @@ describe("runCli", () => {
   // window, and the window is named in the output — never a silent slice.
   it("F1: review bounds the consumption read to a window, not the whole trail", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // An aged verified record, so the stale queue is non-empty and reaches the consumption count.
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     const ont = store.loadOntology(null);
     const then = "2020-06-01T00:00:00Z";
     const past: Provenance = {
@@ -272,7 +245,6 @@ describe("runCli", () => {
 
   it("rejects invalid add with exit 1", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // decision requires conclusion/rationale → the gate rejects when they are missing.
     expect(await cli(["add", "decision", "--db", db])).toBe(1);
     expect(errs.at(-1)).toContain("rejected");
@@ -280,7 +252,6 @@ describe("runCli", () => {
 
   it("add --scope creates a relates_to link to the scope entity (v4.0)", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // a collaboration to scope to
     expect(
       await cli([
@@ -310,8 +281,7 @@ describe("runCli", () => {
     ).toBe(0);
     const factId = JSON.parse(logs.at(-1) as string).id as string;
     // verify the link via neighbors
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     const rels = await store.neighbors(factId, "relates_to");
     store.close();
     expect(rels.some((r) => r.from === factId && r.to === wsId)).toBe(true);
@@ -319,7 +289,6 @@ describe("runCli", () => {
 
   it("lifecycle E2E: add(born verified) → shown in inject → deprecate → excluded → verify revives", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
 
     // add → live immediately, signed by the actor
     expect(
@@ -376,14 +345,12 @@ describe("runCli", () => {
 
   it("verify with no ids is a usage error", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(await cli(["verify", "--db", db])).toBe(1);
     expect(errs.at(-1)).toContain("usage: yoke verify");
   });
 
   it("conflicts lists conflicts_with pairs with both entities", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // Seed two conflicting decisions + a conflicts_with relation directly, through the gate.
     const ont = seedOntology();
     const now = "2026-07-12T00:00:00Z";
@@ -392,8 +359,7 @@ describe("runCli", () => {
       origin: "cli",
       occurred_at: now,
     };
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     const a = await commit(
       store,
       ont,
@@ -436,7 +402,6 @@ describe("runCli", () => {
 
     // a fresh DB with no conflicts
     const db2 = newDb();
-    expect(await cli(["init", "--db", db2])).toBe(0);
     expect(await cli(["conflicts", "--db", db2])).toBe(0);
     expect(logs.at(-1)).toBe("no conflicts");
 
@@ -450,7 +415,6 @@ describe("runCli", () => {
 
   it("persona writes SKILL.md for a person to --out dir", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // Record a decision with yoke:system (person, verified) as actor, then promote it with the same actor.
     expect(
       await cli([
@@ -494,7 +458,6 @@ describe("runCli", () => {
   // files a person from an IdP claim).
   it("persona: a person's name cannot inject frontmatter keys or text into the skill", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli([
         "add",
@@ -526,7 +489,6 @@ describe("runCli", () => {
   // `--check` reads the SOURCES, so it reports "all current" about a retired person's document.
   it("persona: refuses to export for a retired person", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli([
         "add",
@@ -552,7 +514,6 @@ describe("runCli", () => {
   // to be usable as a CI gate, so a green file must be 0 and a moved source must be 1.
   it("persona --check passes a fresh export and fails once a source is retired", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli([
         "add",
@@ -606,7 +567,6 @@ describe("runCli", () => {
   // trimmed to one reported "1 of 1 sources moved", saying nothing about the two it no longer named.
   it("persona --check counts against the number the header declares", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli([
         "add",
@@ -639,7 +599,6 @@ describe("runCli", () => {
 
   it("persona --check refuses a file that is not an export, and one that does not exist", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const notAnExport = join(dir, "readme.md");
     writeFileSync(notAnExport, "# just a readme\n");
     expect(await cli(["persona", "--check", notAnExport, "--db", db])).toBe(1);
@@ -653,7 +612,6 @@ describe("runCli", () => {
   // deprecate names what rests on the retired record (v5.8) — "3 records" routes nobody.
   it("deprecate reports the records that declared they derive from it", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const addFact = async (statement: string) => {
       expect(
         await cli([
@@ -688,12 +646,10 @@ describe("runCli", () => {
 
   it("backfill derives authorship edges for pre-upgrade knowledge, idempotently", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
 
     // A database written before authorship was a graph edge: same gate, but no authored_by type to
     // derive an edge from. The person anchor cannot see this knowledge yet.
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     const legacy = seedOntology().filter((t) => t.name !== "authored_by");
     const prov: Provenance = {
       actor: "alex",
@@ -746,7 +702,6 @@ describe("runCli", () => {
     // `add <relation>` cannot do this: a relation needs endpoints and `add` has nowhere to put them,
     // so works_on had no creation path at all and every "people on this work" panel was empty.
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const mk = async (type: string, attr: string) => {
       expect(
         await cli(["add", type, "--attr", attr, "--db", db, "--json"]),
@@ -779,7 +734,6 @@ describe("runCli", () => {
 
   it("list / graph / get --relations / inject --scope give the web tier its CLI parity", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli([
         "add",
@@ -876,7 +830,6 @@ describe("runCli", () => {
 
   it("ontology list + add-type (migration = new version)", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
 
     // the seed types appear in list
     expect(await cli(["ontology", "list", "--db", db, "--json"])).toBe(0);
@@ -912,7 +865,6 @@ describe("runCli", () => {
 
   it("deprecate --reason rides on the retiring version, and every read of the record says it", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli([
         "add",
@@ -970,7 +922,6 @@ describe("runCli", () => {
 
   it("history lists all versions; audit records inject events", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli([
         "add",
@@ -1045,7 +996,6 @@ describe("runCli", () => {
     // whether graph expansion is worth building on, and it has to come out of the trail. The write
     // side recorded it from v5.2 and nothing read it — this is the read.
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli([
         "add",
@@ -1094,7 +1044,6 @@ describe("runCli", () => {
 
   it("inject --unseen hands a working context over once, then only what changed", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const add = async (type: string, attrs: string[]) => {
       expect(await cli(["add", type, "--db", db, ...attrs, "--json"])).toBe(0);
       const id = JSON.parse(logs.at(-1) as string).id as string;
@@ -1236,7 +1185,6 @@ describe("runCli", () => {
 
   it("audit --pulse reads the loop's health from the trail, skipped denominators named", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const tick = () => new Promise((r) => setTimeout(r, 5));
     const add = async (type: string, attrs: string[]) => {
       expect(
@@ -1319,7 +1267,6 @@ describe("runCli", () => {
 
   it("audit --roi keeps measured and assumed apart, and an old delivery earns nothing", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const add = async (type: string, attrs: string[]) => {
       expect(
         await cli([
@@ -1414,7 +1361,6 @@ describe("runCli", () => {
 
   it("connect notes ingests transcript chunks, idempotently", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const notesDir = join(dir, "notes-fixture");
     mkdirSync(notesDir, { recursive: true });
     writeFileSync(
@@ -1459,7 +1405,6 @@ describe("runCli", () => {
 
   it("namespace isolation: add in ns A is invisible from ns B, visible from ns A", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
 
     // add a fact into namespace "tenant-a"
     expect(
@@ -1534,22 +1479,10 @@ describe("runCli", () => {
     expect(errs.at(-1)).toContain("getting started");
   });
 
-  it("ontology-needing commands on an uninitialized DB point at 'yoke init'", async () => {
-    const db = newDb();
-    expect(
-      await cli(["add", "fact", "--db", db, "--attr", "statement=x"]),
-    ).toBe(1);
-    expect(errs.at(-1)).toContain("yoke init");
-    expect(await cli(["inject", "anything", "--db", db])).toBe(1);
-    expect(errs.at(-1)).toContain("yoke init");
-  });
-
   it("inject with only stale matches says they were withheld (json stays raw)", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // Aged fixture: born verified in 2020, long past fact's TTL — the CLI reads the real clock.
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     const then = "2020-06-01T00:00:00Z";
     await commit(
       store,
@@ -1579,7 +1512,6 @@ describe("runCli", () => {
     // the CLI the primary interface for review/verify). Found by generating traffic and watching the
     // rows fail to appear, not by a test.
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli(["add", "person", "--db", db, "--attr", "name=Dana", "--json"]),
     ).toBe(0);
@@ -1660,7 +1592,6 @@ describe("runCli", () => {
     // not, and nothing compared them. Any new governance path must name an action already understood
     // by the audit viewer, whose MEANING map is keyed on exactly these.
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli([
         "add",
@@ -1714,13 +1645,11 @@ describe("runCli", () => {
 describe("review (the re-confirmation queue)", () => {
   it("lists verified records past their TTL and says what it examined", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
 
     // Freshness is computed from `last_confirmed` + the type's ttl_days against the wall clock, and
     // the CLI uses the real clock — so the record is seeded with an OLD confirmation rather than the
     // clock being moved. `fact` declares 180 days; 2020 is well past that and stays past it.
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     const ont = store.loadOntology(null);
     const old: Provenance = {
       actor: "alice",
@@ -1760,7 +1689,6 @@ describe("review (the re-confirmation queue)", () => {
 
   it("says how many it scanned even when nothing aged out", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(await cli(["review", "--db", db])).toBe(0);
     expect(logs.at(-1)).toMatch(/no stale records \(scanned \d+ verified\)/);
   });
@@ -1769,10 +1697,8 @@ describe("review (the re-confirmation queue)", () => {
 describe("inject --as-of", () => {
   it("returns what was verified then, not what is verified now", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
 
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     const ont = store.loadOntology(null);
     const t0 = "2026-07-12T00:00:00Z";
     const { entity } = await commit(
@@ -1809,8 +1735,7 @@ describe("inject --as-of", () => {
 
     // The trail records WHICH clock answered — otherwise a historical read is indistinguishable from
     // a current one in the audit log, and the row would misrepresent what was injected.
-    const check = new SqliteStorage(db);
-    await check.init();
+    const check = await openStore({ db }, {});
     const entry = check
       .listAudit()
       .filter((a) => a.action === "inject")
@@ -1823,7 +1748,6 @@ describe("inject --as-of", () => {
 describe("the duplicate check says when it did not run", () => {
   it("yoke add reports a skipped check instead of implying a clean one", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // No YOKE_EMBED_* in this env, which is the state every CLI user is in unless they exported it —
     // `.mcp.json` only reaches the MCP server's process.
     expect(
@@ -1848,7 +1772,6 @@ describe("the duplicate check says when it did not run", () => {
 
   it("--json output is unchanged — the notice is human text only", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli(
         [
@@ -1873,7 +1796,6 @@ describe("the duplicate check says when it did not run", () => {
 describe("backfill --embeddings", () => {
   it("reports what it scanned, and says so when no provider answered", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     for (const n of ["one", "two"])
       expect(
         await cli(
@@ -1894,7 +1816,6 @@ describe("backfill --embeddings", () => {
 
   it("plain backfill still does authorship — the flag is what switches repairs", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(await cli(["backfill", "--db", db, "--json"], NO_EMBED)).toBe(0);
     const r = JSON.parse(logs.at(-1) as string) as Record<string, unknown>;
     expect(r).toHaveProperty("created");
@@ -1903,7 +1824,6 @@ describe("backfill --embeddings", () => {
 
   it("embeds for real against a configured provider, and is idempotent", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli(
         ["add", "fact", "--db", db, "--attr", "statement=vector coverage"],
@@ -2027,8 +1947,7 @@ describe("loadDotEnv", () => {
 describe("the CLI shows the status injection uses", () => {
   /** A verified fact confirmed long enough ago to be past the seeded 180-day `fact` TTL. */
   async function agedFact(db: string): Promise<string> {
-    const port = new SqliteStorage(db);
-    await port.init();
+    const port = await openStore({ db }, {});
     const long_ago = "2025-01-01T00:00:00Z";
     const { entity } = await commit(
       port,
@@ -2051,7 +1970,6 @@ describe("the CLI shows the status injection uses", () => {
     "search",
   ])("reports it as stale in %s", async (cmd) => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const id = await agedFact(db);
     const argv =
       cmd === "get"
@@ -2072,7 +1990,6 @@ describe("the CLI shows the status injection uses", () => {
 describe("a filter value that cannot match is refused", () => {
   it("points --status stale at the command that answers it", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // `stale` is computed at read time and pushed down to SQL, so no stored row can carry it.
     expect(await cli(["list", "--status", "stale", "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain("yoke review");
@@ -2083,14 +2000,12 @@ describe("a filter value that cannot match is refused", () => {
     ["DRAFT", "must be one of"],
   ])("refuses --status %s", async (value, expected) => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(await cli(["list", "--status", value, "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain(expected);
   });
 
   it("lists the declared types when --type is not one of them", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(await cli(["list", "--type", "nosuchtype", "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain("unknown type: nosuchtype");
     expect(errs.join("\n")).toContain("fact");
@@ -2129,7 +2044,6 @@ describe("a near-miss command gets the correction", () => {
 describe("an argument the CLI cannot use is refused, not dropped", () => {
   it("refuses the words a query would have silently lost", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // `yoke inject cache sessions` searched for "cache" alone, returned a record the full phrase
     // excludes, and wrote "cache" into the audit trail as the question that had been asked.
     expect(await cli(["inject", "cache", "sessions", "--db", db])).toBe(1);
@@ -2146,7 +2060,6 @@ describe("an argument the CLI cannot use is refused, not dropped", () => {
     ["ontology list", ["ontology", "list", "extra"]],
   ])("refuses an extra argument to %s", async (_name, argv) => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(await cli([...argv, "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain("unexpected argument");
   });
@@ -2173,7 +2086,6 @@ describe("an argument the CLI cannot use is refused, not dropped", () => {
     ],
   ])("refuses %s", async (_name, argv, expected) => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(await cli([...argv, "--db", db])).toBe(1);
     expect(errs.join("\n")).toContain(expected);
   });
@@ -2181,7 +2093,6 @@ describe("an argument the CLI cannot use is refused, not dropped", () => {
   // `--depth` needs an anchor, so this one reaches the number check only with a scope to walk from.
   it("refuses a --depth that is not a number", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli([
         "inject",
@@ -2199,7 +2110,6 @@ describe("an argument the CLI cannot use is refused, not dropped", () => {
 
   it("does not claim a record is missing when only the version is", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // yoke:system is seeded, so this id exists — "not found" would be a false claim about the corpus,
     // and the reader who believes it stops looking.
     expect(
@@ -2230,7 +2140,6 @@ describe("--help never runs the command", () => {
     "backfill",
   ])("prints usage for %s instead of running it", async (cmd) => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     logs.length = 0;
     expect(await cli([cmd, "--help", "--db", db])).toBe(0);
     expect(logs.join("\n")).toContain(`usage: yoke ${cmd}`);
@@ -2240,7 +2149,6 @@ describe("--help never runs the command", () => {
     // The one that mutated: `backfill --help` re-derived authorship edges and printed "scanned N
     // entities, added M authorship edges".
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(
       await cli(["add", "fact", "--attr", "statement=x", "--db", db]),
     ).toBe(0);
@@ -2257,7 +2165,6 @@ describe("--help never runs the command", () => {
 
   it("documents the flags that were reachable from nowhere", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     logs.length = 0;
     expect(await cli(["review", "--help", "--db", db])).toBe(0);
     expect(logs.join("\n")).toContain("re-confirmation queue");
@@ -2304,7 +2211,6 @@ describe("rename-type sees both tables it is about to rewrite", () => {
 
   it("refuses to merge one relation type into another that has edges", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const [a, b] = await twoFacts(db);
     expect(await declare(db, "mentions")).toBe(0);
     expect(await declare(db, "blocks")).toBe(0);
@@ -2322,7 +2228,6 @@ describe("rename-type sees both tables it is about to rewrite", () => {
     // whatever those edges point at — verified knowledge leaving every answer with no trace but an
     // audit line.
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const [a, b] = await twoFacts(db);
     expect(await declare(db, "notes")).toBe(0);
     expect(await cli(["link", b, "notes", a, "--db", db])).toBe(0);
@@ -2348,7 +2253,6 @@ describe("a kind flip sees the table its records are actually in", () => {
   // declaration and `yoke link … cites …` is refused as "an entity type".
   it("refuses turning a populated relation type into an entity type", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     const declare = (kind: string) => {
       const file = join(dir, `cites-${kind}.json`);
       writeFileSync(file, JSON.stringify({ name: "cites", kind, attrs: {} }));
@@ -2387,6 +2291,24 @@ describe("the team path", () => {
   //      so there is no ungated path onto a shared corpus to guard.
   //   2. With a gated server the actor comes off the verified credential, so `--actor` cannot claim
   //      to be anybody.
+  // 3. The signing key is the SERVER's. A client that held it could mint whatever the server accepts,
+  //    so `token create` is a request, not a local signature — even with the key in this shell.
+  it("never signs a credential itself, even holding the signing key", async () => {
+    const code = await cli(
+      ["token", "create", "--name", "ci", "--scopes", "read"],
+      {
+        ...NO_EMBED,
+        YOKE_TOKEN_SECRET: "a-key-the-client-should-not-use",
+        YOKE_SERVER: "http://127.0.0.1:45999",
+      },
+    );
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toMatch(
+      /no yoke server at http:\/\/127\.0\.0\.1:45999/,
+    );
+    expect(logs.join("\n")).not.toMatch(/eyJ/);
+  });
+
   it("never opens a backend itself, whatever is exported", async () => {
     // A cluster address that would resolve if anything reached for it, and a port with nothing on
     // it. The failure has to be about the SERVER, not about OpenSearch: that is the proof the CLI
@@ -2488,7 +2410,6 @@ describe("relate proposes edges where the model is, over a corpus it never holds
   // the same gate as one a person typed, and the CLI never opens the store to do any of it.
   it("links what the model proposes, keeps its reason, and says so the second time", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     // Two records that share words, so the anchor's search actually finds the earlier one.
     for (const c of ["결제 재시도는 3회", "결제 재시도 간격은 백오프"])
       expect(
@@ -2544,8 +2465,7 @@ describe("relate proposes edges where the model is, over a corpus it never holds
 
       // The sentence that justified the edge rides it — a reviewer deciding whether the link is real
       // should not have to reconstruct why a model thought so.
-      const store = new SqliteStorage(db);
-      await store.init();
+      const store = await openStore({ db }, {});
       const edges = (await store.listRelations({ type: "relates_to" })).items;
       expect(
         edges.some((e) => e.attributes.rationale === "같은 결제 영역"),
@@ -2567,7 +2487,6 @@ describe("relate proposes edges where the model is, over a corpus it never holds
 
   it("refuses without a model rather than reporting a corpus with nothing to connect", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db])).toBe(0);
     expect(await cli(["relate", "--db", db], NO_EMBED)).toBe(1);
     expect(errs.join("\n")).toContain("relate needs a model");
   });
@@ -2580,7 +2499,6 @@ describe("bulk entry is sized for source material, not for a form post", () => {
   // do it, because item sizes differ by orders of magnitude.
   it("ingests a directory whose chunks far exceed one request's default cap", async () => {
     const db = newDb();
-    expect(await cli(["init", "--db", db], NO_EMBED)).toBe(0);
     const notes = join(dir, `notes-${Math.random().toString(36).slice(2)}`);
     mkdirSync(notes, { recursive: true });
     // ~1.2 MB of source in total — several times the 256 KiB the other routes accept.
@@ -2593,8 +2511,7 @@ describe("bulk entry is sized for source material, not for a form post", () => {
       0,
     );
     expect(logs.join("\n")).toMatch(/added \d+/);
-    const store = new SqliteStorage(db);
-    await store.init();
+    const store = await openStore({ db }, {});
     expect(
       (await store.listEntities({ type: "fact", limit: 1000 })).items.length,
     ).toBeGreaterThan(100);
@@ -2602,17 +2519,24 @@ describe("bulk entry is sized for source material, not for a form post", () => {
   }, 30_000);
 });
 
-describe("serve refuses a store nothing ever initialized", () => {
-  // `serve --db ./yok.db` on a typo would otherwise start on an empty corpus and answer every client
-  // "nothing" — from a database the typo itself created. The check runs BEFORE the store is opened,
-  // because opening it is what brings the file into existence.
-  it("names 'yoke init' and leaves no database behind", async () => {
+describe("the server owns its store", () => {
+  // No command a person runs first: a server creates and seeds the store it was pointed at, the way
+  // every one of these backends does. `serve --db ./yok.db` on a typo therefore starts on a NEW
+  // empty corpus, which is why the line saying so has to be there.
+  it("creates and seeds a store that did not exist, and says it created one", async () => {
     const { runServe } = await import("../serve/index.js");
-    const missing = newDb();
-    await expect(runServe(missing, 0, { ...NO_EMBED }, {})).rejects.toThrow(
-      /not initialized/,
-    );
-    expect(existsSync(missing)).toBe(false);
+    const fresh = newDb();
+    const server = await runServe(fresh, 0, { ...NO_EMBED }, {});
+    try {
+      expect(existsSync(fresh)).toBe(true);
+      expect(logs.join("\n")).toContain(`store created: ${resolve(fresh)}`);
+      // Seeded through the gate, so the corpus is usable without any further step.
+      expect(
+        await cli(["add", "fact", "--db", fresh, "--attr", "statement=x"]),
+      ).toBe(0);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
   });
 });
 
@@ -2623,8 +2547,6 @@ describe("one port, many projects", () => {
   it("refuses a server holding someone else's store, before it writes", async () => {
     const mine = newDb();
     const theirs = newDb();
-    expect(await cli(["init", "--db", mine], NO_EMBED)).toBe(0);
-    expect(await cli(["init", "--db", theirs], NO_EMBED)).toBe(0);
 
     const { runServe } = await import("../serve/index.js");
     const server = await runServe(theirs, 0, NO_EMBED, {});
@@ -2655,8 +2577,7 @@ describe("one port, many projects", () => {
       ).rejects.toThrow(/another project's/);
 
       // And nothing was written to either store.
-      const store = new SqliteStorage(theirs);
-      await store.init();
+      const store = await openStore({ db: theirs }, {});
       expect(
         (await store.listEntities({ type: "fact", limit: 10 })).items,
       ).toHaveLength(0);

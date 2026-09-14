@@ -88,7 +88,7 @@ docker run -d --name yoke-opensearch -p 9200:9200 \
 export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=...   # a secured cluster only
 export YOKE_OPENSEARCH_PREFIX=team_a_                            # optional: two yoke DBs, one cluster
-yoke init                                                        # creates the indices, seeds the ontology
+yoke serve                                                       # creates the indices, seeds the ontology
 ```
 
 The same exports work in a `.env` in the working directory (`cp .env.example .env`; SPEC
@@ -124,7 +124,7 @@ docker run -d --name yoke-pg -e POSTGRES_PASSWORD=... -p 5432:5432 pgvector/pgve
 
 export YOKE_POSTGRES_URL=postgres://postgres:...@localhost:5432/postgres
 export YOKE_POSTGRES_SCHEMA=team_a               # optional: two yoke DBs in one database
-yoke init                                        # creates the schema + tables, seeds the ontology
+yoke serve                                       # creates the schema + tables, seeds the ontology
 ```
 
 Same split: `--db` still names the local sqlite holding this client's audit trail and tokens; the

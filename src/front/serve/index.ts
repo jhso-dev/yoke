@@ -19,7 +19,12 @@ import {
 import { resolve } from "node:path";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { commit } from "../../core/commit.js";
-import { type Embedder, makeFetchEmbedder } from "../../core/embedding.js";
+import {
+  type Embedder,
+  makeFetchEmbedder,
+  resolveEmbedConfig,
+  suppressEmbedAnnounce,
+} from "../../core/embedding.js";
 import { resolveNs } from "../../core/namespace.js";
 
 /** A backend that lives somewhere other than this machine's filesystem. */
@@ -403,6 +408,33 @@ export function createServeServer(deps: ServeDeps): Server {
   return server;
 }
 
+/** The recommended local model, and why it is this one: `bge-m3` covers 100+ languages in one
+ * 1024-dimension model (MIT, 8192-token context) and lives in Ollama's shared cache — 0 bytes in
+ * this package, which is why no model ships with yoke (SPEC "Tech stack"). An English-centric model
+ * (e.g. `nomic-embed-text`) makes the vector half of retrieval useless on a corpus with substantial
+ * non-English knowledge — indistinguishable from no embedder. */
+const SUGGESTED_EMBED_MODEL = "bge-m3";
+
+/** The state of retrieval on THIS server, said once at boot: a keyword-only deployment is otherwise
+ * indistinguishable from a working one until someone notices the answers are worse. Resolved by the
+ * same function every later read embeds through, so the two cannot disagree. Never blocks (the
+ * resolver is bounded) and never fails the boot. */
+async function announceEmbedder(env: Env): Promise<void> {
+  const cfg = await resolveEmbedConfig(env);
+  // Pinned by env: the operator already knows, and repeating their own configuration is noise.
+  if (cfg && !cfg.auto) return;
+  // Silence the one-shot runtime notice: this has just said the same thing, more fully.
+  suppressEmbedAnnounce();
+  console.log(
+    cfg
+      ? `embeddings on — using ${cfg.model} at ${cfg.url} (no configuration needed; ` +
+          "set YOKE_EMBED_URL/MODEL to pin a different provider)"
+      : "no embedding provider — retrieval will be keyword-only and duplicate/contradiction " +
+          `detection is skipped. Run 'ollama pull ${SUGGESTED_EMBED_MODEL}' (it is then used ` +
+          "automatically), or set YOKE_EMBED_URL and YOKE_EMBED_MODEL",
+  );
+}
+
 /** Open the DB, resolve auth/OIDC/actor/ns from env, start listening. Returns the running server. */
 export async function runServe(
   db: string,
@@ -415,6 +447,11 @@ export async function runServe(
     shards?: string;
     /** Bind address. Defaults to loopback — widening is explicit, and requires auth. */
     host?: string;
+    /** Print one admin credential at boot. The chicken-and-egg of a gated server with no external
+     * issuer: minting goes through POST /api/tokens, which needs an admin credential that nothing
+     * has yet. The operator who holds the signing key runs this once and mints the rest through the
+     * route. Printed to stdout, so it is the operator's to capture — not written anywhere. */
+    bootstrapAdmin?: boolean;
   } = {},
 ): Promise<Server> {
   const auth = opts.auth || env.YOKE_AUTH === "on";
@@ -430,21 +467,6 @@ export async function runServe(
         `SPEC "GitHub exchange"); a machine actor gets ` +
         `'yoke token create --name <who> --scopes "${opts.ns ?? resolveNs(undefined, env) ?? "<namespace>"}:read"'`,
     );
-  // A store that was never `yoke init`ed is almost always a typo'd path: `serve --db ./yok.db` would
-  // otherwise start happily on an empty corpus and every client would read "nothing" from a database
-  // nobody meant to make. The check runs BEFORE openStore, which CREATES the sqlite file — refusing
-  // after opening leaves the stray database behind, which is half the defect. Only the local
-  // single-file path is judged by file existence; a sharded or remote store initializes elsewhere.
-  if (
-    !opts.shards &&
-    !env.YOKE_SHARDS &&
-    !remoteBackend(env) &&
-    !existsSync(db)
-  )
-    throw new Error(
-      `not initialized: ${db} — run 'yoke init --db ${db}' first`,
-    );
-
   // A gated server has to be able to recognise somebody. Without a signing key it mints nothing, so
   // unless an external issuer is configured every request would 401 and the cause would be invisible.
   if (auth && !env.YOKE_TOKEN_SECRET && !oidcFromEnv(env))
@@ -475,8 +497,12 @@ export async function runServe(
     embedder: makeFetchEmbedder(env),
   };
 
+  // A fresh store is created and seeded here, not by a command a person runs first. `serve --db
+  // ./yok.db` on a typo therefore starts on a new empty corpus — which is why it says so.
+  const fresh =
+    !opts.shards && !env.YOKE_SHARDS && !remoteBackend(env) && !existsSync(db);
   const store = await openStore({ db, shards: opts.shards }, env);
-  await store.init();
+  if (fresh) console.log(`store created: ${resolve(db)}`);
 
   const server = createServeServer({ ...common, store });
   server.on("close", () => store.close());
@@ -486,5 +512,21 @@ export async function runServe(
   console.log(
     `yoke serve listening: http://${host}:${bound}  (auth ${auth ? "on" : "off"}, MCP at POST /mcp)`,
   );
+  await announceEmbedder(env);
+  if (opts.bootstrapAdmin) {
+    const signer = credentialSigner(env.YOKE_TOKEN_SECRET);
+    if (!signer)
+      throw new Error(
+        "--bootstrap-admin needs YOKE_TOKEN_SECRET: the credential it prints is signed with it",
+      );
+    const { token } = await signer.mint({
+      name: "bootstrap",
+      scopes: ["admin", "read", "write"],
+      ns: common.ns,
+    });
+    console.log(
+      `bootstrap admin credential (expires in 7 days — mint the rest with 'yoke token create'):\n${token}`,
+    );
+  }
   return server;
 }

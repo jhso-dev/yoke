@@ -37,9 +37,9 @@ Same skeleton as an entity (id/type/status/provenance/version). Plus:
 
 - entity types: `person` (attributes: name (required) — a person is referred to by name on every surface, and the ontology-driven create form offers exactly the declared fields), `fact` (attributes: title, statement (required); `ttl_days: 180` — `statement` is the required one and `title` is not, because the capture connectors turn a message into a statement and have no honest title to give), `decision` (attributes: conclusion, rationale, rejected_alternatives[]; `ttl_days: 365`), `term` (attributes: title (required), statement (required) — a name with no meaning explains nothing and a meaning with no name cannot be looked up), `resource` (attributes: title (required), statement, url), `collaboration` (attributes: title (required)) — a unit of collaborative work grouping people and knowledge (v4.0). Those two `ttl_days` are the seed's only ones; everything else is unlimited, and their absence from this list left the freshness rule below with no stated starting point. `collaboration` declares no `status` attribute: every record already carries a lifecycle status, assigned by the gate and moved by verify/deprecate, and a second field of that name in the same form is a confusion, not a feature. `person` and `collaboration` are marked `structural: true` — they name what knowledge is attached to rather than asserting anything, so injection never returns them as knowledge (see "A roster is not knowledge"). `decision` and `term` are marked `leads: true` — they lead a briefing (see "A briefing has a defined order"): conclusions and vocabulary ahead of recency, because the record a session must not miss is the one a noisy capture week evicts first. Like `structural`, it is ontology data — an org whose spine is `incident` marks it and gets the behaviour with no core change
 - relation types: `authored_by`, `relates_to`, `supersedes`, `conflicts_with` (created by the gate at stage 4), `works_on` (person → collaboration, v4.0), `same_as` (person → person, v5.6 — see "Identity across sources"), `derived_from` (record → the knowledge it rests on, v5.8 — see "Derivation")
-- **Seed applies to new DBs only**: the CLI/MCP load the ontology from the DB, not from the seed. A DB initialized before a seed type was added does not gain it on `yoke init` (init is idempotent and does not re-seed). Migrate an existing DB with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
+- **Seed applies to new stores only**: the CLI/MCP load the ontology from the store, not from the seed. A store created before a seed type was added does not gain it when a server next opens it (seeding is idempotent and does not re-seed). Migrate an existing store with `yoke ontology add-type <json-file>` (the documented migration path — no auto-migration).
 - **Ontology storage**: stored append-only, with versions, in a separate `ontology_types` table. **It does not pass through the commit gate** — the gate references it, so allowing that would be circular. Changes happen only through an explicit migration via the `yoke ontology` command.
-- **Bootstrap**: `yoke init` seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself). All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
+- **Bootstrap**: a server seeds a person entity with the well-known id `yoke:system` (its provenance.actor is itself) the first time it opens a store. All subsequent actor resolution: `--actor` flag > `YOKE_ACTOR` env > `yoke:system`.
 
 `collaboration`, not `workstream`: neutral is not the same as recognizable. `workstream` is
 vendor-free, which is why it was chosen first, but a first-time reader does not know it and the
@@ -1082,7 +1082,6 @@ the web UI under an IdP). No cookie session, therefore no CSRF surface.
 ## CLI commands
 
 ```
-yoke init                  # create the DB + seed the default ontology
 yoke add                   # commit one entity through the gate
 yoke get <id> [--relations]  # one record; --relations adds its in/out edges
 yoke search <text> [--type t] [--status s] [--limit n]   # the port's FTS; what /api/search exposes
@@ -1120,8 +1119,11 @@ yoke connect <github-pr|slack|notes|raw|rdb> [--scope id]   # external sources �
 yoke relate [--limit n]    # a model proposes the links BETWEEN stored records — see "Relater contract"
 yoke mcp                   # start the MCP server (stdio)
 yoke ui [--port] [--host]  # local governance workbench (loopback, ungated, single-user)
-yoke serve [--port] [--host] [--auth]                        # UI + JSON API + remote MCP, one port
-yoke token create --name <n> --scopes <list>  # a credential for an actor with no GitHub login (CI, connectors)
+yoke serve [--port] [--host] [--auth] [--bootstrap-admin]    # UI + JSON API + remote MCP, one port
+                           # creates and seeds the store if it is not there; --bootstrap-admin prints
+                           # the first admin credential, which 'token create' then needs
+yoke token create --name <n> --scopes <list>  # asks the server to sign a credential for an actor
+                           # with no GitHub login (CI, connectors) — needs an 'admin' scope
 ```
 
 Common options: `--db <path>` (> `YOKE_DB` > `./yoke.db`), `--ns`, `--actor`, `--json`,

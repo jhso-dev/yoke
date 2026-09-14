@@ -35,9 +35,11 @@ directional decisions.
     machine already holds; nobody distributes tokens. Org membership is the access
     decision, and a member's token carries `read,write`.
   - **OIDC/SSO** — a human at the web UI under the company IdP.
-  - **API tokens** (`yoke token create`) — machine actors (CI, scheduled connectors),
-    the bootstrap `admin` credential (the exchange never grants admin), and a
-    deployment with no GitHub.
+  - **API tokens** (`yoke token create`, signed by the server) — machine actors (CI,
+    scheduled connectors) and a deployment with no GitHub. The client never holds the
+    signing key: the command is a request to `POST /api/tokens`, which needs `admin`.
+    The FIRST admin credential comes from `yoke serve --bootstrap-admin`, since minting
+    through the route needs one already.
 - Authorization axes: namespace × ontology type × action (read / write / **admin**).
   **`write` is the one knowledge permission** — committing, re-confirming and retiring
   are the same trust level, because every entry is signed under a credential-bound
@@ -81,7 +83,7 @@ only the owner shard, and duplicate/contradiction bookkeeping stays with the
 entity's shard. The ontology is the one read that spans two shards: shared
 (null-ns) types live on the default shard, tenant types on the owner shard, and a
 namespaced read overlays them — the same rule §10.1 states for one database. It has
-to: `yoke init` seeds the shared base onto the default shard and a tenant shard is
+to: the base ontology is seeded onto the default shard and a tenant shard is
 never given a copy, so reading the owner shard alone would make a namespace owned by
 one refuse every command ("not initialized"). Known ceilings are documented in `storage-sharded/index.ts`:
 cross-shard `similar` fan-out can surface duplicate warnings across tenants

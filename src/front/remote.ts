@@ -982,6 +982,32 @@ export async function runRemote(
       return 0;
     }
 
+    case "token": {
+      // A credential is signed with the server's key. The client never holds that key — asking it to
+      // would let every caller mint what the server accepts. Arguments are checked by the dispatcher
+      // and the scope grammar by the server, which owns the answer either way.
+      const r = await out("POST", "/api/tokens", {
+        name: v.name,
+        scopes: String(v.scopes).split(","),
+      });
+      const b = r.parsed as {
+        name: string;
+        scopes: string[];
+        token: string;
+        refresh: string;
+      };
+      emit(
+        json,
+        [
+          b.token,
+          `  name: ${b.name}   scopes: ${b.scopes.join(", ")}   expires in 7 days`,
+          `  refresh (POST /api/refresh, good for a year): ${b.refresh}`,
+        ].join("\n"),
+        b,
+      );
+      return 0;
+    }
+
     default:
       return null;
   }

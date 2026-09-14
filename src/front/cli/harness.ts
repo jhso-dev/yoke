@@ -4,15 +4,15 @@
 // stands one up for the call. Per call rather than per file so no two cases share server state, and
 // so the actor and namespace a case passes are the ones the request carries.
 
-import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { makeFetchEmbedder } from "../../core/embedding.js";
 import { createServeServer } from "../serve/index.js";
+import { openStore } from "../store.js";
 import { runCli } from "./index.js";
 
 type Env = Record<string, string | undefined>;
 
-/** The commands that act on a machine: they open the file themselves and need no server. */
-const LOCAL = new Set(["init", "serve", "ui", "mcp", "token"]);
+/** The commands that ARE a machine rather than a call to one. */
+const LOCAL = new Set(["serve", "ui", "mcp"]);
 
 export async function cli(argv: string[], env: Env = {}): Promise<number> {
   const i = argv.indexOf("--db");
@@ -22,13 +22,9 @@ export async function cli(argv: string[], env: Env = {}): Promise<number> {
   if ((!db && !shards) || LOCAL.has(argv[0]) || env.YOKE_SERVER)
     return runCli(argv, env);
   // `--shards` names a store too, and it is the server's to open — so the server opens it and the
-  // call keeps its flags, exactly as it would against a `yoke serve --shards`.
-  const store = shards
-    ? await (
-        await import("../../adapters/storage-sharded/index.js")
-      ).makeShardedStorage(shards)
-    : new SqliteStorage(db as string);
-  await store.init();
+  // call keeps its flags, exactly as it would against a `yoke serve --shards`. Opened through the
+  // same function `serve` uses, so the store is created and seeded the same way.
+  const store = await openStore({ db, shards }, env);
   // `serve`, not `ui`: it is what a person runs, and it is the tier that reads the caller's actor
   // and namespace off the request when nothing authenticates them.
   const server = createServeServer({

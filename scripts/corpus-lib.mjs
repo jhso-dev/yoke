@@ -1,11 +1,9 @@
-// What both corpus loaders must do before either can write a record: probe the embedder, open and
-// seed the store, plant the bootstrap actor, spread occurred_at deterministically. Each loader keeps
-// its own corpus shape and its own spread; only the machinery is shared.
+// What both corpus loaders must do before either can write a record: probe the embedder, open the
+// store, spread occurred_at deterministically. Each loader keeps its own corpus shape and its own
+// spread; only the machinery is shared.
 
 import { commit } from "../dist/core/commit.js";
 import { makeFetchEmbedder } from "../dist/core/embedding.js";
-import { verify } from "../dist/core/lifecycle.js";
-import { seedOntology } from "../dist/core/ontology.js";
 import { openStore } from "../dist/front/store.js";
 
 /** No Math.random: a reload must produce the same corpus, or "it changed" stops being evidence of
@@ -35,31 +33,11 @@ export async function probeEmbedder(env, offNote) {
   return { embedder, vectors };
 }
 
-/**
- * A store with the ontology seeded and `yoke:system` present, plus the commit helper to write through.
- *
- * The bootstrap actor is what `yoke init` plants. Without it `yoke mcp` refuses the database outright
- * ("not initialized"), so a corpus loaded here reads fine from the CLI and the web UI and is unusable
- * over the one interface the product exists to serve. Idempotent, so re-running a loader stays safe.
- */
+/** An opened store (seeded by `openStore`, exactly as a server seeds one) plus the commit helper the
+ *  loaders write through. Idempotent, so re-running a loader stays safe. */
 export async function openSeededStore({ db, env, embedder, origin, ns }) {
   const store = await openStore({ db }, env);
-  await store.init();
-  const ontology = seedOntology();
-  await store.saveOntology(ontology);
-
-  if (!(await store.getEntity("yoke:system"))) {
-    const at = "2025-01-01T00:00:00.000Z";
-    const { entity } = await commit(
-      store,
-      ontology,
-      { type: "person", attributes: { name: "yoke" } },
-      { actor: "yoke:system", origin: "seed", occurred_at: at },
-      at,
-      { existingId: "yoke:system" },
-    );
-    await verify(store, [entity.id], "yoke:system", at);
-  }
+  const ontology = store.loadOntology(null);
 
   const add = async (input, actor, at, existingId) => {
     const { entity } = await commit(

@@ -4,7 +4,7 @@
 // Command handlers are split out as runCli(argv, env) — testable without spawning a process; exit code is the return value.
 // Time is obtained only in this front tier (core receives `now` by injection).
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -20,17 +20,11 @@ import type {
 import { makeFetchRelater } from "../../connectors/relate.js";
 import { makeSlackConnector } from "../../connectors/slack.js";
 import type { Connector } from "../../connectors/types.js";
-import { commit } from "../../core/commit.js";
-import {
-  resolveEmbedConfig,
-  suppressEmbedAnnounce,
-} from "../../core/embedding.js";
 import { resolveNs } from "../../core/namespace.js";
-import { seedOntology, type TypeDef } from "../../core/ontology.js";
+import type { TypeDef } from "../../core/ontology.js";
 import { instantFlag, intFlag, noExtra, UsageError } from "../params.js";
-import { parseScope, SCOPE_GRAMMAR, validateScopes } from "../serve/rbac.js";
-import { openStore, type YokeStore } from "../store.js";
-import { banner, decorated, getStartedBlock, log, version } from "./banner.js";
+import { SCOPE_GRAMMAR } from "../serve/rbac.js";
+import { version } from "./banner.js";
 
 type Values = {
   db?: string;
@@ -59,6 +53,7 @@ type Values = {
   scope?: string;
   scopes?: string;
   auth?: boolean;
+  "bootstrap-admin"?: boolean;
   until?: string;
   force?: boolean;
   relations?: boolean;
@@ -103,6 +98,7 @@ const OPTIONS = {
   scope: { type: "string" },
   scopes: { type: "string" },
   auth: { type: "boolean" },
+  "bootstrap-admin": { type: "boolean" },
   until: { type: "string" },
   // Why a record was retired. Governance acts only — see cmdDeprecate.
   reason: { type: "string" },
@@ -126,7 +122,7 @@ const OPTIONS = {
 
 type Env = Record<string, string | undefined>;
 
-const now = (): string => new Date().toISOString();
+const _now = (): string => new Date().toISOString();
 
 const resolveDb = (v: Values, env: Env): string =>
   v.db ?? env.YOKE_DB ?? "./yoke.db";
@@ -145,7 +141,7 @@ const resolveShards = (v: Values, env: Env): string | undefined =>
  * `resolveDb` alone names the LOCAL sqlite whatever the store actually is; under `--shards` that is
  * wrong, and under a remote backend it is half true (the local db still holds this client's audit +
  * tokens), so this reports both halves rather than picking one. */
-function storeLabel(v: Values, env: Env): string {
+function _storeLabel(v: Values, env: Env): string {
   const shards = resolveShards(v, env);
   if (shards) return `shards ${shards}`;
   const db = resolveDb(v, env);
@@ -156,7 +152,6 @@ function storeLabel(v: Values, env: Env): string {
 
 /** Every dispatchable command name, for the did-you-mean below. */
 const COMMANDS = [
-  "init",
   "link",
   "add",
   "get",
@@ -200,16 +195,16 @@ function editDistance(a: string, b: string): number {
   return prev[b.length];
 }
 
-/** The commands that act on a MACHINE rather than on a corpus: they open a file, bind a port, or
- * sign a credential, and a server is no help with any of it. Everything else is a client call. */
-const LOCAL_COMMANDS = new Set(["init", "serve", "ui", "mcp", "token"]);
+/** The commands that ARE a machine rather than a call to one: two of them are the server, and `mcp`
+ * relays another protocol into it. Everything else the CLI does is a client call. */
+const LOCAL_COMMANDS = new Set(["serve", "ui", "mcp"]);
 
 function usage(): string {
   return `yoke — knowledge your AI can trust
 
 getting started:
-  init                      create ./yoke.db and seed the ontology
-  serve                     hold it on 127.0.0.1:4800 — every command below goes through a server
+  serve                     hold the corpus on 127.0.0.1:4800 (it creates one on first run) —
+                            every command below goes through a server
   add <type> --attr k=v     record knowledge (live immediately, signed by --actor)
   review                    the re-confirmation queue: what went stale, most-consumed first
   verify <id...>            re-confirm — refresh a record's freshness window (also revives a retired id)
@@ -229,141 +224,6 @@ data:       audit, backfill, rename-type
 
 common options: --db <path> --ns <namespace> --actor <id> --json
 run 'yoke <command>' with missing args to see its usage`;
-}
-
-// Open the resolved store (ShardedStorage under --shards, else SqliteStorage), run fn, always close.
-//
-// `create` is the opt-out for the two commands that bootstrap a store from nothing — `init` and
-// `ontology add-type` (which seeds a fresh tenant ontology). For everything else a read or write on a
-// store that was never `yoke init`ed must REFUSE, and must not bring the file into existence doing it:
-// `openStore` opens a better-sqlite3 Database, which creates the path, so the guard runs BEFORE it —
-// otherwise a read on a typo'd `--db` prints "nothing", exits 0, and leaves a stray db behind. This
-// matches the refusal the server gives a command asked of an uninitialized corpus. Only the local
-// single-file path is judged by file existence; a sharded or remote store initializes elsewhere.
-async function withStore<T>(
-  v: Values,
-  env: Env,
-  fn: (s: YokeStore) => Promise<T>,
-  opts?: { create?: boolean },
-): Promise<T> {
-  // Only `init`, `backup` and `export` reach here, and a remote backend is theirs to open: each is
-  // what an operator runs where the corpus lives. NOTHING on this path files knowledge any more, so
-  // there is no ungated write to guard against — the commands that file go through the server, which
-  // reads the actor off a credential.
-  const remote = env.YOKE_OPENSEARCH_URL ?? env.YOKE_POSTGRES_URL;
-  if (
-    !opts?.create &&
-    !resolveShards(v, env) &&
-    !remote &&
-    !existsSync(resolveDb(v, env))
-  )
-    throw new UsageError(
-      `not initialized: ${storeLabel(v, env)} — run 'yoke init' first`,
-    );
-  const store = await openStore(
-    { db: resolveDb(v, env), shards: resolveShards(v, env) },
-    env,
-  );
-  await store.init();
-  try {
-    return await fn(store);
-  } finally {
-    store.close();
-  }
-}
-
-/** The recommended local model, and the reason it is this one.
- *
- * `bge-m3` covers 100+ languages in one 1024-dimension model (MIT, 8192-token context) and lives in
- * Ollama's shared cache — 0 bytes in this package, which is why no model ships with yoke (SPEC "Tech
- * stack"). An English-centric model (e.g. `nomic-embed-text`) makes the vector half of retrieval
- * useless on a corpus with substantial non-English knowledge — indistinguishable from no embedder. */
-const SUGGESTED_EMBED_MODEL = "bge-m3";
-
-// What `init` says about embeddings: the state of retrieval on this machine, resolved by the SAME
-// function every later command embeds through (core `resolveEmbedConfig`) so the two cannot disagree
-// about whether an embedder exists. Never blocks (the resolver is bounded) and never fails init.
-async function reportEmbedderAtInit(env: Env): Promise<void> {
-  const cfg = await resolveEmbedConfig(env);
-  // Pinned by env: the operator already knows, and repeating their own configuration is noise.
-  if (cfg && !cfg.auto) return;
-  // Silence the one-shot runtime notice: init has just said the same thing, more fully.
-  suppressEmbedAnnounce();
-  console.log(
-    cfg
-      ? log.ok(
-          `embeddings on — using ${cfg.model} at ${cfg.url} (no configuration needed; ` +
-            "set YOKE_EMBED_URL/MODEL to pin a different provider)",
-        )
-      : log.warn(
-          "no embedding provider — retrieval will be keyword-only and duplicate/contradiction " +
-            `detection is skipped. Run 'ollama pull ${SUGGESTED_EMBED_MODEL}' (it is then used ` +
-            "automatically), or set YOKE_EMBED_URL and YOKE_EMBED_MODEL",
-        ),
-  );
-}
-
-async function cmdInit(v: Values, env: Env): Promise<number> {
-  // Two values on purpose: `store` is what a person needs to read (the shards config, or the remote
-  // URL and which local file holds the audit half), while `db` stays the LOCAL sqlite path — a script
-  // reading `.db` wants a path.
-  const store_ = storeLabel(v, env);
-  const db = resolveDb(v, env);
-  // Decorate only on an interactive stdout (never under --json), so non-TTY and
-  // machine output stay byte-identical to the plain path.
-  const deco = decorated() && !v.json;
-  return withStore(
-    v,
-    env,
-    async (store) => {
-      // Idempotent re-run: if yoke:system already exists, do not re-seed.
-      if (await store.getEntity("yoke:system")) {
-        if (deco) {
-          const b = banner();
-          if (b) console.log(`\n${b}\n`);
-        }
-        emit(v, `already initialized: ${store_}`, {
-          db,
-          store: store_,
-          seeded: false,
-        });
-        return 0;
-      }
-      const ontology = seedOntology();
-      await store.saveOntology(ontology);
-      // Seed the yoke:system person — no gate bypass (putEntity). Use commit with a well-known id.
-      // A nonexistent id creates version 1, so it passes the gate normally (bootstrap).
-      const ts = now();
-      await commit(
-        store,
-        ontology,
-        { type: "person", attributes: { name: "system" } },
-        { actor: "yoke:system", origin: "cli", occurred_at: ts },
-        ts,
-        { existingId: "yoke:system" },
-      );
-      if (deco) {
-        const b = banner();
-        if (b) console.log(`\n${b}\n`);
-        const entityTypes = ontology.filter((d) => d.kind === "entity").length;
-        const relTypes = ontology.filter((d) => d.kind === "relation").length;
-        console.log(log.ok(`database created: ${db}`));
-        console.log(
-          log.ok(
-            `ontology seeded: ${entityTypes} entity types, ${relTypes} relation types`,
-          ),
-        );
-        console.log(log.ok("system actor ready"));
-        console.log(getStartedBlock());
-        await reportEmbedderAtInit(env);
-      } else {
-        emit(v, `initialized: ${store_}`, { db, store: store_, seeded: true });
-      }
-      return 0;
-      // `init` is one of the two commands that legitimately bring a fresh db into existence.
-    },
-    { create: true },
-  );
 }
 
 const GET_USAGE = "usage: yoke get <id> [--version n] [--relations]";
@@ -409,7 +269,9 @@ async function cmdRelate(v: Values, env: Env): Promise<number> {
   });
   const ontology = await remoteOntology(remote);
   if (ontology.length === 0) {
-    console.error("not initialized: run 'yoke init' first");
+    console.error(
+      `no ontology at ${remote.base} — is it holding the store you meant?`,
+    );
     return 1;
   }
   const relater = makeFetchRelater(env, ontology);
@@ -480,7 +342,9 @@ async function runIngest(
   });
   const ontology = await remoteOntology(remote);
   if (ontology.length === 0) {
-    console.error("not initialized: run 'yoke init' first");
+    console.error(
+      `no ontology at ${remote.base} — is it holding the store you meant?`,
+    );
     return 1;
   }
   const { added, updated, skipped, rejected } = await remoteIngest(
@@ -705,6 +569,7 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
     ns: resolveNs(v.ns, env),
     shards: resolveShards(v, env),
     host: v.host ?? env.YOKE_HOST,
+    bootstrapAdmin: v["bootstrap-admin"],
   });
   await new Promise<void>((resolve) => {
     process.on("SIGINT", () => server.close(() => resolve()));
@@ -712,11 +577,12 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
   return 0;
 }
 
-// token (ENTERPRISE "auth"): API tokens for serve-mode Bearer auth. Secret is shown once on create.
-// A PERSON on a GitHub org does not need this — the exchange mints their token from the identity
-// they already have (SPEC "GitHub exchange"). This command is for what the exchange cannot cover:
-// machine actors (CI, scheduled connectors), the bootstrap admin credential (the exchange never
-// grants admin), and a deployment with no GitHub.
+// token (ENTERPRISE "auth"): asks the server to sign a credential for serve-mode Bearer auth. The
+// key that signs it never leaves the server. A PERSON on a GitHub org does not need this — the
+// exchange mints their token from the identity they already have (SPEC "GitHub exchange"). This is
+// for what the exchange cannot cover: machine actors (CI, scheduled connectors) and a deployment
+// with no GitHub. The FIRST admin credential comes from `yoke serve --bootstrap-admin`, because
+// minting through the route needs one already.
 const TOKEN_CREATE_USAGE =
   'usage: yoke token create --name <n> --scopes "<ns>:read,<ns>:write[,<ns>:admin]"\n' +
   `  scope = ${SCOPE_GRAMMAR}\n` +
@@ -724,68 +590,6 @@ const TOKEN_CREATE_USAGE =
   "  an action with NO namespace grants every tenant — name the namespace unless you mean that\n" +
   "  people on a GitHub org need no token: the server exchanges their gh login (YOKE_GITHUB_ORG) —\n" +
   "  this command is for machine actors, the bootstrap admin credential, and a GitHub-less deployment";
-
-async function cmdToken(
-  positionals: string[],
-  v: Values,
-  env: Env,
-): Promise<number> {
-  const [sub] = positionals;
-  if (sub !== "create") {
-    console.error(
-      "usage: yoke token create --name <who> --scopes <list>\n" +
-        "  a credential is signed, not stored, so there is nothing to list and nothing to revoke —\n" +
-        "  rotate YOKE_TOKEN_SECRET to invalidate every credential at once",
-    );
-    return 1;
-  }
-  if (!v.name || !v.scopes) {
-    console.error(TOKEN_CREATE_USAGE);
-    return 1;
-  }
-  const checked = validateScopes(v.scopes.split(","));
-  if (!checked.ok) {
-    console.error(`${checked.error}\n${TOKEN_CREATE_USAGE}`);
-    return 1;
-  }
-  const scopes = checked.scopes;
-  // The same key the server verifies with. Without it this would mint something nothing accepts, so
-  // it is a refusal rather than a default — see front/serve/credential.ts.
-  const { credentialSigner } = await import("../serve/credential.js");
-  const signer = credentialSigner(env.YOKE_TOKEN_SECRET);
-  if (!signer) {
-    console.error(
-      "set YOKE_TOKEN_SECRET to the same value the server runs with — a credential is signed with " +
-        "it, and a server that does not share the key will refuse what this mints",
-    );
-    return 1;
-  }
-  const { token, refresh } = await signer.mint({
-    name: v.name as string,
-    scopes,
-    ns: resolveNs(v.ns, env),
-  });
-  // A wildcard-ns scope is called out, because `read` reads EVERY tenant and both the usage string
-  // and `serve`'s own refusal teach exactly that spelling.
-  const wildcard = scopes.filter((raw) => parseScope(raw)?.ns === null);
-  emit(
-    v,
-    [
-      token,
-      `  name: ${v.name}   scopes: ${scopes.join(", ")}   expires in 7 days`,
-      `  refresh (POST /api/refresh, good for a year): ${refresh}`,
-      ...(wildcard.length > 0
-        ? [
-            `  note: ${wildcard.join(", ")} ${wildcard.length === 1 ? "has" : "have"} no namespace, ` +
-              `so ${wildcard.length === 1 ? "it grants" : "they grant"} every tenant — ` +
-              `write '<namespace>:${parseScope(wildcard[0])?.action}' to scope it to one`,
-          ]
-        : []),
-    ].join("\n"),
-    { name: v.name, scopes, token, refresh },
-  );
-  return 0;
-}
 
 /**
  * `yoke <command> --help`. Five commands take no required argument, so the "run it with missing
@@ -795,6 +599,12 @@ async function cmdToken(
  * a much better one than executing the command.
  */
 const COMMAND_USAGE: Record<string, string> = {
+  serve:
+    "usage: yoke serve [--port n] [--host addr] [--auth] [--bootstrap-admin] [--db path]\n" +
+    "  holds the corpus and answers every other command; creates the store if it is not there\n" +
+    "  --auth            gate it (needs YOKE_TOKEN_SECRET, or YOKE_OIDC_*)\n" +
+    "  --bootstrap-admin print one admin credential at boot — the first one, which 'yoke token\n" +
+    "                    create' then needs to mint any other",
   get: GET_USAGE,
   list: LIST_USAGE,
   graph: GRAPH_USAGE,
@@ -955,6 +765,10 @@ export async function runCli(
       case "rename-type":
         noExtra(rest, 2, "usage: yoke rename-type <from> <to>");
         break;
+      case "token":
+        if (rest[0] !== "create" || !values.name || !values.scopes)
+          throw new UsageError(TOKEN_CREATE_USAGE);
+        break;
       case "ontology":
         noExtra(rest, rest[0] === "list" ? 1 : 2, ONTOLOGY_USAGE);
         break;
@@ -966,8 +780,8 @@ export async function runCli(
     // Everything that touches the corpus goes to a server. Locally that is a `yoke serve` on
     // loopback, ungated and asking for nothing; for a team it is theirs, and the actor is read off
     // the verified credential so `--actor` cannot claim to be somebody. `runRemote` returns null for
-    // the commands that act on a MACHINE rather than on a corpus — init, serve, ui, mcp, token and
-    // the file commands — and those, and only those, fall through to the switch.
+    // the three commands that ARE a machine rather than a call to one, and those, and only those,
+    // fall through to the switch.
     {
       const { resolveRemote, runRemote } = await import("../remote.js");
       const code = await runRemote(
@@ -985,8 +799,6 @@ export async function runCli(
       if (code !== null) return code;
     }
     switch (command) {
-      case "init":
-        return await cmdInit(values, env);
       case "connect":
         return await cmdConnect(rest, values, env);
       case "relate":
@@ -995,8 +807,6 @@ export async function runCli(
         return await cmdUi(values, env);
       case "serve":
         return await cmdServe(values, env);
-      case "token":
-        return await cmdToken(rest, values, env);
       case "mcp": {
         // Start the stdio server — does not resolve until the connection closes (keeps the process alive).
         // Imported here, not at the top: the MCP SDK is 55ms of startup (measured) and only this
@@ -1031,7 +841,7 @@ export async function runCli(
     // Everything else reaching here is a failure, and the bare message is usually the storage engine's:
     // "datatype mismatch", "database disk image is malformed", "file is not a database", "NOT NULL
     // constraint failed: ontology_types.name". None of them names the file it happened to or what to do
-    // next, in a tool whose own style is "not initialized: <path> — run 'yoke init' first". Naming the
+    // next. Naming the
     // database is the one piece of context this layer always has, and the corruption case gets the
     // command that exists for it.
     const msg = (e as Error).message;
