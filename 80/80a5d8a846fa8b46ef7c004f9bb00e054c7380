@@ -1,0 +1,78 @@
+src/front/remote.ts
+  s_03673cb32bfdc1::t_18183d7e4f265c 985-986,989-1005
+  s_03673cb32bfdc1::t_8cc2c58e8b87b9 987-988
+  s_03673cb32bfdc1::t_b15ea3c934940d 1006-1010
+docs/ENTERPRISE.md
+  s_03673cb32bfdc1::t_a2c2141bf423a4 86
+  s_03673cb32bfdc1::t_e8641eeb6d4a6e 38-42
+README.ko.md
+  s_03673cb32bfdc1::t_a2c2141bf423a4 142,331,376
+src/front/cli/index.ts
+  s_03673cb32bfdc1::t_4b50ef0e715730 7,24,26-27,125,144
+  s_03673cb32bfdc1::t_31a315b5eb4105 56,101,572,580-585
+  s_03673cb32bfdc1::t_8e125851bbac1c 198-200,768-771,783-784
+  s_03673cb32bfdc1::t_e8b96abf0d5ae6 602-607
+  s_03673cb32bfdc1::t_6c1081fb69b326 206-207,272-274,345-347,844
+src/front/store.ts
+  s_03673cb32bfdc1::t_4f9ea0bb96eec3 21-22,28-29,34-60
+  s_03673cb32bfdc1::t_17507af221917d 30
+  s_03673cb32bfdc1::t_9e395a6e9462ce 61-62
+src/connectors/rdb-mapping.test.ts
+  s_03673cb32bfdc1::t_5ad0077c724771 10
+  s_03673cb32bfdc1::t_25dc8567ba0353 331,451
+src/front/serve/index.ts
+  s_03673cb32bfdc1::t_e868c49133fdf1 502-503
+  s_03673cb32bfdc1::t_7f34073fde1e27 500-501,505
+  s_03673cb32bfdc1::t_9c2c2bbde73349 450-454,516-530
+  s_03673cb32bfdc1::t_6c1081fb69b326 22-27,411-435,515
+  s_03673cb32bfdc1::t_bfe022e91f1bec 436-437
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_631d47b9caf60c 22
+  s_03673cb32bfdc1::t_097d7f741165f4 69
+  s_03673cb32bfdc1::t_15b060967c22e1 612-669
+  s_03673cb32bfdc1::t_ee1014aa4a2605 26
+docs/BACKENDS.md
+  s_03673cb32bfdc1::t_a2c2141bf423a4 91,127
+src/front/mcp/mcp.test.ts
+  s_03673cb32bfdc1::t_ee1014aa4a2605 55
+  s_03673cb32bfdc1::t_609f4055741603 1127
+  s_03673cb32bfdc1::t_be0df487b91563 19
+  s_03673cb32bfdc1::t_1ec39dc48bed8b 27-28
+  s_03673cb32bfdc1::t_5ad0077c724771 195,317,395,698,734,755,973,1076,1138,1181
+src/front/cli/harness.ts
+  s_03673cb32bfdc1::t_6b6c9a4f9221b6 9,14-15,25-27
+scripts/corpus-lib.mjs
+  s_03673cb32bfdc1::t_82b5f252a0ae56 1-3,36-37,40
+src/front/cli/usage.test.ts
+  s_03673cb32bfdc1::t_097d7f741165f4 79
+docs/SPEC.md
+  s_03673cb32bfdc1::t_a2c2141bf423a4 40,42,1125-1126
+  s_03673cb32bfdc1::t_23f23a4bb0e73f 1122-1124
+plugin/skills/setup/SKILL.md
+  s_03673cb32bfdc1::t_a2c2141bf423a4 23
+README.md
+  s_03673cb32bfdc1::t_a2c2141bf423a4 147,342,396
+src/front/cli/cli.test.ts
+  s_03673cb32bfdc1::t_9a95cec5f07667 14
+  s_03673cb32bfdc1::t_5ad0077c724771 23,90,101,157,204,284,362,652,1485,1652,1701,1738,1950,2468,2514
+  s_03673cb32bfdc1::t_09de84299af565 2294-2311
+  s_03673cb32bfdc1::t_007046fb1d30f6 2522-2526,2528-2539
+  s_03673cb32bfdc1::t_25dc8567ba0353 2580
+  s_03673cb32bfdc1::t_6281c3056cb682 54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8080a5d8a846fa8b46ef7c004f9bb00e054c7380",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
