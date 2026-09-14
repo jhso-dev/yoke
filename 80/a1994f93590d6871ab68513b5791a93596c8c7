@@ -1,0 +1,22 @@
+package.json
+  s_03673cb32bfdc1::t_8b7dfacc8e1460 36
+tsconfig.build.json
+  s_03673cb32bfdc1::t_df451d87361aea 1-6
+  s_03673cb32bfdc1::t_ba035e459da432 7-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "80a1994f93590d6871ab68513b5791a93596c8c7",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
