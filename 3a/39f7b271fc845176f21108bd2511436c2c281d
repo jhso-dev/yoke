@@ -1,0 +1,81 @@
+docs/SPEC.md
+  s_03673cb32bfdc1::t_a5bdd058eb82cc 126-132
+  s_03673cb32bfdc1::t_adfdd69c2b064d 590-594
+src/adapters/storage-sharded/index.ts
+  s_03673cb32bfdc1::t_421649630919ef 345
+  s_03673cb32bfdc1::t_b6c1049373e671 40-45
+  s_03673cb32bfdc1::t_f248bc2b9bc720 366,370-377
+  s_03673cb32bfdc1::t_398797c6a8fd2e 71,81-85
+  s_03673cb32bfdc1::t_a9e532393e267b 378-379
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_8263e34630687e 901
+  s_03673cb32bfdc1::t_80417caa994337 952-968
+docs/BACKENDS.md
+  s_03673cb32bfdc1::t_1b6167aef201d2 84-85
+  s_03673cb32bfdc1::t_e081d07f8da966 94,98,100,103-107
+  s_03673cb32bfdc1::t_7415632640630c 108
+src/adapters/storage-sqlite/index.ts
+  s_03673cb32bfdc1::t_00945b86b08a48 880
+  s_03673cb32bfdc1::t_2c56765a23d08d 941-943,949,951-953,955,959-990,992
+  s_03673cb32bfdc1::t_f4718ab2b80b2d 16
+  s_03673cb32bfdc1::t_b7a21a2cfa66a9 910
+src/front/reports.ts
+  s_03673cb32bfdc1::t_17e0b8825df0d0 18,31,127,289
+src/ports/audit.ts
+  s_03673cb32bfdc1::t_12ef4be9aba419 13-17,27-61,71-72,74-75,80,86-87,97-98,105-115
+  s_03673cb32bfdc1::t_0bb78412bd4e03 116
+src/front/display.ts
+  s_03673cb32bfdc1::t_0d0a0a92bac87a 336,345,349-373
+  s_03673cb32bfdc1::t_b236c3f43359e8 220-221,223-225
+  s_03673cb32bfdc1::t_698652468c16c8 308-312
+  s_03673cb32bfdc1::t_f364cd859ca20e 28
+src/ports/audit-conformance.ts
+  s_03673cb32bfdc1::t_665e3b6dc1eaeb 26-27,32-33,73,111,142-147,159,163,170,172-209,215-216,219,235-237,239-240,246-248,259-261,263,276-294,302-303,305-307,325-334
+  s_03673cb32bfdc1::t_d23aced5203939 155-157
+src/adapters/storage-composite/index.ts
+  s_03673cb32bfdc1::t_0d1c3e6e9225f1 34
+  s_03673cb32bfdc1::t_b4ecb994f20649 185,201-206
+  s_03673cb32bfdc1::t_edf2802cc26a6c 207
+src/adapters/storage-opensearch/index.test.ts
+  s_03673cb32bfdc1::t_224a48bbbeb8f7 396
+src/front/store.ts
+  s_03673cb32bfdc1::t_dc2745f6028a35 32
+src/front/store.test.ts
+  s_03673cb32bfdc1::t_c5c7b62cc733c3 15,18
+src/front/ui/ui.test.ts
+  s_03673cb32bfdc1::t_eea170f8b64577 447-460,464-470,474-475
+  s_03673cb32bfdc1::t_d23aced5203939 461-463,471-473
+src/adapters/storage-postgres/index.ts
+  s_03673cb32bfdc1::t_4d1f5bd4b1cb97 65
+  s_03673cb32bfdc1::t_7887b1efb64375 402-404,410-433,435-437,439-440
+  s_03673cb32bfdc1::t_fb20bae9d85f5c 449,472
+src/front/mcp/mcp.test.ts
+  s_03673cb32bfdc1::t_a4b8e0406692fe 316-357
+src/adapters/audit-dynamodb/index.ts
+  s_03673cb32bfdc1::t_ac8f0a2cd3111e 8,12,14,21-25,27
+  s_03673cb32bfdc1::t_d23aced5203939 235
+  s_03673cb32bfdc1::t_c9531012541c21 333
+  s_03673cb32bfdc1::t_478c9839c1ef7a 410-412,418-419,426,429,438-444,448-483
+  s_03673cb32bfdc1::t_52fe53353e338b 44
+  s_03673cb32bfdc1::t_8c401756e84e51 304-332
+  s_03673cb32bfdc1::t_663fdcdc7a72c6 365
+  s_03673cb32bfdc1::t_f47159aa551e00 37
+src/adapters/storage-sharded/index.test.ts
+  s_03673cb32bfdc1::t_8ee86315f61e3d 209,211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3a39f7b271fc845176f21108bd2511436c2c281d",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
