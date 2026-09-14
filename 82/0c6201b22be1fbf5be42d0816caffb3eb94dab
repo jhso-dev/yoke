@@ -1,0 +1,36 @@
+src/core/inject.test.ts
+  s_03673cb32bfdc1::t_7d2e89fcb0ce38 8,209,211-227
+src/core/inject.ts
+  s_03673cb32bfdc1::t_11de7cd2db4ddb 103-106
+  s_03673cb32bfdc1::t_a3820c46aa64fe 524-536
+src/front/ui/ui.test.ts
+  s_03673cb32bfdc1::t_aa592bdf3ae42a 729-731,735-736
+  s_03673cb32bfdc1::t_c2df5b786d8b5b 732-734
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_a3d454fefabbba 866-867
+src/front/cli/cli.test.ts
+  s_03673cb32bfdc1::t_523567a917f810 1014-1020
+src/front/mcp/index.ts
+  s_03673cb32bfdc1::t_f51bc4c4542a5c 27,370,372,386-388,391
+  s_03673cb32bfdc1::t_a3820c46aa64fe 30,371,381-385,389-390
+src/front/mcp/mcp.test.ts
+  s_03673cb32bfdc1::t_523567a917f810 599-612
+docs/SPEC.md
+  s_03673cb32bfdc1::t_00f8a5eef8c53e 720-725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "820c6201b22be1fbf5be42d0816caffb3eb94dab",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}

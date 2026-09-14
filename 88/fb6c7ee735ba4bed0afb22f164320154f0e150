@@ -1,0 +1,42 @@
+docs/ADOPTION.md
+  s_03673cb32bfdc1::t_3c7741f3b1cd97 20
+web/lib/i18n/en.ts
+  s_03673cb32bfdc1::t_3c7741f3b1cd97 292
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_8bad1aabc4cff7 733
+src/front/mcp/index.ts
+  s_03673cb32bfdc1::t_6d029400ba4186 68-70,348-349,516,571,800,804-809,824
+  s_03673cb32bfdc1::t_c607f6aadbfc97 234,367
+README.ko.md
+  s_03673cb32bfdc1::t_3c7741f3b1cd97 127,409-411,414
+  s_03673cb32bfdc1::t_1510765e7e487e 254
+docs/SPEC.md
+  s_03673cb32bfdc1::t_3c7741f3b1cd97 862-873,888,1297
+  s_03673cb32bfdc1::t_1b06b6e122f1e6 718
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_a4c0b639bb8283 165-168
+web/lib/i18n/ko.ts
+  s_03673cb32bfdc1::t_3c7741f3b1cd97 271
+README.md
+  s_03673cb32bfdc1::t_3c7741f3b1cd97 132,265,423-426,428
+src/front/mcp/mcp.test.ts
+  s_03673cb32bfdc1::t_78607c5d1cf2c5 685-687,690,695,698-699
+  s_03673cb32bfdc1::t_8bad1aabc4cff7 191,526,534,539-542,544-559,565,567,577,586-595,599,602,612,637,640,688-689,691-694,696-697,775,794,798-801
+  s_03673cb32bfdc1::t_1b06b6e122f1e6 672
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "88fb6c7ee735ba4bed0afb22f164320154f0e150",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
