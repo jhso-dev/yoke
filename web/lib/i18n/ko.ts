@@ -268,7 +268,7 @@ export const ko: typeof en = {
     newOne: "새 협업",
     all: "전체 협업 목록",
     emptyList:
-      "등록된 협업이 없습니다. 직접 만들거나 에이전트가 yoke_use_scope로 만들도록 요청하세요",
+      "등록된 협업이 없습니다. 직접 만들거나 에이전트가 yoke_commit으로 만들도록 요청하세요",
     people: "이 협업에 참여하는 사람",
     peopleNote:
       "참여자 명단은 협업에 관한 지식이 아니므로 브리핑에는 포함하지 않습니다",

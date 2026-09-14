@@ -129,7 +129,7 @@ Every record also arrives with its citation, which a pasted passage cannot do.
 | | |
 |---|---|
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
-| **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
+| **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `resolve_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
 | **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). Every one of them passes the same storage-port conformance suite, and every audit ledger passes the audit port's. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → knowledge signed by the connector, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
@@ -262,7 +262,7 @@ Tools exposed:
 - `yoke_record_decision` — decision shortcut (conclusion + rationale + rejected alternatives)
 - `yoke_persona` — person-scoped injection ("how would a teammate decide?")
 - `yoke_overview` — the corpus at a glance: counts by type, the most-connected records, who authored what
-- `yoke_use_scope` — pin the current collaboration so the whole session shares one working context
+- `yoke_resolve_scope` — a work-item key → the collaboration's id, to pass as `scope` on the calls that belong to it
 
 ## Embeddings
 
@@ -420,12 +420,12 @@ Common options: `--db` (> `YOKE_DB` env > `./yoke.db`), `--actor`
 ## Shared working context
 
 A team builds one knowledge space together, in real time. When the user says
-"this is PAY-42 work", the agent declares it once with `yoke_use_scope`, and the
-whole session defaults to that `collaboration` — injections lead with its knowledge,
-and anything recorded links to it automatically. A decision one person records
-is in every other session's context the next time they ask.
+"this is PAY-42 work", the agent turns that key into the `collaboration`'s id with
+`yoke_resolve_scope` and passes it as `scope` on the calls that belong to it —
+injections lead with its knowledge, and what it records links back to it. A decision
+one person records is in every other session's context the next time they ask.
 
-Scope **prioritizes, it doesn't imprison**: a pinned collaboration leads, but
+Scope **prioritizes, it doesn't imprison**: the named collaboration leads, but
 org-wide facts and personas still flow in on a query. And the context outlives
 the work — when the collaboration wraps, its knowledge stays in the graph as org
 memory rather than vanishing into a closed ticket.

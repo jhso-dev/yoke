@@ -124,7 +124,7 @@ MIT · v7.6까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 | | |
 |---|---|
 | **한 줄 요약** | 지식에 최적화된 데이터베이스: 온톨로지로 구조화한 뒤, 지금 맥락에 맞는 검증된 부분집합만 인용과 함께 AI에 주입합니다. |
-| **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
+| **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `resolve_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
 | **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `postgres`(네이티브 스코어드 FTS + pgvector, 의존성 추가 없음) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 모두 같은 스토리지 포트 conformance 스위트를 통과하고, 감사 원장은 감사 포트의 스위트를 통과합니다. |
 | **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `raw`(비정형 자료 — 대화록·문서를 모델이 추출) — 외부 소스 → 커넥터가 서명한 지식, 원본 시각으로 기록. `rdb`(Postgres/MySQL read-mapping)는 이미 system of record인 DB를 매핑합니다. |
 | **persona** | "이 동료라면 어떻게 판단할까?" → 그 사람의 기록된 검증 판단을 인용과 함께, 실시간 생성으로. 흉내가 아니라 인용. |
@@ -251,7 +251,7 @@ claude plugin install yoke@yoke        # 이후 레포마다 /yoke:setup 한 번
 - `yoke_record_decision` — 결정 숏컷 (결론 + 근거 + 기각한 대안)
 - `yoke_persona` — 사람 스코프 주입 ("이 동료라면 어떻게 판단할까?")
 - `yoke_overview` — 코퍼스 한눈에 보기: 타입별 수, 최다 연결 레코드, 저자별 검증 지식
-- `yoke_use_scope` — 현재 collaboration을 고정해 세션 전체가 하나의 작업 컨텍스트를 공유
+- `yoke_resolve_scope` — 작업 항목 키 → collaboration의 id. 관련된 호출마다 `scope`로 넘길 값
 
 ## 임베딩 (Embeddings)
 
@@ -406,12 +406,12 @@ yoke backfill --occurred-at [--dry-run]       # 이전 verify가 덮어쓴 이�
 ## 공유 작업 컨텍스트
 
 팀이 하나의 지식 공간을 함께, 실시간으로 쌓습니다. 사용자가 "이건 PAY-42
-작업이야"라고 하면 에이전트가 `yoke_use_scope`로 한 번 선언하고, 세션 전체가 그
-`collaboration`을 기본값으로 씁니다 — 주입은 그 지식을 앞세우고, 기록되는 것은
-자동으로 거기 연결됩니다. 한 사람이 기록한 결정은, 다음 질의부터
+작업이야"라고 하면 에이전트가 `yoke_resolve_scope`로 그 키를 `collaboration`의
+id로 바꾼 뒤, 그 작업에 속한 호출마다 `scope`로 넘깁니다 — 주입은 그 지식을
+앞세우고, 기록한 것은 거기에 연결됩니다. 한 사람이 기록한 결정은, 다음 질의부터
 다른 모든 세션의 컨텍스트에 들어 있습니다.
 
-스코프는 **우선순위일 뿐, 가두지 않습니다**: 고정한 collaboration이 앞장서지만, 쿼리에는
+스코프는 **우선순위일 뿐, 가두지 않습니다**: 지목한 collaboration이 앞장서지만, 쿼리에는
 전사 지식과 persona도 함께 흘러듭니다. 그리고 컨텍스트는 작업보다 오래 남습니다 —
 collaboration이 끝나도 그 지식은 닫힌 티켓 속으로 사라지지 않고 그래프에 조직의 기억으로
 남습니다.

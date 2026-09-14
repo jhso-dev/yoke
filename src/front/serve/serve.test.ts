@@ -730,7 +730,7 @@ describe("serve smoke (auth off)", () => {
       "yoke_overview",
       "yoke_persona",
       "yoke_record_decision",
-      "yoke_use_scope",
+      "yoke_resolve_scope",
     ]);
     await client.close();
     run.close();

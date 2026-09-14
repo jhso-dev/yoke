@@ -715,7 +715,7 @@ so the stale queue is where a person's attention is actually spent (KNOWLEDGE-PO
 `inject(query, { scope })` where `scope` is an entity id to anchor on. **One mechanism, two named
 entry points**: a `collaboration` anchor is the shared working context, a `person` anchor is a persona.
 
-- **Scope prioritizes, it does not imprison.** A pinned working context must never hide
+- **Scope prioritizes, it does not imprison.** An anchored working context must never hide
   org-wide knowledge (or personas — `yoke_persona` is a separate entry point, unaffected by scope).
 - With a non-empty `query`: the **full query results** are returned, with knowledge one relation
   hop from the scope entity (both directions via `neighbors(scope)`) **ordered first** — the
@@ -859,17 +859,18 @@ records, and who the verified knowledge came from. Exposed as `yoke overview` an
 `yoke_record_decision`, link new knowledge to a scope entity via a `relates_to` relation created
 through a second gate-passing commit at the front tier (core `commit` is untouched).
 
-**Declared scope (MCP server)**: scope is stated, not guessed. The agent declares which work item the
-current work belongs to — when the user says so or the agent infers it ("this is `ABC-12345` work") —
-by calling `yoke_use_scope { key }`. The key is resolved to an anchor entity: an exact entity id
-(`getEntity`), else an entity whose `key` OR `title` attribute equals the key, preferring a
-`collaboration` since that is what a work-item key names — any entity type may anchor a session. On a match it is
-pinned as the session default for subsequent injections and recordings, and the resolved `{ id, title }`
-is returned; on no match the tool returns a non-error hint to create one via `yoke_commit` (type
-`collaboration`, attributes `{ title, key }`) and call again. Precedence: a per-call `scope` argument >
-the session pin (`yoke_use_scope`). The MCP server is stateless — one instance per request inside
-`yoke serve`, which stdio `yoke mcp` relays to — so the pin does not outlive the call that set it:
-the agent passes `scope` per call, and `yoke_use_scope` returns the resolved id for reuse.
+**Declared scope (MCP server)**: scope is stated, not guessed — and stated on every call. The agent
+turns the work item the user named ("this is `ABC-12345` work") into an anchor id by calling
+`yoke_resolve_scope { key }`. The key resolves to an exact entity id (`getEntity`), else to an entity
+whose `key` OR `title` attribute equals the key, preferring a `collaboration` since that is what a
+work-item key names — any entity type may anchor an injection. On a match it returns
+`{ id, title }`; on no match it returns a non-error hint to create one via `yoke_commit` (type
+`collaboration`, attributes `{ title, key }`) and resolve again. It resolves and returns, nothing
+more: the id is what the agent then passes as the `scope` argument of `yoke_inject`, `yoke_commit`
+and `yoke_record_decision`, and a call that omits `scope` is unanchored however recently one was
+resolved. The MCP server holds no session state — `yoke serve` builds one instance per request and
+discards it, and stdio `yoke mcp` relays to that endpoint — which is why the anchor rides the call
+rather than the connection.
 
 We deliberately do **not** infer scope from the git branch: branch names usually carry a *child* task
 key while the shared context lives on the *parent* collaboration, so regex-from-branch systematically
@@ -884,7 +885,7 @@ picks the wrong scope.
 | `yoke_record_decision` | a commit shortcut dedicated to decision entities — conclusion, rationale, rejected alternatives, in the wording the decision's owner used. Live at birth like every commit, so it reaches every agent on the scope at once; a reversal is a new decision plus a `supersedes` edge, never an edit |
 | ↳ both take `derived_from: string[]` | the citation ids this record rests on (see "Derivation") — optional, caller-asserted, never inferred |
 | `yoke_persona` | person-anchored injection ("what would Alex do") |
-| `yoke_use_scope` | declare the current work item → pin it as the session's default scope |
+| `yoke_resolve_scope` | a work-item key or id → the anchor record's `{ id, title }`, for the agent to pass as `scope` on the calls that belong to it |
 | `yoke_overview` | the shape of the whole corpus — structure, never a summary (see "Global aggregation") |
 
 ### The knowledge loop (demand-driven capture)
@@ -1293,7 +1294,7 @@ type Embedder = (text: string) => Promise<Float32Array | null>
   verbatim `sources` span, then the identifiers (`external_id`, `key`). The measured gain is from the
   prose expansion *concatenated with* the original value, not from the expansion alone, which is why
   `sources` stays and stays last. The identifiers stay because they are looked up THROUGH the index:
-  connector idempotency (`findByExternalId`) and `yoke_use_scope` search for the literal string and
+  connector idempotency (`findByExternalId`) and `yoke_resolve_scope` search for the literal string and
   match exactly, so a key without them makes every re-ingest store a second copy. `author`, `topic`
   and `status` are dropped — nothing searches them, and `status` has a structured filter. A malformed
   (non-object) attributes blob degrades to `type + the raw text` rather than throwing: an index that

@@ -162,8 +162,10 @@ never optimizes the ROI ratio, and its ceiling, are in ADOPTION.
 
 The CLI becomes a client: every command that touches the corpus goes to a `yoke serve`, and `serve`
 and `ui` are the only two that open a store — they create and seed a missing one and say so. `yoke
-mcp` is a stdio relay to that server's `/mcp`, which is why `yoke_use_scope`'s pin is per-call and
-never per-session (SPEC "Declared scope"). Credentials are signed by the server rather than stored,
+mcp` is a stdio relay to that server's `/mcp`, which is why the MCP server holds no session state
+at all: `yoke_use_scope`'s pin became `yoke_resolve_scope`, which returns the anchor's
+`{ id, title }` for the agent to pass as `scope` on each call that belongs to it (SPEC "Declared
+scope"). Credentials are signed by the server rather than stored,
 so `yoke token create` is a request to `POST /api/tokens` and the first admin credential comes from
 `serve --bootstrap-admin` (ENTERPRISE "Auth / RBAC"). `--replica-of` is gone: replication is the
 database's, below the port (ENTERPRISE "Distribution / HA").

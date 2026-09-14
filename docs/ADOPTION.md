@@ -17,7 +17,7 @@
 | 단계 | 무엇 | 도구 |
 |---|---|---|
 | **캡처** | 결정·사실·용어를 남긴다 — 행위자의 서명과 함께 즉시 살아 있다 | MCP `yoke_commit` / `yoke_record_decision`(에이전트 대화 중) · CLI `yoke add` / `yoke link` · 커넥터 |
-| **주입** | AI가 작업 맥락으로 스코프해 **유효한 지식만** 받는다 (stale·퇴출 제외) | `yoke_inject` · `yoke_use_scope` · `yoke_persona` |
+| **주입** | AI가 작업 맥락으로 스코프해 **유효한 지식만** 받는다 (stale·퇴출 제외) | `yoke_inject` · `yoke_resolve_scope` · `yoke_persona` |
 | **김매기** | TTL 만료 지식을 담당자가 재확인하거나 사유와 함께 퇴출 — 퇴출 사유는 받았던 모든 세션에 방송된다 (fact 180일, decision 365일) | `yoke review` → `yoke verify` / `yoke deprecate --reason` |
 
 **불변 규칙 두 가지** (yoke가 강제):

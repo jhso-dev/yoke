@@ -188,7 +188,7 @@ describe("yoke MCP server", () => {
       "yoke_overview",
       "yoke_persona",
       "yoke_record_decision",
-      "yoke_use_scope",
+      "yoke_resolve_scope",
     ]);
     await s.close();
   });
@@ -523,7 +523,7 @@ describe("yoke MCP server", () => {
     await s2.close();
   });
 
-  it("yoke_use_scope pins the session scope by key; a later record_decision links to it without an explicit scope (v4.0)", async () => {
+  it("a resolved scope anchors only the calls that pass it — resolving alone anchors nothing (v8.0)", async () => {
     const s = await openSession();
     const ws = JSON.parse(
       text(
@@ -531,26 +531,40 @@ describe("yoke MCP server", () => {
           name: "yoke_commit",
           arguments: {
             type: "collaboration",
-            attributes: { title: "pin ws", key: "PIN-1" },
+            attributes: { title: "resolve ws", key: "RES-1" },
           },
         }),
       ),
     );
-    // Pin by key — resolves to the collaboration and returns its id/title.
-    const use = await s.client.callTool({
-      name: "yoke_use_scope",
-      arguments: { key: "PIN-1" },
+    // Resolve by key — returns the collaboration's id/title, and nothing else.
+    const resolved = await s.client.callTool({
+      name: "yoke_resolve_scope",
+      arguments: { key: "RES-1" },
     });
-    expect(use.isError).toBeFalsy();
-    expect(JSON.parse(text(use)).id).toBe(ws.id);
-    // Record a decision with NO scope arg → it should link to the pinned session scope.
+    expect(resolved.isError).toBeFalsy();
+    expect(JSON.parse(text(resolved)).id).toBe(ws.id);
+    // Right after the resolve, a decision with NO scope argument. The server holds no session
+    // state, so this one is unattached — the assertion that pins statelessness.
+    const loose = JSON.parse(
+      text(
+        await s.client.callTool({
+          name: "yoke_record_decision",
+          arguments: {
+            conclusion: "loosescopedecision use gadgets",
+            rationale: "gadgets fit",
+          },
+        }),
+      ),
+    );
+    // The same decision with the resolved id passed explicitly does attach.
     const dec = JSON.parse(
       text(
         await s.client.callTool({
           name: "yoke_record_decision",
           arguments: {
-            conclusion: "pinnedscopedecision use gadgets",
+            conclusion: "resolvedscopedecision use gadgets",
             rationale: "gadgets fit",
+            scope: JSON.parse(text(resolved)).id,
           },
         }),
       ),
@@ -560,6 +574,7 @@ describe("yoke MCP server", () => {
       await cli([
         "verify",
         ws.id,
+        loose.id,
         dec.id,
         "--db",
         db,
@@ -568,18 +583,23 @@ describe("yoke MCP server", () => {
       ]),
     ).toBe(0);
     const s2 = await openSession();
-    const scoped = await s2.client.callTool({
-      name: "yoke_inject",
-      arguments: { query: "gadgets", scope: ws.id },
-    });
-    expect(text(scoped)).toContain("pinnedscopedecision use gadgets");
+    // A briefing (scope, no query) is the anchor's one-hop set, so it shows exactly which
+    // relates_to edges were filed.
+    const brief = text(
+      await s2.client.callTool({
+        name: "yoke_inject",
+        arguments: { query: "", scope: ws.id },
+      }),
+    );
+    expect(brief).toContain("resolvedscopedecision use gadgets");
+    expect(brief).not.toContain("loosescopedecision");
     await s2.close();
   });
 
-  it("yoke_use_scope with an unknown key returns a non-error create hint (v4.0)", async () => {
+  it("yoke_resolve_scope with an unknown key returns a non-error create hint (v4.0)", async () => {
     const s = await openSession();
     const res = await s.client.callTool({
-      name: "yoke_use_scope",
+      name: "yoke_resolve_scope",
       arguments: { key: "NOPE-404" },
     });
     expect(res.isError).toBeFalsy();
@@ -589,7 +609,7 @@ describe("yoke MCP server", () => {
     await s.close();
   });
 
-  it("an explicit per-call scope overrides the pinned session scope (v4.0)", async () => {
+  it("a resolve leaves the next call alone: the scope argument decides, and no scope means none (v8.0)", async () => {
     const s = await openSession();
     const wsA = JSON.parse(
       text(
@@ -614,10 +634,10 @@ describe("yoke MCP server", () => {
       ),
     );
     await s.client.callTool({
-      name: "yoke_use_scope",
+      name: "yoke_resolve_scope",
       arguments: { key: "OVR-A" },
     });
-    // Explicit scope wsB on the call must win over the pinned wsA.
+    // Resolving OVR-A changed nothing: this call carries wsB, so wsB is where the edge lands.
     const dec = JSON.parse(
       text(
         await s.client.callTool({
@@ -649,7 +669,7 @@ describe("yoke MCP server", () => {
       arguments: { query: "levers", scope: wsB.id },
     });
     expect(text(onB)).toContain("overridescopedecision use levers");
-    // Briefing mode (no query) proves the link landed on wsB, not the pinned wsA:
+    // Briefing mode (no query) proves the link landed on wsB, not on the resolved wsA:
     // scope prioritizes rather than imprisons, so a query would still surface
     // org-wide hits — only the no-query briefing isolates the hop set.
     const briefA = await s2.client.callTool({
@@ -662,6 +682,21 @@ describe("yoke MCP server", () => {
       arguments: { query: "", scope: wsB.id },
     });
     expect(text(briefB)).toContain("overridescopedecision");
+    // And a briefing with no scope, one call after resolving OVR-B, is not OVR-B's briefing.
+    // Nothing was retained, so there is no anchor and an empty query matches nothing — this is
+    // the assertion that pins statelessness on the read side.
+    await s2.client.callTool({
+      name: "yoke_resolve_scope",
+      arguments: { key: "OVR-B" },
+    });
+    const loose = text(
+      await s2.client.callTool({
+        name: "yoke_inject",
+        arguments: { query: "" },
+      }),
+    );
+    expect(loose).toContain("no verified knowledge");
+    expect(loose).not.toContain("overridescopedecision");
     await s2.close();
   });
   it("caps an unbounded briefing and tells the agent where the rest is (v5.1)", async () => {
@@ -737,7 +772,7 @@ describe("yoke MCP server", () => {
   });
 });
 
-describe("yoke_use_scope (key/id → collaboration lookup)", () => {
+describe("yoke_resolve_scope (key/id → collaboration lookup)", () => {
   const now = "2026-07-14T00:00:00Z";
   const prov: Provenance = { actor: "t", origin: "cli", occurred_at: now };
 
@@ -756,11 +791,14 @@ describe("yoke_use_scope (key/id → collaboration lookup)", () => {
     port.close();
 
     // Through the tool, which is the only way in: an agent reaches the lookup by calling
-    // yoke_use_scope, so that is what the resolution rules are asserted against.
+    // yoke_resolve_scope, so that is what the resolution rules are asserted against.
     const s = await openSession();
     const use = async (key: string) =>
       text(
-        await s.client.callTool({ name: "yoke_use_scope", arguments: { key } }),
+        await s.client.callTool({
+          name: "yoke_resolve_scope",
+          arguments: { key },
+        }),
       );
     const want = JSON.stringify({ id: entity.id, title: "zqauth" });
     expect(await use(entity.id)).toBe(want); // exact id

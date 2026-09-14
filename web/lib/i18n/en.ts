@@ -289,7 +289,7 @@ export const en = {
     newOne: "New collaboration",
     all: "all collaborations",
     emptyList:
-      "No collaborations yet. Create one above or ask an agent to create one with yoke_use_scope",
+      "No collaborations yet. Create one above or ask an agent to create one with yoke_commit",
     people: "people in this collaboration",
     peopleNote:
       "The participant list is not knowledge about the collaboration, so it is not included in the briefing",

@@ -65,8 +65,9 @@ const ORIGIN = "mcp";
 const INSTRUCTIONS =
   "yoke is the governed knowledge base: yoke_inject returns only standing records — signed, cited, " +
   "within their freshness window, with retirements and disputes surfaced. The knowledge loop:\n" +
-  "1. Before non-trivial work, call yoke_inject with your question (set scope when you know the " +
-  "working context).\n" +
+  "1. Before non-trivial work, call yoke_inject with your question. This server holds no session " +
+  "state: resolve the working context once with yoke_resolve_scope and pass the id it returns as " +
+  "`scope` on every later inject and commit that belongs to that work.\n" +
   "2. Also consult the live sources you can reach (Slack, wikis, databases, code) — yoke never " +
   "searches them for you, and a verified record may lag reality; judge from its last-confirmed date.\n" +
   "3. File back only the DELTA between what you learned and what yoke returned, via yoke_commit:\n" +
@@ -149,15 +150,6 @@ const err = (text: string) => ({ ...ok(text), isError: true });
 export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   const { store, ontology, defaultActor, embedder, keywordWeight } = deps;
   const ns = deps.ns ?? null;
-  // Runtime scope pinned by yoke_use_scope. `serve` builds one of these per request, so the pin
-  // does not outlive the call that set it — the agent passes `scope` per call, and the tool exists
-  // to hand it the id to pass.
-  let sessionScope: string | null = null;
-  // Precedence: explicit per-call scope > session pin (yoke_use_scope). An explicit empty string
-  // opts OUT for that call — without it, a pinned session could never record or query knowledge
-  // outside its collaboration.
-  const effectiveScope = (scope?: string) =>
-    scope === "" ? undefined : (scope ?? sessionScope ?? undefined);
   const now = deps.now ?? (() => new Date().toISOString());
   const authorize = deps.authorize ?? (() => true);
   const forbidden = () =>
@@ -236,11 +228,10 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // Passed INTO the gate, not filed as a second commit — otherwise a bad endpoint refuses AFTER
       // the entity is durable, telling the agent "rejected" about a record that exists (see `attachTo`
       // in core/commit.ts).
-      const linkTo = effectiveScope(scope);
       const committed = await commit(store, ontology, input, prov, ts, {
         embedder,
         ns,
-        ...(linkTo ? { attachTo: linkTo } : {}),
+        ...(scope ? { attachTo: scope } : {}),
       });
       const { duplicates, duplicateDetection, unrecorded } = committed;
       const entity = committed.entity;
@@ -354,8 +345,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .optional()
           .describe(
             "Entity id to scope the injection to — e.g. a collaboration id to " +
-              'retrieve only the knowledge linked to that unit of work. Pass "" to query ' +
-              "without any scope when a session scope is pinned",
+              "retrieve only the knowledge linked to that unit of work. yoke_resolve_scope turns a " +
+              "work-item key into this id",
           ),
         depth: z
           .number()
@@ -373,7 +364,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
     async ({ query, limit, scope, depth }) => {
       if (!authorize("read")) return forbidden();
       const ts = now();
-      const anchor = effectiveScope(scope);
+      const anchor = scope || undefined;
       const { items, omitted, walk, withheld } = await inject(
         store,
         ontology,
@@ -522,7 +513,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .optional()
           .describe(
             "Entity id (e.g. a collaboration) to link the new knowledge to via a relates_to relation. " +
-              'Pass "" to record outside the pinned session scope',
+              "yoke_resolve_scope turns a work-item key into this id",
           ),
         derived_from: z
           .array(z.string())
@@ -577,7 +568,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           .optional()
           .describe(
             "Entity id (e.g. a collaboration) to link this decision to via a relates_to relation. " +
-              'Pass "" to record outside the pinned session scope',
+              "yoke_resolve_scope turns a work-item key into this id",
           ),
         derived_from: z
           .array(z.string())
@@ -806,15 +797,16 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
   );
 
   server.registerTool(
-    "yoke_use_scope",
+    "yoke_resolve_scope",
     {
       description:
         "When the user states or implies which work item / collaboration the current work belongs to " +
-        "(e.g. 'this is ABC-12345 work'), call this once — subsequent injections and recordings default " +
-        "to that scope. Resolves the key to a collaboration (by exact entity id, or a collaboration whose key " +
-        "or title matches). If none matches, it says so and you can create one via yoke_commit (type " +
-        "collaboration, attributes { title, key }) then call yoke_use_scope again. The pin does not " +
-        "persist between calls, so pass scope per call — this tool returns the resolved id to pass.",
+        "(e.g. 'this is ABC-12345 work'), call this to turn that key into the record's id. It matches an " +
+        "exact entity id, or a collaboration whose key or title equals the key, and returns { id, title }. " +
+        "Pass that id as `scope` to yoke_inject, yoke_commit and yoke_record_decision for the work that " +
+        "belongs to it — they anchor on what you pass and nothing else. If none matches, it says so and " +
+        "you can create one via yoke_commit (type collaboration, attributes { title, key }) then resolve " +
+        "again.",
       inputSchema: {
         key: z
           .string()
@@ -829,9 +821,8 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       if (!found)
         return ok(
           `no collaboration matches "${key}". Create one via yoke_commit ` +
-            `(type: collaboration, attributes: { title, key }), then call yoke_use_scope again.`,
+            `(type: collaboration, attributes: { title, key }), then call yoke_resolve_scope again.`,
         );
-      sessionScope = found.id;
       return ok(JSON.stringify({ id: found.id, title: found.title }));
     },
   );
