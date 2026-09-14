@@ -1,0 +1,29 @@
+src/adapters/storage-postgres/index.test.ts
+  s_03673cb32bfdc1::t_42297710171746 28,139-147
+  s_03673cb32bfdc1::t_28d025b5ac17ea 148-149
+src/ports/audit-conformance.ts
+  s_03673cb32bfdc1::t_f036b0d4a18cd0 1-85,87-89,94-101
+  s_03673cb32bfdc1::t_9f58c2aab7d922 86,90-93
+src/adapters/storage-sqlite/index.test.ts
+  s_03673cb32bfdc1::t_42297710171746 10,15
+docs/BACKENDS.md
+  s_03673cb32bfdc1::t_086032cc25d50b 8-9
+docs/SPEC.md
+  s_03673cb32bfdc1::t_1626db8945b357 308-310
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "82065f05c91e7d2af1413eb58c702a1a38132b51",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
