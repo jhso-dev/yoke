@@ -1,0 +1,45 @@
+src/adapters/storage-postgres/index.ts
+  s_03673cb32bfdc1::t_085923edd23c73 61,315
+  s_03673cb32bfdc1::t_87fb5fa44da010 141,271-286,311-314,316-361
+  s_03673cb32bfdc1::t_b41a04fde3e91e 362
+src/adapters/storage-composite/index.ts
+  s_03673cb32bfdc1::t_1fdeab32cc00cc 39-41,43-49,177
+.env.example
+  s_03673cb32bfdc1::t_8a3241aded753e 26-27,37-43,112-113
+src/front/store.ts
+  s_03673cb32bfdc1::t_9e61051261da0a 23,27,29-30,105,107-108,110-111,113-119,121,123-137,144,147-165
+  s_03673cb32bfdc1::t_22bfc1d495c045 4-5,8-13
+  s_03673cb32bfdc1::t_e0be0a197c411c 66-86
+  s_03673cb32bfdc1::t_fe8ceb08f55f5d 14
+docs/ARCHITECTURE.md
+  s_03673cb32bfdc1::t_756115f471b7b2 45
+docs/SPEC.md
+  s_03673cb32bfdc1::t_756115f471b7b2 110-112,115-117,119-124,400-401
+README.md
+  s_03673cb32bfdc1::t_756115f471b7b2 328
+  s_03673cb32bfdc1::t_8a0d592f47d2da 329-333,344,354
+README.ko.md
+  s_03673cb32bfdc1::t_573f773cc26266 315-322,333,344-347
+src/adapters/storage-sharded/index.ts
+  s_03673cb32bfdc1::t_29c97cc7b10dec 40
+docs/BACKENDS.md
+  s_03673cb32bfdc1::t_756115f471b7b2 69,97-100,130-132
+src/front/store.test.ts
+  s_03673cb32bfdc1::t_cc81cd034783a8 1-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "13493c010ad912aeedff389d6495e09c7a4df40c",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
