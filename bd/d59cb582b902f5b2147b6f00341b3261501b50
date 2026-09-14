@@ -1,0 +1,27 @@
+docs/ARCHITECTURE.md
+  s_03673cb32bfdc1::t_3cecab81746a1f 6
+  s_03673cb32bfdc1::t_1ed36c4fc3ef42 7-30
+docs/WEB-UI.md
+  s_03673cb32bfdc1::t_f8c0e2a20175ce 137-138
+  s_03673cb32bfdc1::t_2a344d7c1a89eb 139-145
+README.md
+  s_03673cb32bfdc1::t_7a99981367aabc 479
+README.ko.md
+  s_03673cb32bfdc1::t_c7963aac1ff32b 461
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bdd59cb582b902f5b2147b6f00341b3261501b50",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
