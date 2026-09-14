@@ -107,19 +107,21 @@ wrong neighbours forever, and a silent wrong answer is worse than a stopped writ
 
 `StoragePort` is fully async and always was, so a network-backed backend implements it with no
 interface change. The obstacle is one layer up: the CLI, web and serve tiers hold a **`YokeStore`** —
-the port plus six extensions — and **four of those six are synchronous**
-(`loadOntology`, `listHistory`, `logAudit`, `listAudit`), because `better-sqlite3` is. A network call cannot satisfy a synchronous signature. That, not a missing
-adapter, is the bar an adapter clears to be reachable from `openStore` at all: a backend whose
-`saveOntology`/`loadOntology` have to be `async` does not satisfy `YokeStore`.
+the port plus its extensions, and two of them are **synchronous** (`loadOntology`, `listHistory`)
+because `better-sqlite3` is. A network call cannot satisfy a synchronous signature. That, not a
+missing adapter, is the bar an adapter clears to be reachable from `openStore` at all.
 
 **A remote backend is therefore composed, not substituted.** `storage-composite` delegates the port to
-the remote store and the synchronous extensions to a local sqlite. The split is deliberate:
+the knowledge backend and serves `loadOntology` from a cache its async `init()` fills. The ontology is
+remote because a shared graph with per-client schemas means two clients validating against different
+schemas.
 
-- **Remote:** entities, relations, search, neighbors, the ontology, and embedding vectors. The ontology
-  is remote because a shared graph with per-client schemas means two clients validating against
-  different schemas.
-- **Local:** the audit trail (what THIS client was told) and API tokens (yoke's own credentials, which
-  do not belong in someone else's database). Centralising them is the v3.0 `serve --auth` story.
+**The audit trail has its own port and its own address** (`ports/audit.ts`, asynchronous throughout).
+`YOKE_AUDIT_URL` names where it goes; unset, it goes to the knowledge store — one rule on a laptop and
+on a cluster, because a trail that follows the process rather than the corpus answers a different
+question on every machine that reads it. sqlite and Postgres hold their own; OpenSearch does not
+implement the port (a document appended per read is the write pattern a segment-merging index is worst
+at) and refuses at boot naming the variable.
 
 Two methods became async because they touch remote rows — **`renameType`** (it rewrites entity rows)
 and **`saveOntology`** (a synchronous fire-and-forget would discard the error). `loadOntology` stays
@@ -395,8 +397,8 @@ Why it exists: **deprecating a record is not a fix unless what rests on it can b
 stale queue's rule one surface over — flagging decay does not repair it, routing it to the thing that
 has to change does. The audit trail already records both halves (`inject` logs the ids it returned,
 `persona` logs the ids it exported) and cannot answer the question: the two events share no join key,
-and the trail is per-client local sqlite rather than knowledge, so it is not traversable by
-`neighbors` and does not move with the record between backends. An edge is.
+and the trail is a ledger rather than knowledge, so it is not traversable by `neighbors` and does not
+move with the record between backends. An edge is.
 
 - **Written at the front tier**, as an ordinary gate-passing commit — the same place and mechanism as
   the `relates_to` that `scope` files. The distinction this repo already draws: `conflicts_with` lives
@@ -1128,12 +1130,6 @@ yoke token create --name <n> --scopes <list>  # asks the server to sign a creden
 
 Common options: `--db <path>` (> `YOKE_DB` > `./yoke.db`), `--ns`, `--actor`, `--json`,
 `--shards <config.json>`.
-
-**A command reports the store it actually opened, not `--db`.** `--db` names the local sqlite
-whatever the backend is, so the human line names the resolved store instead: `shards cfg.json`, or
-`http://…:9200 (audit + tokens: ./yoke.db)` on a remote backend, where both halves are true. `--json` keeps
-`db` as the local path — a script reading it wants a path — and adds `store` with the label. Same rule
-for the "not initialized" refusal.
 
 ### Configuration precedence
 

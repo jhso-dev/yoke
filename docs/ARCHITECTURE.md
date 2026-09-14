@@ -42,7 +42,7 @@ src/
   adapters/
     storage-sqlite/  storage-opensearch/  storage-postgres/
     storage-sharded/    # composes member ports behind one port
-    storage-composite/  # a remote port + a local sqlite for the synchronous extensions
+    storage-composite/  # a knowledge backend + an audit ledger, with a synchronous ontology cache
   connectors/    # external source → signed knowledge (github-pr, slack, notes, raw, relate, rdb)
   front/
     mcp/         # MCP server (stdio; also mounted at POST /mcp by serve)

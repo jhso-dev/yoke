@@ -36,12 +36,17 @@ import type {
 } from "../../ports/storage.js";
 import type { YokeStore } from "../storage-sharded/index.js";
 
-/** The remote half: a StoragePort plus async ontology methods. Structural, so any future remote
- * adapter (postgres was always the other candidate) satisfies it without importing this file. */
+/** The knowledge half: a StoragePort plus ontology methods. Structural, so any adapter satisfies it
+ * without importing this file, and each method may answer synchronously or not — sqlite does, the
+ * network backends cannot, and `await` costs nothing on a value that is already there. */
 export interface RemoteStore extends StoragePort {
-  saveOntology(defs: TypeDef[], ns?: string | null): Promise<void>;
-  loadOntology(ns?: string | null): Promise<TypeDef[]>;
-  renameType(from: string, to: string, ns?: string | null): Promise<number>;
+  saveOntology(defs: TypeDef[], ns?: string | null): void | Promise<void>;
+  loadOntology(ns?: string | null): TypeDef[] | Promise<TypeDef[]>;
+  renameType(
+    from: string,
+    to: string,
+    ns?: string | null,
+  ): number | Promise<number>;
 }
 
 /** Ontology cache key. The default namespace and a tenant namespace are different ontologies, and
@@ -169,7 +174,7 @@ class CompositeStorage implements YokeStore {
   // --- the read trail: the local sqlite -----------------------------------------------------------
 
   async logAudit(event: AuditEvent): Promise<void> {
-    this.local.logAudit(event);
+    await this.local.logAudit(event);
   }
   async listAudit(q?: AuditQuery): Promise<AuditEvent[]> {
     return this.local.listAudit(q);

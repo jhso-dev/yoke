@@ -37,7 +37,7 @@
 import { normalizeNs } from "../../core/namespace.js";
 import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
-import type { AuditEvent, AuditPort, AuditQuery } from "../../ports/audit.js";
+import type { AuditEvent, AuditQuery } from "../../ports/audit.js";
 import type {
   ListQuery,
   Page,

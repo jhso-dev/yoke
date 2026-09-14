@@ -312,11 +312,14 @@ yoke backfill --embeddings --rebuild       # 모델을 바꾼 뒤 (차원이 다
 
 ## 회사가 이미 운영하는 서버에 연결
 
-Postgres든 OpenSearch든, 이미 운영 중인 서버를 그대로 가리킵니다. 지식은 그쪽에
-저장되고, **이 클라이언트의 감사 추적과 API 토큰은 로컬 sqlite에 남습니다**(`--db`가
-계속 그 로컬 절반을 가리킵니다 — 남의 데이터베이스에 yoke의 장부를 넣어달라고 하면
-거절당할 테니까요). 나머지는 전부 동일하게 동작합니다: `add`, `review`, `verify`,
-`inject`, `yoke ui`, MCP.
+Postgres든 OpenSearch든, 이미 운영 중인 서버를 그대로 가리킵니다. 지식이 그쪽에
+저장되고, **감사 추적도 같이 갑니다** — `YOKE_AUDIT_URL` 로 다른 데를 지정하지 않는 한.
+로컬에서 돌리든 클러스터에 올리든 규칙이 하나인 이유는, 감사가 코퍼스가 아니라 프로세스를
+따라다니면 읽는 기계마다 다른 질문에 답하게 되기 때문입니다. OpenSearch 는 장부를 들 수
+없는 유일한 백엔드입니다. 검색 엔진이고, 읽을 때마다 문서를 하나씩 붙이는 건 세그먼트를
+병합하는 인덱스가 가장 못하는 쓰기 패턴이라서요. 그래서 조용히 로컬 파일에 쓰는 대신
+부팅할 때 그 사실과 변수 이름을 말합니다. 나머지는 전부 동일하게 동작합니다: `add`,
+`review`, `verify`, `inject`, `yoke ui`, MCP.
 
 ```bash
 # Postgres — 대부분의 조직이 이미 갖고 있는 그 DB. pgvector가 있으면 `similar`까지.
@@ -327,6 +330,7 @@ export YOKE_POSTGRES_SCHEMA=team_a                 # 선택: 한 데이터베이
 export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # 보안 클러스터만
 export YOKE_OPENSEARCH_PREFIX=team_a_              # 선택: 한 클러스터에 yoke DB 두 개
+export YOKE_AUDIT_URL=postgres://…                 # OpenSearch 일 때만: 감사가 갈 곳
 
 yoke serve                                         # 스키마/인덱스 생성, 온톨로지 시드
 ```
@@ -337,9 +341,10 @@ yoke serve                                         # 스키마/인덱스 생성,
 
 같은 줄들을 작업 디렉터리의 `.env`에 둬도 됩니다 (`cp .env.example .env`).
 
-무엇이 어디 살고 왜인지는 `docs/BACKENDS.md`에 있습니다. 요약하면 `YokeStore`의 확장 면이
-동기(better-sqlite3가 그 모양을 정했습니다)라서, 네트워크 백엔드는 교체되는 게 아니라 로컬
-sqlite와 *합성*됩니다 — 그 동기 시그니처를 만족하지 못하는 어댑터는 애초에 선택될 수 없습니다.
+무엇이 어디 살고 왜인지는 `docs/BACKENDS.md`에 있습니다. 요약하면 `YokeStore` 의 온톨로지
+읽기가 동기(better-sqlite3가 그 모양을 정했습니다)라서, 네트워크 백엔드는 교체되는 게 아니라
+`init()` 이 채우는 캐시와 *합성*됩니다. 감사 원장은 자기 포트(`ports/audit.ts`)를 갖고 있고
+처음부터 끝까지 비동기입니다 — 그래야 파일이 아닌 것도 원장이 될 수 있으니까요.
 
 ```bash
 docker run -d --name yoke-opensearch -p 9200:9200 \

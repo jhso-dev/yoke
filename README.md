@@ -325,9 +325,12 @@ instead.
 
 ## Using a server your company already runs
 
-Point yoke at a Postgres or an OpenSearch you already operate. The knowledge goes there; **this client's audit
-trail and API tokens stay in a local sqlite** — yoke's own bookkeeping does not belong in someone else's
-database, and asking for a place to put it would get a no.
+Point yoke at a Postgres or an OpenSearch you already operate. The knowledge goes there, and so does
+the audit trail unless `YOKE_AUDIT_URL` says otherwise — one rule wherever yoke runs, because a trail
+that follows the process instead of the corpus answers a different question on every machine that
+reads it. OpenSearch is the one backend that cannot hold a ledger: it is a search engine, and a
+document appended per read is the write pattern a segment-merging index is worst at. It says so at
+boot and names the variable, rather than quietly writing beside the process.
 
 ```bash
 # Postgres — the database most orgs already have. pgvector gives `similar` when present.
@@ -338,6 +341,7 @@ export YOKE_POSTGRES_SCHEMA=team_a               # optional: two yoke DBs in one
 export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # a secured cluster only
 export YOKE_OPENSEARCH_PREFIX=team_a_            # optional: two yoke DBs in one cluster
+export YOKE_AUDIT_URL=postgres://…               # OpenSearch only: where the trail goes
 
 yoke serve                                       # creates the schema/indices, seeds the ontology
 ```
@@ -347,7 +351,7 @@ Node's own parser reads it, so there is no dependency and no format of ours, and
 variable still wins over the file, which keeps a CI secret ahead of anything left on disk. `.env` is
 gitignored; `.env.example` is committed and lists every `YOKE_*` variable yoke itself reads.
 
-`--db` still names the local sqlite. Everything else is unchanged — `add`, `review`, `verify`,
+Everything else is unchanged — `add`, `review`, `verify`,
 `inject`, `yoke ui`, MCP. Both backends rank search **natively and scored** (Postgres `ts_rank`,
 OpenSearch BM25) and both serve `similar` from the engine (pgvector / k-NN), so retrieval needs no
 second service. Neither adds a dependency: `pg` was already in the tree for the RDB connector, and

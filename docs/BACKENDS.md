@@ -66,8 +66,7 @@ design decision, not a limitation to route around:
 | entities, relations, search, neighbors | **remote** | the knowledge itself. `StoragePort` is already fully async, so no interface change |
 | ontology | **remote**, cached in memory at `init()` | a shared graph with per-client schemas means two people validating against different schemas |
 | embedding vectors | **remote** | `similar` is meaningless anywhere other than beside the knowledge |
-| audit log | **local sqlite** | the record of what THIS client was told. Centralising it is the v3.0 `serve --auth` story and needs 30 call sites to go async |
-| API tokens | **local sqlite** | yoke's own credentials. They do not belong in the company's graph database, and asking would get a no |
+| audit log | **`YOKE_AUDIT_URL`**, else the knowledge backend | its own port (`ports/audit.ts`), asynchronous. One rule everywhere: a trail that follows the process rather than the corpus answers a different question on every machine that reads it |
 
 Two interface methods had to become async because they touch remote rows: `renameType` (rewrites
 entity rows) and `saveOntology` (writes remotely, and a synchronous fire-and-forget would lose the
@@ -95,9 +94,10 @@ The same exports work in a `.env` in the working directory (`cp .env.example .en
 "Configuration precedence"). An actual environment variable overrides the file, so the export form
 above still wins wherever both exist.
 
-`--db` still names the **local** sqlite that holds this client's audit trail and tokens; the knowledge
-goes to OpenSearch. Everything else is unchanged: `yoke add`, `review`, `verify`, `inject`, `yoke ui`,
-MCP.
+OpenSearch holds the knowledge and **cannot hold the ledger** — a document appended per read is the
+write pattern a segment-merging index is worst at — so this backend requires `YOKE_AUDIT_URL`
+(`postgres://…` for a shared trail, a file path for one machine) and refuses at boot without it.
+Everything else is unchanged: `yoke add`, `review`, `verify`, `inject`, `yoke ui`, MCP.
 
 **The test suite is scoped by index prefix.** It creates and deletes `yoketest_*` indices only, so it
 can run against the same cluster a demo is using — verified by running its whole suite — the 23 shared
@@ -127,9 +127,9 @@ export YOKE_POSTGRES_SCHEMA=team_a               # optional: two yoke DBs in one
 yoke serve                                       # creates the schema + tables, seeds the ontology
 ```
 
-Same split: `--db` still names the local sqlite holding this client's audit trail and tokens; the
-knowledge goes to Postgres. **No new dependency** — `pg` was already in the tree for the RDB
-read-mapping connector.
+Postgres holds the ledger too, in its own `audit_log` table, so nothing else is configured — the
+trail follows the corpus. `YOKE_AUDIT_URL` moves it elsewhere if a deployment wants that. **No new
+dependency** — `pg` was already in the tree for the RDB read-mapping connector.
 
 Ontology defs are stored as `json`, not `jsonb`: JSONB re-sorts an object's keys (length, then
 bytes), and a def's attrs must come back in declaration order on every backend — `summarize` reads the

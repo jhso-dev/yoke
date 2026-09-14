@@ -136,20 +136,6 @@ function emit(v: Values, human: string, data: unknown): void {
 const resolveShards = (v: Values, env: Env): string | undefined =>
   v.shards ?? env.YOKE_SHARDS;
 
-/** What the store a command just opened is, for messages and `--json`.
- *
- * `resolveDb` alone names the LOCAL sqlite whatever the store actually is; under `--shards` that is
- * wrong, and under a remote backend it is half true (the local db still holds this client's audit +
- * tokens), so this reports both halves rather than picking one. */
-function _storeLabel(v: Values, env: Env): string {
-  const shards = resolveShards(v, env);
-  if (shards) return `shards ${shards}`;
-  const db = resolveDb(v, env);
-  const remote = env.YOKE_OPENSEARCH_URL ?? env.YOKE_POSTGRES_URL;
-  if (remote) return `${remote} (audit + tokens: ${db})`;
-  return db;
-}
-
 /** Every dispatchable command name, for the did-you-mean below. */
 const COMMANDS = [
   "link",

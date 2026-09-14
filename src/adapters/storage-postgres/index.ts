@@ -58,6 +58,7 @@ import {
 } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
+import type { AuditEvent, AuditPort, AuditQuery } from "../../ports/audit.js";
 import {
   ConflictError,
   DEFAULT_SEARCH_LIMIT,
@@ -137,7 +138,7 @@ interface PostgresOptions {
   schema?: string;
 }
 
-export class PostgresStorage implements StoragePort {
+export class PostgresStorage implements StoragePort, AuditPort {
   private readonly pool: Pool;
   /** Unquoted, for catalog lookups (`pg_namespace.nspname`). */
   private readonly schemaName: string;
@@ -267,6 +268,22 @@ export class PostgresStorage implements StoragePort {
     )`);
     await this.keepDeclarationOrder();
 
+    // The audit ledger (AuditPort). Here, not in a second database, because this backend can hold a
+    // ledger and the rule is one rule: the trail follows the corpus unless YOKE_AUDIT_URL moves it.
+    // BIGSERIAL, not `at`, orders the rows — two events in the same millisecond still have an order,
+    // and it is the order they were appended in.
+    await this.q(`CREATE TABLE IF NOT EXISTS ${this.t("audit_log")} (
+      seq    BIGSERIAL PRIMARY KEY,
+      actor  TEXT NOT NULL,
+      action TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      at     TEXT NOT NULL,
+      ns     TEXT NOT NULL DEFAULT ''
+    )`);
+    await this.q(
+      `CREATE INDEX IF NOT EXISTS audit_ns_at ON ${this.t("audit_log")} (ns, at)`,
+    );
+
     // Indexes chosen from the same measurements as sqlite's (docs/SCALE.md): ns leads the composites
     // because every enumeration is namespace-scoped, from_id/to_id are SEPARATE single-column indexes
     // because neighbors asks `from_id = ? OR to_id = ?` and a composite would never be used, and the
@@ -289,6 +306,58 @@ export class PostgresStorage implements StoragePort {
     }
     // The vector TABLE is created lazily, not here: its column declares the dimension, which is not
     // known until the first vector arrives. Same lazy shape as sqlite's vec0 table.
+  }
+
+  /** AuditPort. */
+  async logAudit(event: AuditEvent): Promise<void> {
+    await this.q(
+      `INSERT INTO ${this.t("audit_log")} (actor, action, detail, at, ns) VALUES ($1, $2, $3, $4, $5)`,
+      [event.actor, event.action, event.detail, event.at, event.ns ?? ""],
+    );
+  }
+
+  /** Oldest-first, like every other implementation: `limit` takes the newest N and reverses them, so
+   * a paging viewer and `yoke audit` read the same direction.
+   *
+   * Bounds compare as timestamps, never as text — `at` holds more than one ISO spelling (whole-second
+   * and millisecond, offsets included) and `Z` sorts after `.`, so a string compare drops rows inside
+   * the bound's own second. Same rule, same reason, as the sqlite implementation's `julianday`. */
+  async listAudit(q: AuditQuery = {}): Promise<AuditEvent[]> {
+    const params: unknown[] = [q.ns ?? ""];
+    let where = "ns = $1";
+    if (q.since !== undefined) {
+      params.push(q.since);
+      where += ` AND at::timestamptz >= $${params.length}::timestamptz`;
+    }
+    if (q.until !== undefined) {
+      params.push(q.until);
+      where += ` AND at::timestamptz <= $${params.length}::timestamptz`;
+    }
+    let sql = `SELECT actor, action, detail, at, ns FROM ${this.t("audit_log")} WHERE ${where} ORDER BY seq`;
+    if (q.limit !== undefined) {
+      params.push(q.limit);
+      sql = `SELECT actor, action, detail, at, ns FROM ${this.t("audit_log")} WHERE ${where} ORDER BY seq DESC LIMIT $${params.length}`;
+    }
+    const rows = await this.q<{
+      actor: string;
+      action: string;
+      detail: string;
+      at: string;
+      ns: string;
+    }>(sql, params);
+    const out: AuditEvent[] = rows.map((r) =>
+      // The default namespace leaves the field absent, matching how entity rows carry ns.
+      r.ns === ""
+        ? { actor: r.actor, action: r.action, detail: r.detail, at: r.at }
+        : {
+            actor: r.actor,
+            action: r.action,
+            detail: r.detail,
+            at: r.at,
+            ns: r.ns,
+          },
+    );
+    return q.limit === undefined ? out : out.reverse();
   }
 
   /**
