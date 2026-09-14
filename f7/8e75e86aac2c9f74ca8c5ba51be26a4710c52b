@@ -1,0 +1,64 @@
+src/front/cli/cli.test.ts
+  s_03673cb32bfdc1::t_81224abcd47823 2061-2063
+docs/WEB-UI.md
+  s_03673cb32bfdc1::t_0417f59450fee2 244-246
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_81224abcd47823 991-992,1033-1034
+scripts/load-demo-corpus.mjs
+  s_03673cb32bfdc1::t_63eaa5d5a28098 32
+README.ko.md
+  s_03673cb32bfdc1::t_2b44f5f2d18224 132
+  s_03673cb32bfdc1::t_f78184dc7c6cda 128,462,464
+src/adapters/storage-opensearch/index.test.ts
+  s_03673cb32bfdc1::t_81224abcd47823 304-305
+src/adapters/storage-sqlite/index.ts
+  s_03673cb32bfdc1::t_a3c19339566baa 800
+src/core/ontology.ts
+  s_03673cb32bfdc1::t_a3c19339566baa 244-245
+src/adapters/storage-sharded/index.ts
+  s_03673cb32bfdc1::t_a3c19339566baa 303
+web/components/ErrorBanner.tsx
+  s_03673cb32bfdc1::t_3a1c6b28450b92 9
+docs/ARCHITECTURE.md
+  s_03673cb32bfdc1::t_23cddde964111b 29-30,32,41,46,49-52
+README.md
+  s_03673cb32bfdc1::t_f78184dc7c6cda 133,137,480,482
+src/adapters/storage-sqlite/index.test.ts
+  s_03673cb32bfdc1::t_81224abcd47823 455-456,476-477
+docs/ROADMAP.md
+  s_03673cb32bfdc1::t_1dcb205036bafe 176
+  s_03673cb32bfdc1::t_47a5a65f41a9e3 16,60-61,161-175,177-179
+  s_03673cb32bfdc1::t_6b85a00f369e76 180
+docs/ENTERPRISE.md
+  s_03673cb32bfdc1::t_3a1cf3b9226dcc 14-16
+  s_03673cb32bfdc1::t_6e9feb098112d1 31-36,68-79,83-89,104-105
+CLAUDE.md
+  s_03673cb32bfdc1::t_d5d8abbaa45495 29-30
+src/front/serve/index.ts
+  s_03673cb32bfdc1::t_a3c19339566baa 106
+src/adapters/storage-sharded/index.test.ts
+  s_03673cb32bfdc1::t_81224abcd47823 316-318,367-369
+src/front/remote.ts
+  s_03673cb32bfdc1::t_8721a8672d4e12 1,4-5,238-239,363-365
+  s_03673cb32bfdc1::t_226129dfb4fd82 15
+src/adapters/storage-postgres/index.ts
+  s_03673cb32bfdc1::t_a3c19339566baa 1027
+scripts/install.sh
+  s_03673cb32bfdc1::t_a9d40efbeb8092 168-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f78e75e86aac2c9f74ca8c5ba51be26a4710c52b",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
