@@ -342,6 +342,8 @@ export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # a secured cluster only
 export YOKE_OPENSEARCH_PREFIX=team_a_            # optional: two yoke DBs in one cluster
 export YOKE_AUDIT_URL=postgres://…               # OpenSearch only: where the trail goes
+                                                 # (postgres://…, dynamodb://<region>/<table>,
+                                                 #  or a file path — see docs/BACKENDS.md)
 
 yoke serve                                       # creates the schema/indices, seeds the ontology
 ```
@@ -355,11 +357,12 @@ Everything else is unchanged — `add`, `review`, `verify`,
 `inject`, `yoke ui`, MCP. Both backends rank search **natively and scored** (Postgres `ts_rank`,
 OpenSearch BM25) and both serve `similar` from the engine (pgvector / k-NN), so retrieval needs no
 second service. Neither adds a dependency: `pg` was already in the tree for the RDB connector, and
-the OpenSearch adapter is plain REST.
+the OpenSearch adapter is plain REST. So is the DynamoDB audit ledger — SigV4 over `node:crypto`
+rather than 16 MB of AWS SDK paid for by every install.
 
-What lives where, and why: `docs/BACKENDS.md`. The short version is that `YokeStore`'s extension
-surface is synchronous (better-sqlite3 shaped it), so a networked backend is *composed* with a local
-sqlite rather than swapped in — and an adapter that cannot satisfy those synchronous signatures is not
+What lives where, and why: `docs/BACKENDS.md`. The short version is that `YokeStore`'s ontology read
+is synchronous (better-sqlite3 shaped it), so a networked backend is *composed* with a cache its
+async `init()` fills rather than swapped in — and an adapter that cannot satisfy those signatures is not
 selectable at all.
 
 ```bash

@@ -331,6 +331,8 @@ export YOKE_OPENSEARCH_URL=http://localhost:9200
 export YOKE_OPENSEARCH_USER=admin YOKE_OPENSEARCH_PASSWORD=…   # 보안 클러스터만
 export YOKE_OPENSEARCH_PREFIX=team_a_              # 선택: 한 클러스터에 yoke DB 두 개
 export YOKE_AUDIT_URL=postgres://…                 # OpenSearch 일 때만: 감사가 갈 곳
+                                                   # (postgres://…, dynamodb://<region>/<table>,
+                                                   #  또는 파일 경로 — docs/BACKENDS.md)
 
 yoke serve                                         # 스키마/인덱스 생성, 온톨로지 시드
 ```

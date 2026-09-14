@@ -117,11 +117,16 @@ remote because a shared graph with per-client schemas means two clients validati
 schemas.
 
 **The audit trail has its own port and its own address** (`ports/audit.ts`, asynchronous throughout).
-`YOKE_AUDIT_URL` names where it goes; unset, it goes to the knowledge store — one rule on a laptop and
-on a cluster, because a trail that follows the process rather than the corpus answers a different
-question on every machine that reads it. sqlite and Postgres hold their own; OpenSearch does not
-implement the port (a document appended per read is the write pattern a segment-merging index is worst
-at) and refuses at boot naming the variable.
+`YOKE_AUDIT_URL` names where it goes — a file path, `postgres://…` or `dynamodb://…`; unset, it goes to
+the knowledge store. One rule on a laptop and on a cluster, because a trail that follows the process
+rather than the corpus answers a different question on every machine that reads it. sqlite, Postgres
+and DynamoDB hold their own; OpenSearch does not implement the port (a document appended per read is
+the write pattern a segment-merging index is worst at) and refuses at boot naming the variable.
+
+The ledger also keeps what the trail IMPLIES, written by the same call that appends it: how often each
+record was handed to an agent, and what each reader already holds. A delivery carries its ids as data
+(`AuditEvent.ids`), so nothing re-derives either fact by scanning the log — see "The stale queue" and
+"Since, and unseen".
 
 Two methods became async because they touch remote rows — **`renameType`** (it rewrites entity rows)
 and **`saveOntology`** (a synchronous fire-and-forget would discard the error). `loadOntology` stays
@@ -1478,6 +1483,10 @@ Any core function that needs time (commit, verify, isFresh, persona export) take
 ## Tech stack
 
 TypeScript, Node ≥ 20, better-sqlite3, sqlite-vec, the MCP SDK (@modelcontextprotocol/sdk).
+Remote backends add nothing: `pg` was already in the tree for the RDB connector, and the OpenSearch
+and DynamoDB adapters are plain REST — DynamoDB's SigV4 signing is `node:crypto` in
+`adapters/audit-dynamodb/sigv4.ts`, verified against `@aws-sdk/signature-v4` and pinned, rather than
+16 MB of SDK paid for by every install.
 Embedding: **no model ships with yoke, and none will.** One provider configuration — an
 OpenAI-compatible `/embeddings` endpoint — which is why a single implementation reaches OpenAI, Azure,
 Ollama, vLLM, TEI and LiteLLM. An in-process ONNX runtime was considered and rejected in v5.2:

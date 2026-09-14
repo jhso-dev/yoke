@@ -69,6 +69,49 @@ design decision, not a limitation to route around:
 | embedding vectors | **remote** | `similar` is meaningless anywhere other than beside the knowledge |
 | audit log | **`YOKE_AUDIT_URL`**, else the knowledge backend | its own port (`ports/audit.ts`), asynchronous. One rule everywhere: a trail that follows the process rather than the corpus answers a different question on every machine that reads it |
 
+### The audit ledger
+
+`YOKE_AUDIT_URL` picks it, independently of where the knowledge is:
+
+| | holds a ledger | note |
+|---|---|---|
+| sqlite (`./audit.db`, or `sqlite:<path>`) | yes | also the default when nothing is set and the knowledge is sqlite |
+| `postgres://…` | yes | its own `audit_log` and `delivery` tables; `YOKE_AUDIT_SCHEMA` to separate them |
+| `dynamodb://<table>` or `dynamodb://<region>/<table>` | yes | one table, created on first boot if missing |
+| OpenSearch | **no** | a document appended per read is the write pattern a segment-merging index is worst at. It refuses at boot and names the variable |
+
+Every ledger passes `ports/audit-conformance.ts` — the trail reads oldest-first with both bounds
+inclusive and compared by instant, and the ledger's own counts (`consumption`, `delivered`) mean the
+same thing on all three.
+
+**DynamoDB adds no dependency.** `@aws-sdk/client-dynamodb` is 16 MB across 7 packages, and DynamoDB's
+API is a signed JSON POST — so the adapter is plain REST like the OpenSearch one, with SigV4 over
+`node:crypto` (`adapters/audit-dynamodb/sigv4.ts`, verified byte-for-byte against
+`@aws-sdk/signature-v4` and pinned). Credentials come from `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`; **instance and pod roles are not read** — an EC2 role or
+an EKS service account needs a token fetched first, which is a documented ceiling, not a silent gap.
+
+One table, three item shapes, chosen so every read is a Query or a BatchGet on the primary key:
+
+```
+trail     pk = T#<ns>          sk = <epoch ms, padded>#<ulid>   the append-only rows
+delivery  pk = D#<ns>#<actor>  sk = <anchor>#<entity id>        what a reader holds
+counter   pk = C#<ns>          sk = <entity id>                 how often agents were fed it
+```
+
+The sort key is a padded epoch rather than the `at` string because DynamoDB compares sort keys
+byte-lexicographically and `at` is stored in more than one ISO spelling. Created `PAY_PER_REQUEST`, so
+there is no capacity to plan; an operator who wants the perpetual free tier's 25/25 provisioned units
+switches the table over, and yoke leaves an existing table exactly as it found it.
+
+```bash
+docker run -d --rm --name yoke-ddb -p 8100:8000 amazon/dynamodb-local   # to try it locally
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_REGION=us-east-1
+export YOKE_AUDIT_ENDPOINT=http://localhost:8100
+export YOKE_AUDIT_URL=dynamodb://us-east-1/yoke_audit
+yoke serve
+```
+
 Two interface methods had to become async because they touch remote rows: `renameType` (rewrites
 entity rows) and `saveOntology` (writes remotely, and a synchronous fire-and-forget would lose the
 error). `listHistory` is **optional on the interface** and absent on the composite: it is synchronous and it

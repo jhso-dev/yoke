@@ -50,8 +50,19 @@ describe("YOKE_AUDIT_URL", () => {
 
   it("names the scheme it has no adapter for, rather than treating it as a path", async () => {
     await expect(
-      openStore({ db: join(dir, "x.db") }, { YOKE_AUDIT_URL: "dynamodb://t" }),
-    ).rejects.toThrow(/no ledger adapter for dynamodb/);
+      openStore({ db: join(dir, "x.db") }, { YOKE_AUDIT_URL: "cassandra://t" }),
+    ).rejects.toThrow(/no ledger adapter for cassandra/);
+  });
+
+  // The dynamodb ledger needs no package installed — it is plain REST over node:crypto — so the
+  // adapter resolves here with nothing in node_modules, and refuses on what it cannot sign.
+  it("resolves the dynamodb ledger with no SDK present, and refuses what it cannot sign", async () => {
+    await expect(
+      openStore(
+        { db: join(dir, "ddb.db") },
+        { YOKE_AUDIT_URL: "dynamodb://us-east-1/t" },
+      ),
+    ).rejects.toThrow(/AWS_ACCESS_KEY_ID/);
   });
 
   // OpenSearch is used as a search engine: a ledger appends a document per read, which is the write

@@ -113,6 +113,31 @@ jobs:
       - name: the postgres suite actually ran
         run: node -e "const r=require('/tmp/pg.json');if(!r.numPassedTests)throw new Error('postgres suite ran 0 tests — it skipped');console.log(r.numPassedTests+' postgres tests ran')"
 
+  # audit-dynamodb against a REAL DynamoDB (dynamodb-local runs the same engine). The ledger is a
+  # user-facing capability, so this backend passes the same AuditPort conformance the others do —
+  # and the SigV4 cases in this directory need no server and run in the main suite too.
+  dynamodb-adapter:
+    runs-on: ubuntu-latest
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run src/adapters/audit-dynamodb --reporter=json --outputFile=/tmp/ddb.json
+        env:
+          YOKE_TEST_DYNAMODB_ENDPOINT: http://localhost:8000
+      # Non-vacuity: the live half skips itself when the env var is unset while the address cases run
+      # either way, so a pass count proves nothing. NOTHING skipped is what proves the server was there.
+      - name: the dynamodb suite actually ran against a server
+        run: node -e "const r=require('/tmp/ddb.json');if(r.numPendingTests)throw new Error(r.numPendingTests+' dynamodb tests skipped — the live half did not run');console.log(r.numPassedTests+' dynamodb tests ran')"
+
   # Windows native-binary check: better-sqlite3 / sqlite-vec prebuilds must
   # install and pass the main suite (the most common cross-platform trap).
   windows:

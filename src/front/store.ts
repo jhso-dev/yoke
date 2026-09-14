@@ -76,10 +76,17 @@ async function resolveAudit(env: Env): Promise<AuditPort | null> {
     );
     return new PostgresStorage({ url, schema: env.YOKE_AUDIT_SCHEMA });
   }
+  if (url.startsWith("dynamodb://")) {
+    const { DynamoAudit, dynamoAuditFromUrl } = await import(
+      "../adapters/audit-dynamodb/index.js"
+    );
+    return new DynamoAudit(dynamoAuditFromUrl(url, env));
+  }
   const path = url.startsWith("sqlite:") ? url.slice("sqlite:".length) : url;
   if (path.includes("://"))
     throw new Error(
-      `YOKE_AUDIT_URL: no ledger adapter for ${path.split("://")[0]} — use postgres://… or a file path`,
+      `YOKE_AUDIT_URL: no ledger adapter for ${path.split("://")[0]} — use postgres://…, ` +
+        "dynamodb://… or a file path",
     );
   return new SqliteStorage(path);
 }
