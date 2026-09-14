@@ -1,0 +1,22 @@
+README.md
+  s_03673cb32bfdc1::t_546802bad0ed71 388-390
+README.ko.md
+  s_03673cb32bfdc1::t_3dbb0aa9f78c41 372-374
+  s_03673cb32bfdc1::t_546802bad0ed71 370-371
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "532513d603c8df2568bf7a984609fd3e6b92b117",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
