@@ -1,0 +1,27 @@
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_7f3bc2eb1c0a8c 3
+  s_03673cb32bfdc1::t_99ef6c93e840b5 1
+  s_03673cb32bfdc1::t_9a405cdc757d3f 1038
+  s_03673cb32bfdc1::t_d814c30a4febea 1012-1016
+  s_03673cb32bfdc1::t_0970603b4e49ee 4-5
+  s_03673cb32bfdc1::t_d67fb2a915c1e1 2
+  s_03673cb32bfdc1::t_3d166b0026e7e2 982-992
+  s_03673cb32bfdc1::t_093cf961586886 1034-1037,1039-1071,1073-1088
+  s_03673cb32bfdc1::t_51800c56de4921 951-956,959,964
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "685f5bc0bd8db53d4e33713a9febced04cbb21b9",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
