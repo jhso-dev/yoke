@@ -130,11 +130,11 @@ Every record also arrives with its citation, which a pasted passage cannot do.
 |---|---|
 | **One-line summary** | A database optimized for knowledge: structure it as an ontology, then inject only the verified subset relevant to the current context into your AI — with citations. |
 | **Front adapters** | An **MCP server** (`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`) and a **thin CLI**. Every AI tool is just an MCP client — no per-tool adapter. |
-| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). All four pass one conformance suite. |
+| **Storage backends** | `sqlite` (default, FTS5 + sqlite-vec) · `postgres` (native scored FTS + pgvector, no extra dependency) · `opensearch` (native BM25 + k-NN, no extra dependency) — point either remote one at the server your company already runs · `sharded` (federation by tenant). Every one of them passes the same storage-port conformance suite, and every audit ledger passes the audit port's. |
 | **Capture connectors** | `github-pr` (review comments), `slack` (channels + threads), `notes` (local transcripts), `raw` (unstructured material — transcripts, docs — model-extracted) — external sources → knowledge signed by the connector, dated from the source. `rdb` (Postgres/MySQL read-mapping) maps a database that is already the system of record. |
 | **Persona** | "How would a teammate decide?" → their recorded, verified judgments, cited and generated live. Citation, not impersonation. |
 | **Shared working context** | Pin a `collaboration` and a team shares one context; scope prioritizes without hiding org-wide knowledge. |
-| **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens + the GitHub exchange · RBAC (read / write / admin) · read replicas · online backup + point-in-time export. |
+| **Enterprise** | Namespaced multi-tenancy · OIDC/SSO + API tokens + the GitHub exchange · RBAC (read / write / admin) · an audit trail with its own address (`YOKE_AUDIT_URL`) · tenant-boundary sharding. Replication and backup are the database's own, below the port. |
 | **License** | MIT |
 
 ## 60-second quickstart
@@ -477,9 +477,9 @@ totals.
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | The gate, lifecycle, and injection-filter rules |
 | [SPEC](docs/SPEC.md) | The implementation contract — schema, port, gate, MCP tools, CLI |
 | [WEB-UI](docs/WEB-UI.md) | The governance workbench — the twelve screens and the line we don't cross |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v7.6 built, in order, and which doc owns each rule |
+| [ROADMAP](docs/ROADMAP.md) | every version in the order it shipped, and which doc owns each rule |
 | [BACKENDS](docs/BACKENDS.md) | Adapter extension + RDB read-mapping (with live-verification notes) |
-| [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, replication, sharding |
+| [ENTERPRISE](docs/ENTERPRISE.md) | Multi-tenancy, auth, RBAC, the audit trail, sharding |
 | [MARKET](docs/MARKET.md) | Competitive landscape and positioning |
 
 ## License

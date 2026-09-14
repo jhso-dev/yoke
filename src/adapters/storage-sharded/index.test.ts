@@ -313,9 +313,9 @@ describe("CLI --shards smoke", () => {
       JSON.stringify({ name: "fact", kind: "entity", attrs: {} }),
     );
 
-    // `yoke init` writes the seed with NO ns, so it lands on the default shard — and that is all a
-    // tenant shard ever gets. Run init here rather than hand-seeding the "a" shard: the flow a real
-    // user takes is init, then work in a namespace, and that is the flow worth exercising.
+    // The seed is written with NO ns, so it lands on the default shard — and that is all a tenant
+    // shard ever gets. Reached through the CLI rather than by hand-seeding the "a" shard: the flow a
+    // real user takes is a server's boot seed, then work in a namespace.
     expect(
       await cli([
         "ontology",
@@ -364,9 +364,9 @@ describe("CLI --shards smoke", () => {
     );
   });
 
-  // The flow that was broken, with nothing hand-seeded: `yoke init`, then work in a namespace owned
-  // by a NON-default shard, using only the seed ontology. Every command below failed with
-  // "not initialized: … — run 'yoke init' first" while the identical commands worked on plain sqlite.
+  // Nothing hand-seeded: the boot seed, then work in a namespace owned by a NON-default shard, using
+  // only the seed ontology. A tenant shard never gets a copy of the shared types, so every command
+  // here depends on `loadOntology` reading both shards.
   it("a namespace on a non-default shard works off the seed ontology alone", async () => {
     const tag = Math.random().toString(36).slice(2);
     const cfg = join(dir, `seedflow-${tag}.json`);

@@ -125,11 +125,11 @@ MIT · v7.6까지 기능 완성 · [비주얼 소개](https://claude.ai/code/art
 |---|---|
 | **한 줄 요약** | 지식에 최적화된 데이터베이스: 온톨로지로 구조화한 뒤, 지금 맥락에 맞는 검증된 부분집합만 인용과 함께 AI에 주입합니다. |
 | **프론트 어댑터** | **MCP 서버**(`inject` · `commit` · `record_decision` · `overview` · `persona` · `use_scope`)와 **thin CLI**. 모든 AI 도구는 그저 MCP 클라이언트 — 도구별 어댑터 없음. |
-| **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `postgres`(네이티브 스코어드 FTS + pgvector, 의존성 추가 없음) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 넷 모두 하나의 conformance 스위트를 통과. |
+| **스토리지 백엔드** | `sqlite`(기본, FTS5 + sqlite-vec) · `postgres`(네이티브 스코어드 FTS + pgvector, 의존성 추가 없음) · `opensearch`(네이티브 BM25 + k-NN, 의존성 추가 없음) — 원격 둘은 회사가 이미 운영하는 서버를 그대로 가리킵니다 · `sharded`(테넌트별 연합). 모두 같은 스토리지 포트 conformance 스위트를 통과하고, 감사 원장은 감사 포트의 스위트를 통과합니다. |
 | **캡처 커넥터** | `github-pr`(리뷰 코멘트), `slack`(채널 + 스레드), `notes`(로컬 회의록), `raw`(비정형 자료 — 대화록·문서를 모델이 추출) — 외부 소스 → 커넥터가 서명한 지식, 원본 시각으로 기록. `rdb`(Postgres/MySQL read-mapping)는 이미 system of record인 DB를 매핑합니다. |
 | **persona** | "이 동료라면 어떻게 판단할까?" → 그 사람의 기록된 검증 판단을 인용과 함께, 실시간 생성으로. 흉내가 아니라 인용. |
 | **공유 작업 컨텍스트** | `collaboration`을 고정하면 팀이 하나의 컨텍스트를 공유 — 스코프는 전사 지식을 가리지 않고 우선순위만 부여. |
-| **엔터프라이즈** | 네임스페이스 멀티테넌시 · OIDC/SSO + API 토큰 + GitHub 교환 · RBAC(read / write / admin) · 읽기 레플리카 · 온라인 백업 + 시점 복원. |
+| **엔터프라이즈** | 네임스페이스 멀티테넌시 · OIDC/SSO + API 토큰 + GitHub 교환 · RBAC(read / write / admin) · 자기 주소(`YOKE_AUDIT_URL`)를 가진 감사 추적 · 테넌트 경계 샤딩. 복제와 백업은 포트 아래에서 데이터베이스가 알아서 합니다. |
 | **라이선스** | MIT |
 
 ## 60초 시작하기
@@ -459,9 +459,9 @@ recall@10 82.4%, 한두 단어짜리는 100%입니다. 리포트는 합계만이
 | [KNOWLEDGE-POLICY](docs/KNOWLEDGE-POLICY.md) | 게이트, 라이프사이클, 주입 필터 규칙 |
 | [SPEC](docs/SPEC.md) | 구현 계약 — 스키마, port, 게이트, MCP 도구, CLI |
 | [WEB-UI](docs/WEB-UI.md) | 거버넌스 워크벤치 — 12개 화면과 넘지 않는 선 |
-| [ROADMAP](docs/ROADMAP.md) | v0.1 → v7.6 구현 완료 — 버전 순서대로, 각 규칙이 어느 문서에 있는지 |
+| [ROADMAP](docs/ROADMAP.md) | 출시 순서대로 정리한 버전 색인 — 각 규칙이 어느 문서에 있는지 |
 | [BACKENDS](docs/BACKENDS.md) | 어댑터 확장 + RDB read-mapping (실사용 검증 노트 포함) |
-| [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 복제, 샤딩 |
+| [ENTERPRISE](docs/ENTERPRISE.md) | 멀티테넌시, auth, RBAC, 감사 추적, 샤딩 |
 | [MARKET](docs/MARKET.md) | 경쟁 지형과 포지셔닝 |
 
 ## 라이선스

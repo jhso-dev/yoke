@@ -165,7 +165,8 @@ link_yoke() {
 
 print_next_steps() {
     printf "\n${CYAN}${BOLD}next steps${NC}\n"
-    log_info "yoke init      create ./yoke.db and seed the ontology"
+    log_info "yoke serve     hold the corpus on 127.0.0.1:4800 (creates ./yoke.db on first run)"
+    log_info "yoke add fact --attr statement=...   record knowledge — in another terminal"
     log_info "yoke --help    list every command"
     printf "\n  attach yoke to your AI tool — add to .mcp.json:\n"
     printf "${CYAN}    { \"mcpServers\": {${NC}\n"

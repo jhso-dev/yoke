@@ -452,8 +452,8 @@ describe("renameType", () => {
   });
 
   it("drops the stale declaration when the new name is already declared", async () => {
-    // The ordinary case: the code was renamed first, so a later `yoke init` seeded the new type
-    // beside the old one. Rewriting the old row's name would collide with the live one.
+    // The ordinary case: the code was renamed first, so the next open seeded the new type beside
+    // the old one. Rewriting the old row's name would collide with the live one.
     const store = new SqliteStorage(":memory:");
     await store.init();
     await store.saveOntology([{ name: "old", kind: "entity", attrs: {} }]);
@@ -473,11 +473,8 @@ describe("renameType", () => {
   });
 });
 
-// A pre-10.1 database on the current binary. Every command died on a bare "no such column: ns", and
-// `yoke init` — the one repair the migration's own comment promises — died at the same line, because
-// SCHEMA declares indexes over `ns` and ran BEFORE the ALTER TABLE that adds it. `restore` then
-// reported exit 0 for a file that could not be opened. Git dates it: the ns migration landed
-// 2026-07-13, the ns indexes joined SCHEMA on 2026-08-03.
+// A pre-10.1 database on the current binary: SCHEMA declares indexes over `ns`, so they must run
+// AFTER the ALTER TABLE that adds the column, or opening the file dies on "no such column: ns".
 describe("opening a database from before the ns migration", () => {
   /** A current database with the 10.1+ columns and indexes stripped back off. */
   function pre101(): string {

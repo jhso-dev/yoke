@@ -1024,7 +1024,7 @@ export class PostgresStorage implements StoragePort, AuditPort {
       );
       if ((declared.rowCount ?? 0) > 0) {
         // `to` already exists — the ordinary case when the code was renamed before the database was,
-        // so a later `yoke init` seeded the new type beside the old one. Retire the stale declaration
+        // so the next open seeded the new type beside the old one. Retire the stale declaration
         // rather than colliding with the live one; the rows above already point at the survivor.
         const gone = await c.query(
           `DELETE FROM ${this.t("ontology_types")} WHERE name = $1 AND ns = $2`,

@@ -797,7 +797,7 @@ export class SqliteStorage implements StoragePort, AuditPort {
         .get(to, n);
       if (declared) {
         // `to` already exists — the ordinary case when the code was renamed before the database was,
-        // so a later `yoke init` seeded the new type beside the old one. Drop the stale declaration
+        // so the next open seeded the new type beside the old one. Drop the stale declaration
         // rather than colliding with the live one; the rows above already point at the survivor.
         rows += this.db
           .prepare(`DELETE FROM ontology_types WHERE name = ? AND ns IS ?`)

@@ -103,7 +103,7 @@ export function createServeServer(deps: ServeDeps): Server {
   const signer = credentialSigner(deps.tokenSecret);
 
   // Auto-provision a person for an OIDC subject on first sight — through the commit gate, exactly
-  // like `yoke init` seeds yoke:system. The id is a stable opaque string we own (`oidc:<sub>`).
+  // like the boot seed makes yoke:system. The id is a stable opaque string we own (`oidc:<sub>`).
   async function provisionPerson(id: string, name: string): Promise<void> {
     if (await store.getEntity(id)) return;
     const ts = now();

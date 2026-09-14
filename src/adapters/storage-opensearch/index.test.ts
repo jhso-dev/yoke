@@ -301,8 +301,8 @@ suite("opensearch policies that are contract, not implementation", () => {
 
   it("overlays a tenant's ontology on the shared base, like every other backend", async () => {
     // `loadOntology` is not a port method, so no conformance case covers it — and a backend that
-    // returns the tenant scope ALONE refuses every namespaced command: `yoke init` writes the seed
-    // with no ns, so a tenant that declared nothing of its own would load an EMPTY ontology and every
+    // returns the tenant scope ALONE refuses every namespaced command: the seed is written with no
+    // ns, so a tenant that declared nothing of its own would load an EMPTY ontology and every
     // commit would come back "unknown type". Same rule as sqlite, postgres and sharded (core's
     // `overlayOntology`), asserted here because only a live cluster runs this adapter's version of it.
     const prefix = "yoketest_ns_ontology_";

@@ -241,7 +241,8 @@ cost is paid only for components whose accessibility is genuinely hard to hand-r
   that keeps that true. No Express, no Fastify, no GraphQL — the JSON API stays route-per-question.
 - **ORMs, yaml parsers, docker-compose test harnesses, WebSockets.** The graph loads over `fetch`;
   there is no live push.
-- **Password auth, and per-field encryption.** Browser login reuses a credential yoke already mints
-  (`yoke token create`) or an OIDC id_token; yoke never stores a password.
+- **Password auth, and per-field encryption.** Browser login reuses a credential the server signs
+  (the GitHub exchange, or `yoke token create`) or an OIDC id_token; yoke stores neither a password
+  nor the credential.
 - **UI-only business logic.** If a screen wants something the CLI cannot do, the answer is
   a core function and a CLI command, not a route.

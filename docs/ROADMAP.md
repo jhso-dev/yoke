@@ -13,7 +13,7 @@ measured.
 
 Entity/relation types and the ontology-as-records model; the storage port and its conformance suite;
 the sqlite adapter (append-only version rows, FTS5); commit gate stages 1–2 (ontology and provenance
-validation); the base ontology seed; `init` / `add` / `get` / `search`.
+validation); the base ontology seed; `add` / `get` / `search`.
 
 ## v0.2 — lifecycle, injection
 
@@ -57,7 +57,8 @@ Server mode, OIDC and API tokens, RBAC, namespace isolation, per-tenant ontology
 
 ## v3.5 — distribution, HA
 
-Read replicas, backup/restore and PITR on the append-only history, tenant-boundary sharding.
+Tenant-boundary sharding. Replication, backup and recovery are the database's own, below the storage
+port — see ENTERPRISE "Distribution / HA" for why none of them is a yoke command.
 
 ## v4.0 — shared working context
 
@@ -156,6 +157,26 @@ and capture and delivery pointed at different stores — the open question that 
 `scripts/self-check.mjs`: five tripwires on terms no assumption enters and no volume improves, each
 firing on a worsening against the team's own previous week. It files a finding and stops. Why it
 never optimizes the ROI ratio, and its ceiling, are in ADOPTION.
+
+## v8.0 — one door, and a trail with its own address
+
+The CLI becomes a client: every command that touches the corpus goes to a `yoke serve`, and `serve`
+and `ui` are the only two that open a store — they create and seed a missing one and say so. `yoke
+mcp` is a stdio relay to that server's `/mcp`, which is why `yoke_use_scope`'s pin is per-call and
+never per-session (SPEC "Declared scope"). Credentials are signed by the server rather than stored,
+so `yoke token create` is a request to `POST /api/tokens` and the first admin credential comes from
+`serve --bootstrap-admin` (ENTERPRISE "Auth / RBAC"). `--replica-of` is gone: replication is the
+database's, below the port (ENTERPRISE "Distribution / HA").
+
+The audit trail moves to a port of its own with its own conformance suite and its own address,
+`YOKE_AUDIT_URL` — sqlite, Postgres and a new dependency-free DynamoDB adapter hold it; OpenSearch
+does not implement it and refuses at boot naming the variable (SPEC "Storage Port", BACKENDS). The
+ledger records what a delivery implies as data written by the same call that appends the row, so
+consumption counts and unseen reads are point lookups rather than scans over a window (SPEC "The
+stale queue", "Since, and unseen"; the retraction broadcast that rests on them is KNOWLEDGE-POLICY).
+
+This version was an architecture move, not only subtraction: `src/` non-test grew from 18,096 to
+19,643 lines, while `docs/` shrank from 4,641 to 3,559.
 
 ## Version-promotion rule
 

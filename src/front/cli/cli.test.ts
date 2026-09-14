@@ -2058,11 +2058,9 @@ describe("an argument the CLI cannot use is refused, not dropped", () => {
     expect(errs.join("\n")).toContain("unexpected argument");
   });
 
-  // `serve --refresh-sec` was the one count the CLI read with `Number()`, and it named no floor: an
-  // unparseable or zero value reached `setInterval` as NaN/0, which the platform clamps to 1 ms — a
-  // full `.backup()` disk copy of the primary, every millisecond. No usage line, no README, no doc
-  // ever offered it, so it is gone rather than parsed: the replica's interval is a constant.
-  it("has no --refresh-sec to hand setInterval a NaN", async () => {
+  // `serve` runs nothing on a timer, so there is no interval to configure. Pinned because an option
+  // the parser merely ignores is the shape that lets a removed knob look like it still works.
+  it("has no --refresh-sec", async () => {
     expect(await cli(["serve", "--refresh-sec", "abc"], {})).toBe(1);
     expect(errs.join("\n")).toContain("unknown option: --refresh-sec");
   });

@@ -29,7 +29,7 @@ const LOCAL = process.argv[2] ?? "./demo-yoke.db";
 const NOW = "2026-08-04T09:00:00.000Z";
 const { iso, dateFor } = dateSpread(NOW, 400);
 
-// The local sqlite is bookkeeping (audit + tokens) and is rebuilt from scratch. A remote knowledge
+// The local sqlite file is rebuilt from scratch. A remote knowledge
 // store is NOT cleared here — erasing someone's database as a side effect of a demo load is not this
 // script's decision to make. Point it at an empty database, or use its own tooling first.
 for (const s of ["", "-wal", "-shm"]) rmSync(LOCAL + s, { force: true });

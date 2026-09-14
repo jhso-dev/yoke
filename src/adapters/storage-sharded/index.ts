@@ -300,7 +300,7 @@ export class ShardedStorage implements YokeStore {
   /**
    * The effective ontology for a namespace — core's `overlayOntology`, with the two halves read from
    * two different shards: the DEFAULT shard holds the shared (null-ns) base, the owner shard holds the
-   * tenant's own defs. The overlay belongs here rather than in `yoke init` for the reason core's doc
+   * tenant's own defs. The overlay belongs here rather than in the seed, for the reason core's doc
    * gives: a backend answering `loadOntology(ns)` its own way leaks through the store surface.
    *
    * When the owner IS the default shard, its own overlay already returned both halves and re-setting

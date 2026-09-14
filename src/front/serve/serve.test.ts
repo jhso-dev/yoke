@@ -988,8 +988,8 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
         new SqliteStorage(localPath),
       );
       await store.init();
-      // What `yoke init` does after opening the store: composite init() creates indices, the seed is
-      // the CLI's job — and this test's store is opened by hand.
+      // What `openStore` does after opening: composite init() creates the indices, then the seed.
+      // This test's store is opened by hand, so it seeds by hand too.
       await store.saveOntology(seedOntology());
       const run = await listen(
         createServeServer({
@@ -1030,8 +1030,8 @@ describe.skipIf(!process.env.YOKE_TEST_OPENSEARCH_URL)(
         // salted hash — the plaintext appears in neither store.
         const raw = new Database(localPath, { readonly: true });
         try {
-          // The local sqlite holds what `yoke init` seeded (the yoke:system person) and NOTHING that
-          // was committed through the server — the knowledge went to the other database.
+          // The local sqlite holds the bootstrap person and NOTHING that was committed through the
+          // server — the knowledge went to the other database.
           expect(
             (
               raw.prepare("SELECT DISTINCT id FROM entities").all() as Array<{

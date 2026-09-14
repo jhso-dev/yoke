@@ -578,15 +578,6 @@ export function createUiHandler(
     return false;
   };
 
-  /** A corpus with no schema was never `yoke init`ed, and "nothing found" is the wrong answer to
-   * every question asked of it — a typo'd store and an empty one must not read the same. 409 with
-   * the command that fixes it, the same refusal the create path already gives. */
-  const uninitialized = (res: ServerResponse): boolean => {
-    if (store.loadOntology(ns).length > 0) return false;
-    sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
-    return true;
-  };
-
   return async function handle(
     req: IncomingMessage,
     res: ServerResponse,
@@ -639,7 +630,6 @@ export function createUiHandler(
 
     if (method === "GET" && path === "/api/review") {
       if (denied(res, "read")) return;
-      if (uninitialized(res)) return;
       // The queue: verified records past their type's TTL. SPEC's injection filter makes viewing
       // stale review's job — otherwise stale knowledge leaves injection with nobody told, the failure
       // docs/RESEARCH.md's freshness findings all land on.
@@ -830,7 +820,6 @@ export function createUiHandler(
 
     if (method === "GET" && path === "/api/conflicts") {
       if (denied(res, "read")) return;
-      if (uninitialized(res)) return;
       const rels = (await store.listRelations({ type: "conflicts_with", ns }))
         .items;
       const asR = asRow();
@@ -859,7 +848,6 @@ export function createUiHandler(
     // checking does not pollute the record of what an agent was actually told.
     if (method === "GET" && path === "/api/inject") {
       if (denied(res, "read")) return;
-      if (uninitialized(res)) return;
       const query = url.searchParams.get("q") ?? "";
       const scope = url.searchParams.get("scope") ?? undefined;
       if (!query && !scope)
@@ -1107,7 +1095,6 @@ export function createUiHandler(
     // renders a name without holding the ontology — the same reason every other route returns rows.
     if (method === "GET" && path === "/api/overview") {
       if (denied(res, "read")) return;
-      if (uninitialized(res)) return;
       const ontology = store.loadOntology(ns);
       const ts = now();
       const o = await overview(store, ontology, ts, {
@@ -1491,10 +1478,6 @@ export function createUiHandler(
       // can create facts and nothing else.
       if (denied(res, "write", type)) return;
       const ontology = store.loadOntology(ns);
-      if (ontology.length === 0) {
-        sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
-        return;
-      }
       const ts = now();
       const prov = { actor, origin: "web", occurred_at: ts };
       try {
@@ -1580,7 +1563,6 @@ export function createUiHandler(
     // It hands over record TEXT, so it is a read of knowledge and writes the row that says so.
     if (method === "GET" && path === "/api/relate/groups") {
       if (denied(res, "read")) return;
-      if (uninitialized(res)) return;
       const ontology = store.loadOntology(ns);
       const records = await candidates(
         store,
@@ -1656,10 +1638,6 @@ export function createUiHandler(
       // including the facts it is entitled to file.
       if (deniedForTypes(res, items)) return;
       const ontology = store.loadOntology(ns);
-      if (ontology.length === 0) {
-        sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
-        return;
-      }
       const origin =
         typeof body.origin === "string" && body.origin
           ? body.origin
@@ -1690,7 +1668,6 @@ export function createUiHandler(
     // (`SELECT *`), so this moves the same set rather than adding a limit — but a table that does not
     // fit in a request is the point at which this needs streaming.
     if (method === "POST" && path === "/api/ingest-mapped") {
-      if (uninitialized(res)) return;
       const body = await readBody(req, MAX_BULK_BODY);
       const mapping = body.mapping;
       const tables = body.tables;
@@ -1772,10 +1749,6 @@ export function createUiHandler(
     if (method === "POST" && path === "/api/backfill") {
       if (denied(res, "write")) return;
       const ontology = store.loadOntology(ns);
-      if (ontology.length === 0) {
-        sendJson(res, 409, { error: "not initialized: run 'yoke init' first" });
-        return;
-      }
       const body = await readBody(req);
       // The other repair: the vector index rather than the authorship graph. Still `write` and still
       // unaudited — an embedding is a derived index, not knowledge, so there is no disclosure and no

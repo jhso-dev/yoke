@@ -1,8 +1,8 @@
-// The team path: one CLI, talking to `yoke serve` instead of opening a database.
+// One CLI, talking to `yoke serve` instead of opening a database.
 //
 // `YOKE_SERVER` is what splits the two deployments, and it is the ONLY thing a developer configures.
-// Without it the CLI opens a local sqlite and asks for nothing (invariant 4). With it, every action
-// goes over HTTP under a credential this module acquires WITHOUT ASKING — the developer is already
+// Unset, this reaches a loopback `yoke serve`, which is ungated and asks for nothing (invariant 4).
+// Set, every action goes over HTTP under a credential this module acquires WITHOUT ASKING — the developer is already
 // logged into `gh`, and that login is exchanged once for a yoke credential that is cached and
 // refreshed from then on. Nobody pastes a token, and no database password ever reaches a laptop.
 //
@@ -12,7 +12,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { IngestResult } from "../connectors/ingest.js";
@@ -234,14 +234,9 @@ export function resolveRemote(
               `no yoke server at ${base} — start one with 'yoke serve', or point YOKE_SERVER at ` +
                 "the one you mean",
             );
-          // The default address, so the reader is standing in a project: tell them the WHOLE
-          // sequence. Sending them to `yoke serve` alone is how a first run bounces twice — serve
-          // then refuses an uninitialized store and they come back for the step before it.
           throw new Error(
-            expects && !existsSync(expects)
-              ? `no yoke here yet — run 'yoke init', then 'yoke serve' (it holds ${base} while you work)`
-              : `no yoke server at ${base} — run 'yoke serve' to hold this store, or set ` +
-                  "YOKE_SERVER to your team's",
+            `no yoke server at ${base} — run 'yoke serve' first (it creates the store), or set ` +
+              "YOKE_SERVER to your team's",
           );
         }
         // Anything else still has to name the address and the cause: `fetch` on its own says
@@ -365,9 +360,9 @@ interface Created extends Row {
 /**
  * Run `command` against the server, or return null when there is no server work to do.
  *
- * Null is the signal that a command is LOCAL — `init`, `serve`, `ui`, `mcp`, `token` and the file
- * commands act on a machine, not on a corpus, and no server is any help with them. The caller falls
- * through to its own switch for those, and for nothing else.
+ * Null is the signal that the caller handles the command itself — `serve` and `ui` ARE the server,
+ * `mcp` relays another protocol into it, and `connect`/`relate` read the outside world before they
+ * hand what they found to these same routes. The caller falls through for those, and nothing else.
  */
 export async function runRemote(
   remote: Remote,
