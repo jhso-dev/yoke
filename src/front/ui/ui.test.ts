@@ -274,9 +274,10 @@ describe("ui API", () => {
     expect(row.summary).toBe("the weather was fine in 2020");
     expect(row.actor).toBe("tester");
     expect(row.citation).toContain(`[fact:${agedId}@v1]`);
-    // The queue names its own bounds — a bare count would read as a corpus-wide number.
+    // The queue names its own bound — a bare count would read as a corpus-wide number. There is no
+    // second bound to name: the injection counts are totals, kept by the ledger as deliveries happen.
     expect(queue.scanned).toBeGreaterThan(0);
-    expect(queue.consumptionWindow).toBeGreaterThan(0);
+    expect(queue.consumptionWindow).toBeUndefined();
     // A fresh record is not in it.
     expect(queue.items.some((d: { id: string }) => d.id === factId)).toBe(
       false,
@@ -1643,15 +1644,23 @@ describe("the stale queue over HTTP (SPEC's unimplemented clause)", () => {
     };
     const cold = await mk("stale but nobody reads it");
     const hot = await mk("stale and agents are fed it daily");
-    // Two agent reads for `hot`, none for `cold`; a preview names both and must not count.
-    store.logAudit({ actor: "a", action: "inject", detail: `q -> ${hot}`, at });
-    store.logAudit({
+    // Two agent reads for `hot`, none for `cold`; a preview names both and must not count — it
+    // carries no `ids`, which is what makes it not a delivery.
+    await store.logAudit({
+      actor: "a",
+      action: "inject",
+      detail: `q -> ${hot}`,
+      at,
+      ids: [hot],
+    });
+    await store.logAudit({
       actor: "a",
       action: "persona",
       detail: `p -> ${hot}`,
       at,
+      ids: [hot],
     });
-    store.logAudit({
+    await store.logAudit({
       actor: "a",
       action: "inject_preview",
       detail: `q -> ${hot} ${cold}`,

@@ -71,7 +71,7 @@ The governance set:
 
 1. **Review queue** — the re-confirmation queue: records past their type's TTL, each row
    with its source and owner, and bulk verify/deprecate. Rows arrive most-consumed first
-   with the count on each — the number of inject/persona audit rows naming the record — so
+   with the count on each — how many times an agent was handed the record — so
    the person meets the records agents are still being fed before the ones nothing reads.
    Reason for being: this is where a person's attention goes in a policy with no entry
    queue — keep what is still true, retire what is not (with the reason the broadcast will

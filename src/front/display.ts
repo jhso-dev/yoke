@@ -25,6 +25,7 @@ import {
 } from "../core/ontology.js";
 import { readableName } from "../core/persona.js";
 import type { Entity, Relation, Status } from "../core/types.js";
+import type { Delivered } from "../ports/audit.js";
 import { readEntities, type StoragePort } from "../ports/storage.js";
 import type { YokeStore } from "./store.js";
 
@@ -299,113 +300,6 @@ export function injectShape(detail: string): {
 }
 
 /**
- * The window a stale-queue consumption count is taken over, in audit rows.
- *
- * F1: `consumptionCounts` materializes every audit row it is handed into JS, so handing it the WHOLE
- * trail (`listAudit({ ns })`) costs — measured 83ms at 100k rows, 2.7s at 1M, and audit_log is the
- * one table that only grows with no retention anywhere. So the callers cap `listAudit` to the most
- * recent N rows. Bounded by the index (`rowid DESC LIMIT`, no `julianday` wrap — see
- * SqliteStorage.listAudit), so the read is O(N), not O(trail).
- *
- * The most RECENT window is the meaningful one for this queue anyway: re-confirmation effort should go
- * to knowledge agents are being fed NOW, not to a record consumed 40 times two years ago and untouched
- * since. Never a silent slice (repo convention): every surface that ranks by this count names the
- * window in its output, so "injected 12x" is not read as an all-time total.
- */
-export const CONSUMPTION_WINDOW = 50_000;
-
-/**
- * id → how many times an agent has received that record: the `inject` and `persona` audit rows,
- * counted over whatever window of events the caller hands in.
- *
- * This is the governance signal the stale queue orders by. A record agents consumed 47 times last
- * month and one nothing has touched since it was verified both age out the same day; the person
- * re-confirming should meet the first one first. The audit trail already held the answer — every
- * inject/persona row names the ids it returned — so this is an aggregation, not new bookkeeping.
- *
- * `inject_preview`, `read` and `search` are deliberately NOT counted: those record a human governing,
- * and the question here is what AGENTS are being told.
- *
- * Structural event type rather than the adapter's AuditEvent, so this file keeps importing only core.
- * The `detail` grammar is `subject -> id id …` (see `injectDetail`); the ids side is taken from the
- * LAST arrow, since a query in the subject may contain anything.
- */
-export function consumptionCounts(
-  events: Array<{ action: string; detail: string }>,
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const e of events) {
-    if (e.action !== "inject" && e.action !== "persona") continue;
-    const arrow = e.detail.lastIndexOf(" -> ");
-    if (arrow === -1) continue;
-    for (const id of e.detail.slice(arrow + 4).split(" ")) {
-      if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
-    }
-  }
-  return counts;
-}
-
-/**
- * The window `deliveries` reads, in audit rows. Small enough to pay on every hook call (see
- * `CONSUMPTION_WINDOW` for the measured per-row cost); a delivery older than the window reads as never
- * having happened, so the record is handed over once more — which writes a fresh row and heals it.
- */
-export const DELIVERY_WINDOW = 5_000;
-
-/**
- * What this client has already been handed, read back from the same rows `consumptionCounts` reads.
- *
- * `lastHanded`: per id, the instant of the most recent `inject`/`persona` row naming it — the fact
- * `yoke inject --unseen` compares a record's version time against, so a version this client already
- * holds is not delivered twice, and a version it does not is. `anchored`: for one working context, the
- * instant of the most recent row anchored on it (the `since` bound of an unseen read) and every id such
- * a row handed over (the set whose changes that context is told about). Both by instant, not by row
- * order or string compare: `at` is stored in two spellings (whole-second and millisecond `Z`).
- */
-export function deliveries(
-  events: Array<{ action: string; detail: string; at: string }>,
-  anchor: string,
-): {
-  lastHanded: Map<string, string>;
-  anchored: { last?: string; ids: Set<string> };
-} {
-  const lastHanded = new Map<string, string>();
-  const anchored: { last?: string; ids: Set<string> } = { ids: new Set() };
-  const later = (prev: string | undefined, at: string) =>
-    prev === undefined || !atOrBefore(at, prev);
-  for (const e of events) {
-    if (e.action !== "inject" && e.action !== "persona") continue;
-    const arrow = e.detail.lastIndexOf(" -> ");
-    if (arrow === -1) continue;
-    const subject = e.detail
-      .slice(0, arrow)
-      .split(" ")
-      .filter((t) => !/^changed=\d+$/.test(t));
-    // An as-of read hands over the version current THEN, so it says nothing about whether the client
-    // holds the current one. The `@<instant>` token sits first, or second after an anchor — read there
-    // rather than via `injectShape`, whose anchor test is ULID-shaped and ids are not all ULIDs.
-    if (
-      subject
-        .slice(0, 2)
-        .some((t) => t.startsWith("@") && !Number.isNaN(Date.parse(t.slice(1))))
-    )
-      continue;
-    const ids = e.detail
-      .slice(arrow + 4)
-      .split(" ")
-      .filter(Boolean);
-    const onAnchor = subject[0] === anchor;
-    if (onAnchor) {
-      if (later(anchored.last, e.at)) anchored.last = e.at;
-      for (const id of ids) anchored.ids.add(id);
-    }
-    for (const id of ids)
-      if (later(lastHanded.get(id), e.at)) lastHanded.set(id, e.at);
-  }
-  return { lastHanded, anchored };
-}
-
-/**
  * The `--unseen` answer (SPEC "Since, and unseen"), for one reader of one working context. Shared by
  * `yoke inject --unseen` and `GET /api/inject?unseen=1` so a hook reads the same lines whichever
  * ledger holds its deliveries — the CLI's local trail, or the server's rows for this actor.
@@ -439,7 +333,7 @@ export async function unseenReport(
   ns: string | null | undefined,
   now: string,
   anchor: Entity,
-  handed: ReturnType<typeof deliveries>,
+  handed: Delivered,
   result: { items: InjectItem[]; omitted: number },
   reader: string,
 ): Promise<{ lines: string[]; delivered: string[]; changed: number }> {

@@ -27,7 +27,12 @@
 
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
-import type { AuditEvent, AuditPort, AuditQuery } from "../../ports/audit.js";
+import type {
+  AuditEvent,
+  AuditPort,
+  AuditQuery,
+  Delivered,
+} from "../../ports/audit.js";
 import type {
   ListQuery,
   Page,
@@ -178,6 +183,19 @@ class CompositeStorage implements YokeStore {
   }
   async listAudit(q?: AuditQuery): Promise<AuditEvent[]> {
     return this.local.listAudit(q);
+  }
+  consumption(q: {
+    ns?: string | null;
+    ids: string[];
+  }): Promise<Map<string, number>> {
+    return this.local.consumption(q);
+  }
+  delivered(q: {
+    ns?: string | null;
+    actor: string;
+    anchor: string;
+  }): Promise<Delivered> {
+    return this.local.delivered(q);
   }
   // --- deliberately absent / refused --------------------------------------------------------------
 

@@ -566,7 +566,6 @@ export async function runRemote(
         items: (Row & { injections: number; last_confirmed: string })[];
         next: string | null;
         scanned: number;
-        consumptionWindow: number;
       };
       if (b.items.length === 0) {
         emit(json, `no stale records (scanned ${b.scanned} verified)`, []);
@@ -577,10 +576,10 @@ export async function runRemote(
           `${e.id}  ${e.type}  ${e.summary}  ${e.actorName ?? e.actor}  injected ${e.injections}x  last confirmed ${e.last_confirmed}`,
       );
       // The scan is bounded, so say what it covered — "3 stale" alone reads as "3 stale in the whole
-      // corpus", which is a claim this walk did not make.
+      // corpus", which is a claim this walk did not make. The injection counts carry no such caveat:
+      // the ledger counts every delivery as it happens, so they are totals.
       lines.push(
         `-- ${b.items.length} stale among ${b.scanned} verified records scanned` +
-          `; injection counts over the last ${b.consumptionWindow.toLocaleString()} audit rows` +
           (b.next === null ? "" : `; more to scan: --after ${b.next}`),
       );
       emit(json, lines.join("\n"), b.items);

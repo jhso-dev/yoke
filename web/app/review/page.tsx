@@ -152,8 +152,8 @@ export default function Review() {
             rows={rows}
             empty={t.review.empty}
             paginate
-            // The queue arrives most-consumed first (inject + persona audit rows naming the record),
-            // so the trailing column says WHY this row is near the top: agents are still being fed it.
+            // The queue arrives most-consumed first (how many times an agent was handed the
+            // record), so the trailing column says WHY this row is near the top.
             trailing={{
               head: t.review.injectedHead,
               cell: (r) =>

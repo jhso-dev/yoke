@@ -58,7 +58,12 @@ import {
 } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Provenance, Relation, Status } from "../../core/types.js";
-import type { AuditEvent, AuditPort, AuditQuery } from "../../ports/audit.js";
+import type {
+  AuditEvent,
+  AuditPort,
+  AuditQuery,
+  Delivered,
+} from "../../ports/audit.js";
 import {
   ConflictError,
   DEFAULT_SEARCH_LIMIT,
@@ -283,6 +288,22 @@ export class PostgresStorage implements StoragePort, AuditPort {
     await this.q(
       `CREATE INDEX IF NOT EXISTS audit_ns_at ON ${this.t("audit_log")} (ns, at)`,
     );
+    // What an agent has been handed, as data rather than as prose to be re-parsed — maintained by the
+    // same write that appends the trail row. `last_at` is NULL for an as-of delivery: it counts as
+    // consumption but must not advance the reader's clock, having handed a version that is not
+    // current.
+    await this.q(`CREATE TABLE IF NOT EXISTS ${this.t("delivery")} (
+      ns        TEXT   NOT NULL DEFAULT '',
+      actor     TEXT   NOT NULL,
+      anchor    TEXT   NOT NULL DEFAULT '',
+      entity_id TEXT   NOT NULL,
+      n         BIGINT NOT NULL DEFAULT 0,
+      last_at   TEXT,
+      PRIMARY KEY (ns, actor, anchor, entity_id)
+    )`);
+    await this.q(
+      `CREATE INDEX IF NOT EXISTS delivery_ns_entity ON ${this.t("delivery")} (ns, entity_id)`,
+    );
 
     // Indexes chosen from the same measurements as sqlite's (docs/SCALE.md): ns leads the composites
     // because every enumeration is namespace-scoped, from_id/to_id are SEPARATE single-column indexes
@@ -308,12 +329,108 @@ export class PostgresStorage implements StoragePort, AuditPort {
     // known until the first vector arrives. Same lazy shape as sqlite's vec0 table.
   }
 
-  /** AuditPort. */
+  /** AuditPort. One transaction: a trail that says an agent was handed a record while the ledger's
+   * own count disagrees is worse than no count at all. */
   async logAudit(event: AuditEvent): Promise<void> {
-    await this.q(
-      `INSERT INTO ${this.t("audit_log")} (actor, action, detail, at, ns) VALUES ($1, $2, $3, $4, $5)`,
-      [event.actor, event.action, event.detail, event.at, event.ns ?? ""],
+    const ns = event.ns ?? "";
+    const ids = event.ids?.length ? [...new Set(event.ids)] : [];
+    if (ids.length === 0) {
+      await this.q(
+        `INSERT INTO ${this.t("audit_log")} (actor, action, detail, at, ns) VALUES ($1, $2, $3, $4, $5)`,
+        [event.actor, event.action, event.detail, event.at, ns],
+      );
+      return;
+    }
+    const c = await this.pool.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query(
+        `INSERT INTO ${this.t("audit_log")} (actor, action, detail, at, ns) VALUES ($1, $2, $3, $4, $5)`,
+        [event.actor, event.action, event.detail, event.at, ns],
+      );
+      // The LATER instant wins, and an as-of delivery (NULL) never does: it handed a version that is
+      // not current, so it must leave an earlier real delivery's clock where it was. By instant,
+      // never by string compare: `at` is stored in more than one ISO spelling.
+      const d = this.t("delivery");
+      await c.query(
+        `INSERT INTO ${d} (ns, actor, anchor, entity_id, n, last_at)
+         SELECT $1, $2, $3, id, 1, $4 FROM UNNEST($5::text[]) AS id
+         ON CONFLICT (ns, actor, anchor, entity_id) DO UPDATE SET
+           n = ${d}.n + 1,
+           last_at = CASE
+             WHEN EXCLUDED.last_at IS NULL THEN ${d}.last_at
+             WHEN ${d}.last_at IS NULL THEN EXCLUDED.last_at
+             WHEN EXCLUDED.last_at::timestamptz > ${d}.last_at::timestamptz
+               THEN EXCLUDED.last_at
+             ELSE ${d}.last_at
+           END`,
+        [
+          ns,
+          event.actor,
+          event.anchor ?? "",
+          event.asOf ? null : event.at,
+          ids,
+        ],
+      );
+      await c.query("COMMIT");
+    } catch (e) {
+      await c.query("ROLLBACK");
+      throw e;
+    } finally {
+      c.release();
+    }
+  }
+
+  /** AuditPort. Over the whole history — see the port's note on why this has no window. */
+  async consumption(q: {
+    ns?: string | null;
+    ids: string[];
+  }): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (q.ids.length === 0) return counts;
+    const rows = await this.q<{ entity_id: string; n: string }>(
+      `SELECT entity_id, SUM(n) AS n FROM ${this.t("delivery")}
+       WHERE ns = $1 AND entity_id = ANY($2::text[]) GROUP BY entity_id`,
+      [q.ns ?? "", q.ids],
     );
+    // SUM over BIGINT comes back as a string; the count is a count.
+    for (const r of rows) counts.set(r.entity_id, Number(r.n));
+    return counts;
+  }
+
+  /** AuditPort. */
+  async delivered(q: {
+    ns?: string | null;
+    actor: string;
+    anchor: string;
+  }): Promise<Delivered> {
+    // Every context, because "does this reader hold the current version" is not a per-context fact.
+    const rows = await this.q<{
+      entity_id: string;
+      anchor: string;
+      last_at: string;
+    }>(
+      `SELECT entity_id, anchor, MAX(last_at) AS last_at FROM ${this.t("delivery")}
+       WHERE ns = $1 AND actor = $2 AND last_at IS NOT NULL
+       GROUP BY entity_id, anchor`,
+      [q.ns ?? "", q.actor],
+    );
+    const lastHanded = new Map<string, string>();
+    const anchored: Delivered["anchored"] = { ids: new Set() };
+    for (const r of rows) {
+      const seen = lastHanded.get(r.entity_id);
+      // By instant, not by string order: `at` is stored in more than one ISO spelling.
+      if (seen === undefined || Date.parse(r.last_at) > Date.parse(seen))
+        lastHanded.set(r.entity_id, r.last_at);
+      if (r.anchor !== q.anchor) continue;
+      anchored.ids.add(r.entity_id);
+      if (
+        anchored.last === undefined ||
+        Date.parse(r.last_at) > Date.parse(anchored.last)
+      )
+        anchored.last = r.last_at;
+    }
+    return { lastHanded, anchored };
   }
 
   /** Oldest-first, like every other implementation: `limit` takes the newest N and reverses them, so

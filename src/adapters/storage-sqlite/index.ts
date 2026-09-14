@@ -9,7 +9,12 @@ import { normalizeNs } from "../../core/namespace.js";
 import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
-import type { AuditEvent, AuditPort, AuditQuery } from "../../ports/audit.js";
+import type {
+  AuditEvent,
+  AuditPort,
+  AuditQuery,
+  Delivered,
+} from "../../ports/audit.js";
 import {
   ConflictError,
   DEFAULT_SEARCH_LIMIT,
@@ -121,6 +126,26 @@ CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_id);
 CREATE INDEX IF NOT EXISTS idx_relations_ns_type_id ON relations(ns, type, id);
 -- The audit viewer filters by time, and the trail is the one table that only ever grows.
 CREATE INDEX IF NOT EXISTS idx_audit_ns_at ON audit_log(ns, at);
+
+-- What an agent has been handed, as data rather than as prose to be re-parsed. Maintained by the
+-- same write that appends the trail row, so the two cannot drift, and aggregated HERE so that
+-- "how often is this record read" and "does this reader already hold it" are point lookups on an
+-- index instead of a scan over the log.
+--
+-- last_at is NULL for a delivery that answered as of a past instant: it counts as consumption (an
+-- agent did receive the record) but must not advance the reader's clock, because it handed a
+-- version that is not the current one.
+CREATE TABLE IF NOT EXISTS delivery (
+  ns        TEXT    NOT NULL DEFAULT '',
+  actor     TEXT    NOT NULL,
+  anchor    TEXT    NOT NULL DEFAULT '',
+  entity_id TEXT    NOT NULL,
+  n         INTEGER NOT NULL DEFAULT 0,
+  last_at   TEXT,
+  PRIMARY KEY (ns, actor, anchor, entity_id)
+) WITHOUT ROWID;
+-- consumption(): sum over every reader and context that was handed this record.
+CREATE INDEX IF NOT EXISTS idx_delivery_ns_entity ON delivery(ns, entity_id);
 `;
 
 interface EntityRow {
@@ -807,19 +832,45 @@ export class SqliteStorage implements StoragePort, AuditPort {
     return rows.map(rowToEntity);
   }
 
-  /** Append one injection-audit event (AuditPort — written by front tiers). */
+  /** Append one injection-audit event, and the delivery it describes (AuditPort). One transaction:
+   * a trail that says an agent was handed a record while the ledger's own count disagrees is worse
+   * than no count at all. */
   async logAudit(event: AuditEvent): Promise<void> {
-    this.db
-      .prepare(
-        `INSERT INTO audit_log (actor, action, detail, at, ns) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(
-        event.actor,
-        event.action,
-        event.detail,
-        event.at,
-        normalizeNs(event.ns),
+    const ns = normalizeNs(event.ns);
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO audit_log (actor, action, detail, at, ns) VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(event.actor, event.action, event.detail, event.at, ns);
+      if (!event.ids?.length) return;
+      const bump = this.db.prepare(
+        `INSERT INTO delivery (ns, actor, anchor, entity_id, n, last_at)
+         VALUES (@ns, @actor, @anchor, @id, 1, @at)
+         ON CONFLICT(ns, actor, anchor, entity_id) DO UPDATE SET
+           n = n + 1,
+           -- The LATER instant wins, and an as-of delivery (NULL) never does: it handed a version
+           -- that is not current, so it must leave an earlier real delivery's clock where it was.
+           -- By instant, never by string compare: at is stored in more than one ISO spelling.
+           last_at = CASE
+             WHEN excluded.last_at IS NULL THEN delivery.last_at
+             WHEN delivery.last_at IS NULL THEN excluded.last_at
+             WHEN julianday(excluded.last_at) > julianday(delivery.last_at)
+               THEN excluded.last_at
+             ELSE delivery.last_at
+           END`,
       );
+      for (const id of new Set(event.ids))
+        bump.run({
+          // '' not NULL: the delivery key is a PRIMARY KEY, and NULL never equals NULL in one, so a
+          // nullable column would make every upsert on the default namespace insert a new row.
+          ns: ns ?? "",
+          actor: event.actor,
+          anchor: event.anchor ?? "",
+          id,
+          at: event.asOf ? null : event.at,
+        });
+    })();
   }
 
   /** Audit events in insertion order (oldest first), filtered by ns and optionally at >= since.
@@ -859,6 +910,69 @@ export class SqliteStorage implements StoragePort, AuditPort {
     // Default ns leaves the field absent, matching how entity rows carry ns (opaque parity).
     for (const r of rows) if (r.ns == null) delete r.ns;
     return q.limit === undefined ? rows : rows.reverse();
+  }
+
+  /** AuditPort. Over the whole history — see the port's note on why this has no window. */
+  async consumption(q: {
+    ns?: string | null;
+    ids: string[];
+  }): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (q.ids.length === 0) return counts;
+    // Chunked against SQLITE_MAX_VARIABLE_NUMBER (999 on older builds); the caller's page is ~1000.
+    for (let i = 0; i < q.ids.length; i += 500) {
+      const chunk = q.ids.slice(i, i + 500);
+      const rows = this.db
+        .prepare(
+          `SELECT entity_id, SUM(n) AS n FROM delivery
+           WHERE ns = ? AND entity_id IN (${chunk.map(() => "?").join(",")})
+           GROUP BY entity_id`,
+        )
+        .all(normalizeNs(q.ns) ?? "", ...chunk) as Array<{
+        entity_id: string;
+        n: number;
+      }>;
+      for (const r of rows) counts.set(r.entity_id, r.n);
+    }
+    return counts;
+  }
+
+  /** AuditPort. */
+  async delivered(q: {
+    ns?: string | null;
+    actor: string;
+    anchor: string;
+  }): Promise<Delivered> {
+    const ns = normalizeNs(q.ns);
+    // Every context, because "does this reader hold the current version" is not a per-context fact:
+    // a record handed over on one working context is held whichever context asks next.
+    const mine = this.db
+      .prepare(
+        `SELECT entity_id, anchor, MAX(last_at) AS last_at FROM delivery
+         WHERE ns = ? AND actor = ? AND last_at IS NOT NULL
+         GROUP BY entity_id, anchor`,
+      )
+      .all(ns ?? "", q.actor) as Array<{
+      entity_id: string;
+      anchor: string;
+      last_at: string;
+    }>;
+    const lastHanded = new Map<string, string>();
+    const anchored: Delivered["anchored"] = { ids: new Set() };
+    for (const r of mine) {
+      const seen = lastHanded.get(r.entity_id);
+      // By instant, not by string order: `at` is stored in more than one ISO spelling.
+      if (seen === undefined || Date.parse(r.last_at) > Date.parse(seen))
+        lastHanded.set(r.entity_id, r.last_at);
+      if (r.anchor !== q.anchor) continue;
+      anchored.ids.add(r.entity_id);
+      if (
+        anchored.last === undefined ||
+        Date.parse(r.last_at) > Date.parse(anchored.last)
+      )
+        anchored.last = r.last_at;
+    }
+    return { lastHanded, anchored };
   }
 
   /** Latest version per name, in first-registration order, within one namespace scope. */

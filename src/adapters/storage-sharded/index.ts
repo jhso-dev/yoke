@@ -37,7 +37,7 @@
 import { normalizeNs } from "../../core/namespace.js";
 import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
-import type { AuditEvent, AuditQuery } from "../../ports/audit.js";
+import type { AuditEvent, AuditQuery, Delivered } from "../../ports/audit.js";
 import type {
   ListQuery,
   Page,
@@ -64,6 +64,15 @@ export interface YokeStore extends StoragePort {
   renameType(from: string, to: string, ns?: string | null): Promise<number>;
   logAudit(event: AuditEvent): Promise<void>;
   listAudit(q?: AuditQuery): Promise<AuditEvent[]>;
+  consumption(q: {
+    ns?: string | null;
+    ids: string[];
+  }): Promise<Map<string, number>>;
+  delivered(q: {
+    ns?: string | null;
+    actor: string;
+    anchor: string;
+  }): Promise<Delivered>;
 }
 
 export interface ShardMember {
@@ -317,13 +326,37 @@ export class ShardedStorage implements YokeStore {
     return counts.reduce((n, c) => n + c, 0);
   }
 
-  // Audit + tokens: a single stream on the default shard.
+  // The ledger: a single stream on the default shard, so the trail reads the same whichever
+  // namespace's knowledge a request touched.
   async logAudit(event: AuditEvent): Promise<void> {
     await (this.defaultShard.store as ExtStore).logAudit?.(event);
   }
 
   async listAudit(q?: AuditQuery): Promise<AuditEvent[]> {
     return (await (this.defaultShard.store as ExtStore).listAudit?.(q)) ?? [];
+  }
+
+  async consumption(q: {
+    ns?: string | null;
+    ids: string[];
+  }): Promise<Map<string, number>> {
+    return (
+      (await (this.defaultShard.store as ExtStore).consumption?.(q)) ??
+      new Map()
+    );
+  }
+
+  async delivered(q: {
+    ns?: string | null;
+    actor: string;
+    anchor: string;
+  }): Promise<Delivered> {
+    return (
+      (await (this.defaultShard.store as ExtStore).delivered?.(q)) ?? {
+        lastHanded: new Map(),
+        anchored: { ids: new Set() },
+      }
+    );
   }
 }
 

@@ -120,17 +120,19 @@ describe("runCli", () => {
     };
     const cold = await mk("aged, never consumed");
     const hot = await mk("aged, agents still fed it");
-    store.logAudit({
+    await store.logAudit({
       actor: "a",
       action: "inject",
       detail: `q -> ${hot}`,
       at: then,
+      ids: [hot],
     });
-    store.logAudit({
+    await store.logAudit({
       actor: "a",
       action: "persona",
       detail: `p -> ${hot}`,
       at: then,
+      ids: [hot],
     });
     store.close();
 
@@ -197,10 +199,10 @@ describe("runCli", () => {
     expect(errs.some((e) => e.includes("database is locked"))).toBe(true);
   });
 
-  // F1: `review` counts consumption over the audit trail. Reading the WHOLE trail materialized
-  // every row into JS (83ms at 100k, 2.7s at 1M, no retention). The read is now bounded to a recent
-  // window, and the window is named in the output — never a silent slice.
-  it("F1: review bounds the consumption read to a window, not the whole trail", async () => {
+  // The consumption count used to be re-derived by scanning the trail, which meant capping the scan
+  // at a row count and shipping the cap alongside the number so the screen would not lie about what
+  // "injected 12x" counted. The ledger counts deliveries as they happen, so the queue asks it.
+  it("review asks the ledger for consumption; it does not scan the trail", async () => {
     const db = newDb();
     // An aged verified record, so the stale queue is non-empty and reaches the consumption count.
     const store = await openStore({ db }, {});
@@ -220,24 +222,15 @@ describe("runCli", () => {
     );
     store.close();
 
-    const calls: Array<{ limit?: number } | undefined> = [];
-    const spy = vi
-      .spyOn(SqliteStorage.prototype, "listAudit")
-      .mockImplementation(async (q) => {
-        calls.push(q as { limit?: number } | undefined);
-        return [];
-      });
+    const trail = vi.spyOn(SqliteStorage.prototype, "listAudit");
     try {
       expect(await cli(["review", "--db", db])).toBe(0);
     } finally {
-      spy.mockRestore();
+      trail.mockRestore();
     }
-    // The stale queue read the trail for consumption — and every such read is bounded, never a full
-    // unbounded scan.
-    expect(calls.length).toBeGreaterThan(0);
-    for (const q of calls) expect(typeof q?.limit).toBe("number");
-    // Never a silent slice: the window is named in the output.
-    expect(logs.join("\n")).toContain("audit rows");
+    expect(trail).not.toHaveBeenCalled();
+    // And no caveat about a window, because there is none to state.
+    expect(logs.join("\n")).not.toContain("audit rows");
   });
 
   it("bare --version prints the package version", async () => {

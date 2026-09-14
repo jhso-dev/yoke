@@ -579,9 +579,9 @@ the second built on the first:
   record does not pass the status filter — that half is `--unseen`'s.
 - **`yoke inject --scope <id> --unseen`** is the read a hook makes on every tool call: what this
   context has that **this client** has not been handed yet. Front-tier, because the answer is in the
-  client's own audit trail — every `inject`/`persona` row names the ids it handed over
-  (`deliveries` in `src/front/display.ts`, the same rows `consumptionCounts` reads, over
-  `DELIVERY_WINDOW` recent rows). Two halves, in this order:
+  client's own ledger — an `inject`/`persona` delivery carries the ids it handed over as data, and
+  `AuditPort.delivered` reads back what this reader holds and the context's own delivery clock. Two
+  halves, in this order:
   1. **changed since handed to you** — records a row anchored on this scope handed over that have
      since been retired (with the reason, when one was given) or rewritten (their version time passed
      the delivery), **replaced** or
@@ -603,9 +603,7 @@ the second built on the first:
   moves, or a newcomer carries the edge — those are the two signals read. A `supersedes` or
   `conflicts_with` link recorded later between two records both handed earlier versions neither and
   arrives on no newcomer; reporting it costs one relation read per handed id, so add it when a hook
-  shows the gap. A delivery older than
-  `DELIVERY_WINDOW` rows reads as never having happened — the record is handed over once more, which
-  writes a fresh row and heals it. And **the ledger is the client's, not the session's**: two sessions
+  shows the gap. And **the ledger is the client's, not the session's**: two sessions
   on one machine in the same context share it, so the one that reads a change first consumes it. The
   fix, when a team needs it, is a session column on the audit row (the hook's stdin carries
   `session_id`) — not a second ledger.
@@ -694,11 +692,11 @@ so the stale queue is where a person's attention is actually spent (KNOWLEDGE-PO
 - Exposed as `yoke review` and `GET /api/review` — review IS this queue; there is no other.
   `--type` narrows it.
 - **The page is ordered by consumption, and each row says its count.** The count is the number of
-  `inject` and `persona` audit rows naming the record — what AGENTS have been fed, not what humans
-  looked at (`inject_preview`/`read`/`search` do not count) — so re-confirmation effort meets the
-  records still reaching agents first. This is an aggregation over the audit trail the front tier
-  already writes, computed at the front tier (the trail is not a port concern), and it inherits the
-  trail's scope: under `serve` it is the team's central count; a client pointed straight at a shared
+  times an agent was handed the record — what AGENTS have been fed, not what humans looked at
+  (`inject_preview`/`read`/`search` carry no ids and are not deliveries) — so re-confirmation effort
+  meets the records still reaching agents first. The ledger keeps the count as deliveries happen
+  (`AuditPort.consumption`), so it is a total over all of history rather than an aggregation
+  re-derived per read, and it inherits the ledger's scope: under `serve` it is the team's central count; a client pointed straight at a shared
   remote backend counts only its own reads. Ordering applies WITHIN the returned page — the cursor
   resumes the scan by position, unaffected by rank.
 

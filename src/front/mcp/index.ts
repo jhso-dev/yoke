@@ -400,15 +400,15 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
       // unscoped one, and which of the two agents actually do is the measurement that decides whether
       // graph expansion is worth investing in at all (docs/RESEARCH.md).
+      const injected = items.map((it) => it.entity.id);
       await bestEffortAudit(store, {
         actor: defaultActor,
         action: "inject",
-        detail: injectDetail(
-          items.map((it) => it.entity.id),
-          { query, scope: anchor },
-        ),
+        detail: injectDetail(injected, { query, scope: anchor }),
         at: ts,
         ns,
+        ids: injected,
+        ...(anchor ? { anchor } : {}),
       });
       // An agent that reads "no verified knowledge" as "there is none" answers from nothing and says
       // so confidently. Knowledge gone stale, retired, or of a type that is not injectable are
@@ -730,13 +730,14 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       }
       const { decisions, facts } = persona;
       // Persona reads are injections too — same audit trail as yoke_inject.
-      const injected = [...decisions, ...facts].map((i) => i.entity);
+      const injected = [...decisions, ...facts].map((i) => i.entity.id);
       await bestEffortAudit(store, {
         actor: defaultActor,
         action: "persona",
-        detail: `${person}${query ? ` ${query}` : ""} -> ${injected.map((e) => e.id).join(" ")}`,
+        detail: `${person}${query ? ` ${query}` : ""} -> ${injected.join(" ")}`,
         at: ts,
         ns,
+        ids: injected,
       });
       // The contradiction marker, in the words yoke_inject uses. Both sides of a live conflicts_with
       // are returned — contradictions are surfaced, never auto-resolved — and a persona is the one

@@ -55,10 +55,6 @@ import type { Entity, Relation } from "../../core/types.js";
 import { readEntities } from "../../ports/storage.js";
 import {
   bestEffortAudit,
-  CONSUMPTION_WINDOW,
-  consumptionCounts,
-  DELIVERY_WINDOW,
-  deliveries,
   injectDetail,
   makeActorNames,
   rankByConsumption,
@@ -650,19 +646,15 @@ export function createUiHandler(
             after: url.searchParams.get("after") ?? undefined,
           },
         );
-        // Most-consumed first (same rule as `yoke review --stale`): the count is inject+persona
-        // audit rows naming the record, so re-confirmation effort goes where agents are actually
-        // reading. Ranked before serialization; `injections` rides on each row. Bounded to the most
-        // recent CONSUMPTION_WINDOW audit rows (F1): the whole trail materialized every row into JS.
+        // Most-consumed first (same rule as `yoke review --stale`): re-confirmation effort goes
+        // where agents are actually reading. The ledger counts deliveries as they happen, so this
+        // asks for the counts of the ids on THIS page — over all of history, not a window.
         const ranked = rankByConsumption(
           items,
-          consumptionCounts(
-            await store.listAudit({ ns, limit: CONSUMPTION_WINDOW }),
-          ),
+          await store.consumption({ ns, ids: items.map((e) => e.id) }),
         );
         // `scanned` travels with the rows: the walk is bounded, so a screen that printed only the
-        // count would be claiming a corpus-wide number this did not compute. `consumptionWindow` is
-        // the count's own bound — never a silent slice: the screen can say what "injections" counts.
+        // count would be claiming a corpus-wide number this did not compute.
         sendJson(res, 200, {
           items: (await rowsOf(ranked)).map((r, i) => ({
             ...r,
@@ -670,7 +662,6 @@ export function createUiHandler(
           })),
           next,
           scanned,
-          consumptionWindow: CONSUMPTION_WINDOW,
         });
         return;
       }
@@ -879,12 +870,7 @@ export function createUiHandler(
       if (unseen && !anchor) throw new Error(`scope is not a record: ${scope}`);
       const handed =
         unseen && scope
-          ? deliveries(
-              (await store.listAudit({ ns, limit: DELIVERY_WINDOW })).filter(
-                (r) => r.actor === actor,
-              ),
-              scope,
-            )
+          ? await store.delivered({ ns, actor, anchor: scope })
           : null;
       // As-of: what this query would have injected then. Rejected here rather than passed through, so
       // a typo produces a 400 instead of Date.parse's NaN quietly excluding every record — a screen
@@ -938,32 +924,33 @@ export function createUiHandler(
           "content-length": Buffer.byteLength(body),
         });
         res.end(body);
-        // A model received knowledge: `inject`, not `inject_preview` — this is the row the next unseen
-        // read is bounded by, and a preview row would not count (see `deliveries`).
+        // A model received knowledge: `inject`, not `inject_preview` — this is the delivery the next
+        // unseen read is bounded by, and a preview would not count.
         await bestEffortAudit(store, {
           actor,
           action: "inject",
           detail: injectDetail(delivered, { scope, changed }),
           at: ts,
           ns,
+          ids: delivered,
+          anchor: scope,
         });
         return;
       }
       // Built here, written AFTER the response is sent (C7): before sendJson, a held write lock would
       // turn a preview the human already needed into a `database is locked` 500.
+      const injected = items.map((it) => it.entity.id);
       const previewEvent: AuditEvent = {
         actor,
         // `preview=1` is the BROWSER saying it is only looking. Everything else asking this route is
-        // receiving knowledge, and a delivery is what `deliveries()` counts — without the
-        // distinction the CLI's team-mode read would never mark anything handed over, so the very
-        // next `--unseen` would re-deliver what the session was just given.
+        // receiving knowledge — without the distinction the CLI's team-mode read would never mark
+        // anything handed over, so the very next `--unseen` would re-deliver what the session was
+        // just given. Only a real delivery carries `ids`, which is what the ledger counts.
         action: preview ? "inject_preview" : "inject",
-        detail: injectDetail(
-          items.map((it) => it.entity.id),
-          { query, scope, asOf: asOfParam },
-        ),
+        detail: injectDetail(injected, { query, scope, asOf: asOfParam }),
         at: ts,
         ns,
+        ...(preview ? {} : { ids: injected, anchor: scope, asOf: asOfParam }),
       };
       const { asR, prefetch, nameOf } = serializers();
       sendJson(res, 200, {
@@ -1357,12 +1344,14 @@ export function createUiHandler(
       // Best-effort (C7): the persona is already computed, so a locked trail drops the row to stderr
       // rather than 400 an answer — inline `logAudit` would let a held write lock turn a read into a
       // failure.
+      const personaIds = injected.map((e) => e.id);
       await bestEffortAudit(store, {
         actor,
         action: "persona",
-        detail: `${id} -> ${injected.map((e) => e.id).join(" ")}`,
+        detail: `${id} -> ${personaIds.join(" ")}`,
         at: ts,
         ns,
+        ids: personaIds,
       });
       // `skill=1` is `yoke persona --out`: the SKILL.md as core renders it. The document is built
       // here because the renderer is core's and the ontology is this corpus's; writing the file is
