@@ -596,6 +596,20 @@ describe("yoke MCP server", () => {
     await s2.close();
   });
 
+  it("yoke_inject refuses a scope that is not a record (v8.0)", async () => {
+    const s = await openSession();
+    const res = await s.client.callTool({
+      name: "yoke_inject",
+      arguments: { query: "gadgets", scope: "PAY-42" },
+    });
+    // A tool error, not an unanchored answer: with a query the unguarded path returned the
+    // org-wide result set, which an agent reads as the working context's knowledge.
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain("scope is not a record: PAY-42");
+    expect(text(res)).toContain("yoke_resolve_scope");
+    await s.close();
+  });
+
   it("yoke_resolve_scope with an unknown key returns a non-error create hint (v4.0)", async () => {
     const s = await openSession();
     const res = await s.client.callTool({

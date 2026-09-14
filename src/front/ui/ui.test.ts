@@ -726,6 +726,14 @@ describe("ui API", () => {
     // Neither q nor scope is a 400, not an accidental full dump.
     const bad = await fetch(`${base}/api/inject`);
     expect(bad.status).toBe(400);
+
+    // And a scope that is not a record is a 400 in core's own words — the same sentence the CLI
+    // and the MCP tool print, because all three refuse in `inject` rather than each on its own.
+    const ghost = await fetch(
+      `${base}/api/inject?preview=1&q=sky&scope=PAY-42`,
+    );
+    expect(ghost.status).toBe(400);
+    expect((await ghost.json()).error).toBe("scope is not a record: PAY-42");
   });
 
   it("without preview=1 the same route is a DELIVERY — the CLI's team-mode read is not a look", async () => {

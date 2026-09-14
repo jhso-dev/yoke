@@ -1011,6 +1011,13 @@ describe("runCli", () => {
       await cli(["inject", "payments", "--db", db, "--scope", anchor]),
     ).toBe(0);
     expect(await cli(["inject", "--db", db, "--scope", anchor])).toBe(0);
+    // A scope that is not a record is a fourth outcome, and it is a refusal. Answering it with the
+    // org-wide results hands a caller who asked for one working context the whole corpus, under the
+    // heading it asked for — a key where an id belongs is the way in.
+    expect(
+      await cli(["inject", "payments", "--db", db, "--scope", "PAY-42"]),
+    ).toBe(1);
+    expect(errs.at(-1)).toContain("scope is not a record: PAY-42");
     // and one as-of read, which is a shape PLUS a clock, not a fourth shape
     expect(
       await cli([

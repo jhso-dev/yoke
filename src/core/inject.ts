@@ -100,6 +100,10 @@ export interface InjectResult {
   withheld?: WithheldStats;
 }
 
+/** An anchor that is not a record in this namespace. Thrown by `inject`, printed verbatim by
+ * every front tier — the CLI through the route's 400, the MCP tool as a tool error. */
+export class ScopeNotFound extends Error {}
+
 /**
  * How many nodes a multi-hop walk expands the edges of, breadth-first.
  *
@@ -517,6 +521,19 @@ export async function inject(
     opts?.scopeRel !== undefined && membership.has(opts.scopeRel);
   let candidates: Entity[];
   if (scope) {
+    // The anchor has to BE a record. A scope that resolves to nothing walks from nothing, and with a
+    // query the answer then degrades to the org-wide result set — which the caller asked for anchored
+    // and reads as this working context's knowledge. Refused, never emptied or widened: absence is
+    // not an answer here.
+    //
+    // ns-checked for the reason `commit`'s `attachTo` is: `getEntity` takes no ns and ids are
+    // globally unique, so an unscoped id read crosses the tenant boundary and doubles as an existence
+    // oracle for ids in any namespace.
+    const anchorRecord = await port.getEntity(scope);
+    if (!anchorRecord || normalizeNs(anchorRecord.ns) !== ns)
+      throw new ScopeNotFound(
+        `scope is not a record${ns !== null ? ` in namespace ${ns}` : ""}: ${scope}`,
+      );
     // The anchor walk: `depth` relation hops out, breadth-first, each id held at its SHORTEST
     // distance (SPEC "Multi-hop"). At depth 1 this is the single `neighbors` call it always was.
     const depth = Math.max(1, opts?.depth ?? 1);

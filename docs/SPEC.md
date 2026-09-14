@@ -717,6 +717,12 @@ entry points**: a `collaboration` anchor is the shared working context, a `perso
 
 - **Scope prioritizes, it does not imprison.** An anchored working context must never hide
   org-wide knowledge (or personas — `yoke_persona` is a separate entry point, unaffected by scope).
+- **A scope that is not a record is refused, not emptied.** `inject` reads the anchor first and
+  throws `ScopeNotFound` (`scope is not a record[ in namespace <ns>]: <id>`) when it does not exist
+  in this namespace. Because scope prioritizes rather than imprisons, the alternative is worse than
+  an empty answer: with a query, an unresolvable anchor falls through to the org-wide result set,
+  which the caller asked for anchored and reads as that context's knowledge. Refused in core, so the
+  CLI (exit 1), the MCP tool (a tool error) and `GET /api/inject` (400) all say the one sentence.
 - With a non-empty `query`: the **full query results** are returned, with knowledge one relation
   hop from the scope entity (both directions via `neighbors(scope)`) **ordered first** — the
   working context leads, org-wide matches still flow in. `limit` applies after ordering.

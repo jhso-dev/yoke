@@ -863,8 +863,9 @@ export function createUiHandler(
         throw new Error(
           "unseen=1 is a briefing of one working context: pass scope and no q",
         );
+      // Read for `unseenReport`, which needs the record itself. Whether it IS one is core's call:
+      // `inject` below refuses a scope that is not a record, so every door says one sentence.
       const anchor = unseen && scope ? await store.getEntity(scope) : null;
-      if (unseen && !anchor) throw new Error(`scope is not a record: ${scope}`);
       const handed =
         unseen && scope
           ? await store.delivered({ ns, actor, anchor: scope })

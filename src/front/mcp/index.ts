@@ -24,8 +24,10 @@ import type { Embedder } from "../../core/embedding.js";
 import {
   BRIEFING_LIMIT,
   entityIdCandidates,
+  type InjectResult,
   inject,
   injectLimit,
+  ScopeNotFound,
   WALK_BUDGET,
 } from "../../core/inject.js";
 import { normalizeNs } from "../../core/namespace.js";
@@ -365,12 +367,9 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       if (!authorize("read")) return forbidden();
       const ts = now();
       const anchor = scope || undefined;
-      const { items, omitted, walk, withheld } = await inject(
-        store,
-        ontology,
-        query,
-        ts,
-        {
+      let result: InjectResult;
+      try {
+        result = await inject(store, ontology, query, ts, {
           limit: injectLimit(anchor, query, limit),
           ns,
           scope: anchor,
@@ -379,8 +378,17 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
           // be keyword-only while writes are embedded — half a vector index.
           embedder,
           keywordWeight,
-        },
-      );
+        });
+      } catch (e) {
+        // The one refusal this tool can provoke with a bad argument. Told to the agent in core's own
+        // words, like a rejected commit — yoke_resolve_scope is what turns a key into an id.
+        if (e instanceof ScopeNotFound)
+          return err(
+            `${e.message} — call yoke_resolve_scope to turn a work-item key into an id`,
+          );
+        throw e;
+      }
+      const { items, omitted, walk, withheld } = result;
       // Injection audit: who got what knowledge injected. Front-tier I/O — core stays pure.
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
       // unscoped one, and which of the two agents actually do is the measurement that decides whether
