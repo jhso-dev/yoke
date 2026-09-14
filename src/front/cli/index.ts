@@ -61,7 +61,6 @@ type Values = {
   auth?: boolean;
   until?: string;
   force?: boolean;
-  "replica-of"?: string;
   relations?: boolean;
   after?: string;
   status?: string;
@@ -108,7 +107,6 @@ const OPTIONS = {
   // Why a record was retired. Governance acts only — see cmdDeprecate.
   reason: { type: "string" },
   force: { type: "boolean" },
-  "replica-of": { type: "string" },
   relations: { type: "boolean" },
   after: { type: "string" },
   status: { type: "string" },
@@ -705,7 +703,6 @@ async function cmdServe(v: Values, env: Env): Promise<number> {
   const server = await runServe(resolveDb(v, env), port, env, {
     auth: v.auth,
     ns: resolveNs(v.ns, env),
-    replicaOf: v["replica-of"],
     shards: resolveShards(v, env),
     host: v.host ?? env.YOKE_HOST,
   });

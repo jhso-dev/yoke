@@ -134,9 +134,6 @@ export const en = {
   },
   chrome: {
     connecting: "connecting…",
-    readOnly: "read-only",
-    readOnlyHint:
-      "This is a read-only replica. Changes are saved to the primary",
     namespaceHint: "tenant namespace",
     signOut: "Sign out",
     signIn: "Sign in",

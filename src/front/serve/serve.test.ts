@@ -542,107 +542,6 @@ describe("OIDC (local JWKS fixture)", () => {
   });
 });
 
-describe("read replica", () => {
-  it("serves reads; writes rejected (409 API / MCP tool error); refreshNow pulls new data", async () => {
-    const primary = await freshDb("replica-primary");
-    // Seed a fact on the primary — born verified, so it is injectable as committed.
-    const p = new SqliteStorage(primary);
-    await p.init();
-    const d = await commit(
-      p,
-      p.loadOntology(),
-      { type: "fact", attributes: { statement: "replicated" } },
-      { actor: "yoke:system", origin: "cli", occurred_at: now() },
-      now(),
-    );
-    p.close();
-
-    // Build the replica snapshot + read-only server directly (mirrors runServe's replica branch).
-    const snapshotPath = join(dir, "replica-snap.db");
-    const seed = new Database(primary, { readonly: true });
-    await seed.backup(snapshotPath);
-    seed.close();
-    const store = new SqliteStorage(snapshotPath);
-    await store.init();
-    const server = createServeServer({
-      store,
-      defaultActor: "yoke:system",
-      auth: false,
-      now,
-      readOnly: true,
-      replica: { primaryPath: primary, snapshotPath },
-    });
-    const run = await listen(server);
-
-    // GET read works.
-    expect((await fetch(run.base + "/api/ontology")).status).toBe(200);
-
-    // POST /api/verify → 409 with the read-only message.
-    const vres = await fetch(run.base + "/api/verify", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ids: [d.entity.id] }),
-    });
-    expect(vres.status).toBe(409);
-    expect(((await vres.json()) as { error: string }).error).toContain(
-      "read-only replica",
-    );
-
-    // MCP: commit tool rejected (write denied), inject still works (read).
-    const client = new Client({ name: "rep", version: "0" });
-    await client.connect(
-      new StreamableHTTPClientTransport(new URL(run.base + "/mcp")),
-    );
-    const commitRes = await client.callTool({
-      name: "yoke_commit",
-      arguments: { type: "fact", attributes: { title: "blocked" } },
-    });
-    expect(commitRes.isError).toBe(true);
-    expect((commitRes.content as Array<{ text: string }>)[0].text).toContain(
-      "forbidden",
-    );
-    const injectRes = await client.callTool({
-      name: "yoke_inject",
-      arguments: { query: "replicated" },
-    });
-    expect(injectRes.isError).toBeFalsy();
-    expect((injectRes.content as Array<{ text: string }>)[0].text).toContain(
-      "replicated",
-    );
-    await client.close();
-
-    // refreshNow: new verified data on the primary becomes visible after a manual pull.
-    const p2 = new SqliteStorage(primary);
-    await p2.init();
-    await commit(
-      p2,
-      p2.loadOntology(),
-      { type: "fact", attributes: { statement: "afterrefresh" } },
-      { actor: "yoke:system", origin: "cli", occurred_at: now() },
-      now(),
-    );
-    p2.close();
-
-    // biome-ignore lint/style/noNonNullAssertion: refreshNow is present in replica mode.
-    await server.refreshNow!();
-
-    const client2 = new Client({ name: "rep2", version: "0" });
-    await client2.connect(
-      new StreamableHTTPClientTransport(new URL(run.base + "/mcp")),
-    );
-    const injectRes2 = await client2.callTool({
-      name: "yoke_inject",
-      arguments: { query: "afterrefresh" },
-    });
-    expect((injectRes2.content as Array<{ text: string }>)[0].text).toContain(
-      "afterrefresh",
-    );
-    await client2.close();
-
-    run.close();
-  });
-});
-
 describe("meta under auth", () => {
   it("answers without a credential but reveals nothing, and identifies a real one", async () => {
     const db = await freshDb("meta");
@@ -666,7 +565,6 @@ describe("meta under auth", () => {
     expect(anon.status).toBe(200);
     expect(await anon.json()).toEqual({
       auth: true,
-      readOnly: false,
       ns: null,
       actor: null,
     });
@@ -677,7 +575,6 @@ describe("meta under auth", () => {
     });
     expect(await known.json()).toEqual({
       auth: true,
-      readOnly: false,
       ns: "acme",
       actor: "token:reader",
     });

@@ -115,9 +115,6 @@ interface UiDeps {
   /** Whether this deployment requires a credential — reported by /api/meta so the shell knows to
    * show a login. Set by serve mode; `yoke ui` leaves it false (local single-user). */
   authRequired?: boolean;
-  /** Read replica: the client disables mutation controls up front rather than letting people
-   * discover replica mode by clicking and getting a 409. */
-  readOnly?: boolean;
   /** Same embedder the CLI builds from env. Passed so a record created in the browser gets the same
    * duplicate and contradiction detection one created by `yoke add` does — without it the gate's
    * stages 3 and 4 would silently be weaker on this adapter than on the others. */
@@ -628,7 +625,6 @@ export function createUiHandler(
         : undefined;
       sendJson(res, 200, {
         auth: deps.authRequired ?? false,
-        readOnly: deps.readOnly ?? false,
         ns: authenticated ? ns : null,
         actor: authenticated ? actor : null,
         ...(actorName === undefined ? {} : { actorName }),

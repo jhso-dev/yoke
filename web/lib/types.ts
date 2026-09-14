@@ -224,7 +224,6 @@ export interface Persona {
 /** GET /api/meta — ungated, so the shell can decide whether to show a login before it has one. */
 export interface Meta {
   auth: boolean;
-  readOnly: boolean;
   ns: string | null;
   actor: string | null;
   /** The actor rendered for a human; absent for machine actors and unresolvable ids. */

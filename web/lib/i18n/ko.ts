@@ -132,8 +132,6 @@ export const ko: typeof en = {
   },
   chrome: {
     connecting: "연결 중…",
-    readOnly: "읽기 전용",
-    readOnlyHint: "읽기 전용 복제본입니다. 변경 내용은 원본에 저장합니다",
     namespaceHint: "테넌트 네임스페이스",
     signOut: "로그아웃",
     signIn: "로그인",

@@ -85,8 +85,7 @@ to: `yoke init` seeds the shared base onto the default shard and a tenant shard 
 never given a copy, so reading the owner shard alone would make a namespace owned by
 one refuse every command ("not initialized"). Known ceilings are documented in `storage-sharded/index.ts`:
 cross-shard `similar` fan-out can surface duplicate warnings across tenants
-(isolation-sensitive deployments should run one serve process per tenant). Read replicas
-(`yoke serve --replica-of`) remain the first lever for read scale.
+(isolation-sensitive deployments should run one serve process per tenant).
 
 ## What we don't do
 

@@ -824,7 +824,6 @@ describe("ui API", () => {
     // Local `yoke ui`: ungated, writable, default namespace.
     expect(meta).toEqual({
       auth: false,
-      readOnly: false,
       ns: null,
       actor: "reviewer",
     });

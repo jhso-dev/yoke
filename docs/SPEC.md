@@ -1120,7 +1120,7 @@ yoke connect <github-pr|slack|notes|raw|rdb> [--scope id]   # external sources â
 yoke relate [--limit n]    # a model proposes the links BETWEEN stored records â€” see "Relater contract"
 yoke mcp                   # start the MCP server (stdio)
 yoke ui [--port] [--host]  # local governance workbench (loopback, ungated, single-user)
-yoke serve [--port] [--host] [--auth] [--replica-of <path>]   # UI + JSON API + remote MCP, one port
+yoke serve [--port] [--host] [--auth]                        # UI + JSON API + remote MCP, one port
 yoke token create --name <n> --scopes <list>  # a credential for an actor with no GitHub login (CI, connectors)
 ```
 
