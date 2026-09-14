@@ -1,0 +1,62 @@
+src/adapters/storage-composite/index.ts
+  s_03673cb32bfdc1::t_a8957a5596c968 1-2,15,69-72,198
+  s_03673cb32bfdc1::t_2eda2fa4d9dbc7 171,174
+  s_03673cb32bfdc1::t_58e66b9e41a0c3 30
+src/front/cli/cli.test.ts
+  s_03673cb32bfdc1::t_58e66b9e41a0c3 91-93,1741
+  s_03673cb32bfdc1::t_dde654756d2f74 226
+src/ports/audit.ts
+  s_03673cb32bfdc1::t_0c8be9ebbc295c 1-41
+src/adapters/storage-sqlite/index.ts
+  s_03673cb32bfdc1::t_0c7d08d57b116e 161
+  s_03673cb32bfdc1::t_2939de6e97d02a 810-811,828
+  s_03673cb32bfdc1::t_58e66b9e41a0c3 12
+src/front/mcp/index.ts
+  s_03673cb32bfdc1::t_58e66b9e41a0c3 40
+  s_03673cb32bfdc1::t_fd11a67de71a24 403,643,734
+  s_03673cb32bfdc1::t_2eda2fa4d9dbc7 90
+src/front/display.ts
+  s_03673cb32bfdc1::t_d951edfb4a9b50 221-222,224,226
+src/adapters/storage-opensearch/index.test.ts
+  s_03673cb32bfdc1::t_e528c2b2a99304 399,405
+src/front/serve/serve.test.ts
+  s_03673cb32bfdc1::t_58e66b9e41a0c3 271-273
+src/adapters/storage-sharded/index.ts
+  s_03673cb32bfdc1::t_2eda2fa4d9dbc7 65-66,321-322,325-326
+  s_03673cb32bfdc1::t_58e66b9e41a0c3 40
+src/adapters/storage-sharded/index.test.ts
+  s_03673cb32bfdc1::t_3885b1a84295a9 212-214
+  s_03673cb32bfdc1::t_dc81dfa1171352 205
+  s_03673cb32bfdc1::t_106efe9b869396 206
+src/adapters/storage-sqlite/index.test.ts
+  s_03673cb32bfdc1::t_3885b1a84295a9 396-399,401-405,408-409,411-412,426-429,432-437
+  s_03673cb32bfdc1::t_106efe9b869396 393-395,425
+src/front/ui/server.ts
+  s_03673cb32bfdc1::t_22dd77a2022a0e 659-661,726,792,1129,1611
+  s_03673cb32bfdc1::t_53b322e774fe89 883-885,1168,1443,1851
+  s_03673cb32bfdc1::t_fd11a67de71a24 943,1014,1360
+src/front/ui/ui.test.ts
+  s_03673cb32bfdc1::t_e528c2b2a99304 620,630,632
+  s_03673cb32bfdc1::t_dde654756d2f74 1018
+  s_03673cb32bfdc1::t_58e66b9e41a0c3 371,440,605,616-618,690,705-707,710-712,1022-1024,1059,1488,1512,1520,1536
+src/front/mcp/mcp.test.ts
+  s_03673cb32bfdc1::t_2eda2fa4d9dbc7 1065
+  s_03673cb32bfdc1::t_58e66b9e41a0c3 17
+  s_03673cb32bfdc1::t_e528c2b2a99304 996,1015
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "41d828d773833fdc32aa944d963ee8e65660d2a3",
+  "prompts": {},
+  "sessions": {
+    "s_03673cb32bfdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a281bcd5-c4f9-493a-a066-6c7d608802b7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Nathen So <jhso@zigbang.com>"
+    }
+  }
+}
