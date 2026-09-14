@@ -202,16 +202,16 @@ describe("sharded routing (2 sqlite members)", () => {
     );
   });
 
-  it("writes audit to the default shard only", () => {
-    store.logAudit({
+  it("writes audit to the default shard only", async () => {
+    await store.logAudit({
       actor: "u",
       action: "inject",
       detail: "x",
       at: "2026-01-01T00:00:00Z",
     });
-    expect(d.listAudit()).toHaveLength(1);
-    expect(a.listAudit()).toHaveLength(0);
-    expect(store.listAudit()).toHaveLength(1);
+    expect(await d.listAudit()).toHaveLength(1);
+    expect(await a.listAudit()).toHaveLength(0);
+    expect(await store.listAudit()).toHaveLength(1);
   });
 });
 

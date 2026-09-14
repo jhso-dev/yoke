@@ -218,12 +218,12 @@ export const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
  *
  * Generic over the event so this file keeps importing only core, never an adapter's AuditEvent.
  */
-export function bestEffortAudit<E>(
-  store: { logAudit?: (event: E) => void },
+export async function bestEffortAudit<E>(
+  store: { logAudit?: (event: E) => Promise<void> },
   event: E,
-): void {
+): Promise<void> {
   try {
-    store.logAudit?.(event);
+    await store.logAudit?.(event);
   } catch (err) {
     console.error(
       `warning: audit row not written (read succeeded): ${(err as Error).message}`,

@@ -8,13 +8,13 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { AuditEvent } from "../../adapters/storage-sqlite/index.js";
 import { SqliteStorage } from "../../adapters/storage-sqlite/index.js";
 import { commit } from "../../core/commit.js";
 import { BRIEFING_LIMIT } from "../../core/inject.js";
 import { deprecate, downstreamOf } from "../../core/lifecycle.js";
 import { seedOntology } from "../../core/ontology.js";
 import type { Provenance } from "../../core/types.js";
+import type { AuditEvent } from "../../ports/audit.js";
 import { cli } from "../cli/harness.js";
 import { openStore, type YokeStore } from "../store.js";
 import { createYokeMcpServer } from "./index.js";
@@ -993,7 +993,7 @@ describe("a decision is live at birth", () => {
 
   it("one version, born verified, injectable now — and no verify row on the trail", async () => {
     const s = await openSession();
-    const before = s.store.listAudit().length;
+    const before = (await s.store.listAudit()).length;
     const res = await s.client.callTool({
       name: "yoke_record_decision",
       arguments: {
@@ -1012,7 +1012,7 @@ describe("a decision is live at birth", () => {
     const stored = await s.store.getEntity(body.id);
     expect(stored?.status).toBe("verified");
     // No promotion happened, so no verify row — the v1 row itself is the act on record.
-    const rows = s.store.listAudit().slice(before);
+    const rows = (await s.store.listAudit()).slice(before);
     expect(rows.find((r) => r.action === "verify")).toBeUndefined();
     // And it reaches an agent at once: verified-only injection returns it.
     const got = await s.client.callTool({
@@ -1062,7 +1062,7 @@ const prov = (actor: string): Provenance => ({
 /** A store whose logAudit throws — the "database is locked" contention a read must survive. */
 function lockedAuditStore(db: string): SqliteStorage {
   const store = new SqliteStorage(db);
-  store.logAudit = (_event: AuditEvent): void => {
+  store.logAudit = (_event: AuditEvent): Promise<void> => {
     throw new Error("database is locked");
   };
   return store;

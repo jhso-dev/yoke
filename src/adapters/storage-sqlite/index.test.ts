@@ -390,22 +390,26 @@ describe("audit extensions", () => {
       at: "2026-03-01T00:00:00Z",
       ns: "acme",
     };
-    store.logAudit(a);
-    store.logAudit(b);
-    store.logAudit(tenant);
-    expect(store.listAudit()).toEqual([a, b]);
-    expect(store.listAudit({ since: "2026-01-15T00:00:00Z" })).toEqual([b]);
+    await store.logAudit(a);
+    await store.logAudit(b);
+    await store.logAudit(tenant);
+    expect(await store.listAudit()).toEqual([a, b]);
+    expect(await store.listAudit({ since: "2026-01-15T00:00:00Z" })).toEqual([
+      b,
+    ]);
     // Both bounds inclusive — a person picking an end day means through that instant.
-    expect(store.listAudit({ until: "2026-01-15T00:00:00Z" })).toEqual([a]);
-    expect(store.listAudit({ until: b.at })).toEqual([a, b]);
-    expect(store.listAudit({ since: a.at, until: a.at })).toEqual([a]);
+    expect(await store.listAudit({ until: "2026-01-15T00:00:00Z" })).toEqual([
+      a,
+    ]);
+    expect(await store.listAudit({ until: b.at })).toEqual([a, b]);
+    expect(await store.listAudit({ since: a.at, until: a.at })).toEqual([a]);
     // Namespace isolation: an audit viewer must not show one tenant's queries to another, and the
     // default namespace is not a wildcard over tenants.
-    expect(store.listAudit({ ns: "acme" })).toEqual([tenant]);
-    expect(store.listAudit({ ns: "globex" })).toEqual([]);
+    expect(await store.listAudit({ ns: "acme" })).toEqual([tenant]);
+    expect(await store.listAudit({ ns: "globex" })).toEqual([]);
     // limit takes the most recent N but still returns them oldest-first.
-    expect(store.listAudit({ limit: 1 })).toEqual([b]);
-    expect(store.listAudit({ limit: 5 })).toEqual([a, b]);
+    expect(await store.listAudit({ limit: 1 })).toEqual([b]);
+    expect(await store.listAudit({ limit: 5 })).toEqual([a, b]);
     // The bound is compared BY INSTANT (`julianday`), never as text. The text compare this replaced
     // was pinned right here as a caller hazard — "a second-precision `since` sorts AFTER a row inside
     // its own second (`Z` > `.`), silently dropping it" — which is a defect described as a contract:
@@ -418,15 +422,19 @@ describe("audit extensions", () => {
       detail: "id5",
       at: "2026-04-01T00:00:00.500Z",
     };
-    store.logAudit(ms);
-    expect(store.listAudit({ since: "2026-04-01T00:00:00.000Z" })).toEqual([
+    await store.logAudit(ms);
+    expect(
+      await store.listAudit({ since: "2026-04-01T00:00:00.000Z" }),
+    ).toEqual([ms]);
+    expect(await store.listAudit({ since: "2026-04-01T00:00:00Z" })).toEqual([
       ms,
     ]);
-    expect(store.listAudit({ since: "2026-04-01T00:00:00Z" })).toEqual([ms]);
-    expect(store.listAudit({ since: "2026-04-01T09:00:00.500+09:00" })).toEqual(
-      [ms],
-    );
-    expect(store.listAudit({ since: "2026-04-01T00:00:00.501Z" })).toEqual([]);
+    expect(
+      await store.listAudit({ since: "2026-04-01T09:00:00.500+09:00" }),
+    ).toEqual([ms]);
+    expect(
+      await store.listAudit({ since: "2026-04-01T00:00:00.501Z" }),
+    ).toEqual([]);
     store.close();
   });
 });

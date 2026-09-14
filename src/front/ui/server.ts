@@ -656,7 +656,9 @@ export function createUiHandler(
         // recent CONSUMPTION_WINDOW audit rows (F1): the whole trail materialized every row into JS.
         const ranked = rankByConsumption(
           items,
-          consumptionCounts(store.listAudit({ ns, limit: CONSUMPTION_WINDOW })),
+          consumptionCounts(
+            await store.listAudit({ ns, limit: CONSUMPTION_WINDOW }),
+          ),
         );
         // `scanned` travels with the rows: the walk is bounded, so a screen that printed only the
         // count would be claiming a corpus-wide number this did not compute. `consumptionWindow` is
@@ -721,7 +723,7 @@ export function createUiHandler(
         ns,
       });
       const items = found.slice(0, limit);
-      auditRead(
+      await auditRead(
         "search",
         items.map((e) => e.id),
         text,
@@ -787,7 +789,7 @@ export function createUiHandler(
       // the summary rows a listing returns do not, this does. One id, not the neighbours' — the
       // versions and the resolved ends come back as summary rows, so naming them would overstate
       // what this response actually disclosed.
-      auditRead("read", [e.id]);
+      await auditRead("read", [e.id]);
       sendJson(res, 200, {
         entity: {
           ...(await asR(e)),
@@ -878,9 +880,9 @@ export function createUiHandler(
       const handed =
         unseen && scope
           ? deliveries(
-              store
-                .listAudit({ ns, limit: DELIVERY_WINDOW })
-                .filter((r) => r.actor === actor),
+              (await store.listAudit({ ns, limit: DELIVERY_WINDOW })).filter(
+                (r) => r.actor === actor,
+              ),
               scope,
             )
           : null;
@@ -938,7 +940,7 @@ export function createUiHandler(
         res.end(body);
         // A model received knowledge: `inject`, not `inject_preview` — this is the row the next unseen
         // read is bounded by, and a preview row would not count (see `deliveries`).
-        bestEffortAudit(store, {
+        await bestEffortAudit(store, {
           actor,
           action: "inject",
           detail: injectDetail(delivered, { scope, changed }),
@@ -1009,7 +1011,7 @@ export function createUiHandler(
           );
         })(),
       });
-      bestEffortAudit(store, previewEvent);
+      await bestEffortAudit(store, previewEvent);
       return;
     }
 
@@ -1124,7 +1126,7 @@ export function createUiHandler(
         ),
       });
       // The same action the MCP tool and the CLI write, after the response (C7).
-      auditRead(
+      await auditRead(
         "overview",
         o.hubs.map((h: { entity: Entity }) => h.entity.id),
         "overview",
@@ -1163,7 +1165,7 @@ export function createUiHandler(
     if (method === "GET" && path === "/api/audit") {
       if (denied(res, "read")) return;
       const limit = intParam(url, "limit", 200, 2000);
-      const events = store.listAudit({
+      const events = await store.listAudit({
         // Through the same gate as every other instant this server accepts — these two went straight
         // into SQL string comparisons (see `instantParam` for what that answered).
         since: instantParam(url, "since"),
@@ -1355,7 +1357,7 @@ export function createUiHandler(
       // Best-effort (C7): the persona is already computed, so a locked trail drops the row to stderr
       // rather than 400 an answer — inline `logAudit` would let a held write lock turn a read into a
       // failure.
-      bestEffortAudit(store, {
+      await bestEffortAudit(store, {
         actor,
         action: "persona",
         detail: `${id} -> ${injected.map((e) => e.id).join(" ")}`,
@@ -1438,7 +1440,7 @@ export function createUiHandler(
           ? await verify(store, ids, actor, ts, ns)
           : await deprecate(store, ids, actor, ts, ns, reason);
       // Governance action audit — who verified/deprecated what, when (same tier as CLI inject audit).
-      store.logAudit({
+      await store.logAudit({
         actor,
         action,
         detail: done.map((e) => e.id).join(" "),
@@ -1606,7 +1608,7 @@ export function createUiHandler(
           ),
         })),
       });
-      auditRead(
+      await auditRead(
         "read",
         groups.flatMap((g) => [...g.byRef.values()].map((e) => e.id)),
         "relate",
@@ -1846,7 +1848,7 @@ export function createUiHandler(
       const ts = now();
       const rows = await store.renameType(from, to, ns);
       if (rows > 0)
-        store.logAudit({
+        await store.logAudit({
           actor,
           action: "rename_type",
           detail: `${from} -> ${to}`,

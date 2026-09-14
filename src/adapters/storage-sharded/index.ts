@@ -37,6 +37,7 @@
 import { normalizeNs } from "../../core/namespace.js";
 import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
+import type { AuditEvent, AuditPort, AuditQuery } from "../../ports/audit.js";
 import type {
   ListQuery,
   Page,
@@ -44,7 +45,6 @@ import type {
   TextQuery,
 } from "../../ports/storage.js";
 import { DEFAULT_SEARCH_LIMIT } from "../../ports/storage.js";
-import type { AuditEvent, AuditQuery } from "../storage-sqlite/index.js";
 import { loadShardConfig, makeShard } from "./config.js";
 
 export type { AuditEvent, AuditQuery };
@@ -62,8 +62,8 @@ export interface YokeStore extends StoragePort {
   listHistory?(id: string): Entity[];
   /** async since v5.2: it rewrites entity rows, and on a remote backend those are across a network. */
   renameType(from: string, to: string, ns?: string | null): Promise<number>;
-  logAudit(event: AuditEvent): void;
-  listAudit(q?: AuditQuery): AuditEvent[];
+  logAudit(event: AuditEvent): Promise<void>;
+  listAudit(q?: AuditQuery): Promise<AuditEvent[]>;
 }
 
 export interface ShardMember {
@@ -318,12 +318,12 @@ export class ShardedStorage implements YokeStore {
   }
 
   // Audit + tokens: a single stream on the default shard.
-  logAudit(event: AuditEvent): void {
-    (this.defaultShard.store as ExtStore).logAudit?.(event);
+  async logAudit(event: AuditEvent): Promise<void> {
+    await (this.defaultShard.store as ExtStore).logAudit?.(event);
   }
 
-  listAudit(q?: AuditQuery): AuditEvent[] {
-    return (this.defaultShard.store as ExtStore).listAudit?.(q) ?? [];
+  async listAudit(q?: AuditQuery): Promise<AuditEvent[]> {
+    return (await (this.defaultShard.store as ExtStore).listAudit?.(q)) ?? [];
   }
 }
 

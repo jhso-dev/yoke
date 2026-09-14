@@ -9,6 +9,7 @@ import { normalizeNs } from "../../core/namespace.js";
 import { overlayOntology, type TypeDef } from "../../core/ontology.js";
 import { requireEveryTerm, tokenize } from "../../core/rank.js";
 import type { Entity, Relation } from "../../core/types.js";
+import type { AuditEvent, AuditPort, AuditQuery } from "../../ports/audit.js";
 import {
   ConflictError,
   DEFAULT_SEARCH_LIMIT,
@@ -122,26 +123,6 @@ CREATE INDEX IF NOT EXISTS idx_relations_ns_type_id ON relations(ns, type, id);
 CREATE INDEX IF NOT EXISTS idx_audit_ns_at ON audit_log(ns, at);
 `;
 
-/** One audit_log row. 'who saw what when' (ENTERPRISE.md) — inject/persona reads at the front tier. */
-export interface AuditEvent {
-  actor: string;
-  action: string;
-  detail: string;
-  at: string;
-  /** Tenant namespace the read/action happened in. Omitted = the default shared namespace.
-   * Without it an audit viewer would show every tenant's queries to every tenant. */
-  ns?: string | null;
-}
-
-/** listAudit filter. Most-recent-N window: `limit` takes the newest rows, returned oldest-first.
- * `since`/`until` are both inclusive — a person picking an end day means through that instant. */
-export interface AuditQuery {
-  since?: string;
-  until?: string;
-  ns?: string | null;
-  limit?: number;
-}
-
 interface EntityRow {
   id: string;
   version: number;
@@ -177,7 +158,7 @@ function rowToRelation(r: RelationRow): Relation {
   return { ...rowToEntity(r), from: r.from_id, to: r.to_id };
 }
 
-export class SqliteStorage implements StoragePort {
+export class SqliteStorage implements StoragePort, AuditPort {
   private db: Database.Database;
 
   constructor(path: string) {
@@ -826,8 +807,8 @@ export class SqliteStorage implements StoragePort {
     return rows.map(rowToEntity);
   }
 
-  /** Append one injection-audit event (outside StoragePort — written by front tiers). */
-  logAudit(event: AuditEvent): void {
+  /** Append one injection-audit event (AuditPort — written by front tiers). */
+  async logAudit(event: AuditEvent): Promise<void> {
     this.db
       .prepare(
         `INSERT INTO audit_log (actor, action, detail, at, ns) VALUES (?, ?, ?, ?, ?)`,
@@ -844,7 +825,7 @@ export class SqliteStorage implements StoragePort {
   /** Audit events in insertion order (oldest first), filtered by ns and optionally at >= since.
    * `limit` takes the most recent N and still returns them oldest-first, so a paging viewer and
    * `yoke audit` read the same direction. */
-  listAudit(q: AuditQuery = {}): AuditEvent[] {
+  async listAudit(q: AuditQuery = {}): Promise<AuditEvent[]> {
     // By instant (`julianday` parses ISO 8601, offsets included), never by string. Stored `at` values
     // are not one spelling — the DB default is whole-second `...Z`, callers write millisecond `...Z` —
     // and `Z` sorts AFTER `.`, so a string compare misses rows in the bound's own second even when

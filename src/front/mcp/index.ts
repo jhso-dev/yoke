@@ -11,7 +11,6 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import type { AuditEvent } from "../../adapters/storage-sqlite/index.js";
 import {
   findByExternalId,
   sameContent,
@@ -38,6 +37,7 @@ import {
   readableName,
 } from "../../core/persona.js";
 import type { Entity, EntityInput, RelationInput } from "../../core/types.js";
+import type { AuditEvent } from "../../ports/audit.js";
 import type { StoragePort } from "../../ports/storage.js";
 import {
   bestEffortAudit,
@@ -87,7 +87,7 @@ interface YokeMcpDeps {
   /** logAudit is optional: adapters without it simply skip injection auditing.
    * Everything else the tools need is the plain port — persona included, since authorship is a
    * graph edge rather than a provenance lookup outside the contract. */
-  store: StoragePort & { logAudit?(event: AuditEvent): void };
+  store: StoragePort & { logAudit?(event: AuditEvent): Promise<void> };
   ontology: TypeDef[];
   /** Default actor when a tool call omits one (resolved from env at server startup). */
   defaultActor: string;
@@ -400,7 +400,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       // The anchor goes in the subject: without it the trail cannot tell an anchored injection from an
       // unscoped one, and which of the two agents actually do is the measurement that decides whether
       // graph expansion is worth investing in at all (docs/RESEARCH.md).
-      bestEffortAudit(store, {
+      await bestEffortAudit(store, {
         actor: defaultActor,
         action: "inject",
         detail: injectDetail(
@@ -640,7 +640,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const o = await overview(store, ontology, ts, { ns, top });
       // Audited like every other read that returns knowledge attributes — a hub row carries a record's
       // own text (SPEC "Any route that returns knowledge attributes writes an audit row").
-      bestEffortAudit(store, {
+      await bestEffortAudit(store, {
         actor: defaultActor,
         action: "overview",
         detail: `overview -> ${o.hubs.map((h) => h.entity.id).join(" ")}`,
@@ -731,7 +731,7 @@ export function createYokeMcpServer(deps: YokeMcpDeps): McpServer {
       const { decisions, facts } = persona;
       // Persona reads are injections too — same audit trail as yoke_inject.
       const injected = [...decisions, ...facts].map((i) => i.entity);
-      bestEffortAudit(store, {
+      await bestEffortAudit(store, {
         actor: defaultActor,
         action: "persona",
         detail: `${person}${query ? ` ${query}` : ""} -> ${injected.map((e) => e.id).join(" ")}`,

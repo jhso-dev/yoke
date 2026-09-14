@@ -368,8 +368,7 @@ describe("ui API", () => {
 
   it("verify wrote an audit row", async () => {
     await post("/api/verify", { ids: [factId] });
-    const verifyEvent = store
-      .listAudit()
+    const verifyEvent = (await store.listAudit())
       .filter((e) => e.action === "verify")
       .at(-1);
     expect(verifyEvent).toBeDefined();
@@ -438,7 +437,7 @@ describe("ui API", () => {
     expect(f?.citation).toContain(personaFactId);
     // ...and the read is audited, like its MCP twin: a path that answers with knowledge but leaves
     // no trail would make the "who got what injected" audit claim false for the browser.
-    const audit = store.listAudit();
+    const audit = await store.listAudit();
     const entry = audit.find((a) => a.action === "persona");
     expect(entry?.actor).toBe("reviewer");
     expect(entry?.detail).toContain(personaFactId);
@@ -603,8 +602,7 @@ describe("ui API", () => {
 
   it("a search writes an audit row naming the query, not just the ids", async () => {
     await get("/api/search?q=mysql");
-    const row = store
-      .listAudit()
+    const row = (await store.listAudit())
       .filter((e) => e.action === "search")
       .at(-1);
     expect(row).toBeDefined();
@@ -615,9 +613,11 @@ describe("ui API", () => {
   });
 
   it("opening a record in full writes a read row — the rule SPEC has claimed since v5.0", async () => {
-    const before = store.listAudit().filter((e) => e.action === "read").length;
+    const before = (await store.listAudit()).filter(
+      (e) => e.action === "read",
+    ).length;
     await get(`/api/entity/${decisionBId}`);
-    const rows = store.listAudit().filter((e) => e.action === "read");
+    const rows = (await store.listAudit()).filter((e) => e.action === "read");
     expect(rows.length).toBe(before + 1);
     // Only the record whose attributes were returned. The versions and resolved ends come back as
     // summary rows, so naming them would overstate what the response disclosed.
@@ -627,9 +627,9 @@ describe("ui API", () => {
   it("a listing writes no read row — summary rows are not an attribute read", async () => {
     // The other half of the same rule, and the reason it is not "audit every route": /api/entities
     // returns truncated summaries, so auditing it would drown the governance rows in page loads.
-    const before = store.listAudit().length;
+    const before = (await store.listAudit()).length;
     await get("/api/entities");
-    expect(store.listAudit().length).toBe(before);
+    expect((await store.listAudit()).length).toBe(before);
   });
 
   it("entity detail returns full attributes, version history and both relation sides", async () => {
@@ -687,7 +687,7 @@ describe("ui API", () => {
 
     // A preview is a read of knowledge, so it leaves a trail — under its own action name, so it
     // never gets mistaken for what an agent was told.
-    const events = store.listAudit();
+    const events = await store.listAudit();
     const preview = events.filter((e) => e.action === "inject_preview");
     expect(preview.length).toBeGreaterThanOrEqual(2);
     expect(preview[0].actor).toBe("reviewer");
@@ -702,12 +702,14 @@ describe("ui API", () => {
     // `preview=1` is the browser saying it is only looking; every other caller is receiving. Only
     // `inject` rows count in the deliveries ledger, so a team-mode `yoke inject --scope` recorded as
     // a preview would leave nothing marked handed over and re-deliver it on the very next --unseen.
-    const before = store
-      .listAudit()
-      .filter((e) => e.action === "inject").length;
+    const before = (await store.listAudit()).filter(
+      (e) => e.action === "inject",
+    ).length;
     const res = await fetch(`${base}/api/inject?q=mysql`);
     expect(res.status).toBe(200);
-    const delivered = store.listAudit().filter((e) => e.action === "inject");
+    const delivered = (await store.listAudit()).filter(
+      (e) => e.action === "inject",
+    );
     expect(delivered.length).toBe(before + 1);
   });
 
@@ -1013,14 +1015,13 @@ describe("ui API namespace isolation", () => {
     // queries on another's audit screen.
     // Queried BY ns, which is also the assertion: `listAudit({})` reads the default namespace only,
     // so a row stamped with the wrong ns would simply not be here.
-    const row = tenantStore
-      .listAudit({ ns: "acme" })
+    const row = (await tenantStore.listAudit({ ns: "acme" }))
       .filter((e) => e.action === "search")
       .at(-1);
     expect(row?.ns).toBe("acme");
-    expect(tenantStore.listAudit().some((e) => e.action === "search")).toBe(
-      false,
-    );
+    expect(
+      (await tenantStore.listAudit()).some((e) => e.action === "search"),
+    ).toBe(false);
     expect(
       hits.items.every((r: { id: string }) => row?.detail.includes(r.id)),
     ).toBe(true);
@@ -1055,8 +1056,7 @@ describe("scope-anchored injection over HTTP", () => {
     await get(
       `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}&q=tokens`,
     );
-    const entry = store
-      .listAudit()
+    const entry = (await store.listAudit())
       .filter((a) => a.action === "inject_preview")
       .at(-1);
     expect(entry?.detail).toContain(scopedFactId);
@@ -1485,8 +1485,7 @@ describe("an injection records WHICH shape it was", () => {
     await get(
       `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}&q=tokens`,
     );
-    const entry = store
-      .listAudit()
+    const entry = (await store.listAudit())
       .filter((a) => a.action === "inject_preview")
       .at(-1);
     // The anchor leads the subject, the query follows it.
@@ -1510,8 +1509,7 @@ describe("an injection records WHICH shape it was", () => {
     await get(
       `/api/inject?preview=1&scope=${encodeURIComponent(collaborationId)}`,
     );
-    const entry = store
-      .listAudit()
+    const entry = (await store.listAudit())
       .filter((a) => a.action === "inject_preview")
       .at(-1);
     expect(subjectOf(entry?.detail ?? "")).toBe(collaborationId);
@@ -1519,8 +1517,7 @@ describe("an injection records WHICH shape it was", () => {
 
   it("an unscoped query still writes the query alone — the old rows stay comparable", async () => {
     await get(`/api/inject?preview=1&q=${encodeURIComponent("tokens")}`);
-    const entry = store
-      .listAudit()
+    const entry = (await store.listAudit())
       .filter((a) => a.action === "inject_preview")
       .at(-1);
     expect(subjectOf(entry?.detail ?? "")).toBe("tokens");
@@ -1536,8 +1533,7 @@ describe("as-of injection over HTTP", () => {
     // produced these rows — and the server canonicalizes every instant at the boundary, so the echo
     // is the canonical spelling whatever the caller typed.
     expect(out.asOf).toBe("2026-07-15T00:00:00.000Z");
-    const entry = store
-      .listAudit()
+    const entry = (await store.listAudit())
       .filter((a) => a.action === "inject_preview")
       .at(-1);
     expect(entry?.detail).toContain("@2026-07-15T00:00:00.000Z");

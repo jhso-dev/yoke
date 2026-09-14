@@ -268,9 +268,9 @@ describe("serve auth + RBAC", () => {
     expect(po.status).toBe(200);
     expect(await po.text()).toContain(d1);
     // The rows are `inject` (a model received knowledge), one per delivery, under each token's actor.
-    const rows = store
-      .listAudit()
-      .filter((r) => r.action === "inject" && r.detail.startsWith(scope));
+    const rows = (await store.listAudit()).filter(
+      (r) => r.action === "inject" && r.detail.startsWith(scope),
+    );
     expect(rows.map((r) => r.actor).sort()).toEqual([
       "token:fe",
       "token:writer",

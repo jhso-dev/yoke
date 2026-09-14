@@ -88,7 +88,9 @@ describe("runCli", () => {
     const db = newDb();
     expect(await cli(["overview", "--db", db])).toBe(0);
     const store = await openStore({ db }, {});
-    const rows = store.listAudit().filter((a) => a.action === "overview");
+    const rows = (await store.listAudit()).filter(
+      (a) => a.action === "overview",
+    );
     store.close();
     expect(rows).toHaveLength(1);
     expect(rows[0].detail).toContain("overview ->");
@@ -221,7 +223,7 @@ describe("runCli", () => {
     const calls: Array<{ limit?: number } | undefined> = [];
     const spy = vi
       .spyOn(SqliteStorage.prototype, "listAudit")
-      .mockImplementation((q) => {
+      .mockImplementation(async (q) => {
         calls.push(q as { limit?: number } | undefined);
         return [];
       });
@@ -1736,8 +1738,7 @@ describe("inject --as-of", () => {
     // The trail records WHICH clock answered — otherwise a historical read is indistinguishable from
     // a current one in the audit log, and the row would misrepresent what was injected.
     const check = await openStore({ db }, {});
-    const entry = check
-      .listAudit()
+    const entry = (await check.listAudit())
       .filter((a) => a.action === "inject")
       .at(-1);
     check.close();

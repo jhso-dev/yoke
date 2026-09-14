@@ -396,13 +396,13 @@ suite("composite: knowledge in opensearch, bookkeeping local", () => {
     });
 
     expect((await store.getEntity(entity.id))?.id).toBe(entity.id);
-    expect(store.listAudit().length).toBe(1);
+    expect((await store.listAudit()).length).toBe(1);
     store.close();
 
     // The split is real, not cosmetic: the local file has the audit row and NO entities.
     const check = new SqliteStorage(localPath);
     await check.init();
-    expect(check.listAudit().length).toBe(1);
+    expect((await check.listAudit()).length).toBe(1);
     expect((await check.listEntities({})).items).toEqual([]);
     check.close();
 

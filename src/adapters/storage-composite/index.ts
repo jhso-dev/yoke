@@ -1,4 +1,5 @@
-// storage-composite (v5.2) — knowledge in a remote backend, yoke's own bookkeeping in a local sqlite.
+// storage-composite (v5.2) — knowledge in a remote backend, the audit trail wherever `YOKE_AUDIT_URL`
+// says (see ports/audit.ts).
 //
 // This exists because of one fact about the interface above the port: `openStore` returns a
 // `YokeStore`, and several of that interface's extension methods are synchronous — they were shaped
@@ -11,8 +12,7 @@
 // workaround (SPEC "Remote backends"):
 //
 //   remote  entities, relations, search, neighbors, vectors, and the ontology
-//   local   the audit trail (what THIS client was told) and API tokens (yoke's own credentials, which
-//           do not belong in someone else's database)
+//   audit   the trail — its own port, its own address
 //
 // `loadOntology` stays synchronous by being served from a cache the async `init()` fills. It has to be
 // remote — a shared graph with per-client schemas means two people validating against different
@@ -27,6 +27,7 @@
 
 import type { TypeDef } from "../../core/ontology.js";
 import type { Entity, Relation } from "../../core/types.js";
+import type { AuditEvent, AuditPort, AuditQuery } from "../../ports/audit.js";
 import type {
   ListQuery,
   Page,
@@ -34,11 +35,6 @@ import type {
   TextQuery,
 } from "../../ports/storage.js";
 import type { YokeStore } from "../storage-sharded/index.js";
-import type {
-  AuditEvent,
-  AuditQuery,
-  SqliteStorage,
-} from "../storage-sqlite/index.js";
 
 /** The remote half: a StoragePort plus async ontology methods. Structural, so any future remote
  * adapter (postgres was always the other candidate) satisfies it without importing this file. */
@@ -70,10 +66,10 @@ class CompositeStorage implements YokeStore {
 
   constructor(
     private readonly remote: RemoteStore,
-    /** Local sqlite for audit + tokens. Concrete rather than an interface: this half is the
-     * sqlite-shaped extension surface, and pretending otherwise would invite someone to make it
-     * pluggable when there is nothing to plug in. */
-    private readonly local: SqliteStorage,
+    /** Where the trail goes — `YOKE_AUDIT_URL`, or this same knowledge backend when it can hold one.
+     * A port, not a file: the ledger's address is chosen by configuration, and it is the same choice
+     * on a laptop and on a cluster. */
+    private readonly local: AuditPort,
   ) {
     if (typeof remote.similar === "function") {
       // Bound through a non-optional local so the return type stays Promise<Entity[]>; the guard
@@ -172,10 +168,10 @@ class CompositeStorage implements YokeStore {
 
   // --- the read trail: the local sqlite -----------------------------------------------------------
 
-  logAudit(event: AuditEvent): void {
+  async logAudit(event: AuditEvent): Promise<void> {
     this.local.logAudit(event);
   }
-  listAudit(q?: AuditQuery): AuditEvent[] {
+  async listAudit(q?: AuditQuery): Promise<AuditEvent[]> {
     return this.local.listAudit(q);
   }
   // --- deliberately absent / refused --------------------------------------------------------------
@@ -199,7 +195,7 @@ class CompositeStorage implements YokeStore {
  * there is no cast here: the gap is in the type, where a reader meets it. */
 export function makeCompositeStore(
   remote: RemoteStore,
-  local: SqliteStorage,
+  local: AuditPort,
 ): YokeStore {
   return new CompositeStorage(remote, local);
 }
