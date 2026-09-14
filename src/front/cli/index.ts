@@ -591,7 +591,8 @@ const COMMAND_USAGE: Record<string, string> = {
     "  holds the corpus and answers every other command; creates the store if it is not there\n" +
     "  --auth            gate it (needs YOKE_TOKEN_SECRET, or YOKE_OIDC_*)\n" +
     "  --bootstrap-admin print one admin credential at boot — the first one, which 'yoke token\n" +
-    "                    create' then needs to mint any other",
+    "                    create' then needs to mint any other. Needs --auth; it is short-lived,\n" +
+    "                    and prints a NEW one on every restart until you remove the flag",
   get: GET_USAGE,
   list: LIST_USAGE,
   graph: GRAPH_USAGE,
@@ -814,17 +815,18 @@ export async function runCli(
         return 1;
     }
   } catch (e) {
-    // A caller error is already a sentence addressed to the reader — print it and nothing else.
+    // A caller error — a mistyped argument, or an environment that cannot be acted on — is already
+    // a sentence naming what to change. Print it and nothing else: decorating "YOKE_AUDIT_URL: no
+    // ledger adapter for cassandra" with a --db path aims the reader at a file that is not wrong.
     if (e instanceof UsageError) {
       console.error((e as Error).message);
       return 1;
     }
     // Everything else reaching here is a failure, and the bare message is usually the storage engine's:
     // "datatype mismatch", "database disk image is malformed", "file is not a database", "NOT NULL
-    // constraint failed: ontology_types.name". None of them names the file it happened to or what to do
-    // next. Naming the
-    // database is the one piece of context this layer always has, and the corruption case gets the
-    // command that exists for it.
+    // constraint failed: ontology_types.name". None of them names the file it happened to or what to
+    // do next. Naming the database is the one piece of context this layer always has, and the
+    // corruption case gets the command that exists for it.
     const msg = (e as Error).message;
     // Only the commands that open a file get the file named. Every other failure happened on the
     // server, and pointing the reader at a local path the command never touched sends them to the

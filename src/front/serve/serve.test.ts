@@ -4,7 +4,13 @@
 // yoke_inject is forbidden; unauthenticated 401), OIDC (local JWKS fixture: valid JWT passes +
 // person auto-provisioned; expired / wrong-audience rejected), and a UI+MCP smoke.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -615,9 +621,16 @@ describe("bind address", () => {
   it("--bootstrap-admin prints a credential that can mint the next one", async () => {
     const db = await freshDb("bootstrap");
     const logged: string[] = [];
+    const warned: string[] = [];
     const spy = vi
       .spyOn(console, "log")
       .mockImplementation((m?: unknown) => void logged.push(String(m)));
+    const warn = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((m: unknown) => {
+        warned.push(String(m));
+        return true;
+      });
     let server: Server;
     try {
       server = await runServe(
@@ -628,12 +641,21 @@ describe("bind address", () => {
       );
     } finally {
       spy.mockRestore();
+      warn.mockRestore();
     }
     const token = logged
       .join("\n")
       .split("\n")
       .find((l) => l.startsWith("eyJ"));
     expect(token).toBeTruthy();
+    // The credential on stdout, the one-time warning on stderr — an operator who pipes stdout into a
+    // secret store still sees why the flag must come back out of the unit file.
+    expect(warned.join("")).toMatch(/ONE-TIME.*restart/s);
+    // And it dies in an hour, not the usual week: a copy scraped out of a boot log is already dead.
+    const exp = JSON.parse(
+      Buffer.from((token as string).split(".")[1], "base64url").toString(),
+    ).exp as number;
+    expect(exp - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(3600);
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     try {
       const minted = await fetch(`${base}/api/tokens`, {
@@ -666,6 +688,16 @@ describe("bind address", () => {
     await expect(
       runServe(db, 0, {}, { auth: true, bootstrapAdmin: true }),
     ).rejects.toThrow(/YOKE_TOKEN_SECRET/);
+  });
+
+  // Ungated, the credential is not merely useless — it is a lie about what the server does. Refusing
+  // beats printing something that would be accepted nowhere, and it happens before the store exists.
+  it("--bootstrap-admin without --auth refuses, and creates nothing on the way", async () => {
+    const db = join(dir, "bootstrap-noauth.db");
+    await expect(
+      runServe(db, 0, { YOKE_TOKEN_SECRET: SECRET }, { bootstrapAdmin: true }),
+    ).rejects.toThrow(/--bootstrap-admin.*--auth/s);
+    expect(existsSync(db)).toBe(false);
   });
 });
 

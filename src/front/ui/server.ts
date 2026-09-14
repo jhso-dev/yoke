@@ -10,7 +10,6 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ingestItems } from "../../connectors/ingest.js";
 import {
@@ -65,7 +64,12 @@ import {
   ULID,
   unseenReport,
 } from "../display.js";
-import { declaredType, storedStatus, wholeNumber } from "../params.js";
+import {
+  declaredType,
+  storedStatus,
+  UsageError,
+  wholeNumber,
+} from "../params.js";
 import {
   personaCheckReport,
   pulseReport,
@@ -74,7 +78,12 @@ import {
 } from "../reports.js";
 import { credentialSigner } from "../serve/credential.js";
 import { validateScopes } from "../serve/rbac.js";
-import { type AuditEvent, openStore, type YokeStore } from "../store.js";
+import {
+  type AuditEvent,
+  localStorePath,
+  openServerStore,
+  type YokeStore,
+} from "../store.js";
 import { createStaticHandler } from "./static.js";
 
 type Env = Record<string, string | undefined>;
@@ -1919,7 +1928,8 @@ export function isLoopback(host: string): boolean {
 }
 
 /** listen() that rejects on bind failure — EADDRINUSE becomes a one-line actionable message
- * (runCli's catch prints it and exits 1; no stack trace). Shared with serve mode. */
+ * (runCli's catch prints it and exits 1; no stack trace). Shared with serve mode. A busy port is
+ * the caller's to change, not the database's fault, so it carries no database in its sentence. */
 export function listen(
   server: Server,
   port: number,
@@ -1929,7 +1939,9 @@ export function listen(
     server.once("error", (e: NodeJS.ErrnoException) => {
       reject(
         e.code === "EADDRINUSE"
-          ? new Error(`port ${port} is already in use (try --port ${port + 1})`)
+          ? new UsageError(
+              `port ${port} is already in use (try --port ${port + 1})`,
+            )
           : e,
       );
     });
@@ -1946,8 +1958,9 @@ export async function runUi(
   shards?: string,
   host: string = DEFAULT_HOST,
 ): Promise<Server> {
-  const store = await openStore({ db, shards }, env);
-  await store.init();
+  // Creates and seeds the store if it is not there, exactly as `serve` does — and says so, because
+  // `ui --db ./typo.db` would otherwise open a browser onto a new empty corpus.
+  const store = await openServerStore({ db, shards }, env);
   const actor = env.YOKE_ACTOR ?? "yoke:system";
   // Same embedder the CLI builds, so the gate's duplicate and contradiction stages are as strong
   // for a record created in the browser as for one created by `yoke add`.
@@ -1956,13 +1969,7 @@ export async function runUi(
     actor,
     ns: ns ?? null,
     // Only a single local file has a path a caller can expect to reach.
-    storePath:
-      shards ||
-      env.YOKE_SHARDS ||
-      env.YOKE_OPENSEARCH_URL ||
-      env.YOKE_POSTGRES_URL
-        ? undefined
-        : resolvePath(db),
+    storePath: localStorePath({ db, shards }, env),
     embedder: makeFetchEmbedder(env),
   });
   server.on("close", () => store.close());

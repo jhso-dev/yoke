@@ -1127,8 +1127,10 @@ yoke relate [--limit n]    # a model proposes the links BETWEEN stored records �
 yoke mcp                   # relay stdio to the server's /mcp — the agent's door to the same server
 yoke ui [--port] [--host]  # local governance workbench (loopback, ungated, single-user)
 yoke serve [--port] [--host] [--auth] [--bootstrap-admin]    # UI + JSON API + remote MCP, one port
-                           # creates and seeds the store if it is not there; --bootstrap-admin prints
-                           # the first admin credential, which 'token create' then needs
+                           # creates and seeds the store if it is not there (and says so, as does 'ui')
+                           # --bootstrap-admin prints the first admin credential, which 'token create'
+                           # then needs. ONE-TIME: refused without --auth, expires in an hour, and
+                           # warns that it reprints on every restart until the flag is removed
 yoke token create --name <n> --scopes <list>  # asks the server to sign a credential for an actor
                            # with no GitHub login (CI, connectors) — needs an 'admin' scope
 ```

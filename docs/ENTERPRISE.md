@@ -39,7 +39,11 @@ directional decisions.
     scheduled connectors) and a deployment with no GitHub. The client never holds the
     signing key: the command is a request to `POST /api/tokens`, which needs `admin`.
     The FIRST admin credential comes from `yoke serve --bootstrap-admin`, since minting
-    through the route needs one already.
+    through the route needs one already. That flag is **one-time**: it refuses without
+    `--auth` (a credential an ungated server would ignore), the credential it prints
+    expires in an hour rather than the usual week, and it warns on stderr because left
+    in a unit file or a `Dockerfile` CMD it prints a new admin credential into the logs
+    on every restart. Mint the durable credentials with it, then remove it.
 - Authorization axes: namespace × ontology type × action (read / write / **admin**).
   **`write` is the one knowledge permission** — committing, re-confirming and retiring
   are the same trust level, because every entry is signed under a credential-bound

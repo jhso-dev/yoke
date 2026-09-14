@@ -75,11 +75,14 @@ export function declaredType(
 }
 
 /**
- * A caller error, as distinct from a failure. Thrown by the argument readers below and caught once at
- * the dispatcher, which prints the message and exits 1.
+ * A caller error, as distinct from a failure: an argument or an environment variable that cannot be
+ * acted on. Thrown by the argument readers below and by store resolution (`front/store.ts`), and
+ * caught once at the dispatcher, which prints the message alone and exits 1.
  *
  * Named so that one catch can tell "you typed something I cannot act on" from "something broke",
- * because the two deserve different sentences and only one of them is the reader's to fix.
+ * because the two deserve different sentences and only one of them is the reader's to fix. The
+ * dispatcher decorates a FAILURE with the database it happened to; a refusal already names what to
+ * change, and prefixing it with a file the reader never mistyped sends them to the wrong place.
  */
 export class UsageError extends Error {}
 

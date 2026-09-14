@@ -2532,6 +2532,33 @@ describe("the server owns its store", () => {
       await new Promise((r) => server.close(r));
     }
   });
+
+  // `ui` creates and seeds the same way, so it owes the reader the same line. One implementation
+  // (`openServerStore`) answers for both — a second one is how the two drift apart again.
+  it("says it created one from `ui` too, in the same words", async () => {
+    const { runUi } = await import("../ui/server.js");
+    const fresh = newDb();
+    const server = await runUi(fresh, 0, { ...NO_EMBED });
+    try {
+      expect(existsSync(fresh)).toBe(true);
+      expect(logs.join("\n")).toContain(`store created: ${resolve(fresh)}`);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
+  it("says nothing when the store was already there", async () => {
+    const { runUi } = await import("../ui/server.js");
+    const existing = newDb();
+    (await openStore({ db: existing }, {})).close();
+    logs.length = 0;
+    const server = await runUi(existing, 0, { ...NO_EMBED });
+    try {
+      expect(logs.join("\n")).not.toContain("store created");
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
 });
 
 describe("one port, many projects", () => {

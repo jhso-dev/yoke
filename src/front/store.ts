@@ -19,12 +19,15 @@
 // holding different corpora; picking one silently would mean a `yoke inject` answering out of a store
 // the caller did not think they were using.
 
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 // Type-only: erased at compile time, so the sqlite path pays no runtime import cost for these.
 import type { YokeStore } from "../adapters/storage-sharded/index.js";
 import { SqliteStorage } from "../adapters/storage-sqlite/index.js";
 import { commit } from "../core/commit.js";
 import { seedOntology } from "../core/ontology.js";
 import type { AuditPort } from "../ports/audit.js";
+import { UsageError } from "./params.js";
 
 export type { AuditEvent } from "../ports/audit.js";
 export type { YokeStore };
@@ -41,6 +44,42 @@ export async function openStore(
   const store = await resolveStore(opts, env);
   await store.init();
   await seed(store);
+  return store;
+}
+
+/** The local file `--db`/`YOKE_DB` names. */
+const localDb = (opts: { db?: string }, env: Env) =>
+  opts.db ?? env.YOKE_DB ?? "./yoke.db";
+
+/** The ABSOLUTE path of the one local file this configuration holds, or undefined when the knowledge
+ * lives in a sharded or remote backend and so has no path a caller can expect to reach. */
+export function localStorePath(
+  opts: { db?: string; shards?: string },
+  env: Env,
+): string | undefined {
+  const remote =
+    opts.shards ||
+    env.YOKE_SHARDS ||
+    env.YOKE_OPENSEARCH_URL ||
+    env.YOKE_POSTGRES_URL;
+  return remote ? undefined : resolve(localDb(opts, env));
+}
+
+/** The store `serve` and `ui` open: `openStore`, and a line on stdout when it had to create the
+ * file. A server creates and seeds whatever it was pointed at, so `yoke ui --db ./typo.db` would
+ * otherwise start, silently, on a new empty corpus.
+ *
+ * Those two and no one else. `openStore` stays quiet for the tests and corpus scripts, and `yoke
+ * mcp` must keep it: its stdout IS the JSON-RPC transport, where a line of prose is a protocol
+ * error. */
+export async function openServerStore(
+  opts: { db?: string; shards?: string },
+  env: Env,
+): Promise<YokeStore> {
+  const path = localStorePath(opts, env);
+  const created = path !== undefined && !existsSync(path);
+  const store = await openStore(opts, env);
+  if (created) console.log(`store created: ${path}`);
   return store;
 }
 
@@ -80,11 +119,17 @@ async function resolveAudit(env: Env): Promise<AuditPort | null> {
     const { DynamoAudit, dynamoAuditFromUrl } = await import(
       "../adapters/audit-dynamodb/index.js"
     );
-    return new DynamoAudit(dynamoAuditFromUrl(url, env));
+    // An adapter validates its own configuration but cannot say so in this tier's vocabulary:
+    // importing `UsageError` from front/ would reverse the dependency direction (invariant 1).
+    try {
+      return new DynamoAudit(dynamoAuditFromUrl(url, env));
+    } catch (e) {
+      throw new UsageError((e as Error).message);
+    }
   }
   const path = url.startsWith("sqlite:") ? url.slice("sqlite:".length) : url;
   if (path.includes("://"))
-    throw new Error(
+    throw new UsageError(
       `YOKE_AUDIT_URL: no ledger adapter for ${path.split("://")[0]} — use postgres://…, ` +
         "dynamodb://… or a file path",
     );
@@ -102,12 +147,11 @@ async function resolveStore(
     );
     return makeShardedStorage(shards);
   }
-  const localDb = opts.db ?? env.YOKE_DB ?? "./yoke.db";
   const remotes = ["YOKE_OPENSEARCH_URL", "YOKE_POSTGRES_URL"].filter(
     (k) => env[k],
   );
   if (remotes.length > 1)
-    throw new Error(
+    throw new UsageError(
       `${remotes.join(" and ")} are both set. They are different knowledge stores — unset one, or ` +
         "run the two in separate shells.",
     );
@@ -133,7 +177,7 @@ async function resolveStore(
     // than defaulting is the point: the old default wrote it to a file beside whichever process
     // happened to run, which made "the audit trail" mean something different on every machine.
     if (!audit)
-      throw new Error(
+      throw new UsageError(
         "YOKE_OPENSEARCH_URL holds the knowledge but cannot hold the audit trail. Set " +
           "YOKE_AUDIT_URL to where the trail goes (postgres://… for a shared one, or a file path " +
           "for a single machine).",
@@ -152,7 +196,7 @@ async function resolveStore(
     );
   }
 
-  const sqlite = new SqliteStorage(localDb);
+  const sqlite = new SqliteStorage(localDb(opts, env));
   if (!audit) return sqlite;
   // A local corpus whose trail was deliberately sent elsewhere — the same composition, and the same
   // reason, as the remote cases. sqlite is one backend among several, not the one with an exemption.

@@ -9,14 +9,12 @@
 // OIDC RS256 JWT. Deny-by-default authorization is threaded into both the UI handler and the MCP
 // server via their `authorize` hooks.
 
-import { existsSync } from "node:fs";
 import {
   createServer,
   type IncomingMessage,
   type Server,
   type ServerResponse,
 } from "node:http";
-import { resolve } from "node:path";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { commit } from "../../core/commit.js";
 import {
@@ -26,13 +24,9 @@ import {
   suppressEmbedAnnounce,
 } from "../../core/embedding.js";
 import { resolveNs } from "../../core/namespace.js";
-
-/** A backend that lives somewhere other than this machine's filesystem. */
-const remoteBackend = (env: Env): boolean =>
-  !!(env.YOKE_OPENSEARCH_URL || env.YOKE_POSTGRES_URL);
-
 import { createYokeMcpServer } from "../mcp/index.js";
-import { openStore, type YokeStore } from "../store.js";
+import { UsageError } from "../params.js";
+import { localStorePath, openServerStore, type YokeStore } from "../store.js";
 import {
   createUiHandler,
   DEFAULT_HOST,
@@ -435,6 +429,10 @@ async function announceEmbedder(env: Env): Promise<void> {
   );
 }
 
+/** How long `--bootstrap-admin`'s credential lives. Long enough to mint the durable ones through
+ * POST /api/tokens, short enough that a copy scraped out of a boot log later is already dead. */
+const BOOTSTRAP_TTL = "1h";
+
 /** Open the DB, resolve auth/OIDC/actor/ns from env, start listening. Returns the running server. */
 export async function runServe(
   db: string,
@@ -449,8 +447,12 @@ export async function runServe(
     host?: string;
     /** Print one admin credential at boot. The chicken-and-egg of a gated server with no external
      * issuer: minting goes through POST /api/tokens, which needs an admin credential that nothing
-     * has yet. The operator who holds the signing key runs this once and mints the rest through the
-     * route. Printed to stdout, so it is the operator's to capture — not written anywhere. */
+     * has yet. The operator who holds the signing key runs this ONCE and mints the rest through the
+     * route. Printed to stdout, so it is the operator's to capture — not written anywhere.
+     *
+     * It is a one-time flag and cannot enforce that, so it does the two things it can: it lives for
+     * `BOOTSTRAP_TTL` rather than the usual week, and it says on stderr what leaving it in a unit
+     * file costs. */
     bootstrapAdmin?: boolean;
   } = {},
 ): Promise<Server> {
@@ -459,7 +461,7 @@ export async function runServe(
   // serve CAN authenticate, so there is no reason to ever expose it unauthenticated. Refuse rather
   // than warn: the whole point of binding wide is that other people can reach it.
   if (!isLoopback(host) && !auth)
-    throw new Error(
+    throw new UsageError(
       // The remedy has to RUN and has to be safe: name a --name, and scope to a namespace rather than
       // the wildcard-ns `read` that would read every tenant.
       `refusing to bind ${host} without authentication — add --auth (or YOKE_AUTH=on). ` +
@@ -470,18 +472,30 @@ export async function runServe(
   // A gated server has to be able to recognise somebody. Without a signing key it mints nothing, so
   // unless an external issuer is configured every request would 401 and the cause would be invisible.
   if (auth && !env.YOKE_TOKEN_SECRET && !oidcFromEnv(env))
-    throw new Error(
+    throw new UsageError(
       "--auth needs a way to recognise a credential: set YOKE_TOKEN_SECRET (any high-entropy " +
         "string, the same one on every instance) so this server can sign its own, or configure " +
         "YOKE_OIDC_ISSUER/YOKE_OIDC_AUDIENCE to accept your identity provider's.",
     );
+  // Settled before anything is created or bound: a server that would IGNORE the credential, or
+  // cannot sign one, must not get as far as creating a store and printing something.
+  let bootstrap: ReturnType<typeof credentialSigner> = null;
+  if (opts.bootstrapAdmin) {
+    if (!auth)
+      throw new UsageError(
+        "--bootstrap-admin prints an admin credential that this server would ignore: nothing is " +
+          "gated until --auth (or YOKE_AUTH=on) is on. Add --auth, or drop --bootstrap-admin.",
+      );
+    bootstrap = credentialSigner(env.YOKE_TOKEN_SECRET);
+    if (!bootstrap)
+      throw new UsageError(
+        "--bootstrap-admin needs YOKE_TOKEN_SECRET: the credential it prints is signed with it",
+      );
+  }
   const common = {
     // Only a single local file has a path a caller can expect; a remote or sharded backend does not,
     // and a client pointed at one of those set YOKE_SERVER and is not guessing.
-    storePath:
-      opts.shards || env.YOKE_SHARDS || remoteBackend(env)
-        ? undefined
-        : resolve(db),
+    storePath: localStorePath({ db, shards: opts.shards }, env),
     defaultActor: env.YOKE_ACTOR ?? "yoke:system",
     ns: opts.ns ?? resolveNs(undefined, env),
     auth,
@@ -497,12 +511,9 @@ export async function runServe(
     embedder: makeFetchEmbedder(env),
   };
 
-  // A fresh store is created and seeded here, not by a command a person runs first. `serve --db
-  // ./yok.db` on a typo therefore starts on a new empty corpus — which is why it says so.
-  const fresh =
-    !opts.shards && !env.YOKE_SHARDS && !remoteBackend(env) && !existsSync(db);
-  const store = await openStore({ db, shards: opts.shards }, env);
-  if (fresh) console.log(`store created: ${resolve(db)}`);
+  // A fresh store is created and seeded here, not by a command a person runs first — so `serve --db
+  // ./yok.db` on a typo starts on a new empty corpus, and `openServerStore` says so.
+  const store = await openServerStore({ db, shards: opts.shards }, env);
 
   const server = createServeServer({ ...common, store });
   server.on("close", () => store.close());
@@ -513,19 +524,20 @@ export async function runServe(
     `yoke serve listening: http://${host}:${bound}  (auth ${auth ? "on" : "off"}, MCP at POST /mcp)`,
   );
   await announceEmbedder(env);
-  if (opts.bootstrapAdmin) {
-    const signer = credentialSigner(env.YOKE_TOKEN_SECRET);
-    if (!signer)
-      throw new Error(
-        "--bootstrap-admin needs YOKE_TOKEN_SECRET: the credential it prints is signed with it",
-      );
-    const { token } = await signer.mint({
-      name: "bootstrap",
-      scopes: ["admin", "read", "write"],
-      ns: common.ns,
-    });
+  if (bootstrap) {
+    const { token } = await bootstrap.mint(
+      { name: "bootstrap", scopes: ["admin", "read", "write"], ns: common.ns },
+      BOOTSTRAP_TTL,
+    );
+    // The credential on stdout, so it can be piped or copied; the cost of leaving the flag on
+    // stderr, where it cannot end up inside whatever captured the credential.
     console.log(
-      `bootstrap admin credential (expires in 7 days — mint the rest with 'yoke token create'):\n${token}`,
+      `bootstrap admin credential (expires in ${BOOTSTRAP_TTL} — mint the rest with 'yoke token create'):\n${token}`,
+    );
+    process.stderr.write(
+      "yoke serve: --bootstrap-admin is a ONE-TIME flag. Left in a systemd unit or a Dockerfile\n" +
+        "  CMD it prints a NEW admin credential into the logs on every restart. Mint what you need\n" +
+        "  with 'yoke token create', then remove the flag.\n",
     );
   }
   return server;

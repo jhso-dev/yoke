@@ -12,7 +12,8 @@
 //
 // Two lifetimes, because they are exposed differently. The access token travels on every request —
 // through proxies, logs and MCP headers — and lasts 7 days. The refresh token travels only to
-// /api/refresh and lasts a year, which is what keeps a browser session from ever asking again.
+// /api/refresh and lasts a year, which is what keeps a browser session from ever asking again. A
+// caller that knows its credential is disposable asks `mint` for a shorter pair.
 
 import { type JWTPayload, jwtVerify, SignJWT } from "jose";
 
@@ -42,7 +43,9 @@ export interface Credentials {
  * source could mint an admin credential. `serve --auth` says so and exits; `yoke ui` never gets here.
  */
 export function credentialSigner(secret: string | undefined): {
-  mint(cred: Credential): Promise<Credentials>;
+  /** `ttl` (a jose duration, e.g. "1h") shortens BOTH halves. Both, because a credential whose
+   *  refresh token outlives it is not short-lived — /api/refresh would mint it back. */
+  mint(cred: Credential, ttl?: string): Promise<Credentials>;
   /** The credential this access token carries, or null — expired, wrong signature, or a REFRESH
    *  token presented as an access one, which is the substitution the `typ` claim exists to refuse. */
   verifyAccess(token: string): Promise<Credential | null>;
@@ -86,10 +89,10 @@ export function credentialSigner(secret: string | undefined): {
   };
 
   return {
-    async mint(cred) {
+    async mint(cred, ttl) {
       const [token, refresh] = await Promise.all([
-        sign(cred, "access", ACCESS_TTL),
-        sign(cred, "refresh", REFRESH_TTL),
+        sign(cred, "access", ttl ?? ACCESS_TTL),
+        sign(cred, "refresh", ttl ?? REFRESH_TTL),
       ]);
       return { token, refresh };
     },
